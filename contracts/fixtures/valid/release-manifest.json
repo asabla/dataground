@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "dataground.release-manifest/v0alpha1",
+  "source": {
+    "revision": "0000000000000000000000000000000000000000"
+  },
+  "toolchains": {
+    "go": "1.26.5",
+    "node": "24.18.0",
+    "pnpm": "11.13.1"
+  },
+  "contracts": [
+    {
+      "name": "dataground-api",
+      "version": "0.1.0",
+      "digest": "sha256:fixture"
+    }
+  ],
+  "artifacts": [],
+  "certifications": [
+    {
+      "profile": "reference",
+      "status": "passed",
+      "evidence": ["fixture"]
+    }
+  ]
+}

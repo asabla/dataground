@@ -8,8 +8,8 @@
 | First vertical slice | Ready | Use the agent-service slice in `first-vertical-slice.md` |
 | Rosetta policy materialization | Blocked externally | Freeze client contract when Rosetta publishes it; remain fail-closed |
 | Repository | Partially ready | Project layout and CI exist; choose licensing, ownership and release policy |
-| Frontend | Bootstrap ready | React/Vite shell and test/build baseline exist; router, data, auth and Jupyter contracts remain open |
-| Implementation stack | Bootstrap ready | Go control plane and TypeScript/React workbench are established; runtime sidecars remain evidence-driven |
+| Frontend | Design-system ready | React/Vite shell, generated API types, semantic tokens and deterministic interaction fixtures exist; router, auth and Jupyter contracts remain open |
+| Implementation stack | Contract-core ready | Go control plane, deterministic reference runtime and TypeScript/React workbench are established; runtime sidecars remain evidence-driven |
 | Reference S3 and Iceberg implementations | Evidence spike required | Select one certified self-hosted implementation of each |
 | Exact runtime versions | Release input required | Create the initial harness/runtime certification manifest |
 | Capacity and SLO numbers | Pilot input required | Define test hardware and measure; do not invent targets |
@@ -23,9 +23,9 @@ These items materially affect repository boundaries or contracts:
 1. **Repository governance:** [`asabla/dataground`](https://github.com/asabla/dataground), its `main` branch and GitHub Actions baseline are established. Confirm ownership, license, release process and contribution policy.
 2. **Frontend integration:** React, Vite, TypeScript and the initial semantic-token shell are established. Confirm router/state/data layers, Jupyter transport, editor/notebook packages, authentication and hosting mode before product UI work.
 3. **Backend language:** Go is established for the platform core. Add TypeScript or Python runtime sidecars only where a confirmed upstream SDK and conformance evidence justify the process boundary.
-4. **Package and build tooling:** pnpm, Biome, Vitest, Go modules and the root `pnpm verify` contract are established. Container building, schema generation and local orchestration remain open until their consumers exist.
-5. **Initial public contract:** resource names, URL conventions, error envelope, pagination, idempotency, event envelope, and schema compatibility policy.
-6. **Initial reference runtime:** choose the first real adapter used after the deterministic fake. This does not change the requirement to certify all four runtime families for initial release.
+4. **Package and build tooling:** pnpm, Biome, Vitest, Go modules, reproducible OpenAPI type generation and the root `pnpm verify` contract are established. Container building and local orchestration remain open until their consumers exist.
+5. **Initial public contract:** resource names, isolation-scoped URL conventions, error envelope, idempotency, event envelope, SSE replay and schema compatibility policy are established. Pagination is added with the first collection read surface.
+6. **Initial reference runtime:** the deterministic fake and conformance fixtures are established. Choose the first real adapter used after it; this does not change the requirement to certify all four runtime families for initial release.
 7. **Local OpenShell topology:** pinned gateway version/driver, authentication, supported service routing, and development-only policy fixture mechanism.
 
 Do not ask Codex to generate a full platform before the remaining items are known. Prompt `00` records the bootstrap contract; prompt `01` starts product contracts only after its required decisions are resolved.

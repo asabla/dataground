@@ -1,0 +1,24 @@
+{
+  "metadata": {
+    "id": "op_00000000000000000001",
+    "isolationDomainId": "iso_00000000000000000001",
+    "generation": 2,
+    "version": 3,
+    "createdAt": "2026-07-16T08:00:00Z",
+    "updatedAt": "2026-07-16T08:00:05Z",
+    "createdBy": "fixture"
+  },
+  "kind": "service-publication",
+  "command": "publish",
+  "desiredState": "published",
+  "observedState": "reconciling",
+  "stateMachineVersion": 1,
+  "attempt": 2,
+  "correlationId": "correlation-fixture",
+  "lease": {
+    "owner": "worker-fixture",
+    "fencingToken": 3,
+    "expiresAt": "2026-07-16T08:01:00Z"
+  },
+  "dueAt": "2026-07-16T08:00:06Z"
+}

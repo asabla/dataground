@@ -4,11 +4,11 @@ DataGround is security-sensitive platform infrastructure for data workloads, not
 
 ## Current repository state
 
-This repository contains an executable foundation: the Go API entry point is under `cmd/dataground-api`, internal Go packages are under `internal`, the React workbench is under `apps/workbench`, and versioned bootstrap contracts are under `contracts`. The normative sources are `docs/architecture/decision-register.md` and `docs/architecture/system-specification.md`, in that order when they conflict. Implementation prerequisites, proposed choices, verification gates, and handoff prompts live under `docs/implementation/` and remain subordinate to those sources.
+This repository contains an executable foundation: the Go API entry point is under `cmd/dataground-api`, internal Go packages are under `internal`, the React workbench is under `apps/workbench`, and canonical public contracts, examples, compatibility baselines, and generated types are under `contracts` and `apps/workbench/src/contracts`. The normative sources are `docs/architecture/decision-register.md` and `docs/architecture/system-specification.md`, in that order when they conflict. Implementation prerequisites, proposed choices, verification gates, and handoff prompts live under `docs/implementation/` and remain subordinate to those sources.
 
 Do not invent repository paths, commands, supported behavior, dependency choices, or production guarantees. Introduce them only with the implementation and evidence that make them true, and update this guidance in the same change when they become durable repository facts.
 
-The first implementation milestone is a governed agent-service vertical slice. It must establish platform-native resources, immutable revisions, invocations, typed event replay, cancellation, artifacts, usage, audit, and a deterministic reference runtime before integrating broad notebook, lakehouse, job, or compatibility surfaces.
+The in-memory reference API establishes platform-native services, immutable revisions, aliases, invocations, typed event replay, cancellation, artifacts, usage, and deterministic runtime fixtures. It is a contract test boundary, not durable or production-ready state; `docs/development/reference-runtime.md` records its behavior and limitations. Complete the governed agent-service vertical slice before integrating broad notebook, lakehouse, job, or compatibility surfaces.
 
 ## Architecture boundaries
 
@@ -18,7 +18,7 @@ Cedar expresses authorization intent. Rosetta is the Cedar-to-OpenShell material
 
 Provider credentials must never be readable by notebook or harness processes. Use OpenShell-mediated credentials or an explicitly designed credential-holding bridge. Treat raw provider-secret visibility as a configuration and release failure.
 
-Durable lifecycle state belongs in PostgreSQL-backed, finite resource state machines. Workers are replaceable, state transitions and outbox records commit atomically, timers and retries are durable, and ambiguous external effects are observed before repetition. Do not introduce a general workflow engine or generic workflow abstraction without a new architectural decision supported by measured need.
+Durable lifecycle state belongs in PostgreSQL-backed, finite resource state machines. Workers are replaceable, state transitions and outbox records commit atomically, timers and retries are durable, and ambiguous external effects are observed before repetition. Process-local state is permitted only in the explicitly documented reference implementation and must not acquire production guarantees. Do not introduce a general workflow engine or generic workflow abstraction without a new architectural decision supported by measured need.
 
 Every resource, authorization decision, cache key, queue item, storage prefix, event, metric, and audit record is isolation-domain scoped. Trusted installations may simplify tenant concepts in the user interface, but implementation must not weaken scope separation.
 
@@ -54,7 +54,7 @@ Keep requested and observed state distinct. Render waiting, degraded, cancelling
 
 ## Verification
 
-Use Go 1.26.5, Node.js 24 LTS, and pnpm 11.13.1 as pinned by `.go-version`, `.nvmrc`, and `package.json`. Install JavaScript dependencies with `pnpm install --frozen-lockfile`. Run `pnpm verify` for the repository-wide baseline: formatting, linting, contract checks, type checking, Go and workbench tests, and production builds. Use `pnpm dev:api` and `pnpm dev:workbench` for the two bootstrap processes. CI runs the same install and verification commands.
+Use Go 1.26.5, Node.js 24 LTS, and pnpm 11.13.1 as pinned by `.go-version`, `.nvmrc`, and `package.json`. Install JavaScript dependencies with `pnpm install --frozen-lockfile`. Run `pnpm verify` for the repository-wide baseline: formatting, linting, contract and generated-type checks, type checking, Go and workbench tests, and production builds. After an accepted OpenAPI change, run `pnpm contracts:generate`; never edit generated contract types directly. Use `pnpm dev:api` and `pnpm dev:workbench` for the development processes. CI runs the same install and verification commands.
 
 Behavior changes require tests at the appropriate contract, integration, security, resilience, or accessibility layer. Do not claim a check passed unless it ran; report checks that could not run and why.
 

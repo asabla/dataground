@@ -1,26 +1,699 @@
 package api
 
 import (
+	"bytes"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"mime"
 	"net/http"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/asabla/dataground/internal/reference"
+)
+
+const maximumRequestBytes = 1 << 20
+
+var (
+	isolationDomainPattern = regexp.MustCompile(`^iso_[0-9a-z]{20,32}$`)
+	idempotencyKeyPattern  = regexp.MustCompile(`^[A-Za-z0-9._:-]{8,128}$`)
+	aliasPattern           = regexp.MustCompile(`^[a-z](?:[a-z0-9-]*[a-z0-9])?$`)
 )
 
 type healthResponse struct {
 	Status string `json:"status"`
 }
 
+type storedResponse struct {
+	RequestDigest [sha256.Size]byte
+	Status        int
+	Body          []byte
+}
+
+type Server struct {
+	mu                   sync.RWMutex
+	services             map[string]AgentService
+	revisions            map[string]ServiceRevision
+	revisionCounts       map[string]int
+	aliases              map[string]ServiceAlias
+	invocations          map[string]Invocation
+	events               map[string][]EventEnvelope
+	artifacts            map[string]ArtifactDescriptor
+	idempotencyResponses map[string]storedResponse
+	now                  func() time.Time
+}
+
 func NewHandler() http.Handler {
+	return NewServer().Handler()
+}
+
+func NewServer() *Server {
+	return &Server{
+		services:             make(map[string]AgentService),
+		revisions:            make(map[string]ServiceRevision),
+		revisionCounts:       make(map[string]int),
+		aliases:              make(map[string]ServiceAlias),
+		invocations:          make(map[string]Invocation),
+		events:               make(map[string][]EventEnvelope),
+		artifacts:            make(map[string]ArtifactDescriptor),
+		idempotencyResponses: make(map[string]storedResponse),
+		now:                  func() time.Time { return time.Now().UTC() },
+	}
+}
+
+func (server *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", healthHandler)
 	mux.HandleFunc("GET /readyz", healthHandler)
-
+	mux.HandleFunc("POST /v1/isolation-domains/{isolationDomainId}/agent-services", server.createAgentService)
+	mux.HandleFunc("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions", server.createServiceRevision)
+	mux.HandleFunc("POST /v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/publish", server.publishServiceRevision)
+	mux.HandleFunc("PUT /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}", server.assignServiceAlias)
+	mux.HandleFunc("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations", server.invokeAgentService)
+	mux.HandleFunc("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}", server.getInvocation)
+	mux.HandleFunc("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel", server.cancelInvocation)
+	mux.HandleFunc("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/events", server.streamInvocationEvents)
+	mux.HandleFunc("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts/{artifactId}", server.getInvocationArtifact)
 	return mux
 }
 
 func healthHandler(response http.ResponseWriter, _ *http.Request) {
+	writeJSON(response, http.StatusOK, healthResponse{Status: "ok"})
+}
+
+func (server *Server) createAgentService(response http.ResponseWriter, request *http.Request) {
+	server.mutate(response, request, func(body []byte) (int, any) {
+		domainID, apiError := isolationDomain(request)
+		if apiError != nil {
+			return http.StatusBadRequest, ErrorEnvelope{Error: *apiError}
+		}
+		input, apiError := decodeBody[createAgentServiceRequest](body)
+		if apiError != nil {
+			return http.StatusBadRequest, ErrorEnvelope{Error: *apiError}
+		}
+		input.Name = strings.TrimSpace(input.Name)
+		if input.Name == "" || len(input.Name) > 128 {
+			return invalidField("name", "Name must contain between 1 and 128 characters.")
+		}
+		if len(input.Description) > 2048 {
+			return invalidField("description", "Description must not exceed 2048 characters.")
+		}
+
+		now := server.now()
+		service := AgentService{
+			Metadata:    newMetadata(newID("svc"), domainID, now),
+			Name:        input.Name,
+			Description: input.Description,
+		}
+		server.services[resourceKey(domainID, service.Metadata.ID)] = service
+		return http.StatusCreated, service
+	})
+}
+
+func (server *Server) createServiceRevision(response http.ResponseWriter, request *http.Request) {
+	server.mutate(response, request, func(body []byte) (int, any) {
+		domainID, apiError := isolationDomain(request)
+		if apiError != nil {
+			return http.StatusBadRequest, ErrorEnvelope{Error: *apiError}
+		}
+		serviceID := request.PathValue("serviceId")
+		if _, exists := server.services[resourceKey(domainID, serviceID)]; !exists {
+			return notFound("Agent service was not found.")
+		}
+		input, apiError := decodeBody[createServiceRevisionRequest](body)
+		if apiError != nil {
+			return http.StatusBadRequest, ErrorEnvelope{Error: *apiError}
+		}
+		if strings.TrimSpace(input.RuntimeProfile) == "" || len(input.RuntimeProfile) > 128 {
+			return invalidField("runtimeProfile", "Runtime profile must contain between 1 and 128 characters.")
+		}
+		if duplicateString(input.RequiredCapabilities) {
+			return invalidField("requiredCapabilities", "Required capabilities must be unique.")
+		}
+		for _, capability := range input.RequiredCapabilities {
+			if strings.TrimSpace(capability) == "" || len(capability) > 128 {
+				return invalidField("requiredCapabilities", "Capability names must contain between 1 and 128 characters.")
+			}
+		}
+
+		serviceKey := resourceKey(domainID, serviceID)
+		server.revisionCounts[serviceKey]++
+		now := server.now()
+		revision := ServiceRevision{
+			Metadata:             newMetadata(newID("rev"), domainID, now),
+			ServiceID:            serviceID,
+			RevisionNumber:       server.revisionCounts[serviceKey],
+			State:                "draft",
+			RuntimeProfile:       input.RuntimeProfile,
+			RequiredCapabilities: append([]string(nil), input.RequiredCapabilities...),
+			InputSchema:          input.InputSchema,
+			OutputSchema:         input.OutputSchema,
+		}
+		server.revisions[resourceKey(domainID, revision.Metadata.ID)] = revision
+		return http.StatusCreated, revision
+	})
+}
+
+func (server *Server) publishServiceRevision(response http.ResponseWriter, request *http.Request) {
+	server.mutate(response, request, func(body []byte) (int, any) {
+		domainID, apiError := isolationDomain(request)
+		if apiError != nil {
+			return http.StatusBadRequest, ErrorEnvelope{Error: *apiError}
+		}
+		input, apiError := decodeBody[publishServiceRevisionRequest](body)
+		if apiError != nil {
+			return http.StatusBadRequest, ErrorEnvelope{Error: *apiError}
+		}
+		key := resourceKey(domainID, request.PathValue("revisionId"))
+		revision, exists := server.revisions[key]
+		if !exists {
+			return notFound("Service revision was not found.")
+		}
+		if revision.Metadata.Version != input.ExpectedVersion {
+			return conflict("VERSION_CONFLICT", "Revision version did not match.")
+		}
+		if revision.State != "draft" {
+			return conflict("REVISION_IMMUTABLE", "Only a draft revision can be published.")
+		}
+		if revision.RuntimeProfile != "reference/v1" {
+			return conflict("RUNTIME_PROFILE_UNAVAILABLE", "Runtime profile is not available in the reference server.")
+		}
+		capabilities := reference.Capabilities()
+		for _, capability := range revision.RequiredCapabilities {
+			if capabilities[capability] != "supported" {
+				return conflict("REQUIRED_CAPABILITY_UNAVAILABLE", "A required runtime capability is unavailable.")
+			}
+		}
+
+		now := server.now()
+		revision.State = "published"
+		revision.PublishedAt = &now
+		revision.Metadata.Version++
+		revision.Metadata.UpdatedAt = now
+		server.revisions[key] = revision
+		return http.StatusOK, revision
+	})
+}
+
+func (server *Server) assignServiceAlias(response http.ResponseWriter, request *http.Request) {
+	server.mutate(response, request, func(body []byte) (int, any) {
+		domainID, apiError := isolationDomain(request)
+		if apiError != nil {
+			return http.StatusBadRequest, ErrorEnvelope{Error: *apiError}
+		}
+		serviceID := request.PathValue("serviceId")
+		if _, exists := server.services[resourceKey(domainID, serviceID)]; !exists {
+			return notFound("Agent service was not found.")
+		}
+		aliasName := request.PathValue("alias")
+		if len(aliasName) > 63 || !aliasPattern.MatchString(aliasName) {
+			return invalidField("alias", "Alias is not valid.")
+		}
+		input, apiError := decodeBody[assignServiceAliasRequest](body)
+		if apiError != nil {
+			return http.StatusBadRequest, ErrorEnvelope{Error: *apiError}
+		}
+		revision, exists := server.revisions[resourceKey(domainID, input.RevisionID)]
+		if !exists || revision.ServiceID != serviceID {
+			return notFound("Published service revision was not found.")
+		}
+		if revision.State != "published" {
+			return conflict("REVISION_NOT_PUBLISHED", "Alias target must be published.")
+		}
+
+		key := aliasKey(domainID, serviceID, aliasName)
+		current, exists := server.aliases[key]
+		now := server.now()
+		if exists {
+			if input.ExpectedVersion == nil || *input.ExpectedVersion != current.Metadata.Version {
+				return conflict("VERSION_CONFLICT", "Alias version did not match.")
+			}
+			current.RevisionID = input.RevisionID
+			current.Metadata.Generation++
+			current.Metadata.Version++
+			current.Metadata.UpdatedAt = now
+			server.aliases[key] = current
+			return http.StatusOK, current
+		}
+		if input.ExpectedVersion != nil && *input.ExpectedVersion != 0 {
+			return conflict("VERSION_CONFLICT", "A new alias expects version zero.")
+		}
+		alias := ServiceAlias{
+			Metadata:   newMetadata(newID("als"), domainID, now),
+			ServiceID:  serviceID,
+			Name:       aliasName,
+			RevisionID: input.RevisionID,
+		}
+		server.aliases[key] = alias
+		return http.StatusOK, alias
+	})
+}
+
+func (server *Server) invokeAgentService(response http.ResponseWriter, request *http.Request) {
+	server.mutate(response, request, func(body []byte) (int, any) {
+		domainID, apiError := isolationDomain(request)
+		if apiError != nil {
+			return http.StatusBadRequest, ErrorEnvelope{Error: *apiError}
+		}
+		serviceID := request.PathValue("serviceId")
+		if _, exists := server.services[resourceKey(domainID, serviceID)]; !exists {
+			return notFound("Agent service was not found.")
+		}
+		input, apiError := decodeBody[invokeAgentServiceRequest](body)
+		if apiError != nil {
+			return http.StatusBadRequest, ErrorEnvelope{Error: *apiError}
+		}
+		if !aliasPattern.MatchString(input.Alias) || input.Input == nil {
+			return invalidField("alias", "Alias and input are required.")
+		}
+		alias, exists := server.aliases[aliasKey(domainID, serviceID, input.Alias)]
+		if !exists {
+			return notFound("Service alias was not found.")
+		}
+		revision, exists := server.revisions[resourceKey(domainID, alias.RevisionID)]
+		if !exists || revision.State != "published" {
+			return notFound("Published service revision was not found.")
+		}
+
+		scenario := reference.ScenarioSuccess
+		if value, exists := input.Input["scenario"]; exists {
+			text, ok := value.(string)
+			if !ok {
+				return invalidField("input.scenario", "Reference scenario must be a string.")
+			}
+			scenario = text
+		}
+		fixture, err := reference.Load(scenario)
+		if err != nil {
+			return invalidField("input.scenario", "Reference scenario is not registered.")
+		}
+		normalized, err := reference.Normalize(fixture.Events)
+		if err != nil {
+			return http.StatusInternalServerError, ErrorEnvelope{Error: safeError("REFERENCE_FIXTURE_INVALID", "Reference runtime fixture could not be normalized.", false)}
+		}
+
+		now := server.now()
+		invocationID := newID("inv")
+		correlationID := newID("cor")
+		invocation := Invocation{
+			Metadata:      newMetadata(invocationID, domainID, now),
+			ServiceID:     serviceID,
+			RevisionID:    revision.Metadata.ID,
+			Alias:         input.Alias,
+			State:         "running",
+			Input:         input.Input,
+			CorrelationID: correlationID,
+			OperationID:   newID("op"),
+			ArtifactIDs:   []string{},
+		}
+		journal := make([]EventEnvelope, 0, len(normalized))
+		for _, runtimeEvent := range normalized {
+			eventTime := now.Add(time.Duration(runtimeEvent.Sequence-1) * time.Millisecond)
+			payload := cloneMap(runtimeEvent.Payload)
+			if runtimeEvent.Type == "artifact.available" {
+				artifact := server.createArtifact(domainID, invocationID, eventTime, payload)
+				invocation.ArtifactIDs = append(invocation.ArtifactIDs, artifact.Metadata.ID)
+				payload = map[string]any{"artifactId": artifact.Metadata.ID, "descriptor": artifact}
+			}
+			journal = append(journal, EventEnvelope{
+				SchemaVersion:     "dataground.event/v1",
+				ID:                derivedID("evt", invocationID+":"+runtimeEvent.Key),
+				IsolationDomainID: domainID,
+				InvocationID:      invocationID,
+				Sequence:          runtimeEvent.Sequence,
+				Type:              runtimeEvent.Type,
+				OccurredAt:        eventTime,
+				RecordedAt:        eventTime,
+				CorrelationID:     correlationID,
+				ActorID:           "reference-runtime",
+				ServiceID:         serviceID,
+				RevisionID:        revision.Metadata.ID,
+				Payload:           payload,
+				Extensions:        runtimeEvent.Extensions,
+			})
+			applyEvent(&invocation, runtimeEvent.Type, payload, eventTime)
+		}
+		key := resourceKey(domainID, invocationID)
+		server.invocations[key] = invocation
+		server.events[key] = journal
+		return http.StatusAccepted, invocation
+	})
+}
+
+func (server *Server) getInvocation(response http.ResponseWriter, request *http.Request) {
+	domainID, apiError := isolationDomain(request)
+	if apiError != nil {
+		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: *apiError})
+		return
+	}
+	server.mu.RLock()
+	invocation, exists := server.invocations[resourceKey(domainID, request.PathValue("invocationId"))]
+	server.mu.RUnlock()
+	if !exists {
+		status, body := notFound("Invocation was not found.")
+		writeJSON(response, status, body)
+		return
+	}
+	writeJSON(response, http.StatusOK, invocation)
+}
+
+func (server *Server) cancelInvocation(response http.ResponseWriter, request *http.Request) {
+	server.mutate(response, request, func(body []byte) (int, any) {
+		domainID, apiError := isolationDomain(request)
+		if apiError != nil {
+			return http.StatusBadRequest, ErrorEnvelope{Error: *apiError}
+		}
+		input, apiError := decodeBody[cancelInvocationRequest](body)
+		if apiError != nil {
+			return http.StatusBadRequest, ErrorEnvelope{Error: *apiError}
+		}
+		if len(input.Reason) > 512 {
+			return invalidField("reason", "Cancellation reason must not exceed 512 characters.")
+		}
+		key := resourceKey(domainID, request.PathValue("invocationId"))
+		invocation, exists := server.invocations[key]
+		if !exists {
+			return notFound("Invocation was not found.")
+		}
+		if invocation.State == "cancelled" {
+			return http.StatusOK, invocation
+		}
+		if invocation.State == "succeeded" || invocation.State == "failed" {
+			return conflict("INVOCATION_TERMINAL", "A completed invocation cannot be cancelled.")
+		}
+
+		now := server.now()
+		sequence := uint64(len(server.events[key]) + 1)
+		invocation.State = "cancelled"
+		invocation.CompletedAt = &now
+		invocation.Metadata.Generation++
+		invocation.Metadata.Version++
+		invocation.Metadata.UpdatedAt = now
+		server.invocations[key] = invocation
+		server.events[key] = append(server.events[key], EventEnvelope{
+			SchemaVersion:     "dataground.event/v1",
+			ID:                derivedID("evt", invocation.Metadata.ID+":cancel:"+strconv.FormatUint(sequence, 10)),
+			IsolationDomainID: domainID,
+			InvocationID:      invocation.Metadata.ID,
+			Sequence:          sequence,
+			Type:              "lifecycle.cancelled",
+			OccurredAt:        now,
+			RecordedAt:        now,
+			CorrelationID:     invocation.CorrelationID,
+			ActorID:           "reference-runtime",
+			ServiceID:         invocation.ServiceID,
+			RevisionID:        invocation.RevisionID,
+			Payload:           map[string]any{"reason": "caller requested cancellation"},
+		})
+		return http.StatusOK, invocation
+	})
+}
+
+func (server *Server) streamInvocationEvents(response http.ResponseWriter, request *http.Request) {
+	domainID, apiError := isolationDomain(request)
+	if apiError != nil {
+		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: *apiError})
+		return
+	}
+	cursor, err := parseCursor(request.Header.Get("Last-Event-ID"))
+	if err != nil {
+		status, body := invalidField("Last-Event-ID", "Event cursor must be a non-negative integer.")
+		writeJSON(response, status, body)
+		return
+	}
+	server.mu.RLock()
+	journal, exists := server.events[resourceKey(domainID, request.PathValue("invocationId"))]
+	journal = append([]EventEnvelope(nil), journal...)
+	server.mu.RUnlock()
+	if !exists {
+		status, body := notFound("Invocation was not found.")
+		writeJSON(response, status, body)
+		return
+	}
+
+	response.Header().Set("Cache-Control", "no-store")
+	response.Header().Set("Content-Type", "text/event-stream")
+	response.Header().Set("X-Accel-Buffering", "no")
+	response.Header().Set("X-Content-Type-Options", "nosniff")
+	response.WriteHeader(http.StatusOK)
+	for _, event := range journal {
+		if event.Sequence <= cursor {
+			continue
+		}
+		encoded, err := json.Marshal(event)
+		if err != nil {
+			return
+		}
+		_, _ = fmt.Fprintf(response, "id: %d\nevent: %s\ndata: %s\n\n", event.Sequence, event.Type, encoded)
+	}
+}
+
+func (server *Server) getInvocationArtifact(response http.ResponseWriter, request *http.Request) {
+	domainID, apiError := isolationDomain(request)
+	if apiError != nil {
+		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: *apiError})
+		return
+	}
+	server.mu.RLock()
+	artifact, exists := server.artifacts[artifactKey(domainID, request.PathValue("invocationId"), request.PathValue("artifactId"))]
+	server.mu.RUnlock()
+	if !exists {
+		status, body := notFound("Artifact was not found.")
+		writeJSON(response, status, body)
+		return
+	}
+	writeJSON(response, http.StatusOK, artifact)
+}
+
+func (server *Server) mutate(response http.ResponseWriter, request *http.Request, mutation func([]byte) (int, any)) {
+	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		writeJSON(response, http.StatusUnsupportedMediaType, ErrorEnvelope{Error: safeError("UNSUPPORTED_MEDIA_TYPE", "Content-Type must be application/json.", false)})
+		return
+	}
+	key := request.Header.Get("Idempotency-Key")
+	if !idempotencyKeyPattern.MatchString(key) {
+		status, body := invalidField("Idempotency-Key", "A valid idempotency key is required.")
+		writeJSON(response, status, body)
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(response, request.Body, maximumRequestBytes))
+	if err != nil {
+		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: safeError("INVALID_REQUEST", "Request body is invalid or too large.", false)})
+		return
+	}
+	digest := sha256.Sum256(body)
+	cacheKey := request.Method + " " + request.URL.EscapedPath() + " " + key
+
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	if stored, exists := server.idempotencyResponses[cacheKey]; exists {
+		if stored.RequestDigest != digest {
+			writeJSON(response, http.StatusConflict, ErrorEnvelope{Error: safeError("IDEMPOTENCY_KEY_REUSED", "Idempotency key was reused with a different request.", false)})
+			return
+		}
+		writeRawJSON(response, stored.Status, stored.Body)
+		return
+	}
+
+	status, result := mutation(body)
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		writeJSON(response, http.StatusInternalServerError, ErrorEnvelope{Error: safeError("INTERNAL_ERROR", "Response could not be encoded.", false)})
+		return
+	}
+	server.idempotencyResponses[cacheKey] = storedResponse{RequestDigest: digest, Status: status, Body: encoded}
+	writeRawJSON(response, status, encoded)
+}
+
+func (server *Server) createArtifact(domainID, invocationID string, now time.Time, payload map[string]any) ArtifactDescriptor {
+	artifactID := derivedID("art", invocationID+":"+fmt.Sprint(payload["digest"]))
+	artifact := ArtifactDescriptor{
+		Metadata:     newMetadata(artifactID, domainID, now),
+		InvocationID: invocationID,
+		Name:         stringValue(payload["name"]),
+		Kind:         stringValue(payload["kind"]),
+		MediaType:    stringValue(payload["mediaType"]),
+		SizeBytes:    int64Value(payload["sizeBytes"]),
+		Digest:       stringValue(payload["digest"]),
+		State:        "available",
+		Sensitive:    boolValue(payload["sensitive"]),
+	}
+	server.artifacts[artifactKey(domainID, invocationID, artifactID)] = artifact
+	return artifact
+}
+
+func applyEvent(invocation *Invocation, eventType string, payload map[string]any, occurredAt time.Time) {
+	switch eventType {
+	case "lifecycle.waiting":
+		invocation.State = "waiting"
+	case "lifecycle.succeeded":
+		invocation.State = "succeeded"
+		invocation.Result = map[string]any{"message": stringValue(payload["message"])}
+		invocation.CompletedAt = &occurredAt
+	case "lifecycle.failed":
+		invocation.State = "failed"
+		invocation.CompletedAt = &occurredAt
+	case "lifecycle.cancelled":
+		invocation.State = "cancelled"
+		invocation.CompletedAt = &occurredAt
+	case "error.occurred":
+		invocation.Error = &APIError{
+			Code:          stringValue(payload["code"]),
+			Message:       stringValue(payload["message"]),
+			CorrelationID: invocation.CorrelationID,
+			Retryable:     boolValue(payload["retryable"]),
+		}
+	case "usage.recorded":
+		invocation.Usage = &Usage{
+			InputTokens:  int(int64Value(payload["inputTokens"])),
+			OutputTokens: int(int64Value(payload["outputTokens"])),
+			TotalTokens:  int(int64Value(payload["totalTokens"])),
+		}
+	}
+}
+
+func isolationDomain(request *http.Request) (string, *APIError) {
+	domainID := request.PathValue("isolationDomainId")
+	if !isolationDomainPattern.MatchString(domainID) {
+		error := safeError("INVALID_ISOLATION_DOMAIN", "Isolation domain identifier is invalid.", false)
+		return "", &error
+	}
+	return domainID, nil
+}
+
+func decodeBody[T any](body []byte) (T, *APIError) {
+	var value T
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&value); err != nil {
+		apiError := safeError("INVALID_REQUEST", "Request body does not match the contract.", false)
+		return value, &apiError
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		apiError := safeError("INVALID_REQUEST", "Request body must contain exactly one JSON value.", false)
+		return value, &apiError
+	}
+	return value, nil
+}
+
+func parseCursor(value string) (uint64, error) {
+	if value == "" {
+		return 0, nil
+	}
+	return strconv.ParseUint(value, 10, 64)
+}
+
+func newMetadata(id, domainID string, now time.Time) ResourceMetadata {
+	return ResourceMetadata{ID: id, IsolationDomainID: domainID, Generation: 1, Version: 1, CreatedAt: now, UpdatedAt: now, CreatedBy: "reference-runtime"}
+}
+
+func newID(prefix string) string {
+	random := make([]byte, 10)
+	if _, err := rand.Read(random); err != nil {
+		panic("cryptographic identifier generation failed")
+	}
+	return prefix + "_" + hex.EncodeToString(random)
+}
+
+func derivedID(prefix, seed string) string {
+	digest := sha256.Sum256([]byte(seed))
+	return prefix + "_" + hex.EncodeToString(digest[:10])
+}
+
+func resourceKey(domainID, resourceID string) string {
+	return domainID + "/" + resourceID
+}
+
+func aliasKey(domainID, serviceID, alias string) string {
+	return domainID + "/" + serviceID + "/" + alias
+}
+
+func artifactKey(domainID, invocationID, artifactID string) string {
+	return domainID + "/" + invocationID + "/" + artifactID
+}
+
+func safeError(code, message string, retryable bool) APIError {
+	return APIError{Code: code, Message: message, CorrelationID: newID("cor"), Retryable: retryable}
+}
+
+func invalidField(field, message string) (int, any) {
+	error := safeError("INVALID_REQUEST", "Request validation failed.", false)
+	error.FieldErrors = []FieldError{{Field: field, Code: "INVALID_VALUE", Message: message}}
+	return http.StatusBadRequest, ErrorEnvelope{Error: error}
+}
+
+func notFound(message string) (int, any) {
+	return http.StatusNotFound, ErrorEnvelope{Error: safeError("RESOURCE_NOT_FOUND", message, false)}
+}
+
+func conflict(code, message string) (int, any) {
+	return http.StatusConflict, ErrorEnvelope{Error: safeError(code, message, false)}
+}
+
+func writeJSON(response http.ResponseWriter, status int, value any) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		status = http.StatusInternalServerError
+		encoded = []byte(`{"error":{"code":"INTERNAL_ERROR","message":"Response could not be encoded.","correlationId":"unavailable","retryable":false}}`)
+	}
+	writeRawJSON(response, status, encoded)
+}
+
+func writeRawJSON(response http.ResponseWriter, status int, encoded []byte) {
 	response.Header().Set("Cache-Control", "no-store")
 	response.Header().Set("Content-Type", "application/json")
 	response.Header().Set("X-Content-Type-Options", "nosniff")
-	response.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(response).Encode(healthResponse{Status: "ok"})
+	response.WriteHeader(status)
+	_, _ = response.Write(append(encoded, '\n'))
+}
+
+func duplicateString(values []string) bool {
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if _, exists := seen[value]; exists {
+			return true
+		}
+		seen[value] = struct{}{}
+	}
+	return false
+}
+
+func cloneMap(source map[string]any) map[string]any {
+	clone := make(map[string]any, len(source))
+	for key, value := range source {
+		clone[key] = value
+	}
+	return clone
+}
+
+func stringValue(value any) string {
+	text, _ := value.(string)
+	return text
+}
+
+func int64Value(value any) int64 {
+	switch number := value.(type) {
+	case int:
+		return int64(number)
+	case int64:
+		return number
+	case float64:
+		return int64(number)
+	default:
+		return 0
+	}
+}
+
+func boolValue(value any) bool {
+	boolean, _ := value.(bool)
+	return boolean
 }

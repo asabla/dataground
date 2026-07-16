@@ -1,0 +1,14 @@
+{
+  "metadata": {
+    "id": "svc_00000000000000000001",
+    "isolationDomainId": "iso_00000000000000000001",
+    "generation": 1,
+    "version": 1,
+    "createdAt": "2026-07-16T08:00:00Z",
+    "updatedAt": "2026-07-16T08:00:00Z",
+    "createdBy": "fixture"
+  },
+  "name": "Reference service",
+  "description": "A valid isolation-scoped service fixture.",
+  "futureResponseField": "safe to ignore"
+}

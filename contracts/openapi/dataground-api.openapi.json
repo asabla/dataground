@@ -3,8 +3,8 @@
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "info": {
     "title": "DataGround API",
-    "version": "0.0.0",
-    "description": "Bootstrap contract for DataGround platform-owned health endpoints. Product resource contracts are added only after their schemas are reviewed and versioned."
+    "version": "0.1.0",
+    "description": "Native DataGround contract for isolation-scoped agent services, immutable revisions, invocations, event replay, cancellation, and artifacts. Additive changes are compatible within v1. Removing or renaming fields, narrowing accepted values, changing state or error semantics, or making optional fields required is breaking and requires a new major API version. Clients must ignore unknown response fields and unknown event types while preserving the event envelope."
   },
   "paths": {
     "/livez": {
@@ -16,9 +16,7 @@
             "description": "The API process is alive.",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HealthResponse"
-                }
+                "schema": { "$ref": "#/components/schemas/HealthResponse" }
               }
             }
           }
@@ -31,30 +29,766 @@
         "summary": "Report API readiness",
         "responses": {
           "200": {
-            "description": "The bootstrap API is ready to receive requests.",
+            "description": "The API process is ready.",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HealthResponse"
-                }
+                "schema": { "$ref": "#/components/schemas/HealthResponse" }
               }
             }
           }
         }
       }
+    },
+    "/v1/isolation-domains/{isolationDomainId}/agent-services": {
+      "post": {
+        "operationId": "createAgentService",
+        "summary": "Create an agent service",
+        "parameters": [
+          { "$ref": "#/components/parameters/IsolationDomainId" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateAgentServiceRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Agent service created.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AgentService" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "415": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions": {
+      "post": {
+        "operationId": "createServiceRevision",
+        "summary": "Create an immutable service revision draft",
+        "parameters": [
+          { "$ref": "#/components/parameters/IsolationDomainId" },
+          { "$ref": "#/components/parameters/ServiceId" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateServiceRevisionRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Revision draft created.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ServiceRevision" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "415": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/publish": {
+      "post": {
+        "operationId": "publishServiceRevision",
+        "summary": "Publish a revision immutably",
+        "parameters": [
+          { "$ref": "#/components/parameters/IsolationDomainId" },
+          { "$ref": "#/components/parameters/RevisionId" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PublishServiceRevisionRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Published revision.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ServiceRevision" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "415": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}": {
+      "put": {
+        "operationId": "assignServiceAlias",
+        "summary": "Assign an alias to a published revision",
+        "parameters": [
+          { "$ref": "#/components/parameters/IsolationDomainId" },
+          { "$ref": "#/components/parameters/ServiceId" },
+          { "$ref": "#/components/parameters/Alias" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AssignServiceAliasRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Alias assigned.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ServiceAlias" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "415": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations": {
+      "post": {
+        "operationId": "invokeAgentService",
+        "summary": "Invoke a published service revision through an alias",
+        "parameters": [
+          { "$ref": "#/components/parameters/IsolationDomainId" },
+          { "$ref": "#/components/parameters/ServiceId" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/InvokeAgentServiceRequest" }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Invocation accepted.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Invocation" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "415": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}": {
+      "get": {
+        "operationId": "getInvocation",
+        "summary": "Retrieve invocation state and result",
+        "parameters": [
+          { "$ref": "#/components/parameters/IsolationDomainId" },
+          { "$ref": "#/components/parameters/InvocationId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invocation state.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Invocation" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel": {
+      "post": {
+        "operationId": "cancelInvocation",
+        "summary": "Cancel an invocation idempotently",
+        "parameters": [
+          { "$ref": "#/components/parameters/IsolationDomainId" },
+          { "$ref": "#/components/parameters/InvocationId" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CancelInvocationRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Cancellation observed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Invocation" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "415": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/events": {
+      "get": {
+        "operationId": "streamInvocationEvents",
+        "summary": "Replay the invocation event journal as server-sent events",
+        "description": "The Last-Event-ID header is an invocation-local sequence cursor. Unknown event types and fields remain replayable and are safe to ignore.",
+        "parameters": [
+          { "$ref": "#/components/parameters/IsolationDomainId" },
+          { "$ref": "#/components/parameters/InvocationId" },
+          { "$ref": "#/components/parameters/LastEventId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ordered event replay after the supplied cursor.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "description": "Each data field contains one EventEnvelope JSON value."
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts/{artifactId}": {
+      "get": {
+        "operationId": "getInvocationArtifact",
+        "summary": "Retrieve governed artifact metadata",
+        "parameters": [
+          { "$ref": "#/components/parameters/IsolationDomainId" },
+          { "$ref": "#/components/parameters/InvocationId" },
+          { "$ref": "#/components/parameters/ArtifactId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artifact metadata. Content retrieval is added with the object-store boundary.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ArtifactDescriptor" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
     }
   },
   "components": {
+    "parameters": {
+      "IsolationDomainId": {
+        "name": "isolationDomainId",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/IsolationDomainId" }
+      },
+      "ServiceId": {
+        "name": "serviceId",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/ServiceId" }
+      },
+      "RevisionId": {
+        "name": "revisionId",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/RevisionId" }
+      },
+      "InvocationId": {
+        "name": "invocationId",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/InvocationId" }
+      },
+      "ArtifactId": {
+        "name": "artifactId",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/ArtifactId" }
+      },
+      "Alias": {
+        "name": "alias",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/AliasName" }
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Opaque caller key scoped to the isolation domain, HTTP method, and route. Reuse with a different body fails with IDEMPOTENCY_KEY_REUSED.",
+        "schema": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9._:-]+$"
+        }
+      },
+      "LastEventId": {
+        "name": "Last-Event-ID",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        }
+      }
+    },
+    "responses": {
+      "Error": {
+        "description": "Safe, stable error response.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorEnvelope" }
+          }
+        }
+      }
+    },
     "schemas": {
       "HealthResponse": {
         "type": "object",
         "additionalProperties": false,
         "required": ["status"],
         "properties": {
-          "status": {
-            "type": "string",
-            "const": "ok"
+          "status": { "type": "string", "const": "ok" }
+        }
+      },
+      "IsolationDomainId": {
+        "type": "string",
+        "pattern": "^iso_[0-9a-z]{20,32}$"
+      },
+      "ServiceId": {
+        "type": "string",
+        "pattern": "^svc_[0-9a-z]{20,32}$"
+      },
+      "RevisionId": {
+        "type": "string",
+        "pattern": "^rev_[0-9a-z]{20,32}$"
+      },
+      "InvocationId": {
+        "type": "string",
+        "pattern": "^inv_[0-9a-z]{20,32}$"
+      },
+      "ArtifactId": {
+        "type": "string",
+        "pattern": "^art_[0-9a-z]{20,32}$"
+      },
+      "OperationId": {
+        "type": "string",
+        "pattern": "^op_[0-9a-z]{20,32}$"
+      },
+      "AliasName": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 63,
+        "pattern": "^[a-z](?:[a-z0-9-]*[a-z0-9])?$"
+      },
+      "ResourceMetadata": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "isolationDomainId",
+          "generation",
+          "version",
+          "createdAt",
+          "updatedAt",
+          "createdBy"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "isolationDomainId": { "$ref": "#/components/schemas/IsolationDomainId" },
+          "generation": { "type": "integer", "minimum": 1 },
+          "version": { "type": "integer", "minimum": 1 },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "createdBy": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "labels": {
+            "type": "object",
+            "maxProperties": 32,
+            "propertyNames": { "pattern": "^[a-z][a-z0-9._/-]{0,62}$" },
+            "additionalProperties": { "type": "string", "maxLength": 256 }
+          },
+          "provenance": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "sourceRevision": { "type": "string", "minLength": 1, "maxLength": 128 },
+              "requestCorrelationId": { "type": "string", "minLength": 1, "maxLength": 128 }
+            }
           }
+        }
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["error"],
+        "properties": {
+          "error": { "$ref": "#/components/schemas/Error" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["code", "message", "correlationId", "retryable"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{2,63}$",
+            "examples": ["INVALID_REQUEST", "RESOURCE_NOT_FOUND", "IDEMPOTENCY_KEY_REUSED"]
+          },
+          "message": { "type": "string", "minLength": 1, "maxLength": 512 },
+          "correlationId": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "retryable": { "type": "boolean" },
+          "fieldErrors": {
+            "type": "array",
+            "maxItems": 64,
+            "items": { "$ref": "#/components/schemas/FieldError" }
+          }
+        }
+      },
+      "FieldError": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["field", "code", "message"],
+        "properties": {
+          "field": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$" },
+          "message": { "type": "string", "minLength": 1, "maxLength": 256 }
+        }
+      },
+      "Operation": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "metadata",
+          "kind",
+          "command",
+          "desiredState",
+          "observedState",
+          "stateMachineVersion",
+          "attempt",
+          "correlationId"
+        ],
+        "properties": {
+          "metadata": { "$ref": "#/components/schemas/ResourceMetadata" },
+          "kind": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "command": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "desiredState": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "observedState": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "stateMachineVersion": { "type": "integer", "minimum": 1 },
+          "attempt": { "type": "integer", "minimum": 0 },
+          "correlationId": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "lease": { "$ref": "#/components/schemas/OperationLease" },
+          "dueAt": { "type": "string", "format": "date-time" },
+          "deadlineAt": { "type": "string", "format": "date-time" },
+          "errorClassification": { "enum": ["retryable", "terminal", "cancelled", "unknown"] },
+          "terminalResult": { "type": "object", "additionalProperties": true },
+          "error": { "$ref": "#/components/schemas/Error" }
+        }
+      },
+      "OperationLease": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["owner", "fencingToken", "expiresAt"],
+        "properties": {
+          "owner": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "fencingToken": { "type": "integer", "minimum": 1 },
+          "expiresAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "AgentService": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["metadata", "name"],
+        "properties": {
+          "metadata": { "$ref": "#/components/schemas/ResourceMetadata" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "description": { "type": "string", "maxLength": 2048 }
+        }
+      },
+      "ServiceRevision": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "metadata",
+          "serviceId",
+          "revisionNumber",
+          "state",
+          "runtimeProfile",
+          "requiredCapabilities"
+        ],
+        "properties": {
+          "metadata": { "$ref": "#/components/schemas/ResourceMetadata" },
+          "serviceId": { "$ref": "#/components/schemas/ServiceId" },
+          "revisionNumber": { "type": "integer", "minimum": 1 },
+          "state": { "enum": ["draft", "published", "retired"] },
+          "runtimeProfile": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "requiredCapabilities": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+          },
+          "inputSchema": { "type": "object", "additionalProperties": true },
+          "outputSchema": { "type": "object", "additionalProperties": true },
+          "publishedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ServiceAlias": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["metadata", "serviceId", "name", "revisionId"],
+        "properties": {
+          "metadata": { "$ref": "#/components/schemas/ResourceMetadata" },
+          "serviceId": { "$ref": "#/components/schemas/ServiceId" },
+          "name": { "$ref": "#/components/schemas/AliasName" },
+          "revisionId": { "$ref": "#/components/schemas/RevisionId" }
+        }
+      },
+      "ServiceDeployment": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["metadata", "serviceId", "revisionId", "desiredState", "observedState"],
+        "properties": {
+          "metadata": { "$ref": "#/components/schemas/ResourceMetadata" },
+          "serviceId": { "$ref": "#/components/schemas/ServiceId" },
+          "revisionId": { "$ref": "#/components/schemas/RevisionId" },
+          "desiredState": { "enum": ["active", "retired"] },
+          "observedState": {
+            "enum": ["pending", "active", "degraded", "failed", "retired", "unknown"]
+          },
+          "operationId": { "$ref": "#/components/schemas/OperationId" }
+        }
+      },
+      "Usage": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["inputTokens", "outputTokens", "totalTokens"],
+        "properties": {
+          "inputTokens": { "type": "integer", "minimum": 0 },
+          "outputTokens": { "type": "integer", "minimum": 0 },
+          "totalTokens": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "Invocation": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "metadata",
+          "serviceId",
+          "revisionId",
+          "alias",
+          "state",
+          "input",
+          "correlationId",
+          "operationId",
+          "artifactIds"
+        ],
+        "properties": {
+          "metadata": { "$ref": "#/components/schemas/ResourceMetadata" },
+          "serviceId": { "$ref": "#/components/schemas/ServiceId" },
+          "revisionId": { "$ref": "#/components/schemas/RevisionId" },
+          "alias": { "$ref": "#/components/schemas/AliasName" },
+          "state": {
+            "enum": [
+              "accepted",
+              "running",
+              "waiting",
+              "cancelling",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "unknown"
+            ]
+          },
+          "input": { "type": "object", "additionalProperties": true },
+          "result": { "type": "object", "additionalProperties": true },
+          "error": { "$ref": "#/components/schemas/Error" },
+          "usage": { "$ref": "#/components/schemas/Usage" },
+          "correlationId": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "operationId": { "$ref": "#/components/schemas/OperationId" },
+          "artifactIds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "$ref": "#/components/schemas/ArtifactId" }
+          },
+          "completedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "EventEnvelope": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "schemaVersion",
+          "id",
+          "isolationDomainId",
+          "invocationId",
+          "sequence",
+          "type",
+          "occurredAt",
+          "recordedAt",
+          "correlationId",
+          "actorId",
+          "serviceId",
+          "revisionId",
+          "payload"
+        ],
+        "properties": {
+          "schemaVersion": { "const": "dataground.event/v1" },
+          "id": { "type": "string", "pattern": "^evt_[0-9a-z]{20,32}$" },
+          "isolationDomainId": { "$ref": "#/components/schemas/IsolationDomainId" },
+          "invocationId": { "$ref": "#/components/schemas/InvocationId" },
+          "sequence": { "type": "integer", "minimum": 1 },
+          "type": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z0-9]+)+$" },
+          "occurredAt": { "type": "string", "format": "date-time" },
+          "recordedAt": { "type": "string", "format": "date-time" },
+          "correlationId": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "actorId": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "serviceId": { "$ref": "#/components/schemas/ServiceId" },
+          "revisionId": { "$ref": "#/components/schemas/RevisionId" },
+          "payload": { "type": "object", "additionalProperties": true },
+          "extensions": {
+            "type": "object",
+            "propertyNames": { "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z0-9]+)+$" },
+            "additionalProperties": { "type": "object", "additionalProperties": true }
+          }
+        }
+      },
+      "ArtifactDescriptor": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "metadata",
+          "invocationId",
+          "name",
+          "kind",
+          "mediaType",
+          "sizeBytes",
+          "digest",
+          "state",
+          "sensitive"
+        ],
+        "properties": {
+          "metadata": { "$ref": "#/components/schemas/ResourceMetadata" },
+          "invocationId": { "$ref": "#/components/schemas/InvocationId" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "kind": { "enum": ["file", "structured-output", "event-payload", "log", "other"] },
+          "mediaType": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "sizeBytes": { "type": "integer", "minimum": 0 },
+          "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "state": { "enum": ["pending", "available", "failed", "deleted"] },
+          "sensitive": { "type": "boolean" }
+        }
+      },
+      "RuntimeCapabilityManifest": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["schemaVersion", "runtimeFamily", "runtimeVersion", "capabilities"],
+        "properties": {
+          "schemaVersion": { "const": "dataground.runtime-capabilities/v1" },
+          "runtimeFamily": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "runtimeVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "capabilities": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": { "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z0-9]+)*$" },
+            "additionalProperties": { "enum": ["supported", "unsupported", "degraded"] }
+          },
+          "extensions": {
+            "type": "object",
+            "propertyNames": { "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z0-9]+)+$" },
+            "additionalProperties": { "type": "object", "additionalProperties": true }
+          }
+        }
+      },
+      "CreateAgentServiceRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "description": { "type": "string", "maxLength": 2048 }
+        }
+      },
+      "CreateServiceRevisionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["runtimeProfile", "requiredCapabilities"],
+        "properties": {
+          "runtimeProfile": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "requiredCapabilities": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+          },
+          "inputSchema": { "type": "object", "additionalProperties": true },
+          "outputSchema": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "PublishServiceRevisionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedVersion"],
+        "properties": {
+          "expectedVersion": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "AssignServiceAliasRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["revisionId"],
+        "properties": {
+          "revisionId": { "$ref": "#/components/schemas/RevisionId" },
+          "expectedVersion": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "InvokeAgentServiceRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["alias", "input"],
+        "properties": {
+          "alias": { "$ref": "#/components/schemas/AliasName" },
+          "input": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "CancelInvocationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reason": { "type": "string", "maxLength": 512 }
         }
       }
     }

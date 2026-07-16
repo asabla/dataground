@@ -2,7 +2,7 @@
 
 DataGround is a self-hosted-first data, notebook, and agent-execution platform. It combines a platform-owned control plane with governed OpenShell sandboxes, Cedar authorization, native agent-runtime adapters, durable resource reconciliation, and open data protocols.
 
-The repository contains an executable project foundation: a Go API process, a TypeScript/React workbench shell, versioned bootstrap contracts, pinned toolchains, and continuous verification. Product resources and infrastructure integrations are intentionally not implemented yet. The first product slice will establish a governed agent service and its native event contract before broader notebook, lakehouse, job, and compatibility work.
+The repository contains an executable project foundation: a Go API process, a TypeScript/React workbench shell, versioned native contracts, a deterministic in-memory reference runtime, pinned toolchains, and continuous verification. The reference path establishes agent services, immutable revisions, aliases, invocations, typed event replay, cancellation, artifacts, and usage without a provider or OpenShell dependency. Persistence, authorization, audit, and infrastructure integrations remain intentionally unimplemented.
 
 ## Start here
 
@@ -22,6 +22,6 @@ pnpm install --frozen-lockfile
 pnpm verify
 ```
 
-`pnpm verify` runs formatting checks, linting, contract checks, type checking, tests, and production builds. Run the bootstrap API with `pnpm dev:api` and the workbench with `pnpm dev:workbench`. The API listens on `127.0.0.1:8080` by default and exposes `GET /livez` and `GET /readyz`; set `DATAGROUND_HTTP_ADDRESS` explicitly when another bind address is required.
+`pnpm verify` runs formatting checks, linting, contract and generated-type checks, type checking, tests, and production builds. Run the reference API with `pnpm dev:api` and the workbench with `pnpm dev:workbench`. The API listens on `127.0.0.1:8080` by default; set `DATAGROUND_HTTP_ADDRESS` explicitly when another bind address is required. The reference API has no authentication and must not be exposed as a production service.
 
-See [development guidance](docs/development/README.md) for the repository layout and command contract.
+See [development guidance](docs/development/README.md) for the repository layout and command contract, and [reference runtime guidance](docs/development/reference-runtime.md) for the implemented lifecycle and limitations.
