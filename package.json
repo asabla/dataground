@@ -1,0 +1,27 @@
+{
+  "name": "dataground",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.13.1",
+  "engines": {
+    "node": ">=24.14.0 <25",
+    "pnpm": "11.13.1"
+  },
+  "scripts": {
+    "build": "pnpm run build:api && pnpm run build:workbench",
+    "build:api": "go build -o .cache/bin/dataground-api ./cmd/dataground-api",
+    "build:workbench": "pnpm --filter @dataground/workbench build",
+    "contracts:check": "node scripts/check-contracts.mjs",
+    "dev:api": "go run ./cmd/dataground-api",
+    "dev:workbench": "pnpm --filter @dataground/workbench dev",
+    "format": "biome check --write apps contracts scripts package.json tsconfig.base.json biome.json && gofmt -w cmd internal",
+    "format:check": "biome format apps contracts scripts package.json tsconfig.base.json biome.json && node scripts/check-go-format.mjs",
+    "lint": "biome lint apps contracts scripts package.json tsconfig.base.json biome.json && go vet ./...",
+    "test": "go test ./... && pnpm --filter @dataground/workbench test",
+    "typecheck": "pnpm --filter @dataground/workbench typecheck",
+    "verify": "pnpm run format:check && pnpm run lint && pnpm run contracts:check && pnpm run typecheck && pnpm run test && pnpm run build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.4"
+  }
+}

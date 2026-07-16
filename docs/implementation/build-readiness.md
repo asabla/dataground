@@ -7,9 +7,9 @@
 | Product and architecture | Ready | Preserve ADR-001–038 |
 | First vertical slice | Ready | Use the agent-service slice in `first-vertical-slice.md` |
 | Rosetta policy materialization | Blocked externally | Freeze client contract when Rosetta publishes it; remain fail-closed |
-| Repository | Partially ready | The GitHub repository and `main` branch exist; choose licensing, ownership, CI and release policy |
-| Frontend | Not present | Confirm the frontend framework and integration contracts before implementation |
-| Implementation stack | Decision required | Confirm or replace the proposed Go + TypeScript + thin native adapter approach |
+| Repository | Partially ready | Project layout and CI exist; choose licensing, ownership and release policy |
+| Frontend | Bootstrap ready | React/Vite shell and test/build baseline exist; router, data, auth and Jupyter contracts remain open |
+| Implementation stack | Bootstrap ready | Go control plane and TypeScript/React workbench are established; runtime sidecars remain evidence-driven |
 | Reference S3 and Iceberg implementations | Evidence spike required | Select one certified self-hosted implementation of each |
 | Exact runtime versions | Release input required | Create the initial harness/runtime certification manifest |
 | Capacity and SLO numbers | Pilot input required | Define test hardware and measure; do not invent targets |
@@ -20,15 +20,15 @@
 
 These items materially affect repository boundaries or contracts:
 
-1. **Repository governance:** [`asabla/dataground`](https://github.com/asabla/dataground) and its `main` branch are established. Confirm ownership, license, CI platform, release process and contribution policy.
-2. **Frontend decision:** no frontend is currently committed. Confirm framework and versions, router/state/data layers, Jupyter transport, editor/notebook packages, design tokens, test stack, authentication, build output and hosting mode.
-3. **Backend language decision:** confirm the proposed Go control plane, TypeScript workbench, and thin TypeScript/Python runtime adapters, or record an alternative ADR.
-4. **Package and build tooling:** workspace manager, task runner, Go workspace/module policy, Python packaging where required, container builder, schema generator, and local orchestration.
+1. **Repository governance:** [`asabla/dataground`](https://github.com/asabla/dataground), its `main` branch and GitHub Actions baseline are established. Confirm ownership, license, release process and contribution policy.
+2. **Frontend integration:** React, Vite, TypeScript and the initial semantic-token shell are established. Confirm router/state/data layers, Jupyter transport, editor/notebook packages, authentication and hosting mode before product UI work.
+3. **Backend language:** Go is established for the platform core. Add TypeScript or Python runtime sidecars only where a confirmed upstream SDK and conformance evidence justify the process boundary.
+4. **Package and build tooling:** pnpm, Biome, Vitest, Go modules and the root `pnpm verify` contract are established. Container building, schema generation and local orchestration remain open until their consumers exist.
 5. **Initial public contract:** resource names, URL conventions, error envelope, pagination, idempotency, event envelope, and schema compatibility policy.
 6. **Initial reference runtime:** choose the first real adapter used after the deterministic fake. This does not change the requirement to certify all four runtime families for initial release.
 7. **Local OpenShell topology:** pinned gateway version/driver, authentication, supported service routing, and development-only policy fixture mechanism.
 
-Do not ask Codex to generate a full platform before these are known. Prompt `00` is designed to collect and encode them.
+Do not ask Codex to generate a full platform before the remaining items are known. Prompt `00` records the bootstrap contract; prompt `01` starts product contracts only after its required decisions are resolved.
 
 ## P0: resolve before a real sandbox is allowed to perform work
 

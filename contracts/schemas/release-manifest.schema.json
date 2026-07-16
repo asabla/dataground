@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dataground:schema:release-manifest:v0alpha1",
+  "title": "DataGround release certification manifest",
+  "description": "Structural bootstrap for release evidence. Concrete versions, digests, profiles, and capacity measurements belong in signed manifest instances.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "source", "toolchains", "contracts", "artifacts", "certifications"],
+  "properties": {
+    "schemaVersion": {
+      "const": "dataground.release-manifest/v0alpha1"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision"],
+      "properties": {
+        "revision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "toolchains": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "contracts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/versionedArtifact"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/versionedArtifact"
+      }
+    },
+    "certifications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["profile", "status", "evidence"],
+        "properties": {
+          "profile": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": ["passed", "failed", "blocked"]
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "versionedArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "digest"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+:[A-Za-z0-9._-]+$"
+        }
+      }
+    }
+  }
+}
