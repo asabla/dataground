@@ -13,6 +13,8 @@ The repository does not require Docker, Kubernetes, PostgreSQL, OpenShell, or Ro
 | `cmd/dataground-api` | Go API process entry point |
 | `internal` | Platform-owned Go implementation packages |
 | `apps/workbench` | TypeScript/React workbench application |
+| `packages/tokens` | DTCG token sources, deterministic generator, themes and densities |
+| `packages/ui` | Accessible React primitives, component styles and Storybook contracts |
 | `contracts/openapi` | Canonical versioned public HTTP contract |
 | `contracts/schemas` | Canonical versioned non-HTTP JSON Schemas |
 | `contracts/fixtures` | Valid and invalid contract examples |
@@ -37,7 +39,7 @@ Run the complete local and CI baseline:
 pnpm verify
 ```
 
-The verification command runs Biome formatting and lint checks, `gofmt`, `go vet`, OpenAPI and JSON Schema fixture and compatibility checks, generated-type drift checks, TypeScript type checking, Go and Vitest tests, and production builds for the API and workbench.
+The verification command runs Biome formatting and lint checks, `gofmt`, `go vet`, OpenAPI and JSON Schema fixture and compatibility checks, generated contract and token drift checks, TypeScript type checking, Go and Node tests, Playwright-backed Storybook interaction and accessibility tests, the Storybook production build, and production builds for the API and workbench.
 
 Regenerate the typed workbench contract after an accepted OpenAPI change:
 
@@ -50,9 +52,13 @@ Start the development processes separately:
 ```shell
 pnpm dev:api
 pnpm dev:workbench
+pnpm dev:design-system
+pnpm --filter @dataground/ui test:stories
 ```
 
-The API uses `DATAGROUND_HTTP_ADDRESS` when set and otherwise listens only on `127.0.0.1:8080`. It exposes health endpoints and the in-memory reference agent-service lifecycle described in [reference runtime guidance](reference-runtime.md). The workbench uses Vite's development server. Neither process currently implements authentication, persistence, audit, or infrastructure integration. Any non-loopback API bind must be an explicit deployment decision with the appropriate network boundary.
+The API uses `DATAGROUND_HTTP_ADDRESS` when set and otherwise listens only on `127.0.0.1:8080`. It exposes health endpoints and the in-memory reference agent-service lifecycle described in [reference runtime guidance](reference-runtime.md). The workbench uses Vite's development server. Storybook documents shared component contracts and is not a product application. None of these processes currently implements authentication, persistence, audit, or infrastructure integration. Any non-loopback API bind must be an explicit deployment decision with the appropriate network boundary.
+
+See [design-system guidance](design-system.md) before changing token source, component APIs, themes, density behavior, or Storybook configuration.
 
 ## Contract changes
 

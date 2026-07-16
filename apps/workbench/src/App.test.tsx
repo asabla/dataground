@@ -11,5 +11,7 @@ describe("App", () => {
     assert.match(markup, /DataGround/);
     assert.match(markup, /Project foundation ready/);
     assert.match(markup, /Product resources remain unavailable/);
+    assert.match(markup, /Show implementation contract/);
+    assert.match(markup, /data-tone="active"/);
   });
 });

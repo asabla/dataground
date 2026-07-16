@@ -1,0 +1,36 @@
+{
+  "$extensions": { "org.dataground.theme": "night" },
+  "color": {
+    "$type": "color",
+    "canvas": { "$value": "{palette.neutral.950}" },
+    "surface": {
+      "default": { "$value": "{palette.neutral.900}" },
+      "raised": { "$value": "{palette.neutral.800}" },
+      "hover": { "$value": "{palette.neutral.700}" }
+    },
+    "border": {
+      "default": { "$value": "{palette.neutral.700}" },
+      "subtle": { "$value": "{palette.neutral.800}" }
+    },
+    "text": {
+      "primary": { "$value": "{palette.neutral.100}" },
+      "secondary": { "$value": "{palette.neutral.400}" },
+      "muted": { "$value": "{palette.neutral.500}" },
+      "onAccent": { "$value": "{palette.neutral.950}" }
+    },
+    "action": {
+      "primary": { "$value": "{palette.cyan.500}" },
+      "primaryHover": { "$value": "{palette.cyan.400}" },
+      "subtle": { "$value": "{palette.cyan.900}" }
+    },
+    "focus": { "$value": "{palette.cyan.400}" },
+    "status": {
+      "waiting": { "$value": "{palette.amber.500}" },
+      "waitingSurface": { "$value": "{palette.amber.900}" },
+      "success": { "$value": "{palette.green.500}" },
+      "successSurface": { "$value": "{palette.green.900}" },
+      "critical": { "$value": "{palette.red.500}" },
+      "criticalSurface": { "$value": "{palette.red.900}" }
+    }
+  }
+}

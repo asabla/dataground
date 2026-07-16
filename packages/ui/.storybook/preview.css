@@ -1,0 +1,44 @@
+.sb-show-main {
+  padding: 0;
+}
+
+.dg-story {
+  min-height: 100vh;
+  padding: var(--dg-space-6);
+  background: var(--dg-color-canvas);
+  color: var(--dg-color-text-primary);
+  font-family: var(--dg-font-family-interface);
+}
+
+.dg-story-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dg-space-3);
+  align-items: center;
+}
+
+.dg-token-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: var(--dg-space-4);
+}
+
+.dg-token-swatch {
+  min-height: 8rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: var(--dg-space-4);
+  border: var(--dg-border-default) solid var(--dg-color-border-default);
+  border-radius: var(--dg-radius-panel);
+  background: var(--swatch);
+  color: var(--dg-color-text-primary);
+}
+
+.dg-token-swatch code {
+  width: fit-content;
+  padding: var(--dg-space-1) var(--dg-space-2);
+  background: var(--dg-color-surface-default);
+  color: var(--dg-color-text-primary);
+  font-family: var(--dg-font-family-data);
+}

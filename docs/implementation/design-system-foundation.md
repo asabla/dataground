@@ -1,12 +1,14 @@
 # DataGround design-system foundation
 
-## Recommendation
+## Implemented foundation
 
-Build an owned, token-driven DataGround system on top of accessible headless primitives. If the confirmed workbench stack is React, use React Aria Components as the primitive layer, CSS custom properties generated from Design Tokens Community Group-format JSON, and Storybook as the component contract and test surface.
+The confirmed React workbench uses an owned, token-driven DataGround system on top of React Aria Components. CSS custom properties and type-safe names are generated from pinned Design Tokens Community Group 2025.10-format JSON, and Storybook is the component contract and accessibility-test surface.
 
 Do not make a copied component catalog or utility-class framework the design-system source of truth. They may assist implementation, but DataGround should own its semantic tokens, interaction patterns, component APIs, status language, and product-specific compositions.
 
-If a non-React workbench is selected, retain the tokens, accessibility target, component specifications, and visual vocabulary; select an equivalent primitive library for that framework instead of introducing React solely for the design system.
+The token format, accessibility target, component specifications, and visual vocabulary remain framework-independent even though the initial primitive implementation is React-based. Product data loading, authorization, and commands remain outside the shared component packages.
+
+The executable implementation and maintenance workflow are documented in [development design-system guidance](../development/design-system.md). This document remains the inventory and product-experience brief.
 
 ## Product experience principles
 

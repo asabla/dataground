@@ -1,0 +1,11 @@
+{
+  "$extensions": { "org.dataground.density": "standard" },
+  "density": {
+    "$type": "dimension",
+    "controlHeight": { "$value": { "value": 2.5, "unit": "rem" } },
+    "rowPadding": { "$value": { "value": 1.125, "unit": "rem" } },
+    "sectionGap": { "$value": { "value": 1.25, "unit": "rem" } },
+    "panelPadding": { "$value": { "value": 1.5, "unit": "rem" } },
+    "panelHeaderHeight": { "$value": { "value": 4.25, "unit": "rem" } }
+  }
+}
