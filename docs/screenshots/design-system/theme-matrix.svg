@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title description">
+  <title id="title">DataGround semantic theme matrix</title>
+  <desc id="description">The same gateway operations component shown in night, light, contrast dark, and contrast light modes.</desc>
+  <rect width="1440" height="900" fill="#080d16"/>
+  <g font-family="DejaVu Sans, sans-serif">
+    <text x="80" y="76" fill="#59b8e3" font-size="12" font-weight="700" letter-spacing="2">SEMANTIC THEME VERIFICATION</text>
+    <text x="80" y="132" fill="#e6edf5" font-size="44" font-weight="700" letter-spacing="-2">One contract, four modes</text>
+    <text x="1360" y="120" fill="#9ba8b8" font-family="ui-monospace, monospace" font-size="12" text-anchor="end">STANDARD DENSITY</text>
+
+    <rect x="80" y="176" width="640" height="320" fill="#080d16" stroke="#263244"/>
+    <text x="112" y="222" fill="#6f7d90" font-family="ui-monospace, monospace" font-size="11" font-weight="700" letter-spacing="2">NIGHT</text>
+    <rect x="112" y="250" width="576" height="204" rx="8" fill="#0d1420" stroke="#263244"/>
+    <text x="144" y="298" fill="#e6edf5" font-size="20" font-weight="700">Gateway operations</text>
+    <text x="144" y="330" fill="#9ba8b8" font-size="14">Stable semantic roles preserve hierarchy across every supported mode.</text>
+    <rect x="144" y="362" width="132" height="40" rx="8" fill="#3ba7d8"/><text x="210" y="387" fill="#080d16" font-size="14" font-weight="700" text-anchor="middle">Open gateway</text>
+    <rect x="292" y="368" width="78" height="28" rx="14" fill="#053449" stroke="#3ba7d8"/><circle cx="310" cy="382" r="4" fill="none" stroke="#3ba7d8" stroke-width="2"/><text x="325" y="386" fill="#3ba7d8" font-size="11" font-weight="600">Active</text>
+    <rect x="382" y="368" width="72" height="28" rx="14" fill="#381517" stroke="#f07178"/><rect x="397" y="378" width="8" height="8" fill="none" stroke="#f07178" stroke-width="2" transform="rotate(45 401 382)"/><text x="416" y="386" fill="#f07178" font-size="11" font-weight="600">Failed</text>
+
+    <rect x="720" y="176" width="640" height="320" fill="#f4f6f8" stroke="#cbd5df"/>
+    <text x="752" y="222" fill="#5c6875" font-family="ui-monospace, monospace" font-size="11" font-weight="700" letter-spacing="2">LIGHT</text>
+    <rect x="752" y="250" width="576" height="204" rx="8" fill="#ffffff" stroke="#cbd5df"/>
+    <text x="784" y="298" fill="#080d16" font-size="20" font-weight="700">Gateway operations</text>
+    <text x="784" y="330" fill="#263244" font-size="14">Stable semantic roles preserve hierarchy across every supported mode.</text>
+    <rect x="784" y="362" width="132" height="40" rx="8" fill="#05658c"/><text x="850" y="387" fill="#ffffff" font-size="14" font-weight="700" text-anchor="middle">Open gateway</text>
+    <rect x="932" y="368" width="78" height="28" rx="14" fill="#e6edf5" stroke="#05658c"/><circle cx="950" cy="382" r="4" fill="none" stroke="#05658c" stroke-width="2"/><text x="965" y="386" fill="#05658c" font-size="11" font-weight="600">Active</text>
+    <rect x="1022" y="368" width="72" height="28" rx="14" fill="#f4f6f8" stroke="#a72f3d"/><rect x="1037" y="378" width="8" height="8" fill="none" stroke="#a72f3d" stroke-width="2" transform="rotate(45 1041 382)"/><text x="1056" y="386" fill="#a72f3d" font-size="11" font-weight="600">Failed</text>
+
+    <rect x="80" y="496" width="640" height="320" fill="#000000" stroke="#ffffff"/>
+    <text x="112" y="542" fill="#e6edf5" font-family="ui-monospace, monospace" font-size="11" font-weight="700" letter-spacing="2">CONTRAST DARK</text>
+    <rect x="112" y="570" width="576" height="204" rx="8" fill="#000000" stroke="#ffffff" stroke-width="2"/>
+    <text x="144" y="618" fill="#ffffff" font-size="20" font-weight="700">Gateway operations</text>
+    <text x="144" y="650" fill="#ffffff" font-size="14">Stable semantic roles preserve hierarchy across every supported mode.</text>
+    <rect x="144" y="682" width="132" height="40" rx="8" fill="#59b8e3"/><text x="210" y="707" fill="#000000" font-size="14" font-weight="700" text-anchor="middle">Open gateway</text>
+    <rect x="292" y="688" width="78" height="28" rx="14" fill="#053449" stroke="#59b8e3"/><circle cx="310" cy="702" r="4" fill="none" stroke="#59b8e3" stroke-width="2"/><text x="325" y="706" fill="#59b8e3" font-size="11" font-weight="600">Active</text>
+    <rect x="382" y="688" width="72" height="28" rx="14" fill="#000000" stroke="#f07178"/><rect x="397" y="698" width="8" height="8" fill="none" stroke="#f07178" stroke-width="2" transform="rotate(45 401 702)"/><text x="416" y="706" fill="#f07178" font-size="11" font-weight="600">Failed</text>
+
+    <rect x="720" y="496" width="640" height="320" fill="#ffffff" stroke="#000000"/>
+    <text x="752" y="542" fill="#263244" font-family="ui-monospace, monospace" font-size="11" font-weight="700" letter-spacing="2">CONTRAST LIGHT</text>
+    <rect x="752" y="570" width="576" height="204" rx="8" fill="#ffffff" stroke="#000000" stroke-width="2"/>
+    <text x="784" y="618" fill="#000000" font-size="20" font-weight="700">Gateway operations</text>
+    <text x="784" y="650" fill="#000000" font-size="14">Stable semantic roles preserve hierarchy across every supported mode.</text>
+    <rect x="784" y="682" width="132" height="40" rx="8" fill="#05658c"/><text x="850" y="707" fill="#ffffff" font-size="14" font-weight="700" text-anchor="middle">Open gateway</text>
+    <rect x="932" y="688" width="78" height="28" rx="14" fill="#e6edf5" stroke="#05658c"/><circle cx="950" cy="702" r="4" fill="none" stroke="#05658c" stroke-width="2"/><text x="965" y="706" fill="#05658c" font-size="11" font-weight="600">Active</text>
+    <rect x="1022" y="688" width="72" height="28" rx="14" fill="#ffffff" stroke="#a72f3d"/><rect x="1037" y="698" width="8" height="8" fill="none" stroke="#a72f3d" stroke-width="2" transform="rotate(45 1041 702)"/><text x="1056" y="706" fill="#a72f3d" font-size="11" font-weight="600">Failed</text>
+  </g>
+</svg>

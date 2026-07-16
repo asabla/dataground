@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title description">
+  <title id="title">DataGround Night Operations component foundation</title>
+  <desc id="description">Buttons, operational status badges, and foundation contract badges in the Night Operations theme.</desc>
+  <rect width="1440" height="900" fill="#080d16"/>
+  <g font-family="DejaVu Sans, sans-serif">
+    <text x="96" y="92" fill="#3ba7d8" font-size="12" font-weight="700" letter-spacing="2">DATAGROUND DESIGN SYSTEM</text>
+    <text x="96" y="172" fill="#e6edf5" font-size="68" font-weight="700" letter-spacing="-4">Night Operations</text>
+    <text x="1344" y="120" fill="#6f7d90" font-family="ui-monospace, monospace" font-size="12" font-weight="600" text-anchor="end">THEME 03 · NIGHT</text>
+    <text x="1344" y="144" fill="#6f7d90" font-family="ui-monospace, monospace" font-size="12" font-weight="600" text-anchor="end">DENSITY · COMPACT</text>
+
+    <rect x="96" y="228" width="604" height="332" rx="8" fill="#0d1420" stroke="#263244"/>
+    <text x="132" y="278" fill="#e6edf5" font-size="20" font-weight="700">Action hierarchy</text>
+    <rect x="132" y="316" width="139" height="36" rx="8" fill="#3ba7d8" stroke="#3ba7d8"/>
+    <text x="201.5" y="339" fill="#080d16" font-size="14" font-weight="700" text-anchor="middle">Create revision</text>
+    <rect x="283" y="316" width="111" height="36" rx="8" fill="#0d1420" stroke="#263244"/>
+    <text x="338.5" y="339" fill="#e6edf5" font-size="14" font-weight="500" text-anchor="middle">Save draft</text>
+    <rect x="406" y="316" width="120" height="36" rx="8" fill="transparent"/>
+    <text x="466" y="339" fill="#3ba7d8" font-size="14" font-weight="500" text-anchor="middle">Inspect policy</text>
+    <rect x="132" y="370" width="133" height="36" rx="8" fill="transparent" stroke="#f07178"/>
+    <text x="198.5" y="393" fill="#f07178" font-size="14" font-weight="500" text-anchor="middle">Cancel rollout</text>
+    <rect x="277" y="370" width="112" height="36" rx="8" fill="#0d1420" stroke="#263244" opacity=".48"/>
+    <text x="333" y="393" fill="#e6edf5" font-size="14" font-weight="500" text-anchor="middle" opacity=".48">Unavailable</text>
+    <text x="132" y="458" fill="#9ba8b8" font-size="14">
+      <tspan x="132" dy="0">Primary emphasis is reserved for the next safe action.</tspan>
+      <tspan x="132" dy="24">Consequential actions remain explicit.</tspan>
+    </text>
+
+    <rect x="740" y="228" width="604" height="332" rx="8" fill="#0d1420" stroke="#263244"/>
+    <text x="776" y="278" fill="#e6edf5" font-size="20" font-weight="700">Operational status</text>
+    <g font-size="11" font-weight="600">
+      <rect x="776" y="316" width="86" height="28" rx="14" fill="transparent" stroke="#263244"/><circle cx="794" cy="330" r="4" fill="none" stroke="#9ba8b8" stroke-width="2"/><text x="809" y="334" fill="#9ba8b8">Neutral</text>
+      <rect x="874" y="316" width="78" height="28" rx="14" fill="#053449" stroke="#3ba7d8"/><circle cx="892" cy="330" r="4" fill="none" stroke="#3ba7d8" stroke-width="2"/><text x="907" y="334" fill="#3ba7d8">Active</text>
+      <rect x="964" y="316" width="83" height="28" rx="14" fill="#2a2115" stroke="#d79a35"/><rect x="980" y="326" width="8" height="8" fill="none" stroke="#d79a35" stroke-width="2"/><text x="999" y="334" fill="#d79a35">Waiting</text>
+      <rect x="1059" y="316" width="106" height="28" rx="14" fill="#0d3023" stroke="#4fbc8b"/><circle cx="1077" cy="330" r="4" fill="none" stroke="#4fbc8b" stroke-width="2"/><text x="1092" y="334" fill="#4fbc8b">Succeeded</text>
+      <rect x="776" y="358" width="87" height="28" rx="14" fill="#2a2115" stroke="#d79a35"/><circle cx="794" cy="372" r="4" fill="none" stroke="#d79a35" stroke-width="2"/><text x="809" y="376" fill="#d79a35">Warning</text>
+      <rect x="875" y="358" width="72" height="28" rx="14" fill="#381517" stroke="#f07178"/><rect x="890" y="368" width="8" height="8" fill="none" stroke="#f07178" stroke-width="2" transform="rotate(45 894 372)"/><text x="909" y="376" fill="#f07178">Failed</text>
+    </g>
+    <text x="776" y="458" fill="#9ba8b8" font-size="14">
+      <tspan x="776" dy="0">Status is carried by words, shape, border, and color—</tspan>
+      <tspan x="776" dy="24">never color alone.</tspan>
+    </text>
+
+    <rect x="96" y="600" width="1248" height="196" rx="8" fill="#0d1420" stroke="#263244"/>
+    <text x="132" y="654" fill="#e6edf5" font-size="20" font-weight="700">Foundation contract</text>
+    <g font-size="11" font-weight="600">
+      <rect x="132" y="686" width="118" height="28" rx="14" fill="#053449" stroke="#3ba7d8"/><circle cx="150" cy="700" r="4" fill="none" stroke="#3ba7d8" stroke-width="2"/><text x="165" y="704" fill="#3ba7d8">DTCG tokens</text>
+      <rect x="262" y="686" width="141" height="28" rx="14" fill="#0d3023" stroke="#4fbc8b"/><circle cx="280" cy="700" r="4" fill="none" stroke="#4fbc8b" stroke-width="2"/><text x="295" y="704" fill="#4fbc8b">Contrast enforced</text>
+      <rect x="415" y="686" width="153" height="28" rx="14" fill="transparent" stroke="#263244"/><circle cx="433" cy="700" r="4" fill="none" stroke="#9ba8b8" stroke-width="2"/><text x="448" y="704" fill="#9ba8b8">React Aria behavior</text>
+      <rect x="580" y="686" width="149" height="28" rx="14" fill="transparent" stroke="#263244"/><circle cx="598" cy="700" r="4" fill="none" stroke="#9ba8b8" stroke-width="2"/><text x="613" y="704" fill="#9ba8b8">Storybook contracts</text>
+    </g>
+  </g>
+</svg>
