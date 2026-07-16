@@ -1,0 +1,4 @@
+{
+  "name": "Reference service",
+  "gatewayAddress": "must-not-be-public"
+}

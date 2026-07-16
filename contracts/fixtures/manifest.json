@@ -1,0 +1,76 @@
+{
+  "fixtures": [
+    {
+      "file": "valid/agent-service.json",
+      "schema": "AgentService",
+      "valid": true
+    },
+    {
+      "file": "valid/operation.json",
+      "schema": "Operation",
+      "valid": true
+    },
+    {
+      "file": "valid/event-unknown-optional.json",
+      "schema": "EventEnvelope",
+      "valid": true
+    },
+    {
+      "file": "valid/artifact-descriptor.json",
+      "schema": "ArtifactDescriptor",
+      "valid": true
+    },
+    {
+      "file": "valid/runtime-capabilities.json",
+      "schema": "RuntimeCapabilityManifest",
+      "valid": true
+    },
+    {
+      "file": "valid/error-envelope.json",
+      "schema": "ErrorEnvelope",
+      "valid": true
+    },
+    {
+      "file": "valid/release-manifest.json",
+      "schema": "ReleaseManifest",
+      "document": "release-manifest",
+      "valid": true
+    },
+    {
+      "file": "invalid/agent-service-missing-name.json",
+      "schema": "AgentService",
+      "valid": false
+    },
+    {
+      "file": "invalid/operation-missing-observed-state.json",
+      "schema": "Operation",
+      "valid": false
+    },
+    {
+      "file": "invalid/event-missing-isolation-domain.json",
+      "schema": "EventEnvelope",
+      "valid": false
+    },
+    {
+      "file": "invalid/event-unnamespaced-extension.json",
+      "schema": "EventEnvelope",
+      "valid": false
+    },
+    {
+      "file": "invalid/artifact-invalid-digest.json",
+      "schema": "ArtifactDescriptor",
+      "valid": false
+    },
+    {
+      "file": "invalid/create-service-unknown-field.json",
+      "schema": "CreateAgentServiceRequest",
+      "valid": false
+    },
+    {
+      "file": "invalid/release-manifest-missing-source.json",
+      "schema": "ReleaseManifest",
+      "document": "release-manifest",
+      "valid": false
+    }
+  ]
+}

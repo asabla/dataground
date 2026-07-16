@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "RESOURCE_NOT_FOUND",
+    "message": "Invocation was not found.",
+    "correlationId": "correlation-fixture",
+    "retryable": false
+  }
+}

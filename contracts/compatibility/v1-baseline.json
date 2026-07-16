@@ -1,0 +1,277 @@
+{
+  "operations": {
+    "createAgentService": "POST /v1/isolation-domains/{isolationDomainId}/agent-services",
+    "createServiceRevision": "POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions",
+    "publishServiceRevision": "POST /v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/publish",
+    "assignServiceAlias": "PUT /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}",
+    "invokeAgentService": "POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations",
+    "getInvocation": "GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}",
+    "cancelInvocation": "POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel",
+    "streamInvocationEvents": "GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/events",
+    "getInvocationArtifact": "GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts/{artifactId}"
+  },
+  "schemas": {
+    "ResourceMetadata": {
+      "required": [
+        "id",
+        "isolationDomainId",
+        "generation",
+        "version",
+        "createdAt",
+        "updatedAt",
+        "createdBy"
+      ],
+      "properties": [
+        "id",
+        "isolationDomainId",
+        "generation",
+        "version",
+        "createdAt",
+        "updatedAt",
+        "createdBy",
+        "labels",
+        "provenance"
+      ]
+    },
+    "Error": {
+      "required": ["code", "message", "correlationId", "retryable"],
+      "properties": ["code", "message", "correlationId", "retryable", "fieldErrors"]
+    },
+    "ErrorEnvelope": {
+      "required": ["error"],
+      "properties": ["error"]
+    },
+    "FieldError": {
+      "required": ["field", "code", "message"],
+      "properties": ["field", "code", "message"]
+    },
+    "Operation": {
+      "required": [
+        "metadata",
+        "kind",
+        "command",
+        "desiredState",
+        "observedState",
+        "stateMachineVersion",
+        "attempt",
+        "correlationId"
+      ],
+      "properties": [
+        "metadata",
+        "kind",
+        "command",
+        "desiredState",
+        "observedState",
+        "stateMachineVersion",
+        "attempt",
+        "correlationId",
+        "lease",
+        "dueAt",
+        "deadlineAt",
+        "errorClassification",
+        "terminalResult",
+        "error"
+      ]
+    },
+    "AgentService": {
+      "required": ["metadata", "name"],
+      "properties": ["metadata", "name", "description"]
+    },
+    "ServiceRevision": {
+      "required": [
+        "metadata",
+        "serviceId",
+        "revisionNumber",
+        "state",
+        "runtimeProfile",
+        "requiredCapabilities"
+      ],
+      "properties": [
+        "metadata",
+        "serviceId",
+        "revisionNumber",
+        "state",
+        "runtimeProfile",
+        "requiredCapabilities",
+        "inputSchema",
+        "outputSchema",
+        "publishedAt"
+      ]
+    },
+    "ServiceAlias": {
+      "required": ["metadata", "serviceId", "name", "revisionId"],
+      "properties": ["metadata", "serviceId", "name", "revisionId"]
+    },
+    "ServiceDeployment": {
+      "required": ["metadata", "serviceId", "revisionId", "desiredState", "observedState"],
+      "properties": [
+        "metadata",
+        "serviceId",
+        "revisionId",
+        "desiredState",
+        "observedState",
+        "operationId"
+      ]
+    },
+    "Invocation": {
+      "required": [
+        "metadata",
+        "serviceId",
+        "revisionId",
+        "alias",
+        "state",
+        "input",
+        "correlationId",
+        "operationId",
+        "artifactIds"
+      ],
+      "properties": [
+        "metadata",
+        "serviceId",
+        "revisionId",
+        "alias",
+        "state",
+        "input",
+        "result",
+        "error",
+        "usage",
+        "correlationId",
+        "operationId",
+        "artifactIds",
+        "completedAt"
+      ]
+    },
+    "EventEnvelope": {
+      "required": [
+        "schemaVersion",
+        "id",
+        "isolationDomainId",
+        "invocationId",
+        "sequence",
+        "type",
+        "occurredAt",
+        "recordedAt",
+        "correlationId",
+        "actorId",
+        "serviceId",
+        "revisionId",
+        "payload"
+      ],
+      "properties": [
+        "schemaVersion",
+        "id",
+        "isolationDomainId",
+        "invocationId",
+        "sequence",
+        "type",
+        "occurredAt",
+        "recordedAt",
+        "correlationId",
+        "actorId",
+        "serviceId",
+        "revisionId",
+        "payload",
+        "extensions"
+      ]
+    },
+    "ArtifactDescriptor": {
+      "required": [
+        "metadata",
+        "invocationId",
+        "name",
+        "kind",
+        "mediaType",
+        "sizeBytes",
+        "digest",
+        "state",
+        "sensitive"
+      ],
+      "properties": [
+        "metadata",
+        "invocationId",
+        "name",
+        "kind",
+        "mediaType",
+        "sizeBytes",
+        "digest",
+        "state",
+        "sensitive"
+      ]
+    },
+    "RuntimeCapabilityManifest": {
+      "required": ["schemaVersion", "runtimeFamily", "runtimeVersion", "capabilities"],
+      "properties": [
+        "schemaVersion",
+        "runtimeFamily",
+        "runtimeVersion",
+        "capabilities",
+        "extensions"
+      ]
+    },
+    "Usage": {
+      "required": ["inputTokens", "outputTokens", "totalTokens"],
+      "properties": ["inputTokens", "outputTokens", "totalTokens"]
+    },
+    "CreateAgentServiceRequest": {
+      "required": ["name"],
+      "properties": ["name", "description"]
+    },
+    "CreateServiceRevisionRequest": {
+      "required": ["runtimeProfile", "requiredCapabilities"],
+      "properties": ["runtimeProfile", "requiredCapabilities", "inputSchema", "outputSchema"]
+    },
+    "PublishServiceRevisionRequest": {
+      "required": ["expectedVersion"],
+      "properties": ["expectedVersion"]
+    },
+    "AssignServiceAliasRequest": {
+      "required": ["revisionId"],
+      "properties": ["revisionId", "expectedVersion"]
+    },
+    "InvokeAgentServiceRequest": {
+      "required": ["alias", "input"],
+      "properties": ["alias", "input"]
+    },
+    "CancelInvocationRequest": {
+      "required": [],
+      "properties": ["reason"]
+    }
+  },
+  "enums": {
+    "Operation.errorClassification": ["retryable", "terminal", "cancelled", "unknown"],
+    "ServiceRevision.state": ["draft", "published", "retired"],
+    "ServiceDeployment.desiredState": ["active", "retired"],
+    "ServiceDeployment.observedState": [
+      "pending",
+      "active",
+      "degraded",
+      "failed",
+      "retired",
+      "unknown"
+    ],
+    "Invocation.state": [
+      "accepted",
+      "running",
+      "waiting",
+      "cancelling",
+      "succeeded",
+      "failed",
+      "cancelled",
+      "unknown"
+    ],
+    "ArtifactDescriptor.kind": ["file", "structured-output", "event-payload", "log", "other"],
+    "ArtifactDescriptor.state": ["pending", "available", "failed", "deleted"]
+  },
+  "patterns": {
+    "IsolationDomainId": "^iso_[0-9a-z]{20,32}$",
+    "ServiceId": "^svc_[0-9a-z]{20,32}$",
+    "RevisionId": "^rev_[0-9a-z]{20,32}$",
+    "InvocationId": "^inv_[0-9a-z]{20,32}$",
+    "ArtifactId": "^art_[0-9a-z]{20,32}$",
+    "OperationId": "^op_[0-9a-z]{20,32}$"
+  },
+  "constants": {
+    "EventEnvelope.schemaVersion": "dataground.event/v1",
+    "RuntimeCapabilityManifest.schemaVersion": "dataground.runtime-capabilities/v1"
+  }
+}

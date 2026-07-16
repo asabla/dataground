@@ -1,0 +1,56 @@
+# Deterministic reference runtime
+
+The reference runtime proves DataGround's native agent-service contract without OpenShell,
+provider credentials, or a native harness. It is intentionally in-memory and local-development
+only. Restarting the process loses all resources, idempotency records, artifacts, and event
+journals. It does not implement authentication, authorization, audit, durable reconciliation, or
+artifact content storage.
+
+## Implemented lifecycle
+
+Every resource path begins with an isolation-domain identifier, and every mutation requires an
+`Idempotency-Key` header. A caller can:
+
+1. create an agent service;
+2. create and publish an immutable revision using runtime profile `reference/v1`;
+3. assign a stable alias with optimistic version checks;
+4. invoke that alias and retrieve the normalized invocation result;
+5. replay typed events with SSE and resume after `Last-Event-ID`;
+6. cancel a waiting invocation; and
+7. retrieve governed artifact metadata.
+
+The canonical routes, request bodies, responses, errors, and examples live in
+[`contracts/openapi/dataground-api.openapi.json`](../../contracts/openapi/dataground-api.openapi.json)
+and [`contracts/fixtures`](../../contracts/fixtures). The API never returns a gateway address,
+sandbox identity, provider endpoint, or credential.
+
+## Deterministic scenarios
+
+Set `input.scenario` on invocation to one of:
+
+| Scenario | Contract behavior |
+| --- | --- |
+| `success` | text, tool, process, usage, and successful completion |
+| `question` | question event followed by waiting state |
+| `approval` | approval request followed by waiting state |
+| `artifact` | large sensitive output represented only by a governed artifact descriptor |
+| `cancellation` | runtime-originated cancellation |
+| `retryable_failure` | safe retryable error and failed lifecycle |
+| `terminal_failure` | safe non-retryable error and failed lifecycle |
+| `duplicate` | identical duplicate delivery normalized to one journal record |
+| `out_of_order` | out-of-order delivery normalized to monotonic sequence |
+| `unknown_optional` | unknown event type and namespaced extension preserved safely |
+
+An unregistered scenario fails validation. Publishing a revision with a runtime profile other than
+`reference/v1`, or with a required capability the reference manifest does not support, fails
+closed.
+
+## Compatibility and recovery boundary
+
+SSE `id` values are invocation-local journal sequences. Reconnecting with `Last-Event-ID` replays
+only later records with stable event identities. Identical mutation retries return the first
+response; reuse of the same key with a different body returns `IDEMPOTENCY_KEY_REUSED`.
+
+This implementation is not restart-safe and must not be presented as the durable control plane.
+Prompt `02` replaces process-local state with PostgreSQL state machines, durable idempotency,
+transactional outbox records, and restart recovery while preserving these public contracts.

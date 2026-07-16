@@ -1,0 +1,17 @@
+{
+  "metadata": {
+    "id": "op_00000000000000000001",
+    "isolationDomainId": "iso_00000000000000000001",
+    "generation": 1,
+    "version": 1,
+    "createdAt": "2026-07-16T08:00:00Z",
+    "updatedAt": "2026-07-16T08:00:00Z",
+    "createdBy": "fixture"
+  },
+  "kind": "service-publication",
+  "command": "publish",
+  "desiredState": "published",
+  "stateMachineVersion": 1,
+  "attempt": 0,
+  "correlationId": "correlation-fixture"
+}

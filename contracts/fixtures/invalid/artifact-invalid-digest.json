@@ -1,0 +1,19 @@
+{
+  "metadata": {
+    "id": "art_00000000000000000001",
+    "isolationDomainId": "iso_00000000000000000001",
+    "generation": 1,
+    "version": 1,
+    "createdAt": "2026-07-16T08:00:00Z",
+    "updatedAt": "2026-07-16T08:00:00Z",
+    "createdBy": "fixture"
+  },
+  "invocationId": "inv_00000000000000000001",
+  "name": "result.json",
+  "kind": "structured-output",
+  "mediaType": "application/json",
+  "sizeBytes": 32,
+  "digest": "md5:not-allowed",
+  "state": "available",
+  "sensitive": false
+}

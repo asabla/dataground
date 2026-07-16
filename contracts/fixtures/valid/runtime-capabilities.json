@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "dataground.runtime-capabilities/v1",
+  "runtimeFamily": "reference",
+  "runtimeVersion": "v1",
+  "capabilities": {
+    "approval": "supported",
+    "artifact": "supported",
+    "cancellation": "supported",
+    "process": "supported",
+    "question": "supported",
+    "tool": "supported",
+    "usage": "supported"
+  },
+  "extensions": {
+    "dev.dataground.reference": {
+      "deterministic": true
+    }
+  }
+}
