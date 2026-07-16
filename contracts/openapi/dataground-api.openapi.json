@@ -1,0 +1,62 @@
+{
+  "openapi": "3.1.2",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "info": {
+    "title": "DataGround API",
+    "version": "0.0.0",
+    "description": "Bootstrap contract for DataGround platform-owned health endpoints. Product resource contracts are added only after their schemas are reviewed and versioned."
+  },
+  "paths": {
+    "/livez": {
+      "get": {
+        "operationId": "getLiveness",
+        "summary": "Report process liveness",
+        "responses": {
+          "200": {
+            "description": "The API process is alive.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "getReadiness",
+        "summary": "Report API readiness",
+        "responses": {
+          "200": {
+            "description": "The bootstrap API is ready to receive requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HealthResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok"
+          }
+        }
+      }
+    }
+  }
+}

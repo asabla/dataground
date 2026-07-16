@@ -11,6 +11,8 @@ This is a recommended default, not a confirmed ADR:
 
 The objective is not language purity. It is a stable platform core plus very small, replaceable upstream-specific processes.
 
+The executable bootstrap implements the smallest subset of this shape: `cmd/dataground-api`, `internal`, `apps/workbench`, `contracts`, and `scripts`. The remaining directories are created only when their first verified consumer exists.
+
 ## Monorepo layout
 
 ```text

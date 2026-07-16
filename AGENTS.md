@@ -4,7 +4,7 @@ DataGround is security-sensitive platform infrastructure for data workloads, not
 
 ## Current repository state
 
-This repository contains its architecture foundation but not application code, build manifests, deployment configuration, or verified build and test commands. The normative sources are `docs/architecture/decision-register.md` and `docs/architecture/system-specification.md`, in that order when they conflict. Implementation prerequisites, proposed choices, verification gates, and handoff prompts live under `docs/implementation/` and remain subordinate to those sources.
+This repository contains an executable foundation: the Go API entry point is under `cmd/dataground-api`, internal Go packages are under `internal`, the React workbench is under `apps/workbench`, and versioned bootstrap contracts are under `contracts`. The normative sources are `docs/architecture/decision-register.md` and `docs/architecture/system-specification.md`, in that order when they conflict. Implementation prerequisites, proposed choices, verification gates, and handoff prompts live under `docs/implementation/` and remain subordinate to those sources.
 
 Do not invent repository paths, commands, supported behavior, dependency choices, or production guarantees. Introduce them only with the implementation and evidence that make them true, and update this guidance in the same change when they become durable repository facts.
 
@@ -54,7 +54,7 @@ Keep requested and observed state distinct. Render waiting, degraded, cancelling
 
 ## Verification
 
-No repository-wide build or test baseline exists yet. Do not claim one. For the current documentation scaffold, verify Markdown structure, repository-relative links, and the complete diff. When a toolchain is introduced, add reproducible local commands and CI in the same change, then replace this paragraph with the verified baseline.
+Use Go 1.26.5, Node.js 24 LTS, and pnpm 11.13.1 as pinned by `.go-version`, `.nvmrc`, and `package.json`. Install JavaScript dependencies with `pnpm install --frozen-lockfile`. Run `pnpm verify` for the repository-wide baseline: formatting, linting, contract checks, type checking, Go and workbench tests, and production builds. Use `pnpm dev:api` and `pnpm dev:workbench` for the two bootstrap processes. CI runs the same install and verification commands.
 
 Behavior changes require tests at the appropriate contract, integration, security, resilience, or accessibility layer. Do not claim a check passed unless it ran; report checks that could not run and why.
 
