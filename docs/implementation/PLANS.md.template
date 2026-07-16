@@ -1,0 +1,61 @@
+# DataGround execution plan
+
+## Outcome
+
+State the user-visible or operator-visible result.
+
+## Authority and context
+
+- Relevant ADRs:
+- Specification sections:
+- Public schemas/resources:
+- Existing implementation/tests:
+
+## Constraints
+
+- Security/isolation:
+- Compatibility:
+- Deployment profiles:
+- Explicit non-goals:
+
+## Unknowns and assumptions
+
+List only assumptions that could change the result. Mark each as verified, safe temporary default, or blocking.
+
+## Milestones
+
+For each milestone include:
+
+- behavior delivered;
+- files/modules expected to change;
+- contract or migration impact;
+- tests and observable evidence;
+- rollback or safe stopping point.
+
+## Failure model
+
+Cover invalid input, authorization denial, duplicate command, timeout, lost acknowledgement, process restart, dependency failure, cancellation and partial external effects.
+
+## Verification
+
+- Build/type/lint:
+- Unit/contract:
+- Integration:
+- Security/isolation:
+- Resilience/failure injection:
+- UI/accessibility:
+- Manual evidence:
+
+## Five review passes
+
+Record only findings that materially improve the plan or implementation. Leave a pass unchanged when it finds no genuine improvement.
+
+- Contract fidelity:
+- Scope and instruction precedence:
+- Security and isolation:
+- Failure recovery and operability:
+- Maintainability, documentation, and regression:
+
+## Completion record
+
+Summarize changes, commands/results, migrations, compatibility notes, remaining risks and follow-up work. Do not claim checks that were not run.

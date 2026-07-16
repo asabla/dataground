@@ -4,7 +4,9 @@ DataGround is security-sensitive platform infrastructure for data workloads, not
 
 ## Current repository state
 
-This repository is an initial scaffold. It does not yet contain application code, build manifests, deployment configuration, canonical architecture documents, or verified build and test commands. Do not invent repository paths, commands, supported behavior, dependency choices, or production guarantees. Introduce them only with the implementation and evidence that make them true, and update this guidance in the same change when they become durable repository facts.
+This repository contains its architecture foundation but not application code, build manifests, deployment configuration, or verified build and test commands. The normative sources are `docs/architecture/decision-register.md` and `docs/architecture/system-specification.md`, in that order when they conflict. Implementation prerequisites, proposed choices, verification gates, and handoff prompts live under `docs/implementation/` and remain subordinate to those sources.
+
+Do not invent repository paths, commands, supported behavior, dependency choices, or production guarantees. Introduce them only with the implementation and evidence that make them true, and update this guidance in the same change when they become durable repository facts.
 
 The first implementation milestone is a governed agent-service vertical slice. It must establish platform-native resources, immutable revisions, invocations, typed event replay, cancellation, artifacts, usage, audit, and a deterministic reference runtime before integrating broad notebook, lakehouse, job, or compatibility surfaces.
 
