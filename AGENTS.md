@@ -4,7 +4,7 @@ DataGround is security-sensitive platform infrastructure for data workloads, not
 
 ## Current repository state
 
-This repository contains an executable foundation: the Go API entry point is under `cmd/dataground-api`, internal Go packages are under `internal`, the React workbench is under `apps/workbench`, and canonical public contracts, examples, compatibility baselines, and generated types are under `contracts` and `apps/workbench/src/contracts`. The normative sources are `docs/architecture/decision-register.md` and `docs/architecture/system-specification.md`, in that order when they conflict. Implementation prerequisites, proposed choices, verification gates, and handoff prompts live under `docs/implementation/` and remain subordinate to those sources.
+This repository contains an executable foundation: the Go API entry point is under `cmd/dataground-api`, internal Go packages are under `internal`, the React workbench is under `apps/workbench`, shared design tokens and accessible primitives are under `packages/tokens` and `packages/ui`, and canonical public contracts, examples, compatibility baselines, and generated types are under `contracts` and `apps/workbench/src/contracts`. The normative sources are `docs/architecture/decision-register.md` and `docs/architecture/system-specification.md`, in that order when they conflict. Implementation prerequisites, proposed choices, verification gates, and handoff prompts live under `docs/implementation/` and remain subordinate to those sources.
 
 Do not invent repository paths, commands, supported behavior, dependency choices, or production guarantees. Introduce them only with the implementation and evidence that make them true, and update this guidance in the same change when they become durable repository facts.
 
@@ -50,11 +50,13 @@ Logs, traces, metrics, and audit records share correlation fields but have diffe
 
 Use semantic design tokens and shared accessible primitives before creating local variants. WCAG 2.2 AA is the complete-journey target. All functions must be keyboard-operable with visible focus, and color must never carry status alone.
 
+Token source files conform to the pinned DTCG 2025.10 subset documented in `docs/development/design-system.md`. Edit source token files and run `pnpm tokens:generate`; never edit generated CSS, JavaScript, or declarations directly. Shared primitives belong in `@dataground/ui`, remain free of product authorization and data loading, and require a Storybook contract plus focused tests before adoption by the workbench.
+
 Keep requested and observed state distinct. Render waiting, degraded, cancelling, failed, and unknown states explicitly. Event-rich interactions include tools, processes, files, questions, approvals, usage, lifecycle, and artifacts rather than reducing every runtime to chat messages. Approval interfaces must not imply authority that policy and enforcement cannot represent.
 
 ## Verification
 
-Use Go 1.26.5, Node.js 24 LTS, and pnpm 11.13.1 as pinned by `.go-version`, `.nvmrc`, and `package.json`. Install JavaScript dependencies with `pnpm install --frozen-lockfile`. Run `pnpm verify` for the repository-wide baseline: formatting, linting, contract and generated-type checks, type checking, Go and workbench tests, and production builds. After an accepted OpenAPI change, run `pnpm contracts:generate`; never edit generated contract types directly. Use `pnpm dev:api` and `pnpm dev:workbench` for the development processes. CI runs the same install and verification commands.
+Use Go 1.26.5, Node.js 24 LTS, and pnpm 11.13.1 as pinned by `.go-version`, `.nvmrc`, and `package.json`. Install JavaScript dependencies with `pnpm install --frozen-lockfile`. Run `pnpm verify` for the repository-wide baseline: formatting, linting, contract and generated-artifact checks, type checking, Go, token, UI, workbench, browser-story and accessibility tests, and production builds. After an accepted OpenAPI change, run `pnpm contracts:generate`; never edit generated contract types directly. Use `pnpm dev:api`, `pnpm dev:workbench`, and `pnpm dev:design-system` for the development processes. CI runs the same install and verification commands.
 
 Behavior changes require tests at the appropriate contract, integration, security, resilience, or accessibility layer. Do not claim a check passed unless it ran; report checks that could not run and why.
 

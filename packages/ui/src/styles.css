@@ -1,0 +1,130 @@
+@import "@dataground/tokens/styles.css";
+
+.dg-button {
+  min-height: var(--dg-density-control-height);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--dg-space-2);
+  padding: 0 var(--dg-space-4);
+  border: var(--dg-border-default) solid var(--dg-color-border-default);
+  border-radius: var(--dg-radius-control);
+  background: var(--dg-color-surface-default);
+  color: var(--dg-color-text-primary);
+  font: inherit;
+  font-weight: var(--dg-font-weight-medium);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dg-motion-duration-fast) ease-out,
+    border-color var(--dg-motion-duration-fast) ease-out,
+    color var(--dg-motion-duration-fast) ease-out,
+    transform var(--dg-motion-duration-fast) ease-out;
+}
+
+.dg-button.is-focus-visible {
+  outline: var(--dg-border-strong) solid var(--dg-color-focus);
+  outline-offset: var(--dg-space-1);
+}
+
+.dg-button.is-pressed {
+  transform: translateY(var(--dg-border-default));
+}
+
+.dg-button.is-disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.dg-button--primary {
+  border-color: var(--dg-color-action-primary);
+  background: var(--dg-color-action-primary);
+  color: var(--dg-color-text-on-accent);
+  font-weight: var(--dg-font-weight-bold);
+}
+
+.dg-button--primary.is-hovered {
+  border-color: var(--dg-color-action-primary-hover);
+  background: var(--dg-color-action-primary-hover);
+}
+
+.dg-button--secondary.is-hovered {
+  background: var(--dg-color-surface-hover);
+}
+
+.dg-button--quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--dg-color-action-primary);
+}
+
+.dg-button--quiet.is-hovered {
+  background: var(--dg-color-action-subtle);
+}
+
+.dg-button--danger {
+  border-color: var(--dg-color-status-critical);
+  background: transparent;
+  color: var(--dg-color-status-critical);
+}
+
+.dg-button--danger.is-hovered {
+  background: var(--dg-color-status-critical-surface);
+}
+
+.dg-status-badge {
+  min-height: 1.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dg-space-2);
+  padding: 0 var(--dg-space-3);
+  border: var(--dg-border-default) solid var(--dg-color-border-default);
+  border-radius: var(--dg-radius-round);
+  color: var(--dg-color-text-secondary);
+  font-size: var(--dg-font-size-caption);
+  font-weight: var(--dg-font-weight-semibold);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.dg-status-badge__marker {
+  width: 0.5rem;
+  height: 0.5rem;
+  border: var(--dg-border-strong) solid currentColor;
+  border-radius: 50%;
+}
+
+.dg-status-badge[data-tone="active"] {
+  border-color: var(--dg-color-action-primary);
+  background: var(--dg-color-action-subtle);
+  color: var(--dg-color-action-primary);
+}
+
+.dg-status-badge[data-tone="waiting"],
+.dg-status-badge[data-tone="warning"] {
+  border-color: var(--dg-color-status-waiting);
+  background: var(--dg-color-status-waiting-surface);
+  color: var(--dg-color-status-waiting);
+}
+
+.dg-status-badge[data-tone="waiting"] .dg-status-badge__marker {
+  border-radius: 0;
+}
+
+.dg-status-badge[data-tone="success"] {
+  border-color: var(--dg-color-status-success);
+  background: var(--dg-color-status-success-surface);
+  color: var(--dg-color-status-success);
+}
+
+.dg-status-badge[data-tone="critical"] {
+  border-color: var(--dg-color-status-critical);
+  background: var(--dg-color-status-critical-surface);
+  color: var(--dg-color-status-critical);
+}
+
+.dg-status-badge[data-tone="critical"] .dg-status-badge__marker {
+  border-radius: 0;
+  transform: rotate(45deg);
+}

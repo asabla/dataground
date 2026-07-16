@@ -8,20 +8,24 @@
     "pnpm": "11.13.1"
   },
   "scripts": {
-    "build": "pnpm run build:api && pnpm run build:workbench",
+    "build": "pnpm run build:design-system && pnpm run build:api && pnpm run build:workbench",
     "build:api": "go build -o .cache/bin/dataground-api ./cmd/dataground-api",
+    "build:design-system": "pnpm --filter @dataground/tokens build && pnpm --filter @dataground/ui build && pnpm --filter @dataground/ui storybook:build",
     "build:workbench": "pnpm --filter @dataground/workbench build",
     "contracts:check": "node scripts/check-contracts.mjs",
     "contracts:generate": "node scripts/generate-contracts.mjs --write",
     "contracts:generate:check": "node scripts/generate-contracts.mjs",
     "dev:api": "go run ./cmd/dataground-api",
+    "dev:design-system": "pnpm --filter @dataground/ui storybook",
     "dev:workbench": "pnpm --filter @dataground/workbench dev",
-    "format": "biome check --write apps contracts scripts package.json tsconfig.base.json biome.json && gofmt -w cmd internal",
-    "format:check": "biome format apps contracts scripts package.json tsconfig.base.json biome.json && node scripts/check-go-format.mjs",
-    "lint": "biome lint apps contracts scripts package.json tsconfig.base.json biome.json && go vet ./...",
-    "test": "go test ./... && pnpm --filter @dataground/workbench test",
-    "typecheck": "pnpm --filter @dataground/workbench typecheck",
-    "verify": "pnpm run format:check && pnpm run lint && pnpm run contracts:check && pnpm run contracts:generate:check && pnpm run typecheck && pnpm run test && pnpm run build"
+    "format": "biome check --write apps packages contracts scripts package.json tsconfig.base.json biome.json && gofmt -w cmd internal",
+    "format:check": "biome format apps packages contracts scripts package.json tsconfig.base.json biome.json && node scripts/check-go-format.mjs",
+    "lint": "biome lint apps packages contracts scripts package.json tsconfig.base.json biome.json && go vet ./...",
+    "test": "go test ./... && pnpm --filter @dataground/tokens test && pnpm --filter @dataground/ui test && pnpm --filter @dataground/ui test:stories && pnpm --filter @dataground/workbench test",
+    "tokens:check": "pnpm --filter @dataground/tokens check",
+    "tokens:generate": "pnpm --filter @dataground/tokens build",
+    "typecheck": "pnpm --filter @dataground/ui typecheck && pnpm --filter @dataground/workbench typecheck",
+    "verify": "pnpm run format:check && pnpm run lint && pnpm run contracts:check && pnpm run contracts:generate:check && pnpm run tokens:check && pnpm run typecheck && pnpm run test && pnpm run build"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.4",

@@ -1,0 +1,18 @@
+{
+  "name": "@dataground/tokens",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/generated/tokens.d.ts",
+      "default": "./src/generated/tokens.js"
+    },
+    "./styles.css": "./src/generated/tokens.css"
+  },
+  "scripts": {
+    "build": "node scripts/build-tokens.mjs --write",
+    "check": "node scripts/build-tokens.mjs --check",
+    "test": "node --test test/*.test.mjs"
+  }
+}
