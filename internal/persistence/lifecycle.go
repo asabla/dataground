@@ -388,9 +388,10 @@ func (repository *Repository) RepairOperation(
 	actorID string,
 	reason string,
 	deduplicationID string,
+	newDeadline time.Time,
 ) error {
-	if actorID == "" || reason == "" || deduplicationID == "" {
-		return errors.New("repair requires actor, reason, and deduplication ID")
+	if actorID == "" || reason == "" || deduplicationID == "" || !newDeadline.After(repository.now()) {
+		return errors.New("repair requires actor, reason, deduplication ID, and a future deadline")
 	}
 	table, _, _, err := operationTable(kind)
 	if err != nil {
@@ -402,7 +403,7 @@ func (repository *Repository) RepairOperation(
 	}
 	defer tx.Rollback(ctx)
 	now := repository.now()
-	digest := sha256.Sum256([]byte(kind + ":" + operationID + ":" + reason))
+	digest := sha256.Sum256([]byte(kind + ":" + operationID + ":" + reason + ":" + newDeadline.Format(time.RFC3339Nano)))
 	result, err := tx.Exec(ctx, `
 		INSERT INTO inbox_records (
 			isolation_domain_id, source_kind, deduplication_id,
@@ -432,13 +433,13 @@ func (repository *Repository) RepairOperation(
 	query := fmt.Sprintf(`
 		UPDATE %s
 		SET command = 'repair', observed_state = 'queued',
-		    generation = generation + 1, due_at = $3,
+		    generation = generation + 1, due_at = $3, deadline_at = $4,
 		    error_classification = NULL, error = NULL, terminal_result = NULL,
 		    lease_owner = NULL, lease_expires_at = NULL,
 		    last_transition_at = $3, updated_at = $3
 		WHERE isolation_domain_id = $1 AND id = $2 AND observed_state = 'failed'
 	`, table)
-	result, err = tx.Exec(ctx, query, isolationDomainID, operationID, now)
+	result, err = tx.Exec(ctx, query, isolationDomainID, operationID, now, newDeadline)
 	if err != nil {
 		return fmt.Errorf("requeue failed operation: %w", err)
 	}

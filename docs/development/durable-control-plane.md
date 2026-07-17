@@ -50,10 +50,11 @@ DATAGROUND_DATABASE_URL="$DATABASE_URL" go run ./cmd/dataground-repair \
   -operation op_example000000000000000 \
   -actor operator@example.invalid \
   -reason 'provider recovered after incident' \
-  -deduplication-id incident-123-repair-1
+  -deduplication-id incident-123-repair-1 \
+  -deadline 30m
 ```
 
-The command is repeatable: its deduplication record, operation transition, outbox event, and audit record commit atomically. Reusing the deduplication ID with different content is rejected. The reason contributes to the immutable command digest; the audit record carries the actor, operation, outcome, and deduplication correlation without copying free text into telemetry. It does not repair cancelled or successful operations. Until platform authentication exists, access to this executable and its database credential is the authorization boundary; do not expose it through the public API.
+The new deadline is required because the failed operation's original deadline may already have expired. The command is repeatable: its deduplication record, operation transition, outbox event, and audit record commit atomically. Reusing the deduplication ID with different content, including a different deadline, is rejected. The reason contributes to the immutable command digest; the audit record carries the actor, operation, outcome, and deduplication correlation without copying free text into telemetry. It does not repair cancelled or successful operations. Until platform authentication exists, access to this executable and its database credential is the authorization boundary; do not expose it through the public API.
 
 ## Safe telemetry
 
