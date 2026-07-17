@@ -8,8 +8,9 @@
     "pnpm": "11.13.1"
   },
   "scripts": {
-    "build": "pnpm run build:design-system && pnpm run build:api && pnpm run build:workbench",
+    "build": "pnpm run build:design-system && pnpm run build:control-plane && pnpm run build:workbench",
     "build:api": "go build -o .cache/bin/dataground-api ./cmd/dataground-api",
+    "build:control-plane": "go build ./cmd/...",
     "build:design-system": "pnpm --filter @dataground/tokens build && pnpm --filter @dataground/ui build && pnpm --filter @dataground/ui storybook:build",
     "build:workbench": "pnpm --filter @dataground/workbench build",
     "contracts:check": "node scripts/check-contracts.mjs",

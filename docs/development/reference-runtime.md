@@ -1,10 +1,10 @@
 # Deterministic reference runtime
 
 The reference runtime proves DataGround's native agent-service contract without OpenShell,
-provider credentials, or a native harness. It is intentionally in-memory and local-development
-only. Restarting the process loses all resources, idempotency records, artifacts, and event
-journals. It does not implement authentication, authorization, audit, durable reconciliation, or
-artifact content storage.
+provider credentials, or a native harness. It has two modes. Process-local mode is intentionally
+in-memory and loopback-only. Durable mode stores commands and event journals in PostgreSQL and
+executes them through a replaceable worker with persistent reference-provider receipts. Neither
+mode implements authentication, Cedar authorization, a real harness, or artifact content storage.
 
 ## Implemented lifecycle
 
@@ -51,6 +51,9 @@ SSE `id` values are invocation-local journal sequences. Reconnecting with `Last-
 only later records with stable event identities. Identical mutation retries return the first
 response; reuse of the same key with a different body returns `IDEMPOTENCY_KEY_REUSED`.
 
-This implementation is not restart-safe and must not be presented as the durable control plane.
-Prompt `02` replaces process-local state with PostgreSQL state machines, durable idempotency,
-transactional outbox records, and restart recovery while preserving these public contracts.
+Process-local mode is not restart-safe and must not be presented as the durable control plane.
+Durable mode uses explicit publication and invocation tables, durable `due_at` timers, expiring
+leases with monotonically increasing fencing tokens, transactional outbox and audit writes, and
+deterministic external effect IDs. A replacement worker observes the persistent provider receipt
+before repeating an ambiguous effect. Operational limits and recovery procedures are documented
+in [durable control-plane operations](durable-control-plane.md).

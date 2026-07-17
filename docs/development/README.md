@@ -4,13 +4,16 @@
 
 DataGround currently uses Go 1.26.5, Node.js 24 LTS, and pnpm 11.13.1. Version managers may read `.go-version` and `.nvmrc`; Corepack or another pnpm installation must honor the exact `packageManager` field in `package.json`.
 
-The repository does not require Docker, Kubernetes, PostgreSQL, OpenShell, or Rosetta for bootstrap verification. Those dependencies are introduced only with their contract and conformance tests.
+PostgreSQL 18 is required for durable integration tests and durable control-plane operation. The ordinary local verification command skips database integration tests when `DATAGROUND_TEST_DATABASE_URL` is absent; CI requires them. Kubernetes, OpenShell, and Rosetta are not yet runtime dependencies.
 
 ## Repository layout
 
 | Path | Responsibility |
 | --- | --- |
 | `cmd/dataground-api` | Go API process entry point |
+| `cmd/dataground-worker` | Replaceable publication and invocation reconciler |
+| `cmd/dataground-migrate` | PostgreSQL schema migration and compatibility check |
+| `cmd/dataground-repair` | Audited failed-operation repair command |
 | `internal` | Platform-owned Go implementation packages |
 | `apps/workbench` | TypeScript/React workbench application |
 | `packages/tokens` | DTCG token sources, deterministic generator, themes and densities |
@@ -47,7 +50,7 @@ Regenerate the typed workbench contract after an accepted OpenAPI change:
 pnpm contracts:generate
 ```
 
-Start the development processes separately:
+The process-local deterministic server remains available for contract work:
 
 ```shell
 pnpm dev:api
@@ -56,7 +59,17 @@ pnpm dev:design-system
 pnpm --filter @dataground/ui test:stories
 ```
 
-The API uses `DATAGROUND_HTTP_ADDRESS` when set and otherwise listens only on `127.0.0.1:8080`. It exposes health endpoints and the in-memory reference agent-service lifecycle described in [reference runtime guidance](reference-runtime.md). The workbench uses Vite's development server. Storybook documents shared component contracts and is not a product application. None of these processes currently implements authentication, persistence, audit, or infrastructure integration. Any non-loopback API bind must be an explicit deployment decision with the appropriate network boundary.
+The API listens on `127.0.0.1:8080` by default. Process-local mode refuses non-loopback binding and exposes the in-memory reference agent-service lifecycle described in [reference runtime guidance](reference-runtime.md). The workbench uses Vite's development server. Storybook documents shared component contracts and is not a product application.
+
+To run durable mode, migrate a PostgreSQL database and start the API and worker with the same `DATAGROUND_DATABASE_URL`:
+
+```shell
+DATAGROUND_DATABASE_URL='postgres://dataground:dataground@127.0.0.1:5432/dataground?sslmode=disable' go run ./cmd/dataground-migrate up
+DATAGROUND_DATABASE_URL='postgres://dataground:dataground@127.0.0.1:5432/dataground?sslmode=disable' go run ./cmd/dataground-api
+DATAGROUND_DATABASE_URL='postgres://dataground:dataground@127.0.0.1:5432/dataground?sslmode=disable' go run ./cmd/dataground-worker
+```
+
+Durable mode persists resources, idempotency results, explicit publication and invocation operations, event replay, external-effect receipts, outbox events, and audit records. It may use `DATAGROUND_HTTP_ADDRESS` for an explicit non-loopback bind, but it still has no authentication or Cedar authorization boundary and must remain behind a trusted development network boundary. See [durable control-plane operations](durable-control-plane.md).
 
 See [design-system guidance](design-system.md) before changing token source, component APIs, themes, density behavior, or Storybook configuration.
 

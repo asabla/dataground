@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/asabla/dataground/internal/api"
+	"github.com/asabla/dataground/internal/persistence"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const defaultAddress = "127.0.0.1:8080"
@@ -22,9 +24,33 @@ func main() {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	handler := api.NewHandler()
+	var pool *pgxpool.Pool
+	if databaseURL := os.Getenv("DATAGROUND_DATABASE_URL"); databaseURL != "" {
+		startupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		database, err := persistence.OpenSQL(startupCtx, databaseURL)
+		if err == nil {
+			err = persistence.RequireCurrentSchema(startupCtx, database)
+			database.Close()
+		}
+		if err == nil {
+			pool, err = persistence.OpenPool(startupCtx, databaseURL)
+		}
+		cancel()
+		if err != nil {
+			logger.Error("durable API startup failed", "error", err)
+			os.Exit(1)
+		}
+		defer pool.Close()
+		handler = api.NewDurableHandler(persistence.NewRepository(pool))
+		logger.Info("durable PostgreSQL mode enabled")
+	} else if address != defaultAddress {
+		logger.Error("process-local reference mode may only bind to the default loopback address")
+		os.Exit(1)
+	}
 	server := &http.Server{
 		Addr:              address,
-		Handler:           api.NewHandler(),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

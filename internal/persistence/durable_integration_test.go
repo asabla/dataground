@@ -1,0 +1,222 @@
+package persistence_test
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/asabla/dataground/internal/domain"
+	"github.com/asabla/dataground/internal/identity"
+	"github.com/asabla/dataground/internal/outbox"
+	"github.com/asabla/dataground/internal/persistence"
+	"github.com/asabla/dataground/internal/reconcile"
+	"github.com/asabla/dataground/internal/reference"
+	"github.com/jackc/pgx/v5"
+)
+
+func TestDurablePublicationInvocationAndFencing(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	databaseURL := testDatabaseURL(t)
+	database, err := persistence.OpenSQL(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := persistence.MigrateDownTo(ctx, database, 0); err != nil {
+		database.Close()
+		t.Fatalf("reset schema: %v", err)
+	}
+	if err := persistence.MigrateUp(ctx, database); err != nil {
+		database.Close()
+		t.Fatalf("migrate schema: %v", err)
+	}
+	database.Close()
+	pool, err := persistence.OpenPool(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	repository := persistence.NewRepository(pool)
+	domainID := identity.New("iso")
+	actorID := "integration-test"
+	serviceID := identity.New("svc")
+	revisionID := identity.New("rev")
+
+	createService, err := repository.CreateService(ctx, testIdempotency(domainID, "create-service"), persistence.CreateServiceInput{
+		ID: serviceID, Name: "durable-test", ActorID: actorID, CorrelationID: identity.New("cor"),
+	})
+	if err != nil || createService.Status != http.StatusCreated {
+		t.Fatalf("create service = (%d, %v)", createService.Status, err)
+	}
+	replayed, err := repository.CreateService(ctx, testIdempotency(domainID, "create-service"), persistence.CreateServiceInput{
+		ID: identity.New("svc"), Name: "ignored-replay", ActorID: actorID, CorrelationID: identity.New("cor"),
+	})
+	if err != nil || !replayed.Replayed || string(replayed.Body) != string(createService.Body) {
+		t.Fatalf("idempotency replay = (%t, %v)", replayed.Replayed, err)
+	}
+	_, err = repository.CreateRevision(ctx, testIdempotency(domainID, "create-revision"), persistence.CreateRevisionInput{
+		ID: revisionID, ServiceID: serviceID, RuntimeProfile: "reference/v1",
+		RequiredCapabilities: []string{"tool"}, ActorID: actorID, CorrelationID: identity.New("cor"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	publish, err := repository.AcceptPublication(ctx, testIdempotency(domainID, "publish"), persistence.AcceptPublicationInput{
+		RevisionID: revisionID, ExpectedVersion: 1, ActorID: actorID,
+		CorrelationID: identity.New("cor"), Deadline: time.Now().Add(time.Minute),
+	}, reference.Capabilities())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var publicationOperation domain.Operation
+	if err := json.Unmarshal(publish.Body, &publicationOperation); err != nil {
+		t.Fatal(err)
+	}
+
+	stale, err := repository.ClaimNext(ctx, persistence.OperationKindPublication, "stale-worker", -time.Second)
+	if err != nil || stale == nil {
+		t.Fatalf("claim stale lease = (%v, %v)", stale, err)
+	}
+	if err := repository.Advance(ctx, *stale, "validating", nil); !errors.Is(err, persistence.ErrLeaseLost) {
+		t.Fatalf("stale transition = %v, want ErrLeaseLost", err)
+	}
+
+	worker := reconcile.New(repository, reconcile.NewReferenceDriver(pool), "replacement-worker")
+	runToTerminal(t, ctx, worker, repository, domainID, publicationOperation.Metadata.ID, "published")
+
+	aliasID := identity.New("als")
+	_, err = repository.AssignAlias(ctx, testIdempotency(domainID, "assign-alias"), persistence.AssignAliasInput{
+		ID: aliasID, ServiceID: serviceID, Name: "stable", RevisionID: revisionID,
+		ActorID: actorID, CorrelationID: identity.New("cor"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocationID := identity.New("inv")
+	accepted, err := repository.AcceptInvocation(ctx, testIdempotency(domainID, "invoke"), persistence.AcceptInvocationInput{
+		ID: invocationID, ServiceID: serviceID, Alias: "stable", Input: map[string]any{"message": "hello"},
+		ActorID: actorID, CorrelationID: identity.New("cor"), Deadline: time.Now().Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var invocation domain.Invocation
+	if err := json.Unmarshal(accepted.Body, &invocation); err != nil {
+		t.Fatal(err)
+	}
+	runToTerminal(t, ctx, worker, repository, domainID, invocation.OperationID, "succeeded")
+	observed, err := repository.GetInvocation(ctx, domainID, invocationID)
+	if err != nil || observed.State != "succeeded" {
+		t.Fatalf("invocation state = (%q, %v)", observed.State, err)
+	}
+
+	cancelledInvocationID := identity.New("inv")
+	cancelAccepted, err := repository.AcceptInvocation(ctx, testIdempotency(domainID, "invoke-cancelled"), persistence.AcceptInvocationInput{
+		ID: cancelledInvocationID, ServiceID: serviceID, Alias: "stable", Input: map[string]any{"message": "cancel"},
+		ActorID: actorID, CorrelationID: identity.New("cor"), Deadline: time.Now().Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cancelledInvocation domain.Invocation
+	if err := json.Unmarshal(cancelAccepted.Body, &cancelledInvocation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.AcceptCancellation(ctx, testIdempotency(domainID, "cancel"), persistence.AcceptCancellationInput{
+		InvocationID: cancelledInvocationID, ActorID: actorID, CorrelationID: identity.New("cor"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runToTerminal(t, ctx, worker, repository, domainID, cancelledInvocation.OperationID, "cancelled")
+	var cancelledEffects int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM external_effects
+		WHERE isolation_domain_id = $1 AND operation_id = $2
+	`, domainID, cancelledInvocation.OperationID).Scan(&cancelledEffects); err != nil {
+		t.Fatal(err)
+	}
+	if cancelledEffects != 0 {
+		t.Fatalf("cancelled queued invocation created %d external effects, want zero", cancelledEffects)
+	}
+	if _, err := repository.GetInvocation(ctx, identity.New("iso"), invocationID); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("cross-domain invocation read error = %v, want pgx.ErrNoRows", err)
+	}
+
+	var transitionEvents int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM outbox_events
+		WHERE isolation_domain_id = $1 AND aggregate_id IN ($2, $3)
+	`, domainID, publicationOperation.Metadata.ID, invocation.OperationID).Scan(&transitionEvents); err != nil {
+		t.Fatal(err)
+	}
+	if transitionEvents < 7 {
+		t.Fatalf("transition outbox events = %d, want at least 7", transitionEvents)
+	}
+	dispatcher := outbox.New(repository, outbox.AcknowledgePublisher{}, "outbox-worker")
+	for attempt := 0; attempt < 100; attempt++ {
+		ran, dispatchErr := dispatcher.RunOne(ctx)
+		if dispatchErr != nil {
+			t.Fatal(dispatchErr)
+		}
+		if !ran {
+			break
+		}
+	}
+	var pendingEvents int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM outbox_events WHERE status = 'pending'`).Scan(&pendingEvents); err != nil {
+		t.Fatal(err)
+	}
+	if pendingEvents != 0 {
+		t.Fatalf("pending outbox events = %d, want zero", pendingEvents)
+	}
+}
+
+func runToTerminal(
+	t *testing.T,
+	ctx context.Context,
+	worker *reconcile.Reconciler,
+	repository *persistence.Repository,
+	domainID string,
+	operationID string,
+	terminal string,
+) {
+	t.Helper()
+	for attempt := 0; attempt < 12; attempt++ {
+		operation, err := repository.GetOperation(ctx, domainID, operationID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if operation.ObservedState == terminal {
+			return
+		}
+		if _, err := worker.RunOne(ctx, operation.Kind); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Fatalf("operation %s did not reach %s", operationID, terminal)
+}
+
+func testIdempotency(domainID, key string) persistence.Idempotency {
+	digest := sha256.Sum256([]byte(key))
+	return persistence.Idempotency{
+		IsolationDomainID: domainID, Method: http.MethodPost, Path: "/integration/" + key,
+		Key: "test-" + key, RequestDigest: digest,
+	}
+}
+
+func testDatabaseURL(t *testing.T) string {
+	t.Helper()
+	databaseURL := os.Getenv("DATAGROUND_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		if os.Getenv("DATAGROUND_REQUIRE_TEST_DATABASE") == "true" {
+			t.Fatal("DATAGROUND_TEST_DATABASE_URL is required")
+		}
+		t.Skip("DATAGROUND_TEST_DATABASE_URL is not set")
+	}
+	return databaseURL
+}

@@ -140,6 +140,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/isolation-domains/{isolationDomainId}/operations/{operationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Retrieve durable operation state */
+        get: operations["getOperation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel": {
         parameters: {
             query?: never;
@@ -467,6 +484,7 @@ export interface components {
         ServiceId: components["schemas"]["ServiceId"];
         RevisionId: components["schemas"]["RevisionId"];
         InvocationId: components["schemas"]["InvocationId"];
+        OperationId: components["schemas"]["OperationId"];
         ArtifactId: components["schemas"]["ArtifactId"];
         Alias: components["schemas"]["AliasName"];
         /** @description Opaque caller key scoped to the isolation domain, HTTP method, and route. Reuse with a different body fails with IDEMPOTENCY_KEY_REUSED. */
@@ -613,6 +631,15 @@ export interface operations {
                     "application/json": components["schemas"]["ServiceRevision"];
                 };
             };
+            /** @description Publication accepted for durable reconciliation. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Operation"];
+                };
+            };
             400: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
@@ -712,6 +739,30 @@ export interface operations {
             404: components["responses"]["Error"];
         };
     };
+    getOperation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                operationId: components["parameters"]["OperationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operation state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Operation"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
     cancelInvocation: {
         parameters: {
             query?: never;
@@ -733,6 +784,15 @@ export interface operations {
         responses: {
             /** @description Cancellation observed. */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invocation"];
+                };
+            };
+            /** @description Cancellation accepted for durable reconciliation. */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };

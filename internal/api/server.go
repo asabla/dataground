@@ -2,9 +2,7 @@ package api
 
 import (
 	"bytes"
-	"crypto/rand"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/reference"
 )
 
@@ -45,6 +44,7 @@ type Server struct {
 	revisionCounts       map[string]int
 	aliases              map[string]ServiceAlias
 	invocations          map[string]Invocation
+	operations           map[string]Operation
 	events               map[string][]EventEnvelope
 	artifacts            map[string]ArtifactDescriptor
 	idempotencyResponses map[string]storedResponse
@@ -62,6 +62,7 @@ func NewServer() *Server {
 		revisionCounts:       make(map[string]int),
 		aliases:              make(map[string]ServiceAlias),
 		invocations:          make(map[string]Invocation),
+		operations:           make(map[string]Operation),
 		events:               make(map[string][]EventEnvelope),
 		artifacts:            make(map[string]ArtifactDescriptor),
 		idempotencyResponses: make(map[string]storedResponse),
@@ -79,6 +80,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}", server.assignServiceAlias)
 	mux.HandleFunc("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations", server.invokeAgentService)
 	mux.HandleFunc("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}", server.getInvocation)
+	mux.HandleFunc("GET /v1/isolation-domains/{isolationDomainId}/operations/{operationId}", server.getOperation)
 	mux.HandleFunc("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel", server.cancelInvocation)
 	mux.HandleFunc("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/events", server.streamInvocationEvents)
 	mux.HandleFunc("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts/{artifactId}", server.getInvocationArtifact)
@@ -303,6 +305,7 @@ func (server *Server) invokeAgentService(response http.ResponseWriter, request *
 		now := server.now()
 		invocationID := newID("inv")
 		correlationID := newID("cor")
+		operationID := newID("op")
 		invocation := Invocation{
 			Metadata:      newMetadata(invocationID, domainID, now),
 			ServiceID:     serviceID,
@@ -311,7 +314,7 @@ func (server *Server) invokeAgentService(response http.ResponseWriter, request *
 			State:         "running",
 			Input:         input.Input,
 			CorrelationID: correlationID,
-			OperationID:   newID("op"),
+			OperationID:   operationID,
 			ArtifactIDs:   []string{},
 		}
 		journal := make([]EventEnvelope, 0, len(normalized))
@@ -344,6 +347,24 @@ func (server *Server) invokeAgentService(response http.ResponseWriter, request *
 		key := resourceKey(domainID, invocationID)
 		server.invocations[key] = invocation
 		server.events[key] = journal
+		operationState := invocation.State
+		if operationState == "running" {
+			operationState = "observing"
+		}
+		server.operations[resourceKey(domainID, operationID)] = Operation{
+			Metadata:            newMetadata(operationID, domainID, now),
+			Kind:                "invocation-execution",
+			Command:             "invoke",
+			DesiredState:        "succeeded",
+			ObservedState:       operationState,
+			StateMachineVersion: 1,
+			Attempt:             1,
+			CorrelationID:       correlationID,
+			DueAt:               &now,
+			DeadlineAt:          &now,
+			TerminalResult:      invocation.Result,
+			Error:               invocation.Error,
+		}
 		return http.StatusAccepted, invocation
 	})
 }
@@ -363,6 +384,23 @@ func (server *Server) getInvocation(response http.ResponseWriter, request *http.
 		return
 	}
 	writeJSON(response, http.StatusOK, invocation)
+}
+
+func (server *Server) getOperation(response http.ResponseWriter, request *http.Request) {
+	domainID, apiError := isolationDomain(request)
+	if apiError != nil {
+		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: *apiError})
+		return
+	}
+	server.mu.RLock()
+	operation, exists := server.operations[resourceKey(domainID, request.PathValue("operationId"))]
+	server.mu.RUnlock()
+	if !exists {
+		status, body := notFound("Operation was not found.")
+		writeJSON(response, status, body)
+		return
+	}
+	writeJSON(response, http.StatusOK, operation)
 }
 
 func (server *Server) cancelInvocation(response http.ResponseWriter, request *http.Request) {
@@ -398,6 +436,14 @@ func (server *Server) cancelInvocation(response http.ResponseWriter, request *ht
 		invocation.Metadata.Version++
 		invocation.Metadata.UpdatedAt = now
 		server.invocations[key] = invocation
+		operation := server.operations[resourceKey(domainID, invocation.OperationID)]
+		operation.Command = "cancel"
+		operation.DesiredState = "cancelled"
+		operation.ObservedState = "cancelled"
+		operation.Metadata.Generation++
+		operation.Metadata.Version++
+		operation.Metadata.UpdatedAt = now
+		server.operations[resourceKey(domainID, invocation.OperationID)] = operation
 		server.events[key] = append(server.events[key], EventEnvelope{
 			SchemaVersion:     "dataground.event/v1",
 			ID:                derivedID("evt", invocation.Metadata.ID+":cancel:"+strconv.FormatUint(sequence, 10)),
@@ -597,16 +643,11 @@ func newMetadata(id, domainID string, now time.Time) ResourceMetadata {
 }
 
 func newID(prefix string) string {
-	random := make([]byte, 10)
-	if _, err := rand.Read(random); err != nil {
-		panic("cryptographic identifier generation failed")
-	}
-	return prefix + "_" + hex.EncodeToString(random)
+	return identity.New(prefix)
 }
 
 func derivedID(prefix, seed string) string {
-	digest := sha256.Sum256([]byte(seed))
-	return prefix + "_" + hex.EncodeToString(digest[:10])
+	return identity.Derived(prefix, seed)
 }
 
 func resourceKey(domainID, resourceID string) string {

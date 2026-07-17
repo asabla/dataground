@@ -129,6 +129,14 @@
               }
             }
           },
+          "202": {
+            "description": "Publication accepted for durable reconciliation.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Operation" }
+              }
+            }
+          },
           "400": { "$ref": "#/components/responses/Error" },
           "404": { "$ref": "#/components/responses/Error" },
           "409": { "$ref": "#/components/responses/Error" },
@@ -224,6 +232,27 @@
         }
       }
     },
+    "/v1/isolation-domains/{isolationDomainId}/operations/{operationId}": {
+      "get": {
+        "operationId": "getOperation",
+        "summary": "Retrieve durable operation state",
+        "parameters": [
+          { "$ref": "#/components/parameters/IsolationDomainId" },
+          { "$ref": "#/components/parameters/OperationId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operation state.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Operation" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel": {
       "post": {
         "operationId": "cancelInvocation",
@@ -244,6 +273,14 @@
         "responses": {
           "200": {
             "description": "Cancellation observed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Invocation" }
+              }
+            }
+          },
+          "202": {
+            "description": "Cancellation accepted for durable reconciliation.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/Invocation" }
@@ -332,6 +369,12 @@
         "in": "path",
         "required": true,
         "schema": { "$ref": "#/components/schemas/InvocationId" }
+      },
+      "OperationId": {
+        "name": "operationId",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/OperationId" }
       },
       "ArtifactId": {
         "name": "artifactId",
