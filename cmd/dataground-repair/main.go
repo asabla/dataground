@@ -12,14 +12,16 @@ import (
 
 func main() {
 	var kind, domainID, operationID, actorID, reason, deduplicationID string
+	var deadline time.Duration
 	flag.StringVar(&kind, "kind", "", "service-publication or invocation-execution")
 	flag.StringVar(&domainID, "isolation-domain", "", "isolation domain identifier")
 	flag.StringVar(&operationID, "operation", "", "failed operation identifier")
 	flag.StringVar(&actorID, "actor", "", "authorized operator identifier")
 	flag.StringVar(&reason, "reason", "", "operator-visible repair reason")
 	flag.StringVar(&deduplicationID, "deduplication-id", "", "stable ID for repeatable repair")
+	flag.DurationVar(&deadline, "deadline", 15*time.Minute, "new operation deadline from now")
 	flag.Parse()
-	if kind == "" || domainID == "" || operationID == "" || actorID == "" || reason == "" || deduplicationID == "" {
+	if kind == "" || domainID == "" || operationID == "" || actorID == "" || reason == "" || deduplicationID == "" || deadline <= 0 {
 		fmt.Fprintln(os.Stderr, "all repair flags are required")
 		os.Exit(2)
 	}
@@ -34,7 +36,7 @@ func main() {
 	if err == nil {
 		defer pool.Close()
 		err = persistence.NewRepository(pool).RepairOperation(
-			ctx, kind, domainID, operationID, actorID, reason, deduplicationID,
+			ctx, kind, domainID, operationID, actorID, reason, deduplicationID, time.Now().UTC().Add(deadline),
 		)
 	}
 	if err != nil {

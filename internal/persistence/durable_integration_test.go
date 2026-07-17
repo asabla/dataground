@@ -147,6 +147,82 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 		t.Fatalf("cross-domain invocation read error = %v, want pgx.ErrNoRows", err)
 	}
 
+	repairRevisionID := identity.New("rev")
+	if _, err := repository.CreateRevision(ctx, testIdempotency(domainID, "create-repair-revision"), persistence.CreateRevisionInput{
+		ID: repairRevisionID, ServiceID: serviceID, RuntimeProfile: "reference/v1",
+		ActorID: actorID, CorrelationID: identity.New("cor"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	repairPublication, err := repository.AcceptPublication(ctx, testIdempotency(domainID, "publish-expired"), persistence.AcceptPublicationInput{
+		RevisionID: repairRevisionID, ExpectedVersion: 1, ActorID: actorID,
+		CorrelationID: identity.New("cor"), Deadline: time.Now().Add(-time.Second),
+	}, reference.Capabilities())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var repairOperation domain.Operation
+	if err := json.Unmarshal(repairPublication.Body, &repairOperation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worker.RunOne(ctx, persistence.OperationKindPublication); err != nil {
+		t.Fatal(err)
+	}
+	failedOperation, err := repository.GetOperation(ctx, domainID, repairOperation.Metadata.ID)
+	if err != nil || failedOperation.ObservedState != "failed" {
+		t.Fatalf("expired operation = (%q, %v), want failed", failedOperation.ObservedState, err)
+	}
+	newDeadline := time.Now().UTC().Add(time.Minute)
+	if err := repository.RepairOperation(
+		ctx, persistence.OperationKindPublication, domainID, repairOperation.Metadata.ID,
+		actorID, "injected recovery", "repair-dedup-1", newDeadline,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.RepairOperation(
+		ctx, persistence.OperationKindPublication, domainID, repairOperation.Metadata.ID,
+		actorID, "injected recovery", "repair-dedup-1", newDeadline,
+	); err != nil {
+		t.Fatalf("repeat repair: %v", err)
+	}
+	if err := repository.RepairOperation(
+		ctx, persistence.OperationKindPublication, domainID, repairOperation.Metadata.ID,
+		actorID, "different content", "repair-dedup-1", newDeadline,
+	); err == nil {
+		t.Fatal("repair deduplication conflict was accepted")
+	}
+	runToTerminal(t, ctx, worker, repository, domainID, repairOperation.Metadata.ID, "published")
+
+	callbackDigest := sha256.Sum256([]byte("callback-payload"))
+	callbackTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayedCallback, err := persistence.RecordInbox(
+		ctx, callbackTx, domainID, persistence.InboxCallback, "callback-1",
+		callbackDigest[:], map[string]any{"accepted": true}, time.Now().UTC(),
+	)
+	if err != nil || replayedCallback {
+		t.Fatalf("first callback inbox = (%v, %v)", replayedCallback, err)
+	}
+	if err := callbackTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	callbackTx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayedCallback, err = persistence.RecordInbox(
+		ctx, callbackTx, domainID, persistence.InboxCallback, "callback-1",
+		callbackDigest[:], map[string]any{"accepted": true}, time.Now().UTC(),
+	)
+	if err != nil || !replayedCallback {
+		t.Fatalf("callback replay = (%v, %v)", replayedCallback, err)
+	}
+	if err := callbackTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
 	var transitionEvents int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM outbox_events
