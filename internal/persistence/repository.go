@@ -184,6 +184,8 @@ func (repository *Repository) CreateRevision(
 		if err != nil {
 			return 0, nil, fmt.Errorf("encode output schema: %w", err)
 		}
+		requiredCapabilities := make([]string, len(input.RequiredCapabilities))
+		copy(requiredCapabilities, input.RequiredCapabilities)
 		_, err = tx.Exec(ctx, `
 			INSERT INTO service_revisions (
 				isolation_domain_id, id, service_id, revision_number, state,
@@ -196,7 +198,7 @@ func (repository *Repository) CreateRevision(
 			input.ServiceID,
 			revisionNumber,
 			input.RuntimeProfile,
-			input.RequiredCapabilities,
+			requiredCapabilities,
 			inputSchema,
 			outputSchema,
 			now,
@@ -211,7 +213,7 @@ func (repository *Repository) CreateRevision(
 			RevisionNumber:       revisionNumber,
 			State:                "draft",
 			RuntimeProfile:       input.RuntimeProfile,
-			RequiredCapabilities: append([]string(nil), input.RequiredCapabilities...),
+			RequiredCapabilities: requiredCapabilities,
 			InputSchema:          input.InputSchema,
 			OutputSchema:         input.OutputSchema,
 		}
