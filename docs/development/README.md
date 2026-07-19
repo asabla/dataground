@@ -2,7 +2,7 @@
 
 ## Toolchains
 
-DataGround currently uses Go 1.26.5, Node.js 24 LTS, and pnpm 11.13.1. Version managers may read `.go-version` and `.nvmrc`; Corepack or another pnpm installation must honor the exact `packageManager` field in `package.json`.
+DataGround currently uses Go 1.26.5, Node.js 24 LTS, and pnpm 11.15.0. Version managers may read `.go-version` and `.nvmrc`; Corepack or another pnpm installation must honor the exact `packageManager` field in `package.json`.
 
 PostgreSQL 18 is required for durable integration tests and durable control-plane operation. The ordinary local verification command skips database integration tests when `DATAGROUND_TEST_DATABASE_URL` is absent; CI requires them. Kubernetes, OpenShell, and Rosetta are not yet runtime dependencies.
 

@@ -56,7 +56,7 @@ Keep requested and observed state distinct. Render waiting, degraded, cancelling
 
 ## Verification
 
-Use Go 1.26.5, Node.js 24 LTS, and pnpm 11.13.1 as pinned by `.go-version`, `.nvmrc`, and `package.json`. Install JavaScript dependencies with `pnpm install --frozen-lockfile`. Run `pnpm verify` for the repository-wide baseline: formatting, linting, contract and generated-artifact checks, type checking, Go, token, UI, workbench, browser-story and accessibility tests, and production builds. After an accepted OpenAPI change, run `pnpm contracts:generate`; never edit generated contract types directly. Use `pnpm dev:api`, `pnpm dev:workbench`, and `pnpm dev:design-system` for the development processes. CI runs the same install and verification commands.
+Use the Go, Node.js, and pnpm versions pinned by `.go-version`, `.nvmrc`, and `package.json`. Install JavaScript dependencies with `pnpm install --frozen-lockfile`. Run `pnpm verify` for the repository-wide baseline: formatting, linting, contract and generated-artifact checks, type checking, Go, token, UI, workbench, browser-story and accessibility tests, and production builds. After an accepted OpenAPI change, run `pnpm contracts:generate`; never edit generated contract types directly. Use `pnpm dev:api`, `pnpm dev:workbench`, and `pnpm dev:design-system` for the development processes. CI runs the same install and verification commands.
 
 Behavior changes require tests at the appropriate contract, integration, security, resilience, or accessibility layer. Do not claim a check passed unless it ran; report checks that could not run and why.
 
