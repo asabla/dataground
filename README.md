@@ -2,7 +2,7 @@
 
 DataGround is a self-hosted-first data, notebook, and agent-execution platform. It combines a platform-owned control plane with governed OpenShell sandboxes, Cedar authorization, native agent-runtime adapters, durable resource reconciliation, and open data protocols.
 
-The repository contains an executable project foundation: a Go API process, a TypeScript/React workbench shell, versioned native contracts, an owned token and accessible-component foundation, deterministic process-local and PostgreSQL-backed reference runtimes, durable reconcilers, audit/outbox persistence, pinned toolchains, and continuous verification. A development-only OpenShell execution-provider boundary and immutable local profile are present, but no live runtime or provider credential path is certified yet. Authentication, Cedar authorization, production artifact storage, and production infrastructure integrations remain intentionally unimplemented.
+The repository contains an executable project foundation: a Go API process, a TypeScript/React workbench shell, versioned native contracts, an owned token and accessible-component foundation, deterministic process-local and PostgreSQL-backed reference runtimes, durable reconcilers, audit/outbox persistence, pinned toolchains, and continuous verification. A development-only OpenShell execution-provider boundary, durable PostgreSQL gateway-placement store, and immutable local profile are present, but no public OpenShell admission path, live runtime, or provider credential path is certified yet. Authentication, Cedar authorization, production artifact storage, and production infrastructure integrations remain intentionally unimplemented.
 
 ## Start here
 

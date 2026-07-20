@@ -69,7 +69,8 @@ func TestGatewaySelectionIsDeterministicAndDrainAware(t *testing.T) {
 	context := context.Background()
 	for _, id := range []string{"gateway-b", "gateway-a"} {
 		_, err := provider.RegisterGateway(context, execution.GatewayRegistration{
-			ID: id, Endpoint: "http://127.0.0.1:8080", Driver: "docker", Capabilities: []string{"codex.app-server"},
+			IsolationDomainID: "iso-a", ID: id, Endpoint: "http://127.0.0.1:8080", Driver: "docker",
+			Capabilities: []string{"codex.app-server"},
 		})
 		if err != nil {
 			t.Fatalf("register gateway: %v", err)
@@ -84,11 +85,11 @@ func TestGatewaySelectionIsDeterministicAndDrainAware(t *testing.T) {
 	if first.GatewayID != "gateway-a" {
 		t.Fatalf("expected stable gateway-a tie-break, got %q", first.GatewayID)
 	}
-	if err := provider.SetGatewayState(context, "gateway-b", execution.GatewayDraining); err != nil {
+	if err := provider.SetGatewayState(context, "iso-a", "gateway-b", execution.GatewayDraining); err != nil {
 		t.Fatalf("drain gateway: %v", err)
 	}
 	second, err := provider.SelectGateway(context, execution.PlacementRequest{
-		IsolationDomainID: "iso-b", OperationID: "op-b", RequiredCapabilities: []string{"codex.app-server"},
+		IsolationDomainID: "iso-a", OperationID: "op-b", RequiredCapabilities: []string{"codex.app-server"},
 	})
 	if err != nil {
 		t.Fatalf("select second gateway: %v", err)
@@ -102,12 +103,17 @@ func TestGatewaySelectionIsDeterministicAndDrainAware(t *testing.T) {
 	if err != nil || again != first {
 		t.Fatalf("placement was not idempotent: %#v, %v", again, err)
 	}
+	if _, err := provider.SelectGateway(context, execution.PlacementRequest{
+		IsolationDomainID: "iso-b", OperationID: "op-a", RequiredCapabilities: []string{"codex.app-server"},
+	}); !errors.Is(err, ErrNoGateway) {
+		t.Fatalf("cross-domain gateway selection = %v, want ErrNoGateway", err)
+	}
 }
 
 func TestGatewayResponseCannotSerializeEndpoint(t *testing.T) {
 	provider := New(Config{}, &scriptedRunner{})
 	gateway, err := provider.RegisterGateway(context.Background(), execution.GatewayRegistration{
-		ID: "gateway-a", Endpoint: "http://127.0.0.1:8080", Driver: "docker",
+		IsolationDomainID: "iso-a", ID: "gateway-a", Endpoint: "http://127.0.0.1:8080", Driver: "docker",
 	})
 	if err != nil {
 		t.Fatalf("register gateway: %v", err)
@@ -129,7 +135,7 @@ func TestGatewayRegistrationRejectsSecretBearingOrRemotePlaintextEndpoint(t *tes
 		"https://gateway.example.com/control?token=secret",
 	} {
 		_, err := provider.RegisterGateway(context.Background(), execution.GatewayRegistration{
-			ID: endpoint, Endpoint: endpoint, Driver: "docker",
+			IsolationDomainID: "iso-a", ID: endpoint, Endpoint: endpoint, Driver: "docker",
 		})
 		if err == nil {
 			t.Fatalf("unsafe gateway endpoint accepted: %q", endpoint)
@@ -190,7 +196,9 @@ func TestCreateRejectsUnreservedOrMismatchedPlacement(t *testing.T) {
 	if _, err := provider.Create(context.Background(), request); err == nil || !strings.Contains(err.Error(), "placement") {
 		t.Fatalf("mismatched placement accepted: %v", err)
 	}
-	request = createRequest(execution.Placement{ID: derivedID("plc", "iso-a:op-a"), GatewayID: "gateway-b"}, policyPath, policyDigest)
+	request = createRequest(execution.Placement{
+		IsolationDomainID: "iso-a", ID: derivedID("plc", "iso-a:op-a"), GatewayID: "gateway-b",
+	}, policyPath, policyDigest)
 	if _, err := provider.Create(context.Background(), request); err == nil || !strings.Contains(err.Error(), "reserved") {
 		t.Fatalf("forged placement accepted: %v", err)
 	}
@@ -238,7 +246,8 @@ func TestStartRuntimeKeepsNativeEndpointInsideAdapter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create execution: %v", err)
 	}
-	session, err := provider.StartRuntime(context.Background(), created.ID)
+	ref := execution.ExecutionRef{IsolationDomainID: created.IsolationDomainID, ID: created.ID}
+	session, err := provider.StartRuntime(context.Background(), ref)
 	if err != nil || session == nil {
 		t.Fatalf("start runtime: %v", err)
 	}
@@ -279,10 +288,11 @@ func TestTerminateIsIdempotentAfterProviderConfirmsAbsence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create execution: %v", err)
 	}
-	if err := provider.Terminate(context.Background(), created.ID); err != nil {
+	ref := execution.ExecutionRef{IsolationDomainID: created.IsolationDomainID, ID: created.ID}
+	if err := provider.Terminate(context.Background(), ref); err != nil {
 		t.Fatalf("recover ambiguous termination: %v", err)
 	}
-	if err := provider.Terminate(context.Background(), created.ID); err != nil {
+	if err := provider.Terminate(context.Background(), ref); err != nil {
 		t.Fatalf("repeat termination: %v", err)
 	}
 }
@@ -294,7 +304,7 @@ func TestListOrphansUsesDataGroundIdentityNotSandboxName(t *testing.T) {
 		{"name":"native-sandbox-c","phase":"Ready","labels":{}}
 	]`)}}}}
 	provider, _, _, _, _ := preparedProvider(t, runner)
-	orphans, err := provider.ListOrphans(context.Background(), "gateway-a", map[string]struct{}{"exe_known": {}})
+	orphans, err := provider.ListOrphans(context.Background(), "iso-a", "gateway-a", map[string]struct{}{"exe_known": {}})
 	if err != nil {
 		t.Fatalf("list orphans: %v", err)
 	}
@@ -320,7 +330,8 @@ func preparedProvider(t *testing.T, runner *scriptedRunner) (*Provider, *scripte
 	}}, runner)
 	context := context.Background()
 	_, err := provider.RegisterGateway(context, execution.GatewayRegistration{
-		ID: "gateway-a", Endpoint: "http://127.0.0.1:8080", Driver: "docker", Capabilities: []string{"codex.app-server"},
+		IsolationDomainID: "iso-a", ID: "gateway-a", Endpoint: "http://127.0.0.1:8080", Driver: "docker",
+		Capabilities: []string{"codex.app-server"},
 	})
 	if err != nil {
 		t.Fatalf("register gateway: %v", err)
