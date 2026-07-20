@@ -40,6 +40,13 @@ if (actualFixtureDigest !== profile.enforcement.sha256) {
 if (profile.runtime?.nativeInterface !== "app-server JSONL over stdio") {
   fail("the first Codex integration must use the native app-server stdio interface");
 }
+if (
+  profile.runtime?.schemaEvidence?.file !== "codex_app_server_protocol.v2.schemas.json" ||
+  !/^[a-f0-9]{64}$/.test(profile.runtime?.schemaEvidence?.canonicalSHA256 ?? "") ||
+  !profile.runtime?.schemaEvidence?.canonicalization
+) {
+  fail("the pinned Codex schema must have canonical, reproducible evidence");
+}
 
 const compose = await readFile(resolve(root, "deploy/openshell/docker-compose.yml"), "utf8");
 const gatewayConfig = await readFile(resolve(root, "deploy/openshell/gateway.toml"), "utf8");
