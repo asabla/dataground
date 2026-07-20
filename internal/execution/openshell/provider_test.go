@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -159,6 +160,19 @@ func TestCreateRequiresPinnedImageAndVerifiedPolicy(t *testing.T) {
 	}
 }
 
+func TestCreateRequiresManagedPolicyWorkspaceForNewSandbox(t *testing.T) {
+	provider, runner, placement, policy, policyDigest := preparedProvider(t, nil)
+	provider.workspace = nil
+	runner.results = []scriptedResult{{result: CommandResult{Stdout: []byte("[]")}}}
+	_, err := provider.Create(context.Background(), createRequest(placement, policy, policyDigest))
+	if !errors.Is(err, ErrPolicyWorkspaceUnavailable) {
+		t.Fatalf("create without policy workspace = %v, want unavailable", err)
+	}
+	if len(runner.calls) != 1 || containsSequence(runner.calls[0].args, "sandbox", "create") {
+		t.Fatalf("sandbox create reached without policy workspace: %#v", runner.calls)
+	}
+}
+
 func TestCreateRequestCannotSerializePolicyContent(t *testing.T) {
 	_, _, placement, policy, policyDigest := preparedProvider(t, nil)
 	encoded, err := json.Marshal(createRequest(placement, policy, policyDigest))
@@ -221,6 +235,9 @@ func TestCreateUsesArgumentVectorAndNoCredentialValues(t *testing.T) {
 	if materializedPath == "" {
 		t.Fatal("provider did not materialize the enforcement policy")
 	}
+	if filepath.Dir(materializedPath) != provider.workspace.root {
+		t.Fatalf("policy escaped managed workspace: %q", materializedPath)
+	}
 	if _, err := os.Stat(materializedPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("materialized policy survived create: %v", err)
 	}
@@ -275,6 +292,59 @@ func TestCreateObservesAfterLostAcknowledgement(t *testing.T) {
 	}
 	if _, err := os.Stat(materializedPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("policy survived ambiguous create recovery: %v", err)
+	}
+}
+
+func TestCreateRecordsSuccessfulEffectWhenPolicyCleanupFails(t *testing.T) {
+	runner := &scriptedRunner{results: []scriptedResult{
+		{result: CommandResult{Stdout: []byte("[]")}},
+		{result: CommandResult{}},
+	}}
+	provider, _, placement, policy, policyDigest := preparedProvider(t, runner)
+	request := createRequest(placement, policy, policyDigest)
+	expectedName := sandboxName(request.IsolationDomainID, request.OperationID)
+	fingerprint := fingerprintCreate(request, request.ProviderProfiles)
+	runner.runHook = func(args []string) {
+		if !containsSequence(args, "sandbox", "create") {
+			return
+		}
+		for index, argument := range args {
+			if argument != "--policy" || index+1 >= len(args) {
+				continue
+			}
+			path := args[index+1]
+			if err := os.Remove(path); err != nil {
+				t.Errorf("replace materialized policy: %v", err)
+				return
+			}
+			if err := os.Mkdir(path, 0o700); err != nil {
+				t.Errorf("create cleanup obstruction: %v", err)
+				return
+			}
+			if err := os.WriteFile(filepath.Join(path, "obstruction"), nil, 0o600); err != nil {
+				t.Errorf("populate cleanup obstruction: %v", err)
+			}
+		}
+	}
+	if _, err := provider.Create(context.Background(), request); !errors.Is(err, ErrPolicyWorkspaceFailure) {
+		t.Fatalf("cleanup failure = %v, want workspace failure", err)
+	}
+	recorded, err := provider.store.GetExecution(context.Background(), execution.ExecutionRef{
+		IsolationDomainID: request.IsolationDomainID,
+		ID:                derivedID("exe", request.IsolationDomainID+":"+request.OperationID),
+	})
+	if err != nil || recorded.Execution.State != "provisioning" {
+		t.Fatalf("successful external effect was not recorded: %#v, %v", recorded, err)
+	}
+	runner.results = []scriptedResult{{result: CommandResult{Stdout: []byte(`[{
+		"name":"` + expectedName + `","phase":"Ready","labels":{"` + createLabel + `":"` + fingerprint + `"}
+	}]`)}}}
+	recovered, err := provider.Create(context.Background(), request)
+	if err != nil || recovered.State != "ready" {
+		t.Fatalf("retry did not observe recorded create: %#v, %v", recovered, err)
+	}
+	if len(runner.calls) != 3 || containsSequence(runner.calls[2].args, "sandbox", "create") {
+		t.Fatalf("cleanup-failure retry repeated create: %#v", runner.calls)
 	}
 }
 
@@ -403,11 +473,20 @@ func preparedProvider(t *testing.T, runner *scriptedRunner) (*Provider, *scripte
 	if runner == nil {
 		runner = &scriptedRunner{}
 	}
-	provider := New(Config{ExpectedVersion: "0.0.86", Now: func() time.Time {
+	workspace, err := OpenPolicyWorkspace(filepath.Join(t.TempDir(), "policies"))
+	if err != nil {
+		t.Fatalf("open policy workspace: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := workspace.Close(); err != nil {
+			t.Errorf("close policy workspace: %v", err)
+		}
+	})
+	provider := New(Config{ExpectedVersion: "0.0.86", PolicyWorkspace: workspace, Now: func() time.Time {
 		return time.Date(2026, time.July, 20, 10, 0, 0, 0, time.UTC)
 	}}, runner)
 	context := context.Background()
-	_, err := provider.RegisterGateway(context, execution.GatewayRegistration{
+	_, err = provider.RegisterGateway(context, execution.GatewayRegistration{
 		IsolationDomainID: "iso-a", ID: "gateway-a", Endpoint: "http://127.0.0.1:8080", Driver: "docker",
 		Capabilities: []string{"codex.app-server"},
 	})
