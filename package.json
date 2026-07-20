@@ -22,11 +22,12 @@
     "format": "biome check --write apps packages contracts scripts package.json tsconfig.base.json biome.json && gofmt -w cmd internal",
     "format:check": "biome format apps packages contracts scripts package.json tsconfig.base.json biome.json && node scripts/check-go-format.mjs",
     "lint": "biome lint apps packages contracts scripts package.json tsconfig.base.json biome.json && go vet ./...",
+    "openshell:profile:check": "node scripts/check-openshell-profile.mjs",
     "test": "go test ./... && pnpm --filter @dataground/tokens test && pnpm --filter @dataground/ui test && pnpm --filter @dataground/ui test:stories && pnpm --filter @dataground/workbench test",
     "tokens:check": "pnpm --filter @dataground/tokens check",
     "tokens:generate": "pnpm --filter @dataground/tokens build",
     "typecheck": "pnpm --filter @dataground/ui typecheck && pnpm --filter @dataground/workbench typecheck",
-    "verify": "pnpm run format:check && pnpm run lint && pnpm run contracts:check && pnpm run contracts:generate:check && pnpm run tokens:check && pnpm run typecheck && pnpm run test && pnpm run build"
+    "verify": "pnpm run format:check && pnpm run lint && pnpm run contracts:check && pnpm run contracts:generate:check && pnpm run openshell:profile:check && pnpm run tokens:check && pnpm run typecheck && pnpm run test && pnpm run build"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.4",

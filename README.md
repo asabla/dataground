@@ -2,7 +2,7 @@
 
 DataGround is a self-hosted-first data, notebook, and agent-execution platform. It combines a platform-owned control plane with governed OpenShell sandboxes, Cedar authorization, native agent-runtime adapters, durable resource reconciliation, and open data protocols.
 
-The repository contains an executable project foundation: a Go API process, a TypeScript/React workbench shell, versioned native contracts, an owned token and accessible-component foundation, a deterministic in-memory reference runtime, pinned toolchains, and continuous verification. The reference path establishes agent services, immutable revisions, aliases, invocations, typed event replay, cancellation, artifacts, and usage without a provider or OpenShell dependency. Persistence, authorization, audit, and infrastructure integrations remain intentionally unimplemented.
+The repository contains an executable project foundation: a Go API process, a TypeScript/React workbench shell, versioned native contracts, an owned token and accessible-component foundation, deterministic process-local and PostgreSQL-backed reference runtimes, durable reconcilers, audit/outbox persistence, pinned toolchains, and continuous verification. A development-only OpenShell execution-provider boundary and immutable local profile are present, but no live runtime or provider credential path is certified yet. Authentication, Cedar authorization, production artifact storage, and production infrastructure integrations remain intentionally unimplemented.
 
 ## Start here
 
@@ -24,4 +24,4 @@ pnpm verify
 
 `pnpm verify` runs formatting checks, linting, contract and generated-artifact drift checks, type checking, tests, Storybook, and production builds. Run the reference API with `pnpm dev:api`, the workbench with `pnpm dev:workbench`, and the component contract surface with `pnpm dev:design-system`. The API listens on `127.0.0.1:8080` by default; set `DATAGROUND_HTTP_ADDRESS` explicitly when another bind address is required. The reference API has no authentication and must not be exposed as a production service.
 
-See [development guidance](docs/development/README.md) for the repository layout and command contract, [design-system guidance](docs/development/design-system.md) for token and component maintenance, and [reference runtime guidance](docs/development/reference-runtime.md) for the implemented lifecycle and limitations.
+See [development guidance](docs/development/README.md) for the repository layout and command contract, [design-system guidance](docs/development/design-system.md) for token and component maintenance, [reference runtime guidance](docs/development/reference-runtime.md) for the implemented lifecycle, and [local OpenShell guidance](docs/development/openshell-local.md) for the pinned but blocked execution profile.

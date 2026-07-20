@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "dataground.dev.openshell-profile/v1",
+  "status": "blocked",
+  "productionCertifiable": false,
+  "source": {
+    "openshell": {
+      "repository": "https://github.com/NVIDIA/OpenShell",
+      "tag": "v0.0.86",
+      "commit": "d556748771c41cbbd4e4dd7cd9030c798afe2b7d"
+    },
+    "community": {
+      "repository": "https://github.com/NVIDIA/OpenShell-Community",
+      "commit": "fffb6b2248ff6ba585f50517f3711b08122089f2"
+    }
+  },
+  "topology": {
+    "gatewayEndpoint": "http://127.0.0.1:8080",
+    "healthEndpoint": "http://127.0.0.1:8081",
+    "driver": "docker",
+    "tls": false,
+    "scope": "loopback development only"
+  },
+  "artifacts": {
+    "gateway": "ghcr.io/nvidia/openshell/gateway@sha256:e21f520a0678ba3cfe749957338b5fa78c75e8e52de13e4559ccbb582f781a0b",
+    "supervisor": "ghcr.io/nvidia/openshell/supervisor@sha256:a15222ac18c1afd0ee51b9dda785a29067c13f61a2002a29d41f691f5e817f19",
+    "sandbox": "ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e"
+  },
+  "enforcement": {
+    "schemaVersion": 1,
+    "fixture": "deploy/openshell/policies/deny-all.yaml",
+    "sha256": "a193c3421b98a1640aa099d91b528beaee91af2a14980ba423ac3050c40649a9",
+    "source": "crates/openshell-prover/testdata/empty-policy.yaml",
+    "sourceLicense": "Apache-2.0",
+    "mode": "deny-all"
+  },
+  "providerProfileEvidence": {
+    "codex": {
+      "source": "providers/codex.yaml",
+      "sha256": "d9c7f48d96916dcaca319e396d75e30ff6ad3bf2474f38f54ab37f37cabbca8f",
+      "status": "development candidate; live credential non-exposure proof required"
+    }
+  },
+  "runtime": {
+    "id": "codex",
+    "version": "0.117.0",
+    "nativeInterface": "app-server JSONL over stdio",
+    "transport": "openshell sandbox exec without a TTY",
+    "npmIntegrity": "sha512-UmWo39UCGqFB2ImWwtI/TOnVQ1M2JIbCeDVBzOtG57WuTIPBNvDyluPNrzNv6eAcTYpyDLC5+nT5k49LrzEwow==",
+    "schemaGenerationCommand": "npx --yes @openai/codex@0.117.0 app-server generate-json-schema --out <directory>",
+    "schemaFileCount": 196,
+    "v2SchemaSHA256": "223232e57a9c29a20d385a415e67403ca137781f21d226a64a63a7f1d88b4a15"
+  },
+  "capabilities": {
+    "gatewayPlacement": "adapter conformance tested",
+    "sandboxLifecycle": "adapter conformance tested",
+    "codexAppServerStdio": "adapter conformance tested",
+    "realSandboxInvocation": "blocked",
+    "credentialNonExposure": "blocked",
+    "rosettaMaterialization": "blocked"
+  },
+  "blockers": [
+    "Run the profile on a host with Docker Engine or Docker Desktop.",
+    "Configure a Codex provider through OpenShell and prove provider secrets are not process-readable.",
+    "Publish the Rosetta service contract and conformance fixtures before production materialization."
+  ]
+}
