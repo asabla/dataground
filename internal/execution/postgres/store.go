@@ -398,8 +398,8 @@ func (store *Store) UpdateExecutionState(ctx context.Context, ref execution.Exec
 	_, err = transaction.Exec(ctx, `
 		UPDATE execution_instances
 		SET observed_state = $3,
-		    updated_at = $4,
-		    terminated_at = CASE WHEN $3 = 'terminated' THEN $4 ELSE NULL END
+		    updated_at = $4::timestamptz,
+		    terminated_at = CASE WHEN $3 = 'terminated' THEN $4::timestamptz ELSE NULL::timestamptz END
 		WHERE isolation_domain_id = $1 AND id = $2
 	`, ref.IsolationDomainID, ref.ID, state, now)
 	if err != nil {
