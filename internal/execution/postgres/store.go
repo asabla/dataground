@@ -312,8 +312,8 @@ func (store *Store) SaveExecution(ctx context.Context, record execution.Executio
 		INSERT INTO execution_instances (
 			isolation_domain_id, id, placement_id, operation_id, gateway_id,
 			sandbox_name, observed_state, created_at, updated_at, terminated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8,
-		          CASE WHEN $7 = 'terminated' THEN $8 ELSE NULL END)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $8::timestamptz,
+		          CASE WHEN $7 = 'terminated' THEN $8::timestamptz ELSE NULL::timestamptz END)
 	`, record.Execution.IsolationDomainID, record.Execution.ID, record.PlacementID,
 		record.OperationID, record.Execution.GatewayID, record.SandboxName, record.Execution.State, now)
 	if err != nil {
