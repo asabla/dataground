@@ -12,7 +12,6 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/asabla/dataground/internal/execution"
@@ -26,9 +25,8 @@ const (
 )
 
 var (
-	ErrNoGateway        = errors.New("no eligible execution gateway")
-	ErrGatewayExists    = errors.New("execution gateway already registered")
-	ErrExecutionMissing = errors.New("execution not found")
+	ErrNoGateway        = execution.ErrNoGateway
+	ErrExecutionMissing = execution.ErrExecutionMissing
 	ErrProviderFailure  = errors.New("execution provider operation failed")
 )
 
@@ -46,30 +44,17 @@ type Config struct {
 	Binary          string
 	ExpectedVersion string
 	Now             func() time.Time
-}
-
-type gatewayEntry struct {
-	gateway  execution.Gateway
-	endpoint string
-	reserved int
-}
-
-type executionEntry struct {
-	execution execution.Execution
-	sandbox   string
+	StateStore      execution.StateStore
 }
 
 // Provider is the development OpenShell adapter. Gateway and sandbox
 // coordinates stay in private state and never appear in returned resources.
 type Provider struct {
-	mu         sync.Mutex
-	runner     Runner
-	binary     string
-	expected   string
-	now        func() time.Time
-	gateways   map[string]*gatewayEntry
-	placements map[string]execution.Placement
-	executions map[string]executionEntry
+	runner   Runner
+	binary   string
+	expected string
+	now      func() time.Time
+	store    execution.StateStore
 }
 
 func New(config Config, runner Runner) *Provider {
@@ -84,10 +69,12 @@ func New(config Config, runner Runner) *Provider {
 	if runner == nil {
 		runner = ExecRunner{}
 	}
+	store := config.StateStore
+	if store == nil {
+		store = execution.NewMemoryStateStore()
+	}
 	return &Provider{
-		runner: runner, binary: binary, expected: config.ExpectedVersion, now: now,
-		gateways: make(map[string]*gatewayEntry), placements: make(map[string]execution.Placement),
-		executions: make(map[string]executionEntry),
+		runner: runner, binary: binary, expected: config.ExpectedVersion, now: now, store: store,
 	}
 }
 
@@ -106,9 +93,9 @@ func (provider *Provider) Check(ctx context.Context) error {
 	return nil
 }
 
-func (provider *Provider) RegisterGateway(_ context.Context, registration execution.GatewayRegistration) (execution.Gateway, error) {
-	if registration.ID == "" || registration.Driver == "" {
-		return execution.Gateway{}, errors.New("gateway id and driver are required")
+func (provider *Provider) RegisterGateway(ctx context.Context, registration execution.GatewayRegistration) (execution.Gateway, error) {
+	if registration.IsolationDomainID == "" || registration.ID == "" || registration.Driver == "" {
+		return execution.Gateway{}, errors.New("isolation domain, gateway id, and driver are required")
 	}
 	parsed, err := url.Parse(registration.Endpoint)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil ||
@@ -118,65 +105,20 @@ func (provider *Provider) RegisterGateway(_ context.Context, registration execut
 	if parsed.Scheme == "http" && !isLoopbackHost(parsed.Hostname()) {
 		return execution.Gateway{}, errors.New("plaintext gateway endpoint must be loopback")
 	}
-	provider.mu.Lock()
-	defer provider.mu.Unlock()
-	if _, exists := provider.gateways[registration.ID]; exists {
-		return execution.Gateway{}, ErrGatewayExists
-	}
-	gateway := execution.Gateway{
-		ID: registration.ID, Driver: registration.Driver, State: execution.GatewayActive,
-		Capabilities: append([]string(nil), registration.Capabilities...),
-	}
-	provider.gateways[registration.ID] = &gatewayEntry{gateway: gateway, endpoint: registration.Endpoint}
-	return gateway, nil
+	return provider.store.RegisterGateway(ctx, registration)
 }
 
-func (provider *Provider) SetGatewayState(_ context.Context, gatewayID string, state execution.GatewayState) error {
+func (provider *Provider) SetGatewayState(ctx context.Context, isolationDomainID, gatewayID string, state execution.GatewayState) error {
 	switch state {
 	case execution.GatewayActive, execution.GatewayDraining, execution.GatewayUnavailable, execution.GatewayLost:
 	default:
 		return errors.New("invalid gateway state")
 	}
-	provider.mu.Lock()
-	defer provider.mu.Unlock()
-	entry, ok := provider.gateways[gatewayID]
-	if !ok {
-		return ErrNoGateway
-	}
-	entry.gateway.State = state
-	return nil
+	return provider.store.SetGatewayState(ctx, isolationDomainID, gatewayID, state)
 }
 
-func (provider *Provider) SelectGateway(_ context.Context, request execution.PlacementRequest) (execution.Placement, error) {
-	if request.IsolationDomainID == "" || request.OperationID == "" {
-		return execution.Placement{}, errors.New("isolation domain and operation are required")
-	}
-	placementID := derivedID("plc", request.IsolationDomainID+":"+request.OperationID)
-	provider.mu.Lock()
-	defer provider.mu.Unlock()
-	if placement, ok := provider.placements[placementID]; ok {
-		return placement, nil
-	}
-	eligible := make([]*gatewayEntry, 0, len(provider.gateways))
-	for _, entry := range provider.gateways {
-		if entry.gateway.State == execution.GatewayActive && containsAll(entry.gateway.Capabilities, request.RequiredCapabilities) {
-			eligible = append(eligible, entry)
-		}
-	}
-	if len(eligible) == 0 {
-		return execution.Placement{}, ErrNoGateway
-	}
-	sort.Slice(eligible, func(i, j int) bool {
-		if eligible[i].reserved == eligible[j].reserved {
-			return eligible[i].gateway.ID < eligible[j].gateway.ID
-		}
-		return eligible[i].reserved < eligible[j].reserved
-	})
-	selected := eligible[0]
-	selected.reserved++
-	placement := execution.Placement{ID: placementID, GatewayID: selected.gateway.ID}
-	provider.placements[placementID] = placement
-	return placement, nil
+func (provider *Provider) SelectGateway(ctx context.Context, request execution.PlacementRequest) (execution.Placement, error) {
+	return provider.store.ReservePlacement(ctx, request)
 }
 
 func (provider *Provider) Create(ctx context.Context, request execution.CreateRequest) (execution.Execution, error) {
@@ -186,24 +128,29 @@ func (provider *Provider) Create(ctx context.Context, request execution.CreateRe
 	if !isDigestPinned(request.Image) {
 		return execution.Execution{}, errors.New("sandbox image must be pinned by sha256 digest")
 	}
-	if err := provider.validatePlacement(request); err != nil {
+	if err := provider.validatePlacement(ctx, request); err != nil {
 		return execution.Execution{}, err
 	}
 	if err := verifyFileDigest(request.PolicyPath, request.PolicySHA256); err != nil {
 		return execution.Execution{}, err
 	}
-	entry, endpoint, err := provider.executionContext(request.Placement.GatewayID)
+	gateway, err := provider.executionContext(ctx, request.IsolationDomainID, request.Placement.GatewayID)
 	if err != nil {
 		return execution.Execution{}, err
 	}
+	endpoint := gateway.Endpoint
 	executionID := derivedID("exe", request.IsolationDomainID+":"+request.OperationID)
 	sandbox := sandboxName(request.IsolationDomainID, request.OperationID)
-	observed, found, observeErr := provider.observeByName(ctx, endpoint, sandbox, executionID, request.Placement.GatewayID)
+	observed, found, observeErr := provider.observeByName(
+		ctx, request.IsolationDomainID, endpoint, sandbox, executionID, request.Placement.GatewayID,
+	)
 	if observeErr != nil {
 		return execution.Execution{}, ErrProviderFailure
 	}
 	if found {
-		provider.rememberExecution(observed, sandbox)
+		if err := provider.rememberExecution(ctx, observed, request.Placement.ID, request.OperationID, sandbox); err != nil {
+			return execution.Execution{}, err
+		}
 		return observed, nil
 	}
 	args := provider.gatewayArgs(endpoint, "sandbox", "create", "--name", sandbox, "--from", request.Image,
@@ -221,24 +168,40 @@ func (provider *Provider) Create(ctx context.Context, request execution.CreateRe
 	if runErr != nil || result.ExitCode != 0 {
 		// Creation may have succeeded before acknowledgement was lost. Observe
 		// the deterministic name before permitting a retry.
-		observed, found, observeErr := provider.observeByName(ctx, endpoint, sandbox, executionID, request.Placement.GatewayID)
+		observed, found, observeErr := provider.observeByName(
+			ctx, request.IsolationDomainID, endpoint, sandbox, executionID, request.Placement.GatewayID,
+		)
 		if observeErr == nil && found {
-			provider.rememberExecution(observed, sandbox)
+			if err := provider.rememberExecution(ctx, observed, request.Placement.ID, request.OperationID, sandbox); err != nil {
+				return execution.Execution{}, err
+			}
 			return observed, nil
 		}
 		return execution.Execution{}, ErrProviderFailure
 	}
-	execution := execution.Execution{ID: executionID, GatewayID: entry.gateway.ID, State: "provisioning"}
-	provider.rememberExecution(execution, sandbox)
-	return execution, nil
+	created := execution.Execution{
+		IsolationDomainID: request.IsolationDomainID, ID: executionID,
+		GatewayID: gateway.Gateway.ID, State: "provisioning",
+	}
+	if err := provider.rememberExecution(ctx, created, request.Placement.ID, request.OperationID, sandbox); err != nil {
+		return execution.Execution{}, err
+	}
+	return created, nil
 }
 
-func (provider *Provider) Observe(ctx context.Context, executionID string) (execution.Observation, error) {
-	entry, gateway, err := provider.lookupExecution(executionID)
+func (provider *Provider) Observe(ctx context.Context, ref execution.ExecutionRef) (execution.Observation, error) {
+	entry, err := provider.store.GetExecution(ctx, ref)
 	if err != nil {
 		return execution.Observation{}, err
 	}
-	result, err := provider.runner.Run(ctx, provider.binary, provider.gatewayArgs(gateway.endpoint, "sandbox", "list", "--selector", managedLabel+"=true", "--output", "json")...)
+	if entry.Execution.State == "terminated" {
+		return execution.Observation{IsolationDomainID: ref.IsolationDomainID, ExecutionID: ref.ID, State: "terminated", ObservedAt: provider.now()}, nil
+	}
+	gateway, err := provider.executionContext(ctx, ref.IsolationDomainID, entry.Execution.GatewayID)
+	if err != nil {
+		return execution.Observation{}, err
+	}
+	result, err := provider.runner.Run(ctx, provider.binary, provider.gatewayArgs(gateway.Endpoint, "sandbox", "list", "--selector", managedLabel+"=true", "--output", "json")...)
 	if err != nil || result.ExitCode != 0 {
 		return execution.Observation{}, ErrProviderFailure
 	}
@@ -247,19 +210,26 @@ func (provider *Provider) Observe(ctx context.Context, executionID string) (exec
 		return execution.Observation{}, ErrProviderFailure
 	}
 	for _, item := range items {
-		if item.Name == entry.sandbox {
-			return execution.Observation{ExecutionID: executionID, State: strings.ToLower(item.Phase), ObservedAt: provider.now()}, nil
+		if item.Name == entry.SandboxName {
+			state := strings.ToLower(item.Phase)
+			if err := provider.store.UpdateExecutionState(ctx, ref, state); err != nil {
+				return execution.Observation{}, err
+			}
+			return execution.Observation{IsolationDomainID: ref.IsolationDomainID, ExecutionID: ref.ID, State: state, ObservedAt: provider.now()}, nil
 		}
 	}
-	return execution.Observation{ExecutionID: executionID, State: "terminated", ObservedAt: provider.now()}, nil
+	if err := provider.store.UpdateExecutionState(ctx, ref, "terminated"); err != nil {
+		return execution.Observation{}, err
+	}
+	return execution.Observation{IsolationDomainID: ref.IsolationDomainID, ExecutionID: ref.ID, State: "terminated", ObservedAt: provider.now()}, nil
 }
 
-func (provider *Provider) StartRuntime(ctx context.Context, executionID string) (execution.RuntimeSession, error) {
-	entry, gateway, err := provider.lookupExecution(executionID)
+func (provider *Provider) StartRuntime(ctx context.Context, ref execution.ExecutionRef) (execution.RuntimeSession, error) {
+	entry, gateway, err := provider.lookupExecution(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
-	args := provider.gatewayArgs(gateway.endpoint, "sandbox", "exec", "--name", entry.sandbox, "--no-tty", "--", "codex", "app-server")
+	args := provider.gatewayArgs(gateway.Endpoint, "sandbox", "exec", "--name", entry.SandboxName, "--no-tty", "--", "codex", "app-server")
 	session, err := provider.runner.Start(ctx, provider.binary, args...)
 	if err != nil {
 		return nil, ErrProviderFailure
@@ -269,7 +239,8 @@ func (provider *Provider) StartRuntime(ctx context.Context, executionID string) 
 }
 
 func (provider *Provider) Logs(ctx context.Context, request execution.LogRequest) ([]byte, error) {
-	entry, gateway, err := provider.lookupExecution(request.ExecutionID)
+	ref := execution.ExecutionRef{IsolationDomainID: request.IsolationDomainID, ID: request.ExecutionID}
+	entry, gateway, err := provider.lookupExecution(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +248,7 @@ func (provider *Provider) Logs(ctx context.Context, request execution.LogRequest
 	if lines == 0 {
 		lines = 200
 	}
-	result, err := provider.runner.Run(ctx, provider.binary, provider.gatewayArgs(gateway.endpoint, "logs", entry.sandbox, "-n", fmt.Sprint(lines))...)
+	result, err := provider.runner.Run(ctx, provider.binary, provider.gatewayArgs(gateway.Endpoint, "logs", entry.SandboxName, "-n", fmt.Sprint(lines))...)
 	if err != nil || result.ExitCode != 0 {
 		return nil, ErrProviderFailure
 	}
@@ -285,47 +256,53 @@ func (provider *Provider) Logs(ctx context.Context, request execution.LogRequest
 }
 
 func (provider *Provider) Export(ctx context.Context, request execution.ExportRequest) (execution.ExportResult, error) {
-	entry, gateway, err := provider.lookupExecution(request.ExecutionID)
+	ref := execution.ExecutionRef{IsolationDomainID: request.IsolationDomainID, ID: request.ExecutionID}
+	entry, gateway, err := provider.lookupExecution(ctx, ref)
 	if err != nil {
 		return execution.ExportResult{}, err
 	}
 	if request.SandboxPath == "" || request.Destination == "" {
 		return execution.ExportResult{}, errors.New("sandbox path and destination are required")
 	}
-	result, err := provider.runner.Run(ctx, provider.binary, provider.gatewayArgs(gateway.endpoint, "sandbox", "download", entry.sandbox, request.SandboxPath, request.Destination)...)
+	result, err := provider.runner.Run(ctx, provider.binary, provider.gatewayArgs(gateway.Endpoint, "sandbox", "download", entry.SandboxName, request.SandboxPath, request.Destination)...)
 	if err != nil || result.ExitCode != 0 {
 		return execution.ExportResult{}, ErrProviderFailure
 	}
-	return execution.ExportResult{ExecutionID: request.ExecutionID, Destination: request.Destination}, nil
+	return execution.ExportResult{IsolationDomainID: request.IsolationDomainID, ExecutionID: request.ExecutionID, Destination: request.Destination}, nil
 }
 
-func (provider *Provider) Terminate(ctx context.Context, executionID string) error {
-	entry, gateway, err := provider.lookupExecution(executionID)
+func (provider *Provider) Terminate(ctx context.Context, ref execution.ExecutionRef) error {
+	entry, err := provider.store.GetExecution(ctx, ref)
 	if errors.Is(err, ErrExecutionMissing) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	result, runErr := provider.runner.Run(ctx, provider.binary, provider.gatewayArgs(gateway.endpoint, "sandbox", "delete", entry.sandbox)...)
+	if entry.Execution.State == "terminated" {
+		return nil
+	}
+	gateway, err := provider.executionContext(ctx, ref.IsolationDomainID, entry.Execution.GatewayID)
+	if err != nil {
+		return err
+	}
+	result, runErr := provider.runner.Run(ctx, provider.binary, provider.gatewayArgs(gateway.Endpoint, "sandbox", "delete", entry.SandboxName)...)
 	if runErr != nil || result.ExitCode != 0 {
-		observation, observeErr := provider.Observe(ctx, executionID)
+		observation, observeErr := provider.Observe(ctx, ref)
 		if observeErr == nil && observation.State == "terminated" {
-			provider.forgetExecution(executionID)
 			return nil
 		}
 		return ErrProviderFailure
 	}
-	provider.forgetExecution(executionID)
-	return nil
+	return provider.store.UpdateExecutionState(ctx, ref, "terminated")
 }
 
-func (provider *Provider) ListOrphans(ctx context.Context, gatewayID string, known map[string]struct{}) ([]execution.Orphan, error) {
-	_, endpoint, err := provider.executionContext(gatewayID)
+func (provider *Provider) ListOrphans(ctx context.Context, isolationDomainID, gatewayID string, known map[string]struct{}) ([]execution.Orphan, error) {
+	gateway, err := provider.executionContext(ctx, isolationDomainID, gatewayID)
 	if err != nil {
 		return nil, err
 	}
-	result, err := provider.runner.Run(ctx, provider.binary, provider.gatewayArgs(endpoint, "sandbox", "list", "--selector", managedLabel+"=true", "--output", "json")...)
+	result, err := provider.runner.Run(ctx, provider.binary, provider.gatewayArgs(gateway.Endpoint, "sandbox", "list", "--selector", managedLabel+"=true", "--output", "json")...)
 	if err != nil || result.ExitCode != 0 {
 		return nil, ErrProviderFailure
 	}
@@ -340,64 +317,62 @@ func (provider *Provider) ListOrphans(ctx context.Context, gatewayID string, kno
 			continue
 		}
 		if _, ok := known[candidate]; !ok {
-			orphans = append(orphans, execution.Orphan{ID: candidate, GatewayID: gatewayID})
+			orphans = append(orphans, execution.Orphan{IsolationDomainID: isolationDomainID, ID: candidate, GatewayID: gatewayID})
 		}
 	}
 	sort.Slice(orphans, func(i, j int) bool { return orphans[i].ID < orphans[j].ID })
 	return orphans, nil
 }
 
-func (provider *Provider) executionContext(gatewayID string) (*gatewayEntry, string, error) {
-	provider.mu.Lock()
-	defer provider.mu.Unlock()
-	entry, ok := provider.gateways[gatewayID]
-	if !ok || entry.gateway.State == execution.GatewayLost || entry.gateway.State == execution.GatewayUnavailable {
-		return nil, "", ErrNoGateway
+func (provider *Provider) executionContext(ctx context.Context, isolationDomainID, gatewayID string) (execution.GatewayRecord, error) {
+	record, err := provider.store.GetGateway(ctx, isolationDomainID, gatewayID)
+	if err != nil {
+		return execution.GatewayRecord{}, err
 	}
-	return entry, entry.endpoint, nil
+	if record.Gateway.State == execution.GatewayLost || record.Gateway.State == execution.GatewayUnavailable {
+		return execution.GatewayRecord{}, ErrNoGateway
+	}
+	return record, nil
 }
 
-func (provider *Provider) validatePlacement(request execution.CreateRequest) error {
+func (provider *Provider) validatePlacement(ctx context.Context, request execution.CreateRequest) error {
 	expectedID := derivedID("plc", request.IsolationDomainID+":"+request.OperationID)
 	if request.Placement.ID != expectedID {
 		return errors.New("placement does not match the requested operation")
 	}
-	provider.mu.Lock()
-	defer provider.mu.Unlock()
-	stored, ok := provider.placements[request.Placement.ID]
-	if !ok || stored != request.Placement {
+	stored, err := provider.store.GetPlacement(ctx, request.IsolationDomainID, request.Placement.ID)
+	if err != nil || stored != request.Placement || request.Placement.IsolationDomainID != request.IsolationDomainID {
 		return errors.New("placement is not reserved")
 	}
 	return nil
 }
 
-func (provider *Provider) lookupExecution(executionID string) (executionEntry, *gatewayEntry, error) {
-	provider.mu.Lock()
-	defer provider.mu.Unlock()
-	entry, ok := provider.executions[executionID]
-	if !ok {
-		return executionEntry{}, nil, ErrExecutionMissing
+func (provider *Provider) lookupExecution(ctx context.Context, ref execution.ExecutionRef) (execution.ExecutionRecord, execution.GatewayRecord, error) {
+	entry, err := provider.store.GetExecution(ctx, ref)
+	if err != nil {
+		return execution.ExecutionRecord{}, execution.GatewayRecord{}, err
 	}
-	gateway, ok := provider.gateways[entry.execution.GatewayID]
-	if !ok || gateway.gateway.State == execution.GatewayLost {
-		return executionEntry{}, nil, ErrNoGateway
+	gateway, err := provider.executionContext(ctx, ref.IsolationDomainID, entry.Execution.GatewayID)
+	if err != nil {
+		return execution.ExecutionRecord{}, execution.GatewayRecord{}, err
 	}
 	return entry, gateway, nil
 }
 
-func (provider *Provider) rememberExecution(value execution.Execution, sandbox string) {
-	provider.mu.Lock()
-	defer provider.mu.Unlock()
-	provider.executions[value.ID] = executionEntry{execution: value, sandbox: sandbox}
+func (provider *Provider) rememberExecution(ctx context.Context, value execution.Execution, placementID, operationID, sandbox string) error {
+	return provider.store.SaveExecution(ctx, execution.ExecutionRecord{
+		Execution: value, PlacementID: placementID, OperationID: operationID, SandboxName: sandbox,
+	})
 }
 
-func (provider *Provider) forgetExecution(executionID string) {
-	provider.mu.Lock()
-	defer provider.mu.Unlock()
-	delete(provider.executions, executionID)
-}
-
-func (provider *Provider) observeByName(ctx context.Context, endpoint, sandbox, executionID, gatewayID string) (execution.Execution, bool, error) {
+func (provider *Provider) observeByName(
+	ctx context.Context,
+	isolationDomainID string,
+	endpoint string,
+	sandbox string,
+	executionID string,
+	gatewayID string,
+) (execution.Execution, bool, error) {
 	result, err := provider.runner.Run(ctx, provider.binary, provider.gatewayArgs(endpoint, "sandbox", "list", "--selector", managedLabel+"=true", "--output", "json")...)
 	if err != nil || result.ExitCode != 0 {
 		return execution.Execution{}, false, ErrProviderFailure
@@ -408,7 +383,10 @@ func (provider *Provider) observeByName(ctx context.Context, endpoint, sandbox, 
 	}
 	for _, item := range items {
 		if item.Name == sandbox {
-			return execution.Execution{ID: executionID, GatewayID: gatewayID, State: strings.ToLower(item.Phase)}, true, nil
+			return execution.Execution{
+				IsolationDomainID: isolationDomainID, ID: executionID,
+				GatewayID: gatewayID, State: strings.ToLower(item.Phase),
+			}, true, nil
 		}
 	}
 	return execution.Execution{}, false, nil
@@ -454,19 +432,6 @@ func isDigestPinned(image string) bool {
 	}
 	_, err := hex.DecodeString(parts[1])
 	return err == nil
-}
-
-func containsAll(have, required []string) bool {
-	available := make(map[string]struct{}, len(have))
-	for _, item := range have {
-		available[item] = struct{}{}
-	}
-	for _, item := range required {
-		if _, ok := available[item]; !ok {
-			return false
-		}
-	}
-	return true
 }
 
 func isLoopbackHost(host string) bool {

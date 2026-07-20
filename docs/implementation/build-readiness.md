@@ -11,7 +11,7 @@
 | Frontend | Design-system ready | React/Vite shell, generated API types, semantic tokens and deterministic interaction fixtures exist; router, auth and Jupyter contracts remain open |
 | Implementation stack | Contract-core ready | Go control plane, deterministic reference runtime and TypeScript/React workbench are established; runtime sidecars remain evidence-driven |
 | Reference S3 and Iceberg implementations | Evidence spike required | Select one certified self-hosted implementation of each |
-| Exact runtime versions | Development profile pinned | Codex 0.117.0 and OpenShell 0.0.86 are pinned for the first blocked profile; complete live certification before release |
+| Exact runtime versions | Development profile pinned | Codex 0.117.0 and OpenShell 0.0.86 are pinned for the first blocked profile; durable provider routing exists, but complete live certification before release |
 | Capacity and SLO numbers | Pilot input required | Define test hardware and measure; do not invent targets |
 | Production identity and workload identity | Deployment input required | Select IdP, token exchange, certificate issuer, and trust domains |
 | Retention, RPO/RTO, residency | Operator input required | Record per deployment profile before production approval |
@@ -26,7 +26,7 @@ These items materially affect repository boundaries or contracts:
 4. **Package and build tooling:** pnpm, Biome, Vitest, Go modules, reproducible OpenAPI type generation and the root `pnpm verify` contract are established. Container building and local orchestration remain open until their consumers exist.
 5. **Initial public contract:** resource names, isolation-scoped URL conventions, error envelope, idempotency, event envelope, SSE replay and schema compatibility policy are established. Pagination is added with the first collection read surface.
 6. **Initial reference runtime:** the deterministic fake and conformance fixtures are established. Choose the first real adapter used after it; this does not change the requirement to certify all four runtime families for initial release.
-7. **Local OpenShell topology:** OpenShell 0.0.86, the Docker driver, loopback gateway, immutable images, deny-all fixture, and Codex app-server stdio are pinned under `deploy/openshell`. Live service routing and credential non-exposure certification remain blocked on a Docker-capable host and mediated provider setup.
+7. **Local OpenShell topology:** OpenShell 0.0.86, the Docker driver, loopback gateway, immutable images, deny-all fixture, and Codex app-server stdio are pinned under `deploy/openshell`. The internal provider now has PostgreSQL-backed, isolation-scoped gateway placement and restart recovery; public admission, live service routing, and credential non-exposure certification remain blocked on a Docker-capable host and mediated provider setup.
 
 Do not ask Codex to generate a full platform before the remaining items are known. Prompt `00` records the bootstrap contract; prompt `01` starts product contracts only after its required decisions are resolved.
 

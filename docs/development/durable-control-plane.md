@@ -6,7 +6,7 @@ The initial durable slice owns two explicit finite state machines: service publi
 
 There is no generic workflow table or user-authored workflow language. The worker's polling ticker is only a wake-up mechanism; `due_at` remains the durable timer. Every claimed operation is selected fairly from the oldest due operation per isolation domain. A transition can commit only while the worker still owns the matching lease owner and fencing token.
 
-The reference runtime stores provider-side receipts in `reference_runtime_receipts`. This simulates the idempotency and observation boundary that a production adapter must provide. It does not represent an OpenShell or harness integration.
+The reference runtime stores provider-side receipts in `reference_runtime_receipts`. This simulates the idempotency and observation boundary that a production adapter must provide. Separately, the OpenShell adapter can persist protected gateway, placement, sandbox-routing, and observed-state records through its PostgreSQL state store. That state store is an internal provider boundary and is not yet connected to the public resource state machines or a real harness certification.
 
 ## Migration policy
 
@@ -62,7 +62,7 @@ Reconciler spans contain operation kind, stable operation ID, isolation-domain I
 
 ## Known limits
 
-- Durable mode uses the deterministic reference driver, not OpenShell or a real harness.
+- Public durable mode still uses the deterministic reference driver; the OpenShell PostgreSQL state store is tested internally but is not an admitted public execution path or a real-harness certification.
 - Outbox rows are written atomically but external webhook delivery is a later bounded state machine.
 - Authentication, Cedar authorization, provider credential brokering, object storage, and artifact content delivery are not implemented.
 - The exact-schema startup rule means rolling mixed-version upgrades are intentionally unavailable until an expand/contract migration is tested.

@@ -16,7 +16,7 @@ Primary upstream references are the OpenShell [runtime architecture](https://doc
 
 ## Development topology
 
-The initial topology is one loopback-only OpenShell gateway using the Docker compute driver. Docker Compose mounts the Docker socket and `/var/lib/openshell`; this grants the gateway substantial control over the development host and is unsuitable for an untrusted or shared machine. The gateway uses plaintext transport only on loopback. Production gateway identity, TLS, external persistence, and multi-gateway placement remain separate deployment work.
+The initial live topology is one loopback-only OpenShell gateway using the Docker compute driver. Docker Compose mounts the Docker socket and `/var/lib/openshell`; this grants the gateway substantial control over the development host and is unsuitable for an untrusted or shared machine. The gateway uses plaintext transport only on loopback. The provider contract supports multiple registered gateways and durable selection, but production gateway identity, TLS, richer placement constraints, and deployment wiring remain separate work.
 
 On a Docker-capable development host with OpenShell CLI `0.0.86` installed:
 
@@ -42,9 +42,13 @@ Stop the local gateway with `docker compose -f deploy/openshell/docker-compose.y
 
 ## Adapter behavior and remaining gate
 
-The development adapter registers gateways, selects only active gateways with required capabilities, reserves deterministic placements, creates deterministic sandboxes, observes ambiguous creation and termination before repetition, starts Codex app-server through non-TTY stdio, retrieves logs, exports files, terminates sandboxes, and lists managed orphans. It invokes the OpenShell binary directly with an argument vector rather than through a shell. Gateway endpoints and native sandbox names remain in private adapter state; returned resources and runtime sessions cannot serialize them.
+The development adapter registers gateways, selects only active gateways with required capabilities, reserves deterministic placements, creates deterministic sandboxes, observes ambiguous creation and termination before repetition, starts Codex app-server through non-TTY stdio, retrieves logs, exports files, terminates sandboxes, and lists managed orphans. It invokes the OpenShell binary directly with an argument vector rather than through a shell. Gateway endpoints and native sandbox names remain in protected provider state; returned resources and runtime sessions cannot serialize them.
 
-The adapter registry is currently process-local. Durable gateway registrations and placements must use the existing PostgreSQL reconciliation model before production use. A real runtime invocation is also not certified until all of the following evidence exists:
+The provider accepts a replaceable state store. Its in-memory implementation is for focused conformance tests only. The PostgreSQL implementation persists isolation-scoped gateway registrations, capabilities, endpoints, drain and loss state, placement reservations, native sandbox routing, observed execution state, and released capacity across provider restarts. Registration and placement retries are idempotent only when immutable inputs match; conflicting retries fail closed. A lost gateway marks its nonterminal executions unknown and its active placements lost instead of reassigning a running sandbox.
+
+Schema migration `00002_execution_placement.sql` establishes this protected routing state. The store is exercised with PostgreSQL integration tests, but it is not yet connected to a public admission command or a production reconciler. Gateway credentials, health leases, capacity signals, locality, policy/runtime compatibility, migration, and stuck-reservation repair remain future placement work.
+
+A real runtime invocation is not certified until all of the following evidence exists:
 
 1. The pinned images and CLI run on the target Docker profile.
 2. Codex app-server completes initialize, thread, turn, event, interruption, and artifact flows through the adapter.
@@ -52,4 +56,4 @@ The adapter registry is currently process-local. Durable gateway registrations a
 4. Process, environment, filesystem, argument, log, and error inspection prove that a sandbox and Codex process cannot read a provider key or refresh token.
 5. Browser and public API tests prove that gateway URLs, sandbox ports, provider-native IDs, and runtime endpoints never cross the DataGround contract.
 
-Rosetta remains unavailable, so any runtime work requiring generated enforcement material must fail closed. The next safe change is durable placement persistence and a Docker-hosted live conformance run; it is not a fallback policy compiler.
+Rosetta remains unavailable, so any runtime work requiring generated enforcement material must fail closed. The next live gate is a Docker-hosted conformance run with OpenShell-mediated credentials; it is not a fallback policy compiler.
