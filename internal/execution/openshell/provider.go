@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/asabla/dataground/internal/execution"
+	"github.com/asabla/dataground/internal/identity"
 )
 
 const (
@@ -447,7 +448,7 @@ func shortDigest(value string) string {
 	return hex.EncodeToString(digest[:12])
 }
 
-func derivedID(prefix, seed string) string { return prefix + "_" + shortDigest(seed) }
+func derivedID(prefix, seed string) string { return identity.Derived(prefix, seed) }
 
 func sandboxName(isolationDomainID, operationID string) string {
 	return "dg-" + shortDigest(isolationDomainID+":"+operationID)
