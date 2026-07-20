@@ -4,7 +4,7 @@
 
 DataGround currently uses Go 1.26.5, Node.js 24 LTS, and pnpm 11.15.0. Version managers may read `.go-version` and `.nvmrc`; Corepack or another pnpm installation must honor the exact `packageManager` field in `package.json`.
 
-PostgreSQL 18 is required for durable integration tests and durable control-plane operation. The ordinary local verification command skips database integration tests when `DATAGROUND_TEST_DATABASE_URL` is absent; CI requires them. Kubernetes, OpenShell, and Rosetta are not yet runtime dependencies.
+PostgreSQL 18 is required for durable integration tests and durable control-plane operation. The ordinary local verification command skips database integration tests when `DATAGROUND_TEST_DATABASE_URL` is absent; CI requires them. The OpenShell CLI and Docker are required only for the blocked local execution profile described in [local OpenShell guidance](openshell-local.md); they are not required by the ordinary reference runtime or CI. Kubernetes and Rosetta are not runtime dependencies.
 
 ## Repository layout
 
@@ -15,6 +15,7 @@ PostgreSQL 18 is required for durable integration tests and durable control-plan
 | `cmd/dataground-migrate` | PostgreSQL schema migration and compatibility check |
 | `cmd/dataground-repair` | Audited failed-operation repair command |
 | `internal` | Platform-owned Go implementation packages |
+| `deploy/openshell` | Pinned, loopback-only OpenShell development profile and deny-all fixture |
 | `apps/workbench` | TypeScript/React workbench application |
 | `packages/tokens` | DTCG token sources, deterministic generator, themes and densities |
 | `packages/ui` | Accessible React primitives, component styles and Storybook contracts |
@@ -43,6 +44,8 @@ pnpm verify
 ```
 
 The verification command runs Biome formatting and lint checks, `gofmt`, `go vet`, OpenAPI and JSON Schema fixture and compatibility checks, generated contract and token drift checks, TypeScript type checking, Go and Node tests, Playwright-backed Storybook interaction and accessibility tests, the Storybook production build, and production builds for the API and workbench.
+
+It also verifies that the blocked OpenShell development profile remains immutable and internally consistent. This is a configuration check, not a live runtime certification.
 
 Regenerate the typed workbench contract after an accepted OpenAPI change:
 
