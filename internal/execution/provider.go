@@ -23,6 +23,7 @@ var (
 	ErrPlacementMissing = errors.New("execution placement not found")
 	ErrExecutionMissing = errors.New("execution not found")
 	ErrStateConflict    = errors.New("execution state conflicts with persisted state")
+	ErrPolicyInvalid    = errors.New("execution enforcement policy is invalid")
 )
 
 func ValidGatewayState(state GatewayState) bool {
@@ -78,8 +79,8 @@ type CreateRequest struct {
 	IsolationDomainID string
 	OperationID       string
 	Image             string
-	PolicyPath        string
-	PolicySHA256      string
+	Policy            []byte `json:"-"`
+	PolicyDigest      string
 	ProviderProfiles  []string
 }
 

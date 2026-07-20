@@ -8,7 +8,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -32,10 +31,14 @@ type scriptedRunner struct {
 	calls   []runnerCall
 	results []scriptedResult
 	session execution.RuntimeSession
+	runHook func([]string)
 }
 
 func (runner *scriptedRunner) Run(_ context.Context, binary string, args ...string) (CommandResult, error) {
 	runner.calls = append(runner.calls, runnerCall{binary: binary, args: append([]string(nil), args...)})
+	if runner.runHook != nil {
+		runner.runHook(args)
+	}
 	if len(runner.results) == 0 {
 		return CommandResult{}, errors.New("unexpected command")
 	}
@@ -144,25 +147,53 @@ func TestGatewayRegistrationRejectsSecretBearingOrRemotePlaintextEndpoint(t *tes
 }
 
 func TestCreateRequiresPinnedImageAndVerifiedPolicy(t *testing.T) {
-	provider, _, placement, policyPath, policyDigest := preparedProvider(t, nil)
-	request := createRequest(placement, policyPath, policyDigest)
+	provider, _, placement, policy, policyDigest := preparedProvider(t, nil)
+	request := createRequest(placement, policy, policyDigest)
 	request.Image = "ghcr.io/nvidia/openshell-community/sandboxes/base:latest"
 	if _, err := provider.Create(context.Background(), request); err == nil || !strings.Contains(err.Error(), "pinned") {
 		t.Fatalf("mutable image accepted: %v", err)
 	}
-	request = createRequest(placement, policyPath, strings.Repeat("0", 64))
-	if _, err := provider.Create(context.Background(), request); err == nil || !strings.Contains(err.Error(), "digest") {
+	request = createRequest(placement, policy, "sha256:"+strings.Repeat("0", 64))
+	if _, err := provider.Create(context.Background(), request); !errors.Is(err, execution.ErrPolicyInvalid) {
 		t.Fatalf("wrong policy digest accepted: %v", err)
 	}
 }
 
+func TestCreateRequestCannotSerializePolicyContent(t *testing.T) {
+	_, _, placement, policy, policyDigest := preparedProvider(t, nil)
+	encoded, err := json.Marshal(createRequest(placement, policy, policyDigest))
+	if err != nil {
+		t.Fatalf("marshal create request: %v", err)
+	}
+	if strings.Contains(string(encoded), "version: 1") || strings.Contains(string(encoded), `"Policy":`) {
+		t.Fatalf("enforcement policy serialized across provider boundary: %s", encoded)
+	}
+}
+
 func TestCreateUsesArgumentVectorAndNoCredentialValues(t *testing.T) {
+	var materializedPath string
 	runner := &scriptedRunner{results: []scriptedResult{
 		{result: CommandResult{Stdout: []byte("[]")}},
 		{result: CommandResult{}},
 	}}
-	provider, _, placement, policyPath, policyDigest := preparedProvider(t, runner)
-	request := createRequest(placement, policyPath, policyDigest)
+	provider, _, placement, policy, policyDigest := preparedProvider(t, runner)
+	runner.runHook = func(args []string) {
+		for index, argument := range args {
+			if argument != "--policy" || index+1 >= len(args) {
+				continue
+			}
+			materializedPath = args[index+1]
+			content, err := os.ReadFile(materializedPath)
+			if err != nil || !reflect.DeepEqual(content, policy) {
+				t.Errorf("materialized policy = %q, %v", content, err)
+			}
+			info, err := os.Stat(materializedPath)
+			if err != nil || info.Mode().Perm() != 0o600 {
+				t.Errorf("materialized policy mode = %v, %v", info, err)
+			}
+		}
+	}
+	request := createRequest(placement, policy, policyDigest)
 	request.OperationID = "op-a; echo leaked"
 	request.Placement, _ = provider.SelectGateway(context.Background(), execution.PlacementRequest{
 		IsolationDomainID: request.IsolationDomainID, OperationID: request.OperationID,
@@ -187,24 +218,31 @@ func TestCreateUsesArgumentVectorAndNoCredentialValues(t *testing.T) {
 	if runner.calls[1].binary != "openshell" {
 		t.Fatalf("unexpected command runner binary: %q", runner.calls[1].binary)
 	}
+	if materializedPath == "" {
+		t.Fatal("provider did not materialize the enforcement policy")
+	}
+	if _, err := os.Stat(materializedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("materialized policy survived create: %v", err)
+	}
 }
 
 func TestCreateRejectsUnreservedOrMismatchedPlacement(t *testing.T) {
-	provider, _, placement, policyPath, policyDigest := preparedProvider(t, nil)
-	request := createRequest(placement, policyPath, policyDigest)
+	provider, _, placement, policy, policyDigest := preparedProvider(t, nil)
+	request := createRequest(placement, policy, policyDigest)
 	request.OperationID = "different-operation"
 	if _, err := provider.Create(context.Background(), request); err == nil || !strings.Contains(err.Error(), "placement") {
 		t.Fatalf("mismatched placement accepted: %v", err)
 	}
 	request = createRequest(execution.Placement{
 		IsolationDomainID: "iso-a", ID: derivedID("plc", "iso-a:op-a"), GatewayID: "gateway-b",
-	}, policyPath, policyDigest)
+	}, policy, policyDigest)
 	if _, err := provider.Create(context.Background(), request); err == nil || !strings.Contains(err.Error(), "reserved") {
 		t.Fatalf("forged placement accepted: %v", err)
 	}
 }
 
 func TestCreateObservesAfterLostAcknowledgement(t *testing.T) {
+	var materializedPath string
 	runner := &scriptedRunner{results: []scriptedResult{
 		{result: CommandResult{Stdout: []byte("[]")}},
 		{err: context.DeadlineExceeded},
@@ -212,10 +250,19 @@ func TestCreateObservesAfterLostAcknowledgement(t *testing.T) {
 			"name":"dg-e130c9d4ce8cea6ef2d0dfdb","phase":"Ready"
 		}]`)}},
 	}}
-	provider, _, placement, policyPath, policyDigest := preparedProvider(t, runner)
-	request := createRequest(placement, policyPath, policyDigest)
+	provider, _, placement, policy, policyDigest := preparedProvider(t, runner)
+	runner.runHook = func(args []string) {
+		for index, argument := range args {
+			if argument == "--policy" && index+1 < len(args) {
+				materializedPath = args[index+1]
+			}
+		}
+	}
+	request := createRequest(placement, policy, policyDigest)
 	expectedName := sandboxName(request.IsolationDomainID, request.OperationID)
-	runner.results[2].result.Stdout = []byte(`[{"name":"` + expectedName + `","phase":"Ready"}]`)
+	fingerprint := fingerprintCreate(request, request.ProviderProfiles)
+	runner.results[2].result.Stdout = []byte(`[{"name":"` + expectedName + `","phase":"Ready","labels":{"` +
+		createLabel + `":"` + fingerprint + `"}}]`)
 	created, err := provider.Create(context.Background(), request)
 	if err != nil {
 		t.Fatalf("recover ambiguous create: %v", err)
@@ -223,12 +270,43 @@ func TestCreateObservesAfterLostAcknowledgement(t *testing.T) {
 	if created.State != "ready" || len(runner.calls) != 3 {
 		t.Fatalf("create was repeated or not observed: %#v calls=%d", created, len(runner.calls))
 	}
+	if materializedPath == "" {
+		t.Fatal("ambiguous create did not materialize policy")
+	}
+	if _, err := os.Stat(materializedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("policy survived ambiguous create recovery: %v", err)
+	}
+}
+
+func TestCreateRejectsConflictingRetryFingerprint(t *testing.T) {
+	runner := &scriptedRunner{results: []scriptedResult{
+		{result: CommandResult{Stdout: []byte("[]")}},
+		{result: CommandResult{}},
+	}}
+	provider, _, placement, policy, policyDigest := preparedProvider(t, runner)
+	first := createRequest(placement, policy, policyDigest)
+	first.ProviderProfiles = []string{"codex"}
+	if _, err := provider.Create(context.Background(), first); err != nil {
+		t.Fatalf("create execution: %v", err)
+	}
+	fingerprint := fingerprintCreate(first, []string{"codex"})
+	runner.results = []scriptedResult{{result: CommandResult{Stdout: []byte(`[{"name":"` +
+		sandboxName(first.IsolationDomainID, first.OperationID) + `","phase":"Ready","labels":{"` + createLabel +
+		`":"` + fingerprint + `"}}]`)}}}
+	changed := first
+	changed.ProviderProfiles = []string{"other"}
+	if _, err := provider.Create(context.Background(), changed); !errors.Is(err, execution.ErrStateConflict) {
+		t.Fatalf("conflicting retry error = %v, want ErrStateConflict", err)
+	}
+	if len(runner.calls) != 3 || containsSequence(runner.calls[2].args, "sandbox", "create") {
+		t.Fatalf("conflicting retry repeated create: %#v", runner.calls)
+	}
 }
 
 func TestCreateDoesNotRepeatWhenPriorStateCannotBeObserved(t *testing.T) {
 	runner := &scriptedRunner{results: []scriptedResult{{err: context.DeadlineExceeded}}}
-	provider, _, placement, policyPath, policyDigest := preparedProvider(t, runner)
-	if _, err := provider.Create(context.Background(), createRequest(placement, policyPath, policyDigest)); !errors.Is(err, ErrProviderFailure) {
+	provider, _, placement, policy, policyDigest := preparedProvider(t, runner)
+	if _, err := provider.Create(context.Background(), createRequest(placement, policy, policyDigest)); !errors.Is(err, ErrProviderFailure) {
 		t.Fatalf("unobservable prior state did not fail closed: %v", err)
 	}
 	if len(runner.calls) != 1 || containsSequence(runner.calls[0].args, "sandbox", "create") {
@@ -241,8 +319,8 @@ func TestStartRuntimeKeepsNativeEndpointInsideAdapter(t *testing.T) {
 		{result: CommandResult{Stdout: []byte("[]")}},
 		{result: CommandResult{}},
 	}}
-	provider, _, placement, policyPath, policyDigest := preparedProvider(t, runner)
-	created, err := provider.Create(context.Background(), createRequest(placement, policyPath, policyDigest))
+	provider, _, placement, policy, policyDigest := preparedProvider(t, runner)
+	created, err := provider.Create(context.Background(), createRequest(placement, policy, policyDigest))
 	if err != nil {
 		t.Fatalf("create execution: %v", err)
 	}
@@ -283,8 +361,8 @@ func TestTerminateIsIdempotentAfterProviderConfirmsAbsence(t *testing.T) {
 		{err: context.DeadlineExceeded},
 		{result: CommandResult{Stdout: []byte("[]")}},
 	}}
-	provider, _, placement, policyPath, policyDigest := preparedProvider(t, runner)
-	created, err := provider.Create(context.Background(), createRequest(placement, policyPath, policyDigest))
+	provider, _, placement, policy, policyDigest := preparedProvider(t, runner)
+	created, err := provider.Create(context.Background(), createRequest(placement, policy, policyDigest))
 	if err != nil {
 		t.Fatalf("create execution: %v", err)
 	}
@@ -320,7 +398,7 @@ func TestListOrphansUsesDataGroundIdentityNotSandboxName(t *testing.T) {
 	}
 }
 
-func preparedProvider(t *testing.T, runner *scriptedRunner) (*Provider, *scriptedRunner, execution.Placement, string, string) {
+func preparedProvider(t *testing.T, runner *scriptedRunner) (*Provider, *scriptedRunner, execution.Placement, []byte, string) {
 	t.Helper()
 	if runner == nil {
 		runner = &scriptedRunner{}
@@ -343,19 +421,16 @@ func preparedProvider(t *testing.T, runner *scriptedRunner) (*Provider, *scripte
 		t.Fatalf("select gateway: %v", err)
 	}
 	policy := []byte("version: 1\n")
-	policyPath := filepath.Join(t.TempDir(), "deny-all.yaml")
-	if err := os.WriteFile(policyPath, policy, 0o600); err != nil {
-		t.Fatalf("write policy fixture: %v", err)
-	}
 	digest := sha256.Sum256(policy)
-	return provider, runner, placement, policyPath, hex.EncodeToString(digest[:])
+	return provider, runner, placement, policy, "sha256:" + hex.EncodeToString(digest[:])
 }
 
-func createRequest(placement execution.Placement, policyPath, policyDigest string) execution.CreateRequest {
+func createRequest(placement execution.Placement, policy []byte, policyDigest string) execution.CreateRequest {
 	return execution.CreateRequest{
 		Placement: placement, IsolationDomainID: "iso-a", OperationID: "op-a",
-		Image:      "ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:" + strings.Repeat("a", 64),
-		PolicyPath: policyPath, PolicySHA256: policyDigest,
+		Image:        "ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:" + strings.Repeat("a", 64),
+		Policy:       append([]byte(nil), policy...),
+		PolicyDigest: policyDigest,
 	}
 }
 

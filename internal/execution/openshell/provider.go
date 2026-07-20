@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ const (
 	operationLabel = "dataground.operation"
 	isolationLabel = "dataground.isolation"
 	executionLabel = "dataground.execution"
+	createLabel    = "dataground.create"
 )
 
 var (
@@ -44,6 +46,7 @@ type Runner interface {
 type Config struct {
 	Binary          string
 	ExpectedVersion string
+	PolicyTempDir   string
 	Now             func() time.Time
 	StateStore      execution.StateStore
 }
@@ -51,11 +54,12 @@ type Config struct {
 // Provider is the development OpenShell adapter. Gateway and sandbox
 // coordinates stay in private state and never appear in returned resources.
 type Provider struct {
-	runner   Runner
-	binary   string
-	expected string
-	now      func() time.Time
-	store    execution.StateStore
+	runner    Runner
+	binary    string
+	expected  string
+	policyDir string
+	now       func() time.Time
+	store     execution.StateStore
 }
 
 func New(config Config, runner Runner) *Provider {
@@ -75,7 +79,8 @@ func New(config Config, runner Runner) *Provider {
 		store = execution.NewMemoryStateStore()
 	}
 	return &Provider{
-		runner: runner, binary: binary, expected: config.ExpectedVersion, now: now, store: store,
+		runner: runner, binary: binary, expected: config.ExpectedVersion, policyDir: config.PolicyTempDir,
+		now: now, store: store,
 	}
 }
 
@@ -132,9 +137,19 @@ func (provider *Provider) Create(ctx context.Context, request execution.CreateRe
 	if err := provider.validatePlacement(ctx, request); err != nil {
 		return execution.Execution{}, err
 	}
-	if err := verifyFileDigest(request.PolicyPath, request.PolicySHA256); err != nil {
+	policy := slices.Clone(request.Policy)
+	providerProfiles := slices.Clone(request.ProviderProfiles)
+	if err := execution.VerifyEnforcementPolicy(policy, request.PolicyDigest); err != nil {
 		return execution.Execution{}, err
 	}
+	for _, profile := range providerProfiles {
+		if profile == "" || strings.ContainsAny(profile, "=\x00\n\r") {
+			return execution.Execution{}, errors.New("provider profile name is invalid")
+		}
+	}
+	sort.Strings(providerProfiles)
+	providerProfiles = slices.Compact(providerProfiles)
+	createFingerprint := fingerprintCreate(request, providerProfiles)
 	gateway, err := provider.executionContext(ctx, request.IsolationDomainID, request.Placement.GatewayID)
 	if err != nil {
 		return execution.Execution{}, err
@@ -143,9 +158,12 @@ func (provider *Provider) Create(ctx context.Context, request execution.CreateRe
 	executionID := derivedID("exe", request.IsolationDomainID+":"+request.OperationID)
 	sandbox := sandboxName(request.IsolationDomainID, request.OperationID)
 	observed, found, observeErr := provider.observeByName(
-		ctx, request.IsolationDomainID, endpoint, sandbox, executionID, request.Placement.GatewayID,
+		ctx, request.IsolationDomainID, endpoint, sandbox, executionID, request.Placement.GatewayID, createFingerprint,
 	)
 	if observeErr != nil {
+		if errors.Is(observeErr, execution.ErrStateConflict) {
+			return execution.Execution{}, observeErr
+		}
 		return execution.Execution{}, ErrProviderFailure
 	}
 	if found {
@@ -154,14 +172,17 @@ func (provider *Provider) Create(ctx context.Context, request execution.CreateRe
 		}
 		return observed, nil
 	}
+	policyPath, cleanup, err := provider.materializePolicy(policy)
+	if err != nil {
+		return execution.Execution{}, err
+	}
+	defer cleanup()
 	args := provider.gatewayArgs(endpoint, "sandbox", "create", "--name", sandbox, "--from", request.Image,
-		"--policy", request.PolicyPath, "--no-auto-providers", "--approval-mode", "manual",
+		"--policy", policyPath, "--no-auto-providers", "--approval-mode", "manual",
 		"--label", managedLabel+"=true", "--label", operationLabel+"="+shortDigest(request.OperationID),
-		"--label", isolationLabel+"="+shortDigest(request.IsolationDomainID), "--label", executionLabel+"="+executionID)
-	for _, profile := range request.ProviderProfiles {
-		if profile == "" || strings.ContainsAny(profile, "=\x00\n\r") {
-			return execution.Execution{}, errors.New("provider profile name is invalid")
-		}
+		"--label", isolationLabel+"="+shortDigest(request.IsolationDomainID), "--label", executionLabel+"="+executionID,
+		"--label", createLabel+"="+createFingerprint)
+	for _, profile := range providerProfiles {
 		args = append(args, "--provider", profile)
 	}
 	args = append(args, "--", "true")
@@ -170,13 +191,16 @@ func (provider *Provider) Create(ctx context.Context, request execution.CreateRe
 		// Creation may have succeeded before acknowledgement was lost. Observe
 		// the deterministic name before permitting a retry.
 		observed, found, observeErr := provider.observeByName(
-			ctx, request.IsolationDomainID, endpoint, sandbox, executionID, request.Placement.GatewayID,
+			ctx, request.IsolationDomainID, endpoint, sandbox, executionID, request.Placement.GatewayID, createFingerprint,
 		)
 		if observeErr == nil && found {
 			if err := provider.rememberExecution(ctx, observed, request.Placement.ID, request.OperationID, sandbox); err != nil {
 				return execution.Execution{}, err
 			}
 			return observed, nil
+		}
+		if errors.Is(observeErr, execution.ErrStateConflict) {
+			return execution.Execution{}, observeErr
 		}
 		return execution.Execution{}, ErrProviderFailure
 	}
@@ -373,6 +397,7 @@ func (provider *Provider) observeByName(
 	sandbox string,
 	executionID string,
 	gatewayID string,
+	createFingerprint string,
 ) (execution.Execution, bool, error) {
 	result, err := provider.runner.Run(ctx, provider.binary, provider.gatewayArgs(endpoint, "sandbox", "list", "--selector", managedLabel+"=true", "--output", "json")...)
 	if err != nil || result.ExitCode != 0 {
@@ -384,6 +409,9 @@ func (provider *Provider) observeByName(
 	}
 	for _, item := range items {
 		if item.Name == sandbox {
+			if item.Labels[createLabel] != createFingerprint {
+				return execution.Execution{}, false, execution.ErrStateConflict
+			}
 			return execution.Execution{
 				IsolationDomainID: isolationDomainID, ID: executionID,
 				GatewayID: gatewayID, State: strings.ToLower(item.Phase),
@@ -391,6 +419,24 @@ func (provider *Provider) observeByName(
 		}
 	}
 	return execution.Execution{}, false, nil
+}
+
+func fingerprintCreate(request execution.CreateRequest, providerProfiles []string) string {
+	encoded, _ := json.Marshal(struct {
+		IsolationDomainID string   `json:"isolationDomainId"`
+		OperationID       string   `json:"operationId"`
+		Image             string   `json:"image"`
+		PolicyDigest      string   `json:"policyDigest"`
+		ProviderProfiles  []string `json:"providerProfiles"`
+	}{
+		IsolationDomainID: request.IsolationDomainID,
+		OperationID:       request.OperationID,
+		Image:             request.Image,
+		PolicyDigest:      request.PolicyDigest,
+		ProviderProfiles:  providerProfiles,
+	})
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:])
 }
 
 func (provider *Provider) gatewayArgs(endpoint string, args ...string) []string {
@@ -411,19 +457,33 @@ func parseSandboxes(value []byte) ([]sandboxView, error) {
 	return items, nil
 }
 
-func verifyFileDigest(path, expected string) error {
-	if path == "" || expected == "" {
-		return errors.New("policy path and sha256 are required")
-	}
-	content, err := os.ReadFile(path)
+func (provider *Provider) materializePolicy(content []byte) (string, func(), error) {
+	file, err := os.CreateTemp(provider.policyDir, "dataground-enforcement-*.yaml")
 	if err != nil {
-		return errors.New("read enforcement policy")
+		return "", nil, errors.New("create private enforcement policy")
 	}
-	digest := sha256.Sum256(content)
-	if !strings.EqualFold(hex.EncodeToString(digest[:]), strings.TrimPrefix(expected, "sha256:")) {
-		return errors.New("enforcement policy digest does not match")
+	path := file.Name()
+	cleanup := func() { _ = os.Remove(path) }
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		cleanup()
+		return "", nil, errors.New("secure enforcement policy")
 	}
-	return nil
+	if _, err := file.Write(content); err != nil {
+		_ = file.Close()
+		cleanup()
+		return "", nil, errors.New("write enforcement policy")
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		cleanup()
+		return "", nil, errors.New("sync enforcement policy")
+	}
+	if err := file.Close(); err != nil {
+		cleanup()
+		return "", nil, errors.New("close enforcement policy")
+	}
+	return path, cleanup, nil
 }
 
 func isDigestPinned(image string) bool {
