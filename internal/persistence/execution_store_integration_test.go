@@ -6,8 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -197,10 +195,6 @@ func TestDurableExecutionPlacementAndProviderRecovery(t *testing.T) {
 	}
 
 	policy := []byte("version: 1\n")
-	policyPath := filepath.Join(t.TempDir(), "deny-all.yaml")
-	if err := os.WriteFile(policyPath, policy, 0o600); err != nil {
-		t.Fatal(err)
-	}
 	policyDigest := sha256.Sum256(policy)
 	runner := &executionRunner{results: []openshell.CommandResult{
 		{Stdout: []byte("[]")}, {},
@@ -208,8 +202,9 @@ func TestDurableExecutionPlacementAndProviderRecovery(t *testing.T) {
 	provider := openshell.New(openshell.Config{ExpectedVersion: "0.0.86", StateStore: store}, runner)
 	created, err := provider.Create(ctx, execution.CreateRequest{
 		Placement: firstPlacement, IsolationDomainID: domainID, OperationID: firstOperation,
-		Image:      "ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:" + strings.Repeat("a", 64),
-		PolicyPath: policyPath, PolicySHA256: hex.EncodeToString(policyDigest[:]),
+		Image:        "ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:" + strings.Repeat("a", 64),
+		Policy:       policy,
+		PolicyDigest: "sha256:" + hex.EncodeToString(policyDigest[:]),
 	})
 	if err != nil {
 		t.Fatalf("create durable execution: %v", err)
