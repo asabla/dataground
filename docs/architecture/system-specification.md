@@ -11,7 +11,7 @@
 
 This document specifies DataGround: a self-hosted-first, open-source-first data engineering, notebook, and agent-execution platform. The existing custom notebook frontend is the primary user interface. NVIDIA OpenShell is the sandbox execution substrate for interactive notebook kernels, jobs, coding-agent harnesses, and Hermes deployments. Production targets self-hosted Kubernetes; conforming cloud Kubernetes remains supported behind replaceable interfaces; local development supports both Docker/Podman and local Kubernetes.
 
-OpenShell does not replace the product control plane or the application semantics of an agent harness. It provides sandbox lifecycle, runtime isolation, filesystem and process controls, network policy, credential mediation, inference routing, and security logging. Cedar is the authoritative authorization language. Rosetta is the external Cedar-to-OpenShell materialization service; its API remains the only unresolved implementation-freeze dependency. Native southbound adapters integrate Claude Agent SDK, Codex app-server/SDK, OpenCode server/SDK, and Hermes without making an upstream protocol public. Hermes profiles retain their native independent `HERMES_HOME`, memory, session, skill, schedule, and gateway-state boundaries while OpenShell supplies the actual security boundary. DataGround is multi-tenant by construction but does not force every installation or user to model itself as a tenant: an installation may expose organization/tenant, team, and workspace boundaries according to its configured isolation profile.
+OpenShell does not replace the product control plane or the application semantics of an agent harness. It provides sandbox lifecycle, runtime isolation, filesystem and process controls, network policy, credential mediation, inference routing, and security logging. Cedar is the authoritative authorization language. Rosetta is the external Cedar-to-OpenShell materialization service; a v1 contract candidate exists, while its tagged and conformance-certified production release remains the only unresolved implementation-freeze dependency. Native southbound adapters integrate Claude Agent SDK, Codex app-server/SDK, OpenCode server/SDK, and Hermes without making an upstream protocol public. Hermes profiles retain their native independent `HERMES_HOME`, memory, session, skill, schedule, and gateway-state boundaries while OpenShell supplies the actual security boundary. DataGround is multi-tenant by construction but does not force every installation or user to model itself as a tenant: an installation may expose organization/tenant, team, and workspace boundaries according to its configured isolation profile.
 
 The [DataGround architecture decision register](decision-register.md) is normative for decisions and supersedes conflicting proposal or pending language retained in earlier drafts. This specification integrates those decisions into the product and implementation contracts. Exact upstream versions, digests, schemas, provider profiles, and tested capacity values belong in signed release certification manifests rather than permanent architecture prose.
 
@@ -364,7 +364,7 @@ Compilation is a materialization process, not a general source-to-source transla
 
 The compiler shall never broaden a Cedar grant to make it expressible in OpenShell. If an exact or demonstrably narrower mapping is unavailable, compilation fails closed with a stable `POLICY_UNREPRESENTABLE` error.
 
-Rosetta is the separately deployed materialization service for steps 5–7. Calls use workload identity and mTLS. The versioned response records exact, narrower, denied, unsupported, or ambiguous status for every requested capability together with source/target hashes, compiler build identity, schema versions, diagnostics, and reproducibility metadata. Wider, ambiguous, malformed, unavailable, timed-out, or version-incompatible results fail closed; DataGround never substitutes a handwritten permissive policy. Rosetta returns no resolved secrets. The implementation is expected from [asabla/rosetta](https://github.com/asabla/rosetta), but production integration remains blocked until its contract and conformance fixtures are frozen.
+Rosetta is the separately deployed materialization service for steps 5–7. Calls use workload identity and mTLS. The versioned response records a decision for every requested capability together with source/target hashes, compiler build identity, schema versions, diagnostics, and reproducibility metadata. Wider, ambiguous, malformed, unavailable, timed-out, or version-incompatible results fail closed; DataGround never substitutes a handwritten permissive policy. Rosetta returns no resolved secrets. A v1 contract candidate is available from [asabla/rosetta](https://github.com/asabla/rosetta), but production integration remains blocked until a tagged release, authenticated transport profile, stable error taxonomy, compatibility policy, and conformance fixtures are certified.
 
 ### 7.5 Capability mapping
 
@@ -1779,7 +1779,7 @@ These phases are capability gates, not permission to implement every listed subs
 - Define the normalized agent-session, turn, event, approval, question, change, artifact, and usage schemas plus the cross-runtime conformance kit.
 - Prove one sandboxed runtime through an authenticated platform service route; do not expose its OpenShell service URL or native runtime endpoint to the caller.
 - Build a thin OpenShell adapter proof of concept.
-- Define the Cedar schema and core action vocabulary; scaffold the Rosetta client, error/provenance model, and conformance corpus. Until the external Rosetta contract exists, use only deny-all behavior or explicitly non-production enforcement fixtures generated outside DataGround.
+- Define the Cedar schema and core action vocabulary; keep the pinned Rosetta candidate client, error/provenance model, and conformance corpus fail closed. Until a tagged Rosetta release passes certification, use only deny-all behavior or explicitly non-production enforcement fixtures generated outside DataGround.
 - Launch one IPython kernel in an OpenShell sandbox from an authenticated API request.
 - Freeze the frontend-to-platform Jupyter transport contract before notebook implementation begins.
 - Build one vertical coding-harness proof of concept and recorded-event fixtures for all three upstream interfaces.
@@ -1863,9 +1863,9 @@ Current status:
 - 3 additional product/security/runtime decisions are confirmed;
 - dedicated Databricks migration is intentionally deferred;
 - no specification decision remains unaddressed;
-- the external Rosetta API/schema contract is the sole remaining implementation-freeze dependency.
+- a tagged and conformance-certified Rosetta release is the sole remaining implementation-freeze dependency.
 
-Implementation may begin on components that do not depend on the unresolved Rosetta wire contract. Policy materialization cannot freeze until Rosetta publishes the supported Cedar subset, input/entity/request schema, OpenShell target versions and policy fields, error model, validation endpoint, idempotency behavior, provenance/hash response, compatibility rules, and conformance fixtures.
+Implementation may continue against the pinned Rosetta v1 contract candidate without admitting live execution. Policy materialization cannot freeze until Rosetta publishes a tagged and signed build, stable machine-readable service errors, authenticated deployment profile, compatibility rules, and signed conformance fixtures, and DataGround passes golden and differential OpenShell certification.
 
 ### 23.1 Normative decision traceability
 

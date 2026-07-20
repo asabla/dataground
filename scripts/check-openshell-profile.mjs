@@ -17,6 +17,15 @@ if (profile.status !== "blocked" || profile.productionCertifiable !== false) {
   fail("the incomplete development profile must remain blocked and non-certifiable");
 }
 if (
+  profile.source?.rosetta?.candidateCommit !== "320158f1e4a4eea378d82c1527f4a7af5fb9855b" ||
+  profile.source?.rosetta?.declaredCompilerVersion !== "1.0.0" ||
+  profile.source?.rosetta?.catalogVersion !== "rosetta/v1" ||
+  profile.source?.rosetta?.openShellTargetContract !== "rosetta/openshell-policy-v1" ||
+  !profile.source?.rosetta?.releaseStatus?.includes("tagged and certified release required")
+) {
+  fail("the Rosetta candidate contract evidence is missing or no longer blocked");
+}
+if (
   profile.topology?.driver !== "docker" ||
   profile.topology?.gatewayEndpoint !== "http://127.0.0.1:8080"
 ) {

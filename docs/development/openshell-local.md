@@ -60,7 +60,15 @@ The binding validates that the runtime profile and capabilities exactly match th
 
 An enforcement-bundle identifier is not a filesystem path. A future governed resolver must retrieve the bundle through DataGround's artifact boundary, verify its digest, and only then materialize a gateway-local file for `ExecutionProvider.Create`. Provider profiles are names, not embedded provider configuration or credentials. The plan deliberately contains no gateway endpoint, sandbox name, native runtime identifier, local policy path, or secret.
 
-This increment does not resolve environment, policy, or runtime-matrix resources; invoke Rosetta; authorize or publish a revision; select a gateway; materialize a policy file; or start a sandbox. Those steps belong to the later finite publication and invocation reconcilers. Missing inputs and unavailable Rosetta translation continue to fail closed.
+This increment does not resolve environment, policy, or runtime-matrix resources; authorize or publish a revision; select a gateway; materialize a policy file; or start a sandbox. Those steps belong to the later finite publication and invocation reconcilers. Missing inputs and unavailable Rosetta translation continue to fail closed.
+
+## Rosetta candidate client
+
+The internal client under `internal/policy/rosetta` implements the HTTP surface observed at Rosetta commit `320158f1e4a4eea378d82c1527f4a7af5fb9855b`: compiler `1.0.0`, catalog `rosetta/v1`, and OpenShell target contract `rosetta/openshell-policy-v1`. It sends only strict compile requests, requires HTTPS except for explicit loopback tests, disables redirects, bounds request and response bodies, and accepts workload identity or mTLS only through an operator-supplied HTTP transport. It has no bearer-token or provider-credential configuration.
+
+Successful responses must match the pinned compiler and target contracts, include one plain `policy.yaml`, provide exactly one decision for every requested capability, and pass independent YAML validation. The client recomputes Rosetta's deterministic input hash and the artifact hash, then creates a separate DataGround binding digest covering the isolation domain, revision or execution, input hash, and artifact hash. Upstream diagnostic messages and error bodies are never exposed through the adapter.
+
+This client is conformance scaffolding, not a production integration. No publication, admission, reconciliation, gateway, or public API path can call it. Rosetta has not published the corresponding release tag, immutable service image, stable service error codes, authenticated deployment profile, or signed conformance fixtures.
 
 A real runtime invocation is not certified until all of the following evidence exists:
 
@@ -70,4 +78,4 @@ A real runtime invocation is not certified until all of the following evidence e
 4. Process, environment, filesystem, argument, log, and error inspection prove that a sandbox and Codex process cannot read a provider key or refresh token.
 5. Browser and public API tests prove that gateway URLs, sandbox ports, provider-native IDs, and runtime endpoints never cross the DataGround contract.
 
-Rosetta remains unavailable, so any runtime work requiring generated enforcement material must fail closed. The next live gate is a Docker-hosted conformance run with OpenShell-mediated credentials; it is not a fallback policy compiler.
+Production-certified Rosetta remains unavailable, so any runtime work requiring generated enforcement material must fail closed. The next live gates are a tagged Rosetta release with authenticated transport and differential fixtures, followed by a Docker-hosted conformance run with OpenShell-mediated credentials. Neither gate permits a fallback policy compiler.

@@ -11,6 +11,14 @@
     "community": {
       "repository": "https://github.com/NVIDIA/OpenShell-Community",
       "commit": "fffb6b2248ff6ba585f50517f3711b08122089f2"
+    },
+    "rosetta": {
+      "repository": "https://github.com/asabla/rosetta",
+      "candidateCommit": "320158f1e4a4eea378d82c1527f4a7af5fb9855b",
+      "declaredCompilerVersion": "1.0.0",
+      "catalogVersion": "rosetta/v1",
+      "openShellTargetContract": "rosetta/openshell-policy-v1",
+      "releaseStatus": "candidate commit only; tagged and certified release required"
     }
   },
   "topology": {
@@ -65,6 +73,6 @@
   "blockers": [
     "Run the profile on a host with Docker Engine or Docker Desktop.",
     "Configure a Codex provider through OpenShell and prove provider secrets are not process-readable.",
-    "Publish the Rosetta service contract and conformance fixtures before production materialization."
+    "Publish and certify a tagged Rosetta v1 build, authenticated transport profile, stable error taxonomy, compatibility policy, and signed conformance fixtures before production materialization."
   ]
 }
