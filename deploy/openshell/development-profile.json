@@ -48,7 +48,11 @@
     "npmIntegrity": "sha512-UmWo39UCGqFB2ImWwtI/TOnVQ1M2JIbCeDVBzOtG57WuTIPBNvDyluPNrzNv6eAcTYpyDLC5+nT5k49LrzEwow==",
     "schemaGenerationCommand": "npx --yes @openai/codex@0.117.0 app-server generate-json-schema --out <directory>",
     "schemaFileCount": 196,
-    "v2SchemaSHA256": "223232e57a9c29a20d385a415e67403ca137781f21d226a64a63a7f1d88b4a15"
+    "schemaEvidence": {
+      "file": "codex_app_server_protocol.v2.schemas.json",
+      "canonicalization": "recursive object-key ordering followed by compact JSON serialization without a trailing newline",
+      "canonicalSHA256": "0668eee0081dc5b643ecc7821938ad174f3d532a313a092f387fed3b469876ea"
+    }
   },
   "capabilities": {
     "gatewayPlacement": "adapter conformance tested",

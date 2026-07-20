@@ -1,8 +1,8 @@
 # Local OpenShell execution boundary
 
-DataGround's first OpenShell development profile is pinned and internally consistent, but it is not yet a completed runtime certification. The profile establishes the Docker gateway topology, immutable OCI inputs, an upstream deny-all policy fixture, the internal `ExecutionProvider` port, and the Codex app-server JSONL-over-stdio transport. Live sandbox execution and provider-secret non-exposure remain blocked until the profile is exercised on a Docker-capable host with an OpenShell-mediated Codex provider.
+DataGround's first OpenShell development profile is pinned and internally consistent, but it is not yet a completed runtime certification. The profile establishes the Docker gateway topology, immutable OCI inputs, an upstream deny-all policy fixture, the internal `ExecutionProvider` port, and the Codex app-server JSONL-over-stdio transport. The internal Codex adapter has protocol-level conformance coverage for its initial lifecycle, event, interruption, and approval surface. Live sandbox execution and provider-secret non-exposure remain blocked until the profile is exercised on a Docker-capable host with an OpenShell-mediated Codex provider.
 
-The machine-readable record is [`deploy/openshell/development-profile.json`](../../deploy/openshell/development-profile.json). `pnpm openshell:profile:check` verifies its immutable image references, loopback topology, deny-all fixture hash, blocked certification state, and runtime transport. The adapter under `internal/execution/openshell` additionally requires the installed CLI to report OpenShell `0.0.86` before a caller admits live work.
+The machine-readable record is [`deploy/openshell/development-profile.json`](../../deploy/openshell/development-profile.json). `pnpm openshell:profile:check` verifies its immutable image references, loopback topology, deny-all fixture hash, blocked certification state, runtime transport, and reproducible schema-evidence metadata. The adapter under `internal/execution/openshell` additionally requires the installed CLI to report OpenShell `0.0.86` before a caller admits live work.
 
 ## Pinned inputs and provenance
 
@@ -11,6 +11,8 @@ The profile pins OpenShell `v0.0.86` at commit `d556748771c41cbbd4e4dd7cd9030c79
 The deny-all fixture is copied byte-for-byte from `crates/openshell-prover/testdata/empty-policy.yaml` in the pinned OpenShell release. Its SHA-256 digest is recorded in the profile and checked on every `pnpm verify`. It permits negative and lifecycle conformance work without creating a Cedar-to-OpenShell translator. It does not replace Rosetta and is never production-certifiable.
 
 The Codex provider profile digest records the upstream `providers/codex.yaml` input. It is evidence for a later live test, not an authorization to place credentials in DataGround configuration, environment variables, command arguments, logs, or sandbox files. Provider creation is an OpenShell operator responsibility.
+
+Codex schema generation does not produce byte-stable aggregate files because definition order can vary between runs. The profile therefore records a SHA-256 digest after recursive object-key ordering and compact JSON serialization. Regenerate the schema twice and verify either directory with `pnpm codex:schema:check <directory>`; the check also confirms the required initial methods and server requests remain present.
 
 Primary upstream references are the OpenShell [runtime architecture](https://docs.nvidia.com/openshell/about/how-it-works), [sandbox management](https://docs.nvidia.com/openshell/sandboxes/manage-sandboxes), [compute drivers](https://docs.nvidia.com/openshell/reference/sandbox-compute-drivers), [provider configuration](https://docs.nvidia.com/openshell/sandboxes/providers-v2), [credential mediation](https://docs.nvidia.com/openshell/sandboxes/manage-providers), and [security guidance](https://docs.nvidia.com/openshell/security/best-practices). The native runtime contract follows the official Codex [app-server documentation](https://developers.openai.com/codex/app-server).
 
@@ -44,6 +46,8 @@ Stop the local gateway with `docker compose -f deploy/openshell/docker-compose.y
 
 The development adapter registers gateways, selects only active gateways with required capabilities, reserves deterministic placements, creates deterministic sandboxes, observes ambiguous creation and termination before repetition, starts Codex app-server through non-TTY stdio, retrieves logs, exports files, terminates sandboxes, and lists managed orphans. It invokes the OpenShell binary directly with an argument vector rather than through a shell. Gateway endpoints and native sandbox names remain in protected provider state; returned resources and runtime sessions cannot serialize them.
 
+The Codex adapter under `internal/runtime/codex` performs the stable `initialize`/`initialized`, thread-start, turn-start, and turn-interrupt exchange against bounded JSONL streams. It normalizes lifecycle, assistant text, and item activity without exposing native identifiers. Approval requests receive opaque adapter IDs and remain unanswered until an explicit decision; locked mode denies them without creating an actionable event. Approval and sandbox defaults are locked and read-only. Question, permission-escalation, rich item-delta, usage, resume/steer, and artifact normalization remain outside this initial protocol surface and must not be advertised as supported.
+
 The provider accepts a replaceable state store. Its in-memory implementation is for focused conformance tests only. The PostgreSQL implementation persists isolation-scoped gateway registrations, capabilities, endpoints, drain and loss state, placement reservations, native sandbox routing, observed execution state, and released capacity across provider restarts. Registration and placement retries are idempotent only when immutable inputs match; conflicting retries fail closed. A lost gateway marks its nonterminal executions unknown and its active placements lost instead of reassigning a running sandbox.
 
 Schema migration `00002_execution_placement.sql` establishes this protected routing state. The store is exercised with PostgreSQL integration tests, but it is not yet connected to a public admission command or a production reconciler. Gateway credentials, health leases, capacity signals, locality, policy/runtime compatibility, migration, and stuck-reservation repair remain future placement work.
@@ -51,7 +55,7 @@ Schema migration `00002_execution_placement.sql` establishes this protected rout
 A real runtime invocation is not certified until all of the following evidence exists:
 
 1. The pinned images and CLI run on the target Docker profile.
-2. Codex app-server completes initialize, thread, turn, event, interruption, and artifact flows through the adapter.
+2. Codex app-server completes initialize, thread, turn, event, interruption, approval, and artifact flows through the adapter on the real gateway; the in-memory protocol suite is necessary evidence but is not a live certification.
 3. Restart, drain, gateway loss, timeout, lost acknowledgement, export-before-teardown, and orphan cleanup tests pass against the real gateway.
 4. Process, environment, filesystem, argument, log, and error inspection prove that a sandbox and Codex process cannot read a provider key or refresh token.
 5. Browser and public API tests prove that gateway URLs, sandbox ports, provider-native IDs, and runtime endpoints never cross the DataGround contract.

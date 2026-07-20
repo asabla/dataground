@@ -14,6 +14,7 @@
     "build:design-system": "pnpm --filter @dataground/tokens build && pnpm --filter @dataground/ui build && pnpm --filter @dataground/ui storybook:build",
     "build:workbench": "pnpm --filter @dataground/workbench build",
     "contracts:check": "node scripts/check-contracts.mjs",
+    "codex:schema:check": "node scripts/check-codex-schema.mjs",
     "contracts:generate": "node scripts/generate-contracts.mjs --write",
     "contracts:generate:check": "node scripts/generate-contracts.mjs",
     "dev:api": "go run ./cmd/dataground-api",
