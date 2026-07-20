@@ -479,10 +479,10 @@ The same denied operation is tested under all three modes. Locked denies without
 
 ### ADR-019: Rosetta is the external Cedar-to-OpenShell compiler
 
-**Status:** Confirmed dependency; service contract and implementation pending
+**Status:** Confirmed dependency; v1 contract candidate available, release certification pending
 **Resolves:** Status portion of specification decision 14, Translator status
 
-The Cedar-to-OpenShell compiler will be a separately built service named Rosetta. It is not implemented yet and is expected to become available from [asabla/rosetta](https://github.com/asabla/rosetta). DataGround owns the consumer contract, provenance requirements, conformance suite, availability behavior, and safe integration; Rosetta owns translation implementation.
+The Cedar-to-OpenShell compiler is the separately built [Rosetta](https://github.com/asabla/rosetta) service. Rosetta main at commit [`320158f1e4a4eea378d82c1527f4a7af5fb9855b`](https://github.com/asabla/rosetta/commit/320158f1e4a4eea378d82c1527f4a7af5fb9855b) declares compiler version `1.0.0`, catalog `rosetta/v1`, `POST /v1/compile`, and OpenShell target contract `rosetta/openshell-policy-v1`. No corresponding `v1.0.0` release tag exists as of 2026-07-21, so this is a contract candidate rather than a production release. DataGround owns the consumer contract, provenance requirements, conformance suite, availability behavior, and safe integration; Rosetta owns translation implementation.
 
 Rosetta is an external component boundary, not necessarily an external SaaS dependency. The reference deployment must support running a pinned Rosetta build under the operator's control.
 
@@ -516,7 +516,7 @@ It returns:
 
 **Implementation-freeze blocker**
 
-Freeze a versioned Rosetta API, error taxonomy, capability mapping registry, target-version negotiation, provenance envelope, and conformance fixture format before building the production runner integration.
+The candidate wire and target contracts are sufficient for an unwired, fail-closed client. Production integration remains blocked until Rosetta publishes a signed and tagged build, stable machine-readable error taxonomy, authenticated service transport profile, compatibility policy, and signed conformance fixtures. DataGround must certify that release with golden and differential OpenShell tests before admitting generated enforcement material.
 
 ### ADR-020: Harness credentials are exclusively mediated by OpenShell
 

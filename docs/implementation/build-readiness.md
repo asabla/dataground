@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | Product and architecture | Ready | Preserve ADR-001–038 |
 | First vertical slice | Ready | Use the agent-service slice in `first-vertical-slice.md` |
-| Rosetta policy materialization | Blocked externally | Freeze client contract when Rosetta publishes it; remain fail-closed |
+| Rosetta policy materialization | Contract candidate available; release blocked externally | Keep the strict candidate client unwired until a tagged build, authenticated transport profile, stable error taxonomy and conformance fixtures are certified |
 | Repository | Partially ready | Project layout and CI exist; choose licensing, ownership and release policy |
 | Frontend | Design-system ready | React/Vite shell, generated API types, semantic tokens and deterministic interaction fixtures exist; router, auth and Jupyter contracts remain open |
 | Implementation stack | Contract-core ready | Go control plane, deterministic reference runtime and TypeScript/React workbench are established; runtime sidecars remain evidence-driven |
@@ -41,20 +41,17 @@ Do not ask Codex to generate a full platform before the remaining items are know
 
 ## Rosetta freeze gate
 
-The Rosetta client can be scaffolded now. The following are required before its production integration freezes:
+The internal client is pinned to Rosetta candidate commit `320158f1e4a4eea378d82c1527f4a7af5fb9855b`, compiler `1.0.0`, catalog `rosetta/v1`, and OpenShell contract `rosetta/openshell-policy-v1`. It forces strict mode, recomputes input and artifact hashes, validates the generated OpenShell policy independently, binds provenance to one isolation domain and revision or execution, and does not expose upstream diagnostic messages. It is not wired to publication or invocation.
 
-- supported Cedar subset and schema versions;
-- request/entity/input schema;
-- target OpenShell versions and policy fields;
-- deterministic output and canonicalization rules;
-- validation/dry-run endpoint;
-- error taxonomy and safe diagnostics;
-- idempotency and retry semantics;
-- provenance, input/output hashes, and compiler identity;
-- compatibility rules and deprecation window;
-- signed conformance fixtures for permit, deny, unrepresentable, and invalid cases.
+The following are still required before production integration freezes:
 
-Until then, `RosettaClient.materialize` must return `UNAVAILABLE` or use explicit test fixtures. No fallback compiler is permitted.
+- a signed `v1.0.0` tag, immutable container digest, SBOM, and build provenance;
+- stable machine-readable service error codes and retry semantics;
+- an operator-owned authenticated transport profile using workload identity and mTLS;
+- explicit compatibility and deprecation policy;
+- signed conformance fixtures for permit, deny, unrepresentable, invalid, target drift, and OpenShell differential cases.
+
+Until then, the client remains an internal conformance boundary and live materialization returns unavailable. No fallback compiler is permitted.
 
 ## Reference implementation selection spikes
 
