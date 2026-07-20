@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -199,7 +200,18 @@ func TestDurableExecutionPlacementAndProviderRecovery(t *testing.T) {
 	runner := &executionRunner{results: []openshell.CommandResult{
 		{Stdout: []byte("[]")}, {},
 	}}
-	provider := openshell.New(openshell.Config{ExpectedVersion: "0.0.86", StateStore: store}, runner)
+	workspace, err := openshell.OpenPolicyWorkspace(filepath.Join(t.TempDir(), "policies"))
+	if err != nil {
+		t.Fatalf("open policy workspace: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := workspace.Close(); err != nil {
+			t.Errorf("close policy workspace: %v", err)
+		}
+	})
+	provider := openshell.New(openshell.Config{
+		ExpectedVersion: "0.0.86", StateStore: store, PolicyWorkspace: workspace,
+	}, runner)
 	created, err := provider.Create(ctx, execution.CreateRequest{
 		Placement: firstPlacement, IsolationDomainID: domainID, OperationID: firstOperation,
 		Image:        "ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:" + strings.Repeat("a", 64),

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -46,7 +45,7 @@ type Runner interface {
 type Config struct {
 	Binary          string
 	ExpectedVersion string
-	PolicyTempDir   string
+	PolicyWorkspace *PolicyWorkspace
 	Now             func() time.Time
 	StateStore      execution.StateStore
 }
@@ -57,7 +56,7 @@ type Provider struct {
 	runner    Runner
 	binary    string
 	expected  string
-	policyDir string
+	workspace *PolicyWorkspace
 	now       func() time.Time
 	store     execution.StateStore
 }
@@ -79,7 +78,7 @@ func New(config Config, runner Runner) *Provider {
 		store = execution.NewMemoryStateStore()
 	}
 	return &Provider{
-		runner: runner, binary: binary, expected: config.ExpectedVersion, policyDir: config.PolicyTempDir,
+		runner: runner, binary: binary, expected: config.ExpectedVersion, workspace: config.PolicyWorkspace,
 		now: now, store: store,
 	}
 }
@@ -172,11 +171,14 @@ func (provider *Provider) Create(ctx context.Context, request execution.CreateRe
 		}
 		return observed, nil
 	}
-	policyPath, cleanup, err := provider.materializePolicy(policy)
+	if provider.workspace == nil {
+		return execution.Execution{}, ErrPolicyWorkspaceUnavailable
+	}
+	policyPath, cleanup, err := provider.workspace.materialize(policy)
 	if err != nil {
 		return execution.Execution{}, err
 	}
-	defer cleanup()
+	defer func() { _ = cleanup() }()
 	args := provider.gatewayArgs(endpoint, "sandbox", "create", "--name", sandbox, "--from", request.Image,
 		"--policy", policyPath, "--no-auto-providers", "--approval-mode", "manual",
 		"--label", managedLabel+"=true", "--label", operationLabel+"="+shortDigest(request.OperationID),
@@ -187,6 +189,22 @@ func (provider *Provider) Create(ctx context.Context, request execution.CreateRe
 	}
 	args = append(args, "--", "true")
 	result, runErr := provider.runner.Run(ctx, provider.binary, args...)
+	cleanupErr := cleanup()
+	if cleanupErr != nil {
+		if runErr == nil && result.ExitCode == 0 {
+			created := execution.Execution{
+				IsolationDomainID: request.IsolationDomainID, ID: executionID,
+				GatewayID: gateway.Gateway.ID, State: "provisioning",
+			}
+			if err := provider.rememberExecution(ctx, created, request.Placement.ID, request.OperationID, sandbox); err != nil {
+				return execution.Execution{}, errors.Join(cleanupErr, err)
+			}
+		}
+		if runErr != nil || result.ExitCode != 0 {
+			return execution.Execution{}, errors.Join(ErrProviderFailure, cleanupErr)
+		}
+		return execution.Execution{}, cleanupErr
+	}
 	if runErr != nil || result.ExitCode != 0 {
 		// Creation may have succeeded before acknowledgement was lost. Observe
 		// the deterministic name before permitting a retry.
@@ -455,35 +473,6 @@ func parseSandboxes(value []byte) ([]sandboxView, error) {
 		return nil, err
 	}
 	return items, nil
-}
-
-func (provider *Provider) materializePolicy(content []byte) (string, func(), error) {
-	file, err := os.CreateTemp(provider.policyDir, "dataground-enforcement-*.yaml")
-	if err != nil {
-		return "", nil, errors.New("create private enforcement policy")
-	}
-	path := file.Name()
-	cleanup := func() { _ = os.Remove(path) }
-	if err := file.Chmod(0o600); err != nil {
-		_ = file.Close()
-		cleanup()
-		return "", nil, errors.New("secure enforcement policy")
-	}
-	if _, err := file.Write(content); err != nil {
-		_ = file.Close()
-		cleanup()
-		return "", nil, errors.New("write enforcement policy")
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		cleanup()
-		return "", nil, errors.New("sync enforcement policy")
-	}
-	if err := file.Close(); err != nil {
-		cleanup()
-		return "", nil, errors.New("close enforcement policy")
-	}
-	return path, cleanup, nil
 }
 
 func isDigestPinned(image string) bool {
