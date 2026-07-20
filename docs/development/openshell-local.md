@@ -52,6 +52,16 @@ The provider accepts a replaceable state store. Its in-memory implementation is 
 
 Schema migration `00002_execution_placement.sql` establishes this protected routing state. The store is exercised with PostgreSQL integration tests, but it is not yet connected to a public admission command or a production reconciler. Gateway credentials, health leases, capacity signals, locality, policy/runtime compatibility, migration, and stuck-reservation repair remain future placement work.
 
+## Immutable execution plans
+
+The internal `dataground.execution-plan/v1` contract is the portable input to future admission and reconciliation. It binds one isolation-scoped service revision to its runtime profile and required capabilities, an environment revision and immutable OCI image, environment-manifest digest, enforcement-bundle identifier and digest, provider-profile names, and certified runtime-matrix identifier and digest. Lists are normalized before the plan is hashed and stored. A service revision can receive one plan: an identical retry succeeds, while any replacement fails closed.
+
+The binding validates that the runtime profile and capabilities exactly match the referenced service revision. PostgreSQL persists it through `00003_execution_plan.sql`, cascades it when the revision is deleted, and records the successful binding in the audit log in the same transaction. Isolation-domain scope is part of both the primary key and foreign key. The public v1 API is unchanged.
+
+An enforcement-bundle identifier is not a filesystem path. A future governed resolver must retrieve the bundle through DataGround's artifact boundary, verify its digest, and only then materialize a gateway-local file for `ExecutionProvider.Create`. Provider profiles are names, not embedded provider configuration or credentials. The plan deliberately contains no gateway endpoint, sandbox name, native runtime identifier, local policy path, or secret.
+
+This increment does not resolve environment, policy, or runtime-matrix resources; invoke Rosetta; authorize or publish a revision; select a gateway; materialize a policy file; or start a sandbox. Those steps belong to the later finite publication and invocation reconcilers. Missing inputs and unavailable Rosetta translation continue to fail closed.
+
 A real runtime invocation is not certified until all of the following evidence exists:
 
 1. The pinned images and CLI run on the target Docker profile.

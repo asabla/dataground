@@ -254,6 +254,156 @@ func TestDurableExecutionPlacementAndProviderRecovery(t *testing.T) {
 	}
 }
 
+func TestDurableExecutionPlanBindingIsImmutableAuditedAndScoped(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	databaseURL := testDatabaseURL(t)
+	database, err := persistence.OpenSQL(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := persistence.MigrateDownTo(ctx, database, 0); err != nil {
+		database.Close()
+		t.Fatalf("reset schema: %v", err)
+	}
+	if err := persistence.MigrateUp(ctx, database); err != nil {
+		database.Close()
+		t.Fatalf("migrate schema: %v", err)
+	}
+	database.Close()
+	pool, err := persistence.OpenPool(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	domainID := identity.New("iso")
+	serviceID := identity.New("svc")
+	revisionID := identity.New("rev")
+	now := time.Now().UTC()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO agent_services (
+			isolation_domain_id, id, name, description, created_at, updated_at, created_by
+		) VALUES ($1, $2, 'execution plan fixture', '', $3, $3, 'test:author')
+	`, domainID, serviceID, now); err != nil {
+		t.Fatalf("insert service fixture: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO service_revisions (
+			isolation_domain_id, id, service_id, revision_number, state,
+			runtime_profile, required_capabilities, created_at, updated_at, created_by
+		) VALUES ($1, $2, $3, 1, 'draft', 'codex.app-server/v1',
+		          ARRAY['runtime.codex', 'artifact.export'], $4, $4, 'test:author')
+	`, domainID, revisionID, serviceID, now); err != nil {
+		t.Fatalf("insert revision fixture: %v", err)
+	}
+
+	store := executionpostgres.New(pool)
+	missingRevisionPlan := durableExecutionPlan(domainID, identity.New("rev"))
+	if _, err := store.BindExecutionPlan(ctx, execution.ExecutionPlanBinding{
+		Plan: missingRevisionPlan, ActorID: "worker:resolver", CorrelationID: "correlation-missing",
+	}); !errors.Is(err, execution.ErrExecutionPlanRevisionMissing) {
+		t.Fatalf("bind missing revision plan = %v, want ErrExecutionPlanRevisionMissing", err)
+	}
+	mismatchedRevisionPlan := durableExecutionPlan(domainID, revisionID)
+	mismatchedRevisionPlan.RuntimeProfile = "claude.agent-sdk/v1"
+	if _, err := store.BindExecutionPlan(ctx, execution.ExecutionPlanBinding{
+		Plan: mismatchedRevisionPlan, ActorID: "worker:resolver", CorrelationID: "correlation-mismatch",
+	}); !errors.Is(err, execution.ErrExecutionPlanRevisionMismatch) {
+		t.Fatalf("bind mismatched revision plan = %v, want ErrExecutionPlanRevisionMismatch", err)
+	}
+
+	plan := durableExecutionPlan(domainID, revisionID)
+	plan.ProviderProfiles = []string{"codex", "anthropic", "codex"}
+	plan.RequiredCapabilities = []string{"runtime.codex", "artifact.export", "runtime.codex"}
+	binding := execution.ExecutionPlanBinding{
+		Plan: plan, ActorID: "worker:resolver", CorrelationID: "correlation-plan-1",
+	}
+	bound, err := store.BindExecutionPlan(ctx, binding)
+	if err != nil {
+		t.Fatalf("bind execution plan: %v", err)
+	}
+	if got, want := bound.ProviderProfiles, []string{"anthropic", "codex"}; !slicesEqualIntegration(got, want) {
+		t.Fatalf("bound provider profiles = %#v, want %#v", got, want)
+	}
+
+	replayed, err := store.BindExecutionPlan(ctx, execution.ExecutionPlanBinding{
+		Plan: plan, ActorID: "worker:retry", CorrelationID: "correlation-plan-retry",
+	})
+	if err != nil || !execution.EqualExecutionPlans(bound, replayed) {
+		t.Fatalf("replay execution plan: %#v, %v", replayed, err)
+	}
+	restartedStore := executionpostgres.New(pool)
+	restored, err := restartedStore.GetExecutionPlan(ctx, domainID, revisionID)
+	if err != nil || !execution.EqualExecutionPlans(bound, restored) {
+		t.Fatalf("restore execution plan: %#v, %v", restored, err)
+	}
+
+	changed := plan
+	changed.ImageReference = "registry.invalid/dataground/runtime@sha256:" + strings.Repeat("0", 64)
+	if _, err := store.BindExecutionPlan(ctx, execution.ExecutionPlanBinding{
+		Plan: changed, ActorID: binding.ActorID, CorrelationID: binding.CorrelationID,
+	}); !errors.Is(err, execution.ErrExecutionPlanConflict) {
+		t.Fatalf("replace execution plan = %v, want ErrExecutionPlanConflict", err)
+	}
+	if _, err := store.GetExecutionPlan(ctx, identity.New("iso"), revisionID); !errors.Is(err, execution.ErrExecutionPlanMissing) {
+		t.Fatalf("cross-domain plan lookup = %v, want ErrExecutionPlanMissing", err)
+	}
+
+	var auditCount int
+	var auditActor, auditCorrelation string
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*), min(actor_id), min(correlation_id)
+		FROM audit_records
+		WHERE isolation_domain_id = $1 AND resource_type = 'service-revision'
+		  AND resource_id = $2 AND action = 'execution-plan.bind'
+	`, domainID, revisionID).Scan(&auditCount, &auditActor, &auditCorrelation); err != nil {
+		t.Fatalf("read execution plan audit: %v", err)
+	}
+	if auditCount != 1 || auditActor != binding.ActorID || auditCorrelation != binding.CorrelationID {
+		t.Fatalf("execution plan audit = count %d, actor %q, correlation %q", auditCount, auditActor, auditCorrelation)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		DELETE FROM service_revisions WHERE isolation_domain_id = $1 AND id = $2
+	`, domainID, revisionID); err != nil {
+		t.Fatalf("delete revision: %v", err)
+	}
+	if _, err := store.GetExecutionPlan(ctx, domainID, revisionID); !errors.Is(err, execution.ErrExecutionPlanMissing) {
+		t.Fatalf("plan after revision deletion = %v, want ErrExecutionPlanMissing", err)
+	}
+}
+
+func durableExecutionPlan(domainID, revisionID string) execution.ExecutionPlan {
+	return execution.ExecutionPlan{
+		SchemaVersion:             execution.ExecutionPlanSchemaV1,
+		IsolationDomainID:         domainID,
+		RevisionID:                revisionID,
+		RuntimeProfile:            "codex.app-server/v1",
+		EnvironmentRevisionID:     "environment-v1",
+		ImageReference:            "registry.invalid/dataground/runtime@sha256:" + strings.Repeat("a", 64),
+		EnvironmentManifestDigest: "sha256:" + strings.Repeat("b", 64),
+		EnforcementBundleID:       "enforcement-bundle-v1",
+		EnforcementBundleDigest:   "sha256:" + strings.Repeat("c", 64),
+		RuntimeMatrixID:           "runtime-matrix-v1",
+		RuntimeMatrixDigest:       "sha256:" + strings.Repeat("d", 64),
+		ProviderProfiles:          []string{"codex"},
+		RequiredCapabilities:      []string{"runtime.codex", "artifact.export"},
+	}
+}
+
+func slicesEqualIntegration(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
 func containsIntegrationSequence(items []string, sequence ...string) bool {
 	for index := 0; index+len(sequence) <= len(items); index++ {
 		match := true

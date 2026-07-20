@@ -52,12 +52,13 @@ func TestMigrationsRoundTrip(t *testing.T) {
 		      'audit_records',
 		      'execution_gateways',
 		      'execution_placements',
-		      'execution_instances'
+		      'execution_instances',
+		      'service_revision_execution_plans'
 		  )
 	`).Scan(&tables); err != nil {
 		t.Fatalf("inspect migrated tables: %v", err)
 	}
-	if tables != 8 {
-		t.Fatalf("expected 8 representative tables, got %d", tables)
+	if tables != 9 {
+		t.Fatalf("expected 9 representative tables, got %d", tables)
 	}
 }
