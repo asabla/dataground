@@ -26,7 +26,7 @@ func main() {
 func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
 	flags := flag.NewFlagSet("dataground-postgres-route-conformance", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	mode := flags.String("mode", "", "serve, route, status, role or pool")
+	mode := flags.String("mode", "", "serve, route, select, status, role or pool")
 	listenAddress := flags.String("listen-address", "", "literal loopback client endpoint")
 	controlSocket := flags.String("control-socket", "", "absolute private Unix control socket path")
 	primaryTarget := flags.String("primary-target", "", "literal loopback primary endpoint")
@@ -44,12 +44,18 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
+		probe, err := targetWritableProbe(os.Getenv("DATAGROUND_ROUTER_HEALTH_DATABASE_URL"))
+		if err != nil {
+			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
+			return 2
+		}
 		proxy, err := pgrouteproxy.Start(ctx, pgrouteproxy.Config{
 			ListenAddress:  *listenAddress,
 			ControlSocket:  *controlSocket,
 			PrimaryTarget:  *primaryTarget,
 			PromotedTarget: *promotedTarget,
 			InitialRoute:   pgrouteproxy.Route(*routeValue),
+			WritableProbe:  probe,
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, "could not start PostgreSQL route conformance proxy")
@@ -60,6 +66,21 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 			fmt.Fprintln(stderr, "could not stop PostgreSQL route conformance proxy")
 			return 1
 		}
+		return 0
+	case "select":
+		if *controlSocket == "" || *routeValue != "" || *listenAddress != "" ||
+			*primaryTarget != "" || *promotedTarget != "" {
+			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
+			return 2
+		}
+		bounded, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		route, err := pgrouteproxy.SelectWritable(bounded, *controlSocket)
+		if err != nil {
+			fmt.Fprintln(stderr, "could not select writable PostgreSQL route conformance target")
+			return 1
+		}
+		fmt.Fprintln(stdout, route)
 		return 0
 	case "route":
 		if *controlSocket == "" || !validRoute(*routeValue) || *listenAddress != "" ||
@@ -119,6 +140,25 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 		return 2
 	}
+}
+
+func targetWritableProbe(databaseURL string) (pgrouteproxy.WritableProbe, error) {
+	if err := validateLoopbackDatabaseURL(databaseURL); err != nil {
+		return nil, err
+	}
+	parsed, err := url.Parse(databaseURL)
+	if err != nil {
+		return nil, errors.New("invalid PostgreSQL route conformance database URL")
+	}
+	return func(ctx context.Context, target string) (bool, error) {
+		candidate := *parsed
+		candidate.Host = target
+		role, err := databaseRole(ctx, candidate.String())
+		if err != nil {
+			return false, err
+		}
+		return role == "writable-primary", nil
+	}, nil
 }
 
 func validRoute(route string) bool {
