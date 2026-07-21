@@ -36,6 +36,43 @@ services:
       - "127.0.0.1:55432:5432"
     volumes:
       - postgres-conformance-data:/var/lib/postgresql
+      - ./postgres-primary-init.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=4
+      - -c
+      - max_replication_slots=4
+      - -c
+      - wal_keep_size=64MB
+    mem_limit: 512m
+    pids_limit: 256
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+
+  postgres-standby:
+    profiles:
+      - postgres-failover
+    image: postgres:18.4-bookworm
+    user: "999:999"
+    depends_on:
+      - postgres
+    environment:
+      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_PASSWORD: dataground
+      POSTGRES_USER: dataground
+    entrypoint:
+      - /opt/dataground/postgres-standby-entrypoint.sh
+    ports:
+      - "127.0.0.1:55433:5432"
+    volumes:
+      - postgres-standby-conformance-data:/var/lib/postgresql
+      - ./postgres-standby-entrypoint.sh:/opt/dataground/postgres-standby-entrypoint.sh:ro
     mem_limit: 512m
     pids_limit: 256
     cap_drop:
@@ -47,3 +84,4 @@ services:
 volumes:
   seaweedfs-conformance-data:
   postgres-conformance-data:
+  postgres-standby-conformance-data:

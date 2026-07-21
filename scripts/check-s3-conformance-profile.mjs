@@ -24,11 +24,23 @@ const preCommitConnectionLossSuite = await readFile(
   resolve(root, "internal/execution/recoveryconformance/pre_commit_connection_loss.go"),
   "utf8",
 );
+const failoverSuite = await readFile(
+  resolve(root, "internal/execution/recoveryconformance/failover.go"),
+  "utf8",
+);
+const primaryInit = await readFile(
+  resolve(root, "deploy/storage/postgres-primary-init.sh"),
+  "utf8",
+);
+const standbyEntrypoint = await readFile(
+  resolve(root, "deploy/storage/postgres-standby-entrypoint.sh"),
+  "utf8",
+);
 const commitProxy = await readFile(
   resolve(root, "internal/execution/recoveryconformance/pgcommitproxy/proxy.go"),
   "utf8",
 );
-const recoveryImplementation = `${recoverySuite}\n${commitLossSuite}\n${connectionLossSuite}\n${preCommitConnectionLossSuite}`;
+const recoveryImplementation = `${recoverySuite}\n${commitLossSuite}\n${connectionLossSuite}\n${preCommitConnectionLossSuite}\n${failoverSuite}`;
 const recoveryCommand = await readFile(
   resolve(root, "cmd/dataground-enforcement-recovery-conformance/main.go"),
   "utf8",
@@ -117,6 +129,13 @@ const recoveryPhases = {
     "read-only-replay-after-rollback",
     "single-audit-after-rollback-adoption",
   ],
+  "failover-recover": [
+    "promoted-standby-has-replicated-fixture",
+    "retained-object-unbound-after-primary-loss",
+    "catalog-adopted-on-promoted-standby",
+    "read-only-replay-after-failover",
+    "single-audit-after-failover",
+  ],
 };
 if (
   profile.recoveryConformance?.reportSchema !== "dataground.enforcement-recovery-conformance/v1" ||
@@ -126,6 +145,18 @@ if (
   profile.recoveryConformance?.objectBackendOutage !== true ||
   profile.recoveryConformance?.objectContainerRecreated !== true ||
   profile.recoveryConformance?.concurrentRecoveryWorkers !== 8 ||
+  profile.recoveryConformance?.clusteredFailover?.phase !== "failover-recover" ||
+  profile.recoveryConformance?.clusteredFailover?.mode !==
+    "PostgreSQL physical streaming replication" ||
+  profile.recoveryConformance?.clusteredFailover?.nodes !== 2 ||
+  profile.recoveryConformance?.clusteredFailover?.replicationBoundary !==
+    "standby replay at or beyond captured primary WAL position" ||
+  profile.recoveryConformance?.clusteredFailover?.primaryLoss !==
+    "primary container stopped before promotion" ||
+  profile.recoveryConformance?.clusteredFailover?.promotion !== "explicit pg_ctl promotion" ||
+  profile.recoveryConformance?.clusteredFailover?.automaticElection !== false ||
+  profile.recoveryConformance?.clusteredFailover?.clientEndpointFailover !== false ||
+  profile.recoveryConformance?.clusteredFailover?.partitionFencing !== false ||
   profile.recoveryConformance?.ambiguousCatalogCommit?.processLoss?.phase !== "commit-loss" ||
   profile.recoveryConformance?.ambiguousCatalogCommit?.processLoss?.terminationBoundary !==
     "after PostgreSQL commit before finalizer acknowledgement" ||
@@ -157,6 +188,7 @@ if (
     recoveryImplementation,
   ) ||
   !/PhaseRolledBackRecover\s+Phase = "rolled-back-recover"/.test(recoveryImplementation) ||
+  !/PhaseFailoverRecover\s+Phase = "failover-recover"/.test(recoveryImplementation) ||
   !recoveryImplementation.includes('"finalization-fails-closed-during-object-outage"') ||
   !recoveryImplementation.includes('"concurrent-catalog-adoption-after-restarts"') ||
   !recoveryImplementation.includes('"read-only-replay-after-ambiguous-commit"') ||
@@ -165,6 +197,9 @@ if (
   !recoveryImplementation.includes('"pre-commit-result-ambiguous"') ||
   !recoveryImplementation.includes('"retained-object-adopted-after-rollback"') ||
   !recoveryImplementation.includes('"read-only-replay-after-rollback"') ||
+  !recoveryImplementation.includes('"promoted-standby-has-replicated-fixture"') ||
+  !recoveryImplementation.includes('"catalog-adopted-on-promoted-standby"') ||
+  !recoveryImplementation.includes('"read-only-replay-after-failover"') ||
   !recoveryImplementation.includes("newArrivalBarrier(ConcurrentRecoveryWorkers)")
 ) {
   fail("the executable recovery suite has drifted from the scored profile");
@@ -200,6 +235,14 @@ if (
   !recoveryCommand.includes("10*time.Second")
 ) {
   fail("the recovery command has drifted from the commit-connection-loss contract");
+}
+if (
+  !recoveryCommand.includes("recoveryconformance.RunFailoverRecover") ||
+  !recoveryCommand.includes("verifyPromotedFixture") ||
+  !recoveryCommand.includes("pg_is_in_recovery()") ||
+  !recoveryCommand.includes("current_setting('transaction_read_only')")
+) {
+  fail("the recovery command has drifted from the promoted-standby contract");
 }
 
 if (
@@ -253,6 +296,33 @@ if (
 ) {
   fail("the disposable PostgreSQL process does not retain its least-privilege boundary");
 }
+const standbyCompose = compose.split("\n  postgres-standby:")[1]?.split("\nvolumes:")[0] ?? "";
+if (
+  !standbyCompose.includes("postgres-failover") ||
+  !standbyCompose.includes("image: postgres:18.4-bookworm") ||
+  !standbyCompose.includes('user: "999:999"') ||
+  !standbyCompose.includes('"127.0.0.1:55433:5432"') ||
+  !standbyCompose.includes("postgres-standby-conformance-data:/var/lib/postgresql") ||
+  !standbyCompose.includes("postgres-standby-entrypoint.sh") ||
+  !standbyCompose.includes("mem_limit: 512m") ||
+  !standbyCompose.includes("pids_limit: 256") ||
+  !standbyCompose.includes("cap_drop:\n      - ALL") ||
+  !standbyCompose.includes("no-new-privileges:true") ||
+  standbyCompose.includes("cap_add:") ||
+  !compose.includes("\n  postgres-standby-conformance-data:")
+) {
+  fail("the disposable PostgreSQL standby is not isolated consistently");
+}
+if (
+  !primaryInit.includes("host replication all all scram-sha-256") ||
+  !primaryInit.includes('ALTER ROLE :"replication_role" WITH REPLICATION;') ||
+  !standbyEntrypoint.includes("pg_basebackup") ||
+  !standbyEntrypoint.includes("--write-recovery-conf") ||
+  !standbyEntrypoint.includes("application_name=dataground-standby") ||
+  !standbyEntrypoint.includes('exec postgres -D "$PGDATA" -c hot_standby=on')
+) {
+  fail("the physical-streaming bootstrap has drifted from the failover contract");
+}
 if (
   !packageManifest.scripts?.verify?.includes("pnpm run s3:profile:check") ||
   !workflow.includes("pnpm verify") ||
@@ -270,6 +340,13 @@ if (
   !workflow.includes("--phase connection-loss-recover") ||
   !workflow.includes("--phase pre-commit-connection-loss") ||
   !workflow.includes("--phase rolled-back-recover") ||
+  !workflow.includes("postgres-failover-conformance") ||
+  !workflow.includes("--profile postgres-failover") ||
+  !workflow.includes("pg_current_wal_lsn()") ||
+  !workflow.includes("pg_last_wal_replay_lsn()") ||
+  !workflow.includes("stop postgres") ||
+  !workflow.includes("pg_ctl promote") ||
+  !workflow.includes("--phase failover-recover") ||
   !workflow.includes("DATAGROUND_TEST_DATABASE_URL") ||
   !workflow.includes("deploy/storage/seaweedfs-conformance.yml up --detach") ||
   !workflow.includes("deploy/storage/seaweedfs-conformance.yml down --volumes")
