@@ -1,0 +1,11 @@
+# S3 enforcement-object boundary
+
+DataGround's enforcement-object adapter implements the smallest S3 REST subset needed by immutable execution-policy finalization and retrieval. It is an internal protocol adapter, not a general object-storage service and not evidence that any backend is production-ready.
+
+The adapter targets one dedicated platform-object bucket. A caller supplies the endpoint, bucket, addressing style, and an explicit `http.RoundTripper`. The production transport must own workload authentication and TLS trust, but that behavior is not yet implemented or certified. DataGround does not store access keys, choose an identity mechanism, create buckets, follow redirects, accept endpoint user information, or permit remote plaintext HTTP. Loopback HTTP must be enabled explicitly for development tests.
+
+Writes use a single `PutObject` request with `If-None-Match: *`, an exact content length, the enforcement media type, and a base64 SHA-256 checksum. The adapter owns and verifies the bounded body before sending it. A `412 Precondition Failed` response maps to the immutable-object conflict signal. Other failures, including `409 ConditionalRequestConflict`, remain ambiguous storage failures so the finalizer can recover by reading the deterministic key before deciding whether the candidate conflicts.
+
+Reads use `GetObject` with identity content encoding. Only `200 OK` returns a stream and only `404 Not Found` maps to the missing-object signal. Redirects, authorization failures, malformed or oversized responses, transport failures, and every other status collapse to a safe unavailable error. Upstream response bodies, endpoint details, bucket names, and authentication failures do not cross the adapter.
+
+The adapter contract tests prove path and virtual-hosted URL construction, conditional and checksummed requests, missing/conflict mapping, cancellation, body ownership, path-confusion rejection, redirect denial, endpoint validation, encoded-response rejection, and response-detail sanitization. A release still needs a backend conformance suite against the selected self-hosted backend and one replacement configuration, plus bucket-policy, workload-identity, encryption, versioning, retention, backup/restore, concurrency, network-partition, and migration evidence from ADR-035.
