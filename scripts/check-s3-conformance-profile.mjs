@@ -790,7 +790,7 @@ if (
   !workflow.includes("Reject concurrent route supervisor contender") ||
   !workflow.includes("concurrent route supervisor acquired active ownership") ||
   !workflow.includes("route supervisor contender disturbed the active ownership boundary") ||
-  !workflow.includes('state.supervisor.lock') ||
+  !workflow.includes("state.supervisor.lock") ||
   !workflow.includes("stable database endpoint accepted a stale promotion generation") ||
   !workflow.includes("stale promotion generation changed the stable database route") ||
   !workflow.includes("stable database endpoint accepted a stale in-flight promotion generation") ||
