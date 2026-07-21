@@ -41,7 +41,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	phase := flags.String(
 		"phase",
 		"",
-		"prepare, outage, recover, commit-loss, committed-recover, commit-connection-loss, connection-loss-recover, pre-commit-connection-loss or rolled-back-recover",
+		"prepare, outage, recover, commit-loss, committed-recover, commit-connection-loss, connection-loss-recover, pre-commit-connection-loss, rolled-back-recover or failover-recover",
 	)
 	allowLoopbackHTTP := flags.Bool("allow-loopback-http", false, "allow explicit plaintext loopback development endpoint")
 	databaseURL := os.Getenv("DATAGROUND_TEST_DATABASE_URL")
@@ -173,6 +173,16 @@ func execute(
 		return recoveryconformance.RunPreCommitConnectionLoss(ctx, catalog, backend, waitForCommitLoss, config)
 	case recoveryconformance.PhaseRolledBackRecover:
 		return recoveryconformance.RunRolledBackRecover(ctx, catalog, backend, config)
+	case recoveryconformance.PhaseFailoverRecover:
+		return recoveryconformance.RunFailoverRecover(
+			ctx,
+			catalog,
+			backend,
+			func(ctx context.Context, fixture recoveryconformance.Fixture) error {
+				return verifyPromotedFixture(ctx, pool, fixture)
+			},
+			config,
+		)
 	default:
 		return recoveryconformance.Report{}, errors.New("invalid recovery conformance phase")
 	}
@@ -185,7 +195,8 @@ func validPhase(phase recoveryconformance.Phase) bool {
 		phase == recoveryconformance.PhaseCommitConnectionLoss ||
 		phase == recoveryconformance.PhaseConnectionLossRecover ||
 		phase == recoveryconformance.PhasePreCommitConnectionLoss ||
-		phase == recoveryconformance.PhaseRolledBackRecover
+		phase == recoveryconformance.PhaseRolledBackRecover ||
+		phase == recoveryconformance.PhaseFailoverRecover
 }
 
 func commitProxyFault(phase recoveryconformance.Phase) (pgcommitproxy.FaultPoint, bool) {
@@ -305,6 +316,34 @@ func provisionFixture(ctx context.Context, pool *pgxpool.Pool, fixture recoveryc
 		return errors.New("recovery conformance fixture conflicts with persisted revision")
 	}
 	return transaction.Commit(ctx)
+}
+
+func verifyPromotedFixture(ctx context.Context, pool *pgxpool.Pool, fixture recoveryconformance.Fixture) error {
+	var inRecovery bool
+	var transactionReadOnly string
+	var fixturePresent bool
+	err := pool.QueryRow(ctx, `
+		SELECT pg_is_in_recovery(), current_setting('transaction_read_only'), EXISTS (
+			SELECT 1
+			FROM service_revisions AS revision
+			JOIN agent_services AS service
+			  ON service.isolation_domain_id = revision.isolation_domain_id
+			 AND service.id = revision.service_id
+			WHERE revision.isolation_domain_id = $1
+			  AND revision.id = $2
+			  AND revision.service_id = $3
+			  AND service.created_by = 'conformance:enforcement-recovery'
+			  AND revision.created_by = 'conformance:enforcement-recovery'
+		)
+	`, fixture.IsolationDomainID, fixture.RevisionID, fixture.ServiceID).Scan(
+		&inRecovery,
+		&transactionReadOnly,
+		&fixturePresent,
+	)
+	if err != nil || inRecovery || transactionReadOnly != "off" || !fixturePresent {
+		return errors.New("promoted PostgreSQL fixture is unavailable")
+	}
+	return nil
 }
 
 func isHTTPStyleLoopback(raw string) bool {

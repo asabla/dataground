@@ -261,3 +261,115 @@ jobs:
       - name: Stop disposable conformance backends
         if: always()
         run: docker compose -f deploy/storage/seaweedfs-conformance.yml down --volumes
+
+  postgres-failover-conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATAGROUND_PRIMARY_DATABASE_URL: postgres://dataground:dataground@127.0.0.1:55432/dataground_conformance?sslmode=disable
+      DATAGROUND_PROMOTED_DATABASE_URL: postgres://dataground:dataground@127.0.0.1:55433/dataground_conformance?sslmode=disable
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: .go-version
+
+      - name: Start disposable streaming-replication pair
+        run: >-
+          docker compose -f deploy/storage/seaweedfs-conformance.yml
+          --profile postgres-failover up --detach
+
+      - name: Wait for primary and physical standby
+        run: |
+          for attempt in {1..30}; do
+            primary_ready=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+              psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+              --command 'SELECT NOT pg_is_in_recovery()' 2>/dev/null || true)
+            standby_ready=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+              psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+              --command 'SELECT pg_is_in_recovery()' 2>/dev/null || true)
+            if curl --fail --silent http://127.0.0.1:8333/ >/dev/null \
+              && [ "$primary_ready" = "t" ] && [ "$standby_ready" = "t" ]; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker compose -f deploy/storage/seaweedfs-conformance.yml logs
+          exit 1
+
+      - name: Migrate primary database
+        env:
+          DATAGROUND_DATABASE_URL: ${{ env.DATAGROUND_PRIMARY_DATABASE_URL }}
+        run: go run ./cmd/dataground-migrate up
+
+      - name: Prepare failover recovery scope on primary
+        env:
+          DATAGROUND_TEST_DATABASE_URL: ${{ env.DATAGROUND_PRIMARY_DATABASE_URL }}
+        run: >-
+          go run ./cmd/dataground-enforcement-recovery-conformance
+          --phase prepare
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id 223344556677889900aabbccddeeff11
+          --allow-loopback-http
+
+      - name: Require standby replay through prepared state
+        run: |
+          target_lsn=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+            psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+            --command 'SELECT pg_current_wal_lsn()')
+          if [[ ! "$target_lsn" =~ ^[0-9A-F]+/[0-9A-F]+$ ]]; then
+            echo "could not establish the primary WAL boundary"
+            exit 1
+          fi
+          for attempt in {1..30}; do
+            replayed=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+              psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+              --command "SELECT pg_last_wal_replay_lsn() >= '$target_lsn'::pg_lsn" 2>/dev/null || true)
+            if [ "$replayed" = "t" ]; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "standby did not replay the prepared primary state"
+          exit 1
+
+      - name: Stop primary and promote standby
+        run: |
+          docker compose -f deploy/storage/seaweedfs-conformance.yml stop postgres
+          if docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+            pg_isready --host postgres --port 5432 --username dataground >/dev/null 2>&1; then
+            echo "stopped primary remained reachable"
+            exit 1
+          fi
+          docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+            pg_ctl promote --pgdata /var/lib/postgresql/data/pgdata --wait
+          promoted=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+            psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+            --command 'SELECT NOT pg_is_in_recovery()')
+          if [ "$promoted" != "t" ]; then
+            echo "standby promotion was not observed"
+            exit 1
+          fi
+
+      - name: Recover through promoted standby
+        env:
+          DATAGROUND_TEST_DATABASE_URL: ${{ env.DATAGROUND_PROMOTED_DATABASE_URL }}
+        run: >-
+          go run ./cmd/dataground-enforcement-recovery-conformance
+          --phase failover-recover
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id 223344556677889900aabbccddeeff11
+          --allow-loopback-http
+
+      - name: Stop disposable failover backends
+        if: always()
+        run: >-
+          docker compose -f deploy/storage/seaweedfs-conformance.yml
+          --profile postgres-failover down --volumes

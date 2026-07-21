@@ -41,6 +41,17 @@
     "objectBackendOutage": true,
     "objectContainerRecreated": true,
     "concurrentRecoveryWorkers": 8,
+    "clusteredFailover": {
+      "phase": "failover-recover",
+      "mode": "PostgreSQL physical streaming replication",
+      "nodes": 2,
+      "replicationBoundary": "standby replay at or beyond captured primary WAL position",
+      "primaryLoss": "primary container stopped before promotion",
+      "promotion": "explicit pg_ctl promotion",
+      "automaticElection": false,
+      "clientEndpointFailover": false,
+      "partitionFencing": false
+    },
     "ambiguousCatalogCommit": {
       "processLoss": {
         "phase": "commit-loss",
@@ -89,6 +100,13 @@
         "retained-object-adopted-after-rollback",
         "read-only-replay-after-rollback",
         "single-audit-after-rollback-adoption"
+      ],
+      "failover-recover": [
+        "promoted-standby-has-replicated-fixture",
+        "retained-object-unbound-after-primary-loss",
+        "catalog-adopted-on-promoted-standby",
+        "read-only-replay-after-failover",
+        "single-audit-after-failover"
       ]
     }
   },
@@ -100,8 +118,8 @@
   },
   "blockers": [
     "single-process anonymous development evidence is not an authenticated production topology",
-    "the recovery profile uses single-node disposable PostgreSQL and SeaweedFS processes and does not exercise clustered failover or a network partition",
-    "multi-gateway and network-partition behavior is not exercised by this profile",
+    "the two-node PostgreSQL profile proves controlled physical-standby promotion but not automatic election, client endpoint failover, multi-zone durability or production operator behavior",
+    "split-brain prevention, fencing, multi-gateway and network-partition behavior are not exercised by this profile",
     "bucket policy, workload identity, TLS, encryption and KMS are not certified",
     "versioning, retention, backup, restore, upgrade and rollback are not certified",
     "image signature, SBOM and build provenance are not certified",

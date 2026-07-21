@@ -400,6 +400,20 @@ func TestReportsDoNotSerializeSensitiveRoutingOrContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	failoverCatalog := &memoryCatalog{available: true}
+	failoverBackend := &memoryBackend{objects: map[string][]byte{
+		fixture.Record.ObjectKey: bytes.Clone(fixture.Content),
+	}}
+	failover, err := RunFailoverRecover(
+		context.Background(),
+		failoverCatalog,
+		failoverBackend,
+		func(context.Context, Fixture) error { return nil },
+		Config{RunID: testRunID},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, report := range []Report{
 		prepare,
 		outage,
@@ -409,6 +423,7 @@ func TestReportsDoNotSerializeSensitiveRoutingOrContent(t *testing.T) {
 		connectionRecovered,
 		preCommitLoss,
 		rolledBack,
+		failover,
 	} {
 		encoded, err := json.Marshal(report)
 		if err != nil {
