@@ -56,7 +56,9 @@ if (
   profile.topology?.endpoint !== "http://127.0.0.1:8333" ||
   profile.topology?.bucket !== "dataground-conformance" ||
   profile.topology?.authentication !== "anonymous development access" ||
-  profile.topology?.persistent !== false
+  profile.topology?.persistent !== false ||
+  JSON.stringify(profile.topology?.entrypointCapabilities) !==
+    JSON.stringify(["CHOWN", "SETGID", "SETUID"])
 ) {
   fail("the candidate must remain disposable, loopback-only and non-authenticated");
 }
@@ -70,6 +72,8 @@ if (
   !compose.includes('"127.0.0.1:8333:8333"') ||
   !compose.includes("mem_limit: 512m") ||
   !compose.includes("pids_limit: 256") ||
+  !compose.includes("cap_drop:\n      - ALL") ||
+  !compose.includes("cap_add:\n      - CHOWN\n      - SETGID\n      - SETUID") ||
   compose.includes("AWS_ACCESS_KEY_ID") ||
   compose.includes("AWS_SECRET_ACCESS_KEY")
 ) {

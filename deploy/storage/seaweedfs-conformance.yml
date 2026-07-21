@@ -16,6 +16,10 @@ services:
     pids_limit: 256
     cap_drop:
       - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
     security_opt:
       - no-new-privileges:true
     init: true
