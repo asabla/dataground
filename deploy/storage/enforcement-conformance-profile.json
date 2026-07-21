@@ -16,6 +16,7 @@
     "bucket": "dataground-conformance",
     "authentication": "anonymous development access",
     "persistent": false,
+    "restartPersistentVolume": true,
     "entrypointCapabilities": ["CHOWN", "SETGID", "SETUID"]
   },
   "conformance": {
@@ -37,11 +38,18 @@
     "database": "PostgreSQL 18.4 disposable test dependency",
     "freshRunnerProcesses": true,
     "postgresServerRestart": true,
+    "objectBackendOutage": true,
+    "objectContainerRecreated": true,
+    "concurrentRecoveryWorkers": 8,
     "phases": {
       "prepare": ["fresh-scope", "fixture-provisioned", "object-retained-after-database-loss"],
+      "outage": [
+        "finalization-fails-closed-during-object-outage",
+        "catalog-remains-unbound"
+      ],
       "recover": [
         "retained-object-present",
-        "catalog-adoption-after-restart",
+        "concurrent-catalog-adoption-after-restarts",
         "read-only-replay",
         "single-audit-commit"
       ]
@@ -55,7 +63,7 @@
   },
   "blockers": [
     "single-process anonymous development evidence is not an authenticated production topology",
-    "the recovery profile uses one disposable PostgreSQL server and does not exercise a database cluster or network partition",
+    "the recovery profile uses single-node disposable PostgreSQL and SeaweedFS processes and does not exercise clustered failover or a network partition",
     "multi-gateway and network-partition behavior is not exercised by this profile",
     "bucket policy, workload identity, TLS, encryption and KMS are not certified",
     "versioning, retention, backup, restore, upgrade and rollback are not certified",

@@ -10,8 +10,8 @@ services:
       S3_BUCKET: dataground-conformance
     ports:
       - "127.0.0.1:8333:8333"
-    tmpfs:
-      - /data:size=256m,mode=0700
+    volumes:
+      - seaweedfs-conformance-data:/data
     mem_limit: 512m
     pids_limit: 256
     cap_drop:
@@ -45,4 +45,5 @@ services:
     init: true
 
 volumes:
+  seaweedfs-conformance-data:
   postgres-conformance-data:

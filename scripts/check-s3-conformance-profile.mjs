@@ -8,6 +8,10 @@ const profile = JSON.parse(
 );
 const compose = await readFile(resolve(root, "deploy/storage/seaweedfs-conformance.yml"), "utf8");
 const workflow = await readFile(resolve(root, ".github/workflows/ci.yml"), "utf8");
+const recoverySuite = await readFile(
+  resolve(root, "internal/execution/recoveryconformance/suite.go"),
+  "utf8",
+);
 const packageManifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
 
 function fail(message) {
@@ -62,9 +66,10 @@ if (
 
 const recoveryPhases = {
   prepare: ["fresh-scope", "fixture-provisioned", "object-retained-after-database-loss"],
+  outage: ["finalization-fails-closed-during-object-outage", "catalog-remains-unbound"],
   recover: [
     "retained-object-present",
-    "catalog-adoption-after-restart",
+    "concurrent-catalog-adoption-after-restarts",
     "read-only-replay",
     "single-audit-commit",
   ],
@@ -74,9 +79,21 @@ if (
   profile.recoveryConformance?.database !== "PostgreSQL 18.4 disposable test dependency" ||
   profile.recoveryConformance?.freshRunnerProcesses !== true ||
   profile.recoveryConformance?.postgresServerRestart !== true ||
+  profile.recoveryConformance?.objectBackendOutage !== true ||
+  profile.recoveryConformance?.objectContainerRecreated !== true ||
+  profile.recoveryConformance?.concurrentRecoveryWorkers !== 8 ||
   JSON.stringify(profile.recoveryConformance?.phases) !== JSON.stringify(recoveryPhases)
 ) {
   fail("the joint PostgreSQL and enforcement-object recovery contract is incomplete");
+}
+if (
+  !recoverySuite.includes("const ConcurrentRecoveryWorkers = 8") ||
+  !recoverySuite.includes('PhaseOutage  Phase = "outage"') ||
+  !recoverySuite.includes('"finalization-fails-closed-during-object-outage"') ||
+  !recoverySuite.includes('"concurrent-catalog-adoption-after-restarts"') ||
+  !recoverySuite.includes("newArrivalBarrier(ConcurrentRecoveryWorkers)")
+) {
+  fail("the executable recovery suite has drifted from the scored profile");
 }
 
 if (
@@ -84,6 +101,7 @@ if (
   profile.topology?.bucket !== "dataground-conformance" ||
   profile.topology?.authentication !== "anonymous development access" ||
   profile.topology?.persistent !== false ||
+  profile.topology?.restartPersistentVolume !== true ||
   JSON.stringify(profile.topology?.entrypointCapabilities) !==
     JSON.stringify(["CHOWN", "SETGID", "SETUID"])
 ) {
@@ -101,6 +119,9 @@ if (
   !compose.includes("pids_limit: 256") ||
   !compose.includes("cap_drop:\n      - ALL") ||
   !compose.includes("cap_add:\n      - CHOWN\n      - SETGID\n      - SETUID") ||
+  !compose.includes("seaweedfs-conformance-data:/data") ||
+  !compose.includes("volumes:\n  seaweedfs-conformance-data:") ||
+  compose.includes("tmpfs:") ||
   compose.includes("AWS_ACCESS_KEY_ID") ||
   compose.includes("AWS_SECRET_ACCESS_KEY")
 ) {
@@ -112,7 +133,7 @@ if (
   !compose.includes('"127.0.0.1:55432:5432"') ||
   !compose.includes("PGDATA: /var/lib/postgresql/data/pgdata") ||
   !compose.includes("postgres-conformance-data:/var/lib/postgresql") ||
-  !compose.includes("volumes:\n  postgres-conformance-data:")
+  !compose.includes("\n  postgres-conformance-data:")
 ) {
   fail("the disposable PostgreSQL recovery dependency is not isolated consistently");
 }
@@ -131,6 +152,10 @@ if (
   !workflow.includes("pnpm verify") ||
   !workflow.includes("dataground-s3-conformance") ||
   !workflow.includes("dataground-enforcement-recovery-conformance") ||
+  !workflow.includes("--phase outage") ||
+  !workflow.includes("stop seaweedfs") ||
+  !workflow.includes("rm --force seaweedfs") ||
+  !workflow.includes("up --detach seaweedfs") ||
   !workflow.includes("restart postgres") ||
   !workflow.includes("DATAGROUND_TEST_DATABASE_URL") ||
   !workflow.includes("deploy/storage/seaweedfs-conformance.yml up --detach") ||
