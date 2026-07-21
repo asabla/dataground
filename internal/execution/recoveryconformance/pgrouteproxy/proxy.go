@@ -1,8 +1,8 @@
 // Package pgrouteproxy provides a bounded, loopback-only TCP routing proxy for
-// PostgreSQL failover conformance. Route changes are explicit or selected from
-// predeclared targets by caller-triggered, generation-bound health confirmation,
-// and invalidate existing sessions; the proxy never promotes, elects, fences,
-// or replays traffic.
+// PostgreSQL failover conformance. Routes are selected from predeclared targets
+// by caller-triggered, generation-bound health confirmation and persisted before
+// sessions change. Restart recovery reconfirms the exact persisted state; the
+// proxy never promotes, elects, fences, or replays traffic.
 package pgrouteproxy
 
 import (
@@ -29,6 +29,7 @@ const (
 	probeRoundTimeout      = 2 * time.Second
 	confirmationInterval   = 200 * time.Millisecond
 	confirmationCount      = 3
+	staleSocketDialTimeout = 200 * time.Millisecond
 )
 
 type Route string
@@ -39,12 +40,14 @@ const (
 )
 
 type Config struct {
-	ListenAddress  string
-	ControlSocket  string
-	PrimaryTarget  string
-	PromotedTarget string
-	InitialRoute   Route
-	HealthProbe    HealthProbe
+	ListenAddress              string
+	ControlSocket              string
+	StateFile                  string
+	PrimaryTarget              string
+	PromotedTarget             string
+	InitialRoute               Route
+	InitialPromotionGeneration uint64
+	HealthProbe                HealthProbe
 }
 
 type Health struct {
@@ -57,21 +60,23 @@ type HealthProbe func(context.Context, string) (Health, error)
 type Proxy struct {
 	listener *net.TCPListener
 	control  *net.UnixListener
+	state    *routeStateStore
 	routes   map[Route]string
 	probe    HealthProbe
 
-	ctx        context.Context
-	cancel     context.CancelFunc
-	mu         sync.Mutex
-	route      Route
-	generation uint64
-	active     map[*connectionPair]struct{}
-	traffic    chan struct{}
-	controls   chan struct{}
-	wait       sync.WaitGroup
-	closeOnce  sync.Once
-	closeErr   error
-	socketInfo os.FileInfo
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	mu                  sync.Mutex
+	route               Route
+	generation          uint64
+	promotionGeneration uint64
+	active              map[*connectionPair]struct{}
+	traffic             chan struct{}
+	controls            chan struct{}
+	wait                sync.WaitGroup
+	closeOnce           sync.Once
+	closeErr            error
+	socketInfo          os.FileInfo
 }
 
 type connectionPair struct {
@@ -85,15 +90,16 @@ func Start(ctx context.Context, config Config) (*Proxy, error) {
 	if err := validateConfig(config); err != nil {
 		return nil, err
 	}
-	if _, err := os.Lstat(config.ControlSocket); err == nil {
-		return nil, errors.New("PostgreSQL route proxy control socket already exists")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, errors.New("inspect PostgreSQL route proxy control socket")
+	stateStore, err := openRouteStateStore(config.StateFile, config.ControlSocket)
+	if err != nil {
+		return nil, err
 	}
-	parent, err := os.Lstat(filepath.Dir(config.ControlSocket))
-	if err != nil || !parent.IsDir() || parent.Mode()&os.ModeSymlink != 0 {
-		return nil, errors.New("invalid PostgreSQL route proxy control directory")
-	}
+	closeState := true
+	defer func() {
+		if closeState {
+			_ = stateStore.close()
+		}
+	}()
 
 	tcpAddress, err := net.ResolveTCPAddr("tcp4", config.ListenAddress)
 	if err != nil {
@@ -102,6 +108,19 @@ func Start(ctx context.Context, config Config) (*Proxy, error) {
 	listener, err := net.ListenTCP("tcp4", tcpAddress)
 	if err != nil {
 		return nil, errors.New("listen for PostgreSQL route proxy")
+	}
+	routes := map[Route]string{
+		Primary:  config.PrimaryTarget,
+		Promoted: config.PromotedTarget,
+	}
+	if err := prepareControlSocket(config.ControlSocket); err != nil {
+		_ = listener.Close()
+		return nil, err
+	}
+	state, err := initializeOrRecoverRouteState(ctx, stateStore, config, routes)
+	if err != nil {
+		_ = listener.Close()
+		return nil, err
 	}
 	controlAddress := &net.UnixAddr{Name: config.ControlSocket, Net: "unix"}
 	control, err := net.ListenUnix("unix", controlAddress)
@@ -125,20 +144,19 @@ func Start(ctx context.Context, config Config) (*Proxy, error) {
 
 	proxyContext, cancel := context.WithCancel(ctx)
 	proxy := &Proxy{
-		listener: listener,
-		control:  control,
-		probe:    config.HealthProbe,
-		routes: map[Route]string{
-			Primary:  config.PrimaryTarget,
-			Promoted: config.PromotedTarget,
-		},
-		ctx:        proxyContext,
-		cancel:     cancel,
-		route:      config.InitialRoute,
-		active:     make(map[*connectionPair]struct{}),
-		traffic:    make(chan struct{}, maxActiveConnections),
-		controls:   make(chan struct{}, maxControlConnections),
-		socketInfo: socketInfo,
+		listener:            listener,
+		control:             control,
+		state:               stateStore,
+		probe:               config.HealthProbe,
+		routes:              routes,
+		ctx:                 proxyContext,
+		cancel:              cancel,
+		route:               state.Route,
+		promotionGeneration: state.PromotionGeneration,
+		active:              make(map[*connectionPair]struct{}),
+		traffic:             make(chan struct{}, maxActiveConnections),
+		controls:            make(chan struct{}, maxControlConnections),
+		socketInfo:          socketInfo,
 	}
 	proxy.wait.Add(2)
 	go proxy.acceptTraffic()
@@ -147,7 +165,123 @@ func Start(ctx context.Context, config Config) (*Proxy, error) {
 		<-proxyContext.Done()
 		_ = proxy.Close()
 	}()
+	closeState = false
 	return proxy, nil
+}
+
+func initializeOrRecoverRouteState(
+	ctx context.Context,
+	store *routeStateStore,
+	config Config,
+	routes map[Route]string,
+) (persistedRouteState, error) {
+	initializing := config.InitialRoute != ""
+	if initializing {
+		exists, err := store.exists()
+		if err != nil {
+			return persistedRouteState{}, err
+		}
+		if exists {
+			return persistedRouteState{}, errors.New("PostgreSQL route state already exists")
+		}
+		state := persistedRouteState{
+			Version:             routeStateVersion,
+			PrimaryTarget:       config.PrimaryTarget,
+			PromotedTarget:      config.PromotedTarget,
+			Route:               config.InitialRoute,
+			PromotionGeneration: config.InitialPromotionGeneration,
+		}
+		selected, err := confirmWritable(
+			ctx,
+			routes,
+			config.HealthProbe,
+			state.PromotionGeneration,
+		)
+		if err != nil || selected != state.Route {
+			return persistedRouteState{}, errors.New("confirm initial PostgreSQL route state")
+		}
+		if err := store.write(state, false); err != nil {
+			return persistedRouteState{}, err
+		}
+		return state, nil
+	}
+
+	state, err := store.read(config.PrimaryTarget, config.PromotedTarget)
+	if err != nil {
+		return persistedRouteState{}, err
+	}
+	selected, err := confirmWritable(
+		ctx,
+		routes,
+		config.HealthProbe,
+		state.PromotionGeneration,
+	)
+	if err != nil || selected != state.Route {
+		return persistedRouteState{}, errors.New("confirm recovered PostgreSQL route state")
+	}
+	return state, nil
+}
+
+func confirmWritable(
+	ctx context.Context,
+	routes map[Route]string,
+	probe HealthProbe,
+	expectedGeneration uint64,
+) (Route, error) {
+	if probe == nil || expectedGeneration == 0 {
+		return "", errors.New("PostgreSQL route proxy health probe is unavailable")
+	}
+	probeContext, cancel := context.WithTimeout(ctx, selectionTimeout)
+	defer cancel()
+	var selected Route
+	for confirmation := range confirmationCount {
+		candidate, err := probeWritableRound(probeContext, routes, probe, expectedGeneration)
+		if err != nil {
+			return "", err
+		}
+		if selected != "" && candidate != selected {
+			return "", errors.New("PostgreSQL route proxy writable target changed during confirmation")
+		}
+		selected = candidate
+		if confirmation+1 == confirmationCount {
+			break
+		}
+		timer := time.NewTimer(confirmationInterval)
+		select {
+		case <-timer.C:
+		case <-probeContext.Done():
+			timer.Stop()
+			return "", errors.New("PostgreSQL route proxy writable confirmation timed out")
+		}
+	}
+	return selected, nil
+}
+
+func prepareControlSocket(path string) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return errors.New("inspect PostgreSQL route proxy control socket")
+	}
+	if info.Mode()&os.ModeSocket == 0 || info.Mode().Perm() != 0o600 ||
+		!routePathOwnedByCurrentUser(info) || !routePathSingleLink(info) {
+		return errors.New("invalid PostgreSQL route proxy control path")
+	}
+	connection, dialErr := net.DialTimeout("unix", path, staleSocketDialTimeout)
+	if dialErr == nil {
+		_ = connection.Close()
+		return errors.New("PostgreSQL route proxy control socket is active")
+	}
+	current, err := os.Lstat(path)
+	if err != nil || !os.SameFile(info, current) {
+		return errors.New("PostgreSQL route proxy control socket changed during recovery")
+	}
+	if err := os.Remove(path); err != nil {
+		return errors.New("remove stale PostgreSQL route proxy control socket")
+	}
+	return nil
 }
 
 func (proxy *Proxy) Address() string {
@@ -170,27 +304,16 @@ func (proxy *Proxy) Close() error {
 		}
 		proxy.wait.Wait()
 		removeSocket(proxy.control.Addr().String(), proxy.socketInfo)
+		stateErr := proxy.state.close()
 		if trafficErr != nil && !errors.Is(trafficErr, net.ErrClosed) {
 			proxy.closeErr = errors.New("close PostgreSQL route proxy listener")
 		} else if controlErr != nil && !errors.Is(controlErr, net.ErrClosed) {
 			proxy.closeErr = errors.New("close PostgreSQL route proxy control listener")
+		} else if stateErr != nil {
+			proxy.closeErr = stateErr
 		}
 	})
 	return proxy.closeErr
-}
-
-func RouteTo(ctx context.Context, controlSocket string, route Route) error {
-	if !validRoute(route) {
-		return errors.New("invalid PostgreSQL route proxy route")
-	}
-	response, err := controlRequest(ctx, controlSocket, "route "+string(route)+"\n")
-	if err != nil {
-		return err
-	}
-	if response != "ok "+string(route) {
-		return errors.New("PostgreSQL route proxy rejected route change")
-	}
-	return nil
 }
 
 func Status(ctx context.Context, controlSocket string) (Route, error) {
@@ -207,6 +330,23 @@ func Status(ctx context.Context, controlSocket string) (Route, error) {
 		return "", errors.New("PostgreSQL route proxy returned invalid status")
 	}
 	return route, nil
+}
+
+func StateStatus(ctx context.Context, controlSocket string) (Route, uint64, error) {
+	response, err := controlRequest(ctx, controlSocket, "state\n")
+	if err != nil {
+		return "", 0, err
+	}
+	fields := strings.Split(response, " ")
+	if len(fields) != 3 || fields[0] != "ok" {
+		return "", 0, errors.New("PostgreSQL route proxy rejected state request")
+	}
+	route := Route(fields[1])
+	generation, err := strconv.ParseUint(fields[2], 10, 64)
+	if !validRoute(route) || err != nil || generation == 0 {
+		return "", 0, errors.New("PostgreSQL route proxy returned invalid state")
+	}
+	return route, generation, nil
 }
 
 func SelectWritable(ctx context.Context, controlSocket string, expectedGeneration uint64) (Route, error) {
@@ -334,12 +474,15 @@ func (proxy *Proxy) handleControl(connection *net.UnixConn) {
 		route := proxy.route
 		proxy.mu.Unlock()
 		_, _ = io.WriteString(connection, "ok "+string(route)+"\n")
-	case "route primary\n":
-		proxy.switchRoute(Primary)
-		_, _ = io.WriteString(connection, "ok primary\n")
-	case "route promoted\n":
-		proxy.switchRoute(Promoted)
-		_, _ = io.WriteString(connection, "ok promoted\n")
+	case "state\n":
+		proxy.mu.Lock()
+		route := proxy.route
+		promotionGeneration := proxy.promotionGeneration
+		proxy.mu.Unlock()
+		_, _ = io.WriteString(
+			connection,
+			"ok "+string(route)+" "+strconv.FormatUint(promotionGeneration, 10)+"\n",
+		)
 	default:
 		expectedGeneration, ok := parseSelectionCommand(string(command))
 		if !ok {
@@ -359,40 +502,25 @@ func (proxy *Proxy) selectWritable(expectedGeneration uint64) (Route, error) {
 	if proxy.probe == nil {
 		return "", errors.New("PostgreSQL route proxy health probe is unavailable")
 	}
-	probeContext, cancel := context.WithTimeout(proxy.ctx, selectionTimeout)
-	defer cancel()
 	proxy.mu.Lock()
 	controlGeneration := proxy.generation
 	proxy.mu.Unlock()
-
-	var selected Route
-	for confirmation := range confirmationCount {
-		candidate, err := proxy.probeWritableRound(probeContext, expectedGeneration)
-		if err != nil {
-			return "", err
-		}
-		if selected != "" && candidate != selected {
-			return "", errors.New("PostgreSQL route proxy writable target changed during confirmation")
-		}
-		selected = candidate
-		if confirmation+1 == confirmationCount {
-			break
-		}
-		timer := time.NewTimer(confirmationInterval)
-		select {
-		case <-timer.C:
-		case <-probeContext.Done():
-			timer.Stop()
-			return "", errors.New("PostgreSQL route proxy writable confirmation timed out")
-		}
+	selected, err := confirmWritable(proxy.ctx, proxy.routes, proxy.probe, expectedGeneration)
+	if err != nil {
+		return "", err
 	}
-	if !proxy.switchRouteAtGeneration(selected, controlGeneration) {
-		return "", errors.New("PostgreSQL route proxy route changed during writable confirmation")
+	if err := proxy.persistSelection(selected, expectedGeneration, controlGeneration); err != nil {
+		return "", err
 	}
 	return selected, nil
 }
 
-func (proxy *Proxy) probeWritableRound(ctx context.Context, expectedGeneration uint64) (Route, error) {
+func probeWritableRound(
+	ctx context.Context,
+	routes map[Route]string,
+	probe HealthProbe,
+	expectedGeneration uint64,
+) (Route, error) {
 	roundContext, cancel := context.WithTimeout(ctx, probeRoundTimeout)
 	defer cancel()
 	type result struct {
@@ -400,16 +528,16 @@ func (proxy *Proxy) probeWritableRound(ctx context.Context, expectedGeneration u
 		health Health
 		err    error
 	}
-	results := make(chan result, len(proxy.routes))
-	for route, target := range proxy.routes {
+	results := make(chan result, len(routes))
+	for route, target := range routes {
 		go func() {
-			health, err := proxy.probe(roundContext, target)
+			health, err := probe(roundContext, target)
 			results <- result{route: route, health: health, err: err}
 		}()
 	}
 
 	var selected Route
-	for range proxy.routes {
+	for range routes {
 		select {
 		case candidate := <-results:
 			if candidate.err != nil || !candidate.health.Writable {
@@ -445,25 +573,40 @@ func parseSelectionCommand(command string) (uint64, bool) {
 	return generation, err == nil && generation > 0
 }
 
-func (proxy *Proxy) switchRoute(route Route) {
-	proxy.switchRouteConditionally(route, nil)
-}
-
-func (proxy *Proxy) switchRouteAtGeneration(route Route, expectedGeneration uint64) bool {
-	return proxy.switchRouteConditionally(route, &expectedGeneration)
-}
-
-func (proxy *Proxy) switchRouteConditionally(route Route, expectedGeneration *uint64) bool {
+func (proxy *Proxy) persistSelection(
+	route Route,
+	promotionGeneration uint64,
+	expectedControlGeneration uint64,
+) error {
 	proxy.mu.Lock()
-	if expectedGeneration != nil && proxy.generation != *expectedGeneration {
+	if proxy.generation != expectedControlGeneration {
 		proxy.mu.Unlock()
-		return false
+		return errors.New("PostgreSQL route proxy route changed during writable confirmation")
 	}
-	if proxy.route == route {
+	if proxy.route == route && proxy.promotionGeneration == promotionGeneration {
 		proxy.mu.Unlock()
-		return true
+		return nil
+	}
+	if promotionGeneration <= proxy.promotionGeneration {
+		proxy.mu.Unlock()
+		return errors.New("PostgreSQL route proxy rejected stale promotion generation")
+	}
+	state := persistedRouteState{
+		Version:             routeStateVersion,
+		PrimaryTarget:       proxy.routes[Primary],
+		PromotedTarget:      proxy.routes[Promoted],
+		Route:               route,
+		PromotionGeneration: promotionGeneration,
+	}
+	if err := proxy.state.write(state, true); err != nil {
+		if errors.Is(err, errRouteStateOutcomeUnknown) {
+			proxy.cancel()
+		}
+		proxy.mu.Unlock()
+		return err
 	}
 	proxy.route = route
+	proxy.promotionGeneration = promotionGeneration
 	proxy.generation++
 	connections := make([]*connectionPair, 0, len(proxy.active))
 	for connection := range proxy.active {
@@ -473,7 +616,7 @@ func (proxy *Proxy) switchRouteConditionally(route Route, expectedGeneration *ui
 	for _, connection := range connections {
 		connection.close()
 	}
-	return true
+	return nil
 }
 
 func (pair *connectionPair) close() {
@@ -548,8 +691,12 @@ func validateConfig(config Config) error {
 	if err := validateControlSocket(config.ControlSocket); err != nil {
 		return err
 	}
-	if !validRoute(config.InitialRoute) {
+	initializing := config.InitialRoute != "" || config.InitialPromotionGeneration != 0
+	if initializing && (!validRoute(config.InitialRoute) || config.InitialPromotionGeneration == 0) {
 		return errors.New("invalid PostgreSQL route proxy initial route")
+	}
+	if config.HealthProbe == nil {
+		return errors.New("PostgreSQL route proxy health probe is unavailable")
 	}
 	return nil
 }
