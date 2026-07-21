@@ -35,6 +35,26 @@ func TestRunServeRejectsMissingHealthIdentityWithoutStartingListener(t *testing.
 	}
 }
 
+func TestRunSupervisorRejectsMissingHealthIdentityWithoutStartingChild(t *testing.T) {
+	t.Setenv("DATAGROUND_ROUTER_HEALTH_DATABASE_URL", "")
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	status := run(context.Background(), []string{
+		"--mode", "supervise",
+		"--listen-address", "127.0.0.1:0",
+		"--control-socket", "/tmp/dataground-missing-supervisor-health.sock",
+		"--state-file", "/tmp/dataground-missing-supervisor-health.json",
+		"--primary-target", "127.0.0.1:55432",
+		"--promoted-target", "127.0.0.1:55433",
+		"--route", "primary",
+		"--promotion-generation", "1",
+	}, &stdout, &stderr)
+	if status != 2 || stdout.Len() != 0 ||
+		stderr.String() != "invalid PostgreSQL route conformance configuration\n" {
+		t.Fatalf("status=%d stdout=%q stderr=%q", status, stdout.String(), stderr.String())
+	}
+}
+
 func TestRunServeRejectsPartialInitialState(t *testing.T) {
 	t.Setenv(
 		"DATAGROUND_ROUTER_HEALTH_DATABASE_URL",
