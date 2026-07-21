@@ -10,7 +10,7 @@
 | Repository | Partially ready | Project layout and CI exist; choose licensing, ownership and release policy |
 | Frontend | Design-system ready | React/Vite shell, generated API types, semantic tokens and deterministic interaction fixtures exist; router, auth and Jupyter contracts remain open |
 | Implementation stack | Contract-core ready | Go control plane, deterministic reference runtime and TypeScript/React workbench are established; runtime sidecars remain evidence-driven |
-| Reference S3 and Iceberg implementations | Evidence spike required | Select one certified self-hosted implementation of each |
+| Reference S3 and Iceberg implementations | Evidence spike required | Immutable enforcement-object read/finalize ports exist; select and certify one self-hosted implementation of each storage contract |
 | Exact runtime versions | Development profile pinned | Codex 0.117.0 and OpenShell 0.0.86 are pinned for the first blocked profile; durable provider routing exists, but complete live certification before release |
 | Capacity and SLO numbers | Pilot input required | Define test hardware and measure; do not invent targets |
 | Production identity and workload identity | Deployment input required | Select IdP, token exchange, certificate issuer, and trust domains |

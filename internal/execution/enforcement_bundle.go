@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -20,6 +21,7 @@ var (
 	ErrEnforcementBundleRevisionMissing = errors.New("enforcement bundle revision not found")
 	ErrEnforcementBundleUnavailable     = errors.New("enforcement bundle is unavailable")
 	ErrEnforcementObjectMissing         = errors.New("enforcement bundle object not found")
+	ErrEnforcementObjectConflict        = errors.New("enforcement bundle object conflicts with immutable content")
 	sourceRevisionPattern               = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
 
@@ -73,6 +75,16 @@ type EnforcementObjectReader interface {
 	OpenEnforcementObject(context.Context, string) (io.ReadCloser, error)
 }
 
+// EnforcementObjectWriter creates immutable objects in the platform-object
+// storage class. Implementations must use a conditional create, must never
+// replace an existing key, and must return only after consuming content. An
+// existing key with different bytes maps to ErrEnforcementObjectConflict.
+// Authentication, bucket selection, encryption and transport belong to the
+// operator-supplied implementation rather than this product contract.
+type EnforcementObjectWriter interface {
+	PutEnforcementObjectIfAbsent(context.Context, string, io.Reader, int64, string) error
+}
+
 type ObjectEnforcementBundleSource struct {
 	catalog EnforcementBundleCatalog
 	objects EnforcementObjectReader
@@ -107,27 +119,9 @@ func (source *ObjectEnforcementBundleSource) GetEnforcementBundle(
 	if err != nil || record.IsolationDomainID != isolationDomainID || record.ID != bundleID {
 		return EnforcementBundle{}, ErrEnforcementBundleMismatch
 	}
-	object, err := source.objects.OpenEnforcementObject(ctx, record.ObjectKey)
+	content, err := readEnforcementObject(ctx, source.objects, record)
 	if err != nil {
-		if ctx.Err() != nil {
-			return EnforcementBundle{}, ctx.Err()
-		}
-		if errors.Is(err, ErrEnforcementObjectMissing) {
-			return EnforcementBundle{}, ErrEnforcementBundleUnavailable
-		}
-		return EnforcementBundle{}, ErrEnforcementBundleUnavailable
-	}
-	content, readErr := io.ReadAll(io.LimitReader(object, maximumEnforcementPolicyBytes+1))
-	closeErr := object.Close()
-	if readErr != nil || closeErr != nil {
-		if ctx.Err() != nil {
-			return EnforcementBundle{}, ctx.Err()
-		}
-		return EnforcementBundle{}, ErrEnforcementBundleUnavailable
-	}
-	if int64(len(content)) != record.SizeBytes || len(content) > maximumEnforcementPolicyBytes ||
-		VerifyEnforcementPolicy(content, record.Digest) != nil {
-		return EnforcementBundle{}, ErrEnforcementBundleMismatch
+		return EnforcementBundle{}, err
 	}
 	return EnforcementBundle{
 		IsolationDomainID: record.IsolationDomainID,
@@ -136,6 +130,33 @@ func (source *ObjectEnforcementBundleSource) GetEnforcementBundle(
 		Digest:            record.Digest,
 		Content:           content,
 	}, nil
+}
+
+func readEnforcementObject(
+	ctx context.Context,
+	objects EnforcementObjectReader,
+	record EnforcementBundleRecord,
+) ([]byte, error) {
+	object, err := objects.OpenEnforcementObject(ctx, record.ObjectKey)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, ErrEnforcementBundleUnavailable
+	}
+	content, readErr := io.ReadAll(io.LimitReader(object, maximumEnforcementPolicyBytes+1))
+	closeErr := object.Close()
+	if readErr != nil || closeErr != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, ErrEnforcementBundleUnavailable
+	}
+	if int64(len(content)) != record.SizeBytes || len(content) > maximumEnforcementPolicyBytes ||
+		VerifyEnforcementPolicy(content, record.Digest) != nil {
+		return nil, ErrEnforcementBundleMismatch
+	}
+	return bytes.Clone(content), nil
 }
 
 func NormalizeEnforcementBundleBinding(binding EnforcementBundleBinding) (EnforcementBundleBinding, error) {
