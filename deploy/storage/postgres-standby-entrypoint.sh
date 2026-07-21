@@ -20,4 +20,10 @@ if [ ! -s "$PGDATA/PG_VERSION" ]; then
     --no-password
 fi
 
-exec postgres -D "$PGDATA" -c hot_standby=on
+exec postgres -D "$PGDATA" \
+  -c hot_standby=on \
+  -c wal_level=replica \
+  -c max_wal_senders=4 \
+  -c max_replication_slots=4 \
+  -c wal_keep_size=64MB \
+  -c wal_log_hints=on
