@@ -735,7 +735,7 @@ if (
 if (
   !routeSupervisorOwnershipLinux.includes("syscall.O_NOFOLLOW") ||
   !routeSupervisorOwnershipLinux.includes("syscall.O_CLOEXEC") ||
-  !routeSupervisorOwnershipLinux.includes("syscall.LOCK_EX | syscall.LOCK_NB") ||
+  !routeSupervisorOwnershipLinux.includes("syscall.LOCK_EX|syscall.LOCK_NB") ||
   !routeSupervisorOwnershipLinux.includes("info.Mode().Perm() != 0o600") ||
   !routeSupervisorOwnershipLinux.includes("stat.Nlink != 1") ||
   !routeSupervisorOwnershipLinux.includes("stat.Uid != uint32(os.Geteuid())")
