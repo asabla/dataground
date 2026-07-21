@@ -70,6 +70,14 @@ const routeSupervisor = await readFile(
   resolve(root, "cmd/dataground-postgres-route-conformance/supervisor.go"),
   "utf8",
 );
+const routeChildOwnership = await readFile(
+  resolve(root, "cmd/dataground-postgres-route-conformance/child_ownership.go"),
+  "utf8",
+);
+const routeChildOwnershipLinux = await readFile(
+  resolve(root, "cmd/dataground-postgres-route-conformance/child_ownership_linux.go"),
+  "utf8",
+);
 const poolCommand = await readFile(
   resolve(root, "cmd/dataground-postgres-route-conformance/pool.go"),
   "utf8",
@@ -277,6 +285,14 @@ if (
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision
     ?.preReadyTraffic !==
     "stable endpoint unavailable until the replacement child reports readiness" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision
+    ?.childOwnership !==
+    "Linux parent-death SIGKILL plus expected supervisor PID recheck before socket creation" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.parentLoss !==
+    "SIGKILL supervisor terminates the owned child and makes readiness and traffic unavailable" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision
+    ?.parentReplacement !==
+    "recovery-only replacement reconfirms the exact persisted route and PostgreSQL timeline before readiness" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.exhaustion !==
     "supervisor exits nonzero without serving traffic" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision
@@ -688,9 +704,11 @@ if (
   !routeSupervisor.includes("command := exec.Command(executable, arguments...)") ||
   !routeSupervisor.includes("command.Stdout = io.Discard") ||
   !routeSupervisor.includes("command.Stderr = io.Discard") ||
+  !routeSupervisor.includes("configureRouteChildOwnership(command)") ||
   !routeSupervisor.includes("dependencies.StateStatus") ||
-  !routeSupervisor.includes("routeChildArguments(config, initializing)") ||
+  !routeSupervisor.includes("routeChildArguments(config, initializing, os.Getpid())") ||
   !routeSupervisor.includes('"--mode", "serve"') ||
+  !routeSupervisor.includes('"--supervisor-pid", strconv.Itoa(supervisorPID)') ||
   !routeSupervisor.includes("if initializing == stateExists") ||
   !routeSupervisor.includes("if attempt >= len(policy.RestartBackoffs)") ||
   !routeSupervisor.includes("stopRouteChild(child, childExit, policy.ShutdownTimeout)") ||
@@ -699,6 +717,14 @@ if (
   routeSupervisor.includes("password")
 ) {
   fail("the PostgreSQL route supervisor has drifted from its bounded conformance contract");
+}
+if (
+  !routeCommand.includes('flags.Int("supervisor-pid"') ||
+  !routeCommand.includes("validateRouteChildOwnership(*supervisorPID)") ||
+  !routeChildOwnership.includes("os.Getppid() != expectedSupervisorPID") ||
+  !routeChildOwnershipLinux.includes("Pdeathsig: syscall.SIGKILL")
+) {
+  fail("the PostgreSQL route child has drifted from its supervisor ownership contract");
 }
 if (
   !packageManifest.scripts?.verify?.includes("pnpm run s3:profile:check") ||
@@ -763,6 +789,14 @@ if (
     "expected_supervisor_states=$'router-ready\\nrouter-restart-scheduled\\nrouter-ready'",
   ) ||
   !workflow.includes("stable database endpoint remained usable after router process loss") ||
+  !workflow.includes("Replace supervisor after parent process loss") ||
+  !workflow.includes('kill -KILL "$supervisor_pid"') ||
+  !workflow.includes('rm --force "$RUNNER_TEMP/postgres-route-supervisor.pid"') ||
+  !workflow.includes("router child outlived its supervisor ownership boundary") ||
+  !workflow.includes("parent process loss left route readiness available") ||
+  !workflow.includes("parent process loss left the stable database endpoint available") ||
+  !workflow.includes("replacement supervisor did not recover the exact ownership boundary") ||
+  !workflow.includes("replacement database endpoint emitted unexpected output") ||
   !workflow.includes("stable database endpoint did not recover its exact private state") ||
   !workflow.includes("stat --format '%a' \"$state.lock\"") ||
   !workflow.includes('rm "$state"') ||

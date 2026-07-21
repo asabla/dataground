@@ -78,6 +78,9 @@ func superviseRoute(ctx context.Context, config routeSupervisorConfig, output io
 			command := exec.Command(executable, arguments...)
 			command.Stdout = io.Discard
 			command.Stderr = io.Discard
+			if err := configureRouteChildOwnership(command); err != nil {
+				return nil, err
+			}
 			if err := command.Start(); err != nil {
 				return nil, errors.New("start PostgreSQL route conformance child")
 			}
@@ -109,7 +112,9 @@ func runRouteSupervisor(
 	}
 
 	for attempt := 0; ; attempt++ {
-		child, startErr := dependencies.StartChild(routeChildArguments(config, initializing))
+		child, startErr := dependencies.StartChild(
+			routeChildArguments(config, initializing, os.Getpid()),
+		)
 		if startErr == nil {
 			exited, childExit, waitErr := waitForRouteChild(
 				ctx,
@@ -225,7 +230,11 @@ func waitForSupervisorBackoff(ctx context.Context, duration time.Duration) bool 
 	}
 }
 
-func routeChildArguments(config routeSupervisorConfig, initializing bool) []string {
+func routeChildArguments(
+	config routeSupervisorConfig,
+	initializing bool,
+	supervisorPID int,
+) []string {
 	arguments := []string{
 		"--mode", "serve",
 		"--listen-address", config.ListenAddress,
@@ -233,6 +242,7 @@ func routeChildArguments(config routeSupervisorConfig, initializing bool) []stri
 		"--state-file", config.StateFile,
 		"--primary-target", config.PrimaryTarget,
 		"--promoted-target", config.PromotedTarget,
+		"--supervisor-pid", strconv.Itoa(supervisorPID),
 	}
 	if initializing {
 		arguments = append(

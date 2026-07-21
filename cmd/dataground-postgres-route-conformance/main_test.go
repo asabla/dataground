@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"os"
+	"strconv"
 	"testing"
 )
 
@@ -31,6 +33,30 @@ func TestRunServeRejectsMissingHealthIdentityWithoutStartingListener(t *testing.
 	}, &stdout, &stderr)
 	if status != 2 || stdout.Len() != 0 ||
 		stderr.String() != "invalid PostgreSQL route conformance configuration\n" {
+		t.Fatalf("status=%d stdout=%q stderr=%q", status, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunServeRejectsMismatchedSupervisorBeforeStartingListener(t *testing.T) {
+	t.Setenv(
+		"DATAGROUND_ROUTER_HEALTH_DATABASE_URL",
+		"postgres://user:secret@127.0.0.1:55431/database?sslmode=disable",
+	)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	status := run(context.Background(), []string{
+		"--mode", "serve",
+		"--listen-address", "127.0.0.1:0",
+		"--control-socket", "/tmp/dataground-mismatched-supervisor.sock",
+		"--state-file", "/tmp/dataground-mismatched-supervisor.json",
+		"--primary-target", "127.0.0.1:55432",
+		"--promoted-target", "127.0.0.1:55433",
+		"--route", "primary",
+		"--promotion-generation", "1",
+		"--supervisor-pid", strconv.Itoa(os.Getppid() + 1),
+	}, &stdout, &stderr)
+	if status != 1 || stdout.Len() != 0 ||
+		stderr.String() != "invalid PostgreSQL route conformance ownership\n" {
 		t.Fatalf("status=%d stdout=%q stderr=%q", status, stdout.String(), stderr.String())
 	}
 }

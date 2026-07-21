@@ -34,6 +34,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	promotedTarget := flags.String("promoted-target", "", "literal loopback promoted endpoint")
 	routeValue := flags.String("route", "", "primary or promoted")
 	promotionGeneration := flags.Uint64("promotion-generation", 0, "expected nonzero PostgreSQL timeline ID")
+	supervisorPID := flags.Int("supervisor-pid", 0, "expected conformance supervisor process ID")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 		return 2
@@ -44,9 +45,14 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		initializing := *routeValue != "" || *promotionGeneration != 0
 		if *listenAddress == "" || *controlSocket == "" || *primaryTarget == "" ||
 			*stateFile == "" || *promotedTarget == "" ||
+			*supervisorPID < 0 ||
 			(initializing && (!validRoute(*routeValue) || *promotionGeneration == 0)) {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
+		}
+		if err := validateRouteChildOwnership(*supervisorPID); err != nil {
+			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance ownership")
+			return 1
 		}
 		probe, err := targetHealthProbe(os.Getenv("DATAGROUND_ROUTER_HEALTH_DATABASE_URL"))
 		if err != nil {
@@ -77,6 +83,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		initializing := *routeValue != "" || *promotionGeneration != 0
 		if *listenAddress == "" || *controlSocket == "" || *primaryTarget == "" ||
 			*stateFile == "" || *promotedTarget == "" ||
+			*supervisorPID != 0 ||
 			(initializing && (!validRoute(*routeValue) || *promotionGeneration == 0)) {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
@@ -101,7 +108,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	case "select":
 		if *controlSocket == "" || *routeValue != "" || *listenAddress != "" ||
 			*stateFile != "" || *primaryTarget != "" || *promotedTarget != "" ||
-			*promotionGeneration == 0 {
+			*promotionGeneration == 0 || *supervisorPID != 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
@@ -117,7 +124,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	case "status":
 		if *controlSocket == "" || *routeValue != "" || *listenAddress != "" ||
 			*stateFile != "" || *primaryTarget != "" || *promotedTarget != "" ||
-			*promotionGeneration != 0 {
+			*promotionGeneration != 0 || *supervisorPID != 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
@@ -133,7 +140,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	case "state":
 		if *controlSocket == "" || *routeValue != "" || *listenAddress != "" ||
 			*stateFile != "" || *primaryTarget != "" || *promotedTarget != "" ||
-			*promotionGeneration != 0 {
+			*promotionGeneration != 0 || *supervisorPID != 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
@@ -149,7 +156,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	case "role":
 		if *controlSocket != "" || *routeValue != "" || *listenAddress != "" ||
 			*stateFile != "" || *primaryTarget != "" || *promotedTarget != "" ||
-			*promotionGeneration != 0 {
+			*promotionGeneration != 0 || *supervisorPID != 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
@@ -165,7 +172,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	case "pool":
 		if *controlSocket != "" || *routeValue != "" || *listenAddress != "" ||
 			*stateFile != "" || *primaryTarget != "" || *promotedTarget != "" ||
-			*promotionGeneration != 0 {
+			*promotionGeneration != 0 || *supervisorPID != 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
