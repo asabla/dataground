@@ -58,6 +58,10 @@ const routeProxy = await readFile(
   resolve(root, "internal/execution/recoveryconformance/pgrouteproxy/proxy.go"),
   "utf8",
 );
+const routeState = await readFile(
+  resolve(root, "internal/execution/recoveryconformance/pgrouteproxy/route_state.go"),
+  "utf8",
+);
 const routeCommand = await readFile(
   resolve(root, "cmd/dataground-postgres-route-conformance/main.go"),
   "utf8",
@@ -207,9 +211,9 @@ if (
   JSON.stringify(profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.targets) !==
     JSON.stringify(["127.0.0.1:55432", "127.0.0.1:55433"]) ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.control !==
-    "mode-0600 Unix socket with predeclared routes" ||
+    "mode-0600 Unix socket in an exclusive mode-0700 private state workspace" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.routeChange !==
-    "control-triggered generation-bound health confirmation after external promotion" ||
+    "durably persisted control-triggered generation-bound health confirmation after external promotion" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.existingSessions !==
     "closed on route change without transaction replay" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.healthSelection?.probe !==
@@ -235,6 +239,25 @@ if (
     ?.multipleWritable !== "rejected without route or session change" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.healthSelection
     ?.promotionOwnership !== "external" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.restartRecovery?.state !==
+    "canonical mode-0600 cluster-scoped record binding route, PostgreSQL timeline and both predeclared targets" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.restartRecovery?.lock !==
+    "exclusive non-blocking advisory lock held for the router process lifetime" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.restartRecovery
+    ?.updateOrder !==
+    "temporary file sync, atomic replacement and parent-directory sync before route or session change" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.restartRecovery
+    ?.startupAcceptance !==
+    "three consecutive unique-writable observations matching the exact persisted route and PostgreSQL timeline before traffic acceptance" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.restartRecovery
+    ?.staleControlSocket !==
+    "single-link current-user-owned mode-0600 socket reclaimed only while the state lock is held" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.restartRecovery
+    ?.processLoss !==
+    "SIGKILL after promoted state persistence followed by recovery without caller-supplied route or timeline" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.restartRecovery
+    ?.clusterReset !==
+    "persisted state retired only after the disposable database cluster and router are stopped" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.longLivedPool
     ?.implementation !== "one pgxpool process across primary loss and route switch" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.longLivedPool
@@ -584,21 +607,34 @@ if (
   !routeProxy.includes("connection.close()") ||
   !routeProxy.includes('"select "+strconv.FormatUint(expectedGeneration, 10)+"\\n"') ||
   !routeProxy.includes("proxy.selectWritable(expectedGeneration)") ||
-  !routeProxy.includes("proxy.probeWritableRound(probeContext, expectedGeneration)") ||
+  !routeProxy.includes("probeWritableRound(probeContext, routes, probe, expectedGeneration)") ||
   !routeProxy.includes("candidate.health.PromotionGeneration != expectedGeneration") ||
-  !routeProxy.includes("proxy.switchRouteAtGeneration(selected, controlGeneration)") ||
+  !routeProxy.includes("proxy.persistSelection(selected, expectedGeneration, controlGeneration)") ||
+  !routeProxy.includes("proxy.state.write(state, true)") ||
+  !routeProxy.includes("promotionGeneration <= proxy.promotionGeneration") ||
+  !routeProxy.includes("prepareControlSocket(config.ControlSocket)") ||
+  !routeProxy.includes("confirm recovered PostgreSQL route state") ||
   !routeProxy.includes("found multiple writable targets") ||
   !routeProxy.includes("found no writable target") ||
+  !routeState.includes("routeStateVersion  = 1") ||
+  !routeState.includes("maxRouteStateBytes = 512") ||
+  !routeState.includes("directoryInfo.Mode().Perm() != 0o700") ||
+  !routeState.includes("validPrivateRouteFile") ||
+  !routeState.includes("temporary.Sync()") ||
+  !routeState.includes("os.Rename(temporaryPath, store.path)") ||
+  !routeState.includes("directoryFile.Sync()") ||
   !routeProxy.includes('host != "127.0.0.1"') ||
   !routeCommand.includes('case "serve":') ||
-  !routeCommand.includes('case "route":') ||
+  routeCommand.includes('case "route":') ||
   !routeCommand.includes('case "select":') ||
   !routeCommand.includes('case "status":') ||
+  !routeCommand.includes('case "state":') ||
   !routeCommand.includes('case "role":') ||
   !routeCommand.includes('case "pool":') ||
   !routeCommand.includes('os.Getenv("DATAGROUND_TEST_DATABASE_URL")') ||
   !routeCommand.includes('os.Getenv("DATAGROUND_ROUTER_HEALTH_DATABASE_URL")') ||
   !routeCommand.includes("candidate.Host = target") ||
+  !routeCommand.includes('flags.String("state-file"') ||
   !routeCommand.includes('flags.Uint64("promotion-generation"') ||
   !routeCommand.includes("pg_split_walfile_name(pg_walfile_name(pg_current_wal_lsn()))") ||
   !poolCommand.includes("poolConformanceSize       = int32(3)") ||
@@ -651,6 +687,8 @@ if (
   !workflow.includes("--primary-target 127.0.0.1:55432") ||
   !workflow.includes("--promoted-target 127.0.0.1:55433") ||
   !workflow.includes('--control-socket "$control"') ||
+  !workflow.includes('--state-file "$state"') ||
+  !workflow.includes('install -d -m 700 "$workspace"') ||
   !workflow.includes("--promotion-generation") ||
   !workflow.includes("postgres-primary-generation") ||
   !workflow.includes("postgres-promoted-generation") ||
@@ -670,6 +708,12 @@ if (
     "expected_pool_states=$'pool-primary-ready\\npool-failure-observed\\npool-promoted-ready'",
   ) ||
   !workflow.includes("long-lived database pool did not reconnect through the stable endpoint") ||
+  !workflow.includes("Recover stable endpoint after router process loss") ||
+  !workflow.includes('kill -KILL "$(cat "$RUNNER_TEMP/postgres-route.pid")"') ||
+  !workflow.includes("stable database endpoint remained usable after router process loss") ||
+  !workflow.includes("stable database endpoint did not recover its exact private state") ||
+  !workflow.includes("stat --format '%a' \"$state.lock\"") ||
+  !workflow.includes('rm "$state"') ||
   !workflow.includes("stable database endpoint remained usable before route change") ||
   !workflow.includes(
     "DATAGROUND_TEST_DATABASE_URL: $" + "{{ env.DATAGROUND_ROUTED_DATABASE_URL }}",

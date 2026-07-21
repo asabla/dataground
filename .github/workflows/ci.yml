@@ -300,36 +300,6 @@ jobs:
           docker compose -f deploy/storage/seaweedfs-conformance.yml logs
           exit 1
 
-      - name: Start stable loopback database endpoint
-        env:
-          DATAGROUND_ROUTER_HEALTH_DATABASE_URL: postgres://dataground_health:dataground-health@127.0.0.1:55431/dataground_conformance?sslmode=disable
-        run: |
-          router="$RUNNER_TEMP/dataground-postgres-route-conformance"
-          control="$RUNNER_TEMP/dataground-postgres-route.sock"
-          go build -o "$router" ./cmd/dataground-postgres-route-conformance
-          "$router" \
-            --mode serve \
-            --listen-address 127.0.0.1:55431 \
-            --control-socket "$control" \
-            --primary-target 127.0.0.1:55432 \
-            --promoted-target 127.0.0.1:55433 \
-            --route primary \
-            >"$RUNNER_TEMP/postgres-route.stdout" \
-            2>"$RUNNER_TEMP/postgres-route.stderr" &
-          printf '%s\n' "$!" >"$RUNNER_TEMP/postgres-route.pid"
-          for attempt in {1..30}; do
-            route=$("$router" --mode status --control-socket "$control" 2>/dev/null || true)
-            if [ "$route" = "primary" ]; then
-              exit 0
-            fi
-            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-route.pid")" 2>/dev/null; then
-              break
-            fi
-            sleep 1
-          done
-          echo "stable database endpoint did not become ready"
-          exit 1
-
       - name: Capture initial PostgreSQL promotion generation
         run: |
           generation=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
@@ -340,6 +310,41 @@ jobs:
             exit 1
           fi
           printf '%s\n' "$generation" >"$RUNNER_TEMP/postgres-primary-generation"
+
+      - name: Start stable loopback database endpoint
+        env:
+          DATAGROUND_ROUTER_HEALTH_DATABASE_URL: postgres://dataground_health:dataground-health@127.0.0.1:55431/dataground_conformance?sslmode=disable
+        run: |
+          router="$RUNNER_TEMP/dataground-postgres-route-conformance"
+          workspace="$RUNNER_TEMP/dataground-postgres-route"
+          control="$workspace/control.sock"
+          state="$workspace/state.json"
+          install -d -m 700 "$workspace"
+          go build -o "$router" ./cmd/dataground-postgres-route-conformance
+          "$router" \
+            --mode serve \
+            --listen-address 127.0.0.1:55431 \
+            --control-socket "$control" \
+            --state-file "$state" \
+            --primary-target 127.0.0.1:55432 \
+            --promoted-target 127.0.0.1:55433 \
+            --route primary \
+            --promotion-generation "$(cat "$RUNNER_TEMP/postgres-primary-generation")" \
+            >"$RUNNER_TEMP/postgres-route.stdout" \
+            2>"$RUNNER_TEMP/postgres-route.stderr" &
+          printf '%s\n' "$!" >"$RUNNER_TEMP/postgres-route.pid"
+          for attempt in {1..30}; do
+            state_status=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
+            if [ "$state_status" = "primary $(cat "$RUNNER_TEMP/postgres-primary-generation")" ]; then
+              exit 0
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-route.pid")" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          echo "stable database endpoint did not become ready"
+          exit 1
 
       - name: Migrate primary database
         env:
@@ -432,7 +437,7 @@ jobs:
           fi
           if "$RUNNER_TEMP/dataground-postgres-route-conformance" \
             --mode select \
-            --control-socket "$RUNNER_TEMP/dataground-postgres-route.sock" \
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route/control.sock" \
             --promotion-generation "$(cat "$RUNNER_TEMP/postgres-primary-generation")" \
             >/dev/null 2>&1; then
             echo "stable database endpoint selected a target before promotion"
@@ -440,7 +445,7 @@ jobs:
           fi
           route=$("$RUNNER_TEMP/dataground-postgres-route-conformance" \
             --mode status \
-            --control-socket "$RUNNER_TEMP/dataground-postgres-route.sock")
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route/control.sock")
           if [ "$route" != "primary" ]; then
             echo "failed health selection changed the stable database route"
             exit 1
@@ -466,7 +471,7 @@ jobs:
           fi
           if "$RUNNER_TEMP/dataground-postgres-route-conformance" \
             --mode select \
-            --control-socket "$RUNNER_TEMP/dataground-postgres-route.sock" \
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route/control.sock" \
             --promotion-generation "$initial_generation" \
             >/dev/null 2>&1; then
             echo "stable database endpoint accepted a stale promotion generation"
@@ -474,7 +479,7 @@ jobs:
           fi
           route=$("$RUNNER_TEMP/dataground-postgres-route-conformance" \
             --mode status \
-            --control-socket "$RUNNER_TEMP/dataground-postgres-route.sock")
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route/control.sock")
           if [ "$route" != "primary" ]; then
             echo "stale promotion generation changed the stable database route"
             exit 1
@@ -485,7 +490,7 @@ jobs:
       - name: Confirm promoted standby generation and health
         run: |
           router="$RUNNER_TEMP/dataground-postgres-route-conformance"
-          control="$RUNNER_TEMP/dataground-postgres-route.sock"
+          control="$RUNNER_TEMP/dataground-postgres-route/control.sock"
           selected=$("$router" \
             --mode select \
             --control-socket "$control" \
@@ -513,6 +518,70 @@ jobs:
           if [ "$observed_pool_states" != "$expected_pool_states" ] \
             || [ -s "$RUNNER_TEMP/postgres-pool.stderr" ]; then
             echo "long-lived database pool did not reconnect through the stable endpoint"
+            exit 1
+          fi
+
+      - name: Recover stable endpoint after router process loss
+        env:
+          DATAGROUND_ROUTER_HEALTH_DATABASE_URL: postgres://dataground_health:dataground-health@127.0.0.1:55431/dataground_conformance?sslmode=disable
+        run: |
+          router="$RUNNER_TEMP/dataground-postgres-route-conformance"
+          workspace="$RUNNER_TEMP/dataground-postgres-route"
+          control="$workspace/control.sock"
+          state="$workspace/state.json"
+          expected="promoted $(cat "$RUNNER_TEMP/postgres-promoted-generation")"
+          state_before=$(cat "$state")
+          observed=$("$router" --mode state --control-socket "$control")
+          if [ "$observed" != "$expected" ]; then
+            echo "stable database endpoint did not persist the promoted state"
+            exit 1
+          fi
+          kill -KILL "$(cat "$RUNNER_TEMP/postgres-route.pid")"
+          for attempt in {1..30}; do
+            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-route.pid")" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if kill -0 "$(cat "$RUNNER_TEMP/postgres-route.pid")" 2>/dev/null \
+            || [ ! -S "$control" ]; then
+            echo "router process loss did not leave the expected recoverable boundary"
+            exit 1
+          fi
+          if DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+            "$router" --mode role >/dev/null 2>&1; then
+            echo "stable database endpoint remained usable after router process loss"
+            exit 1
+          fi
+          "$router" \
+            --mode serve \
+            --listen-address 127.0.0.1:55431 \
+            --control-socket "$control" \
+            --state-file "$state" \
+            --primary-target 127.0.0.1:55432 \
+            --promoted-target 127.0.0.1:55433 \
+            >>"$RUNNER_TEMP/postgres-route.stdout" \
+            2>>"$RUNNER_TEMP/postgres-route.stderr" &
+          printf '%s\n' "$!" >"$RUNNER_TEMP/postgres-route.pid"
+          for attempt in {1..30}; do
+            recovered=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
+            role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+              "$router" --mode role 2>/dev/null || true)
+            if [ "$recovered" = "$expected" ] && [ "$role" = "writable-primary" ]; then
+              break
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-route.pid")" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if [ "$recovered" != "$expected" ] || [ "$role" != "writable-primary" ] \
+            || [ "$(cat "$state")" != "$state_before" ] \
+            || [ "$(stat --format '%a' "$workspace")" != "700" ] \
+            || [ "$(stat --format '%a' "$state")" != "600" ] \
+            || [ "$(stat --format '%a' "$state.lock")" != "600" ] \
+            || [ "$(stat --format '%a' "$control")" != "600" ]; then
+            echo "stable database endpoint did not recover its exact private state"
             exit 1
           fi
 
@@ -636,15 +705,31 @@ jobs:
           --allow-loopback-http
 
       - name: Recreate streaming pair for in-flight commit loss
+        env:
+          DATAGROUND_ROUTER_HEALTH_DATABASE_URL: postgres://dataground_health:dataground-health@127.0.0.1:55431/dataground_conformance?sslmode=disable
         run: |
+          router="$RUNNER_TEMP/dataground-postgres-route-conformance"
+          workspace="$RUNNER_TEMP/dataground-postgres-route"
+          control="$workspace/control.sock"
+          state="$workspace/state.json"
+          kill "$(cat "$RUNNER_TEMP/postgres-route.pid")"
+          for attempt in {1..30}; do
+            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-route.pid")" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if kill -0 "$(cat "$RUNNER_TEMP/postgres-route.pid")" 2>/dev/null \
+            || [ -e "$control" ]; then
+            echo "stable database endpoint did not stop cleanly before cluster recreation"
+            exit 1
+          fi
           docker compose -f deploy/storage/seaweedfs-conformance.yml \
             --profile postgres-failover down --volumes
-          "$RUNNER_TEMP/dataground-postgres-route-conformance" \
-            --mode route \
-            --control-socket "$RUNNER_TEMP/dataground-postgres-route.sock" \
-            --route primary
+          rm "$state"
           docker compose -f deploy/storage/seaweedfs-conformance.yml \
             --profile postgres-failover up --detach
+          generation=""
           for attempt in {1..30}; do
             primary_ready=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
               psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
@@ -652,12 +737,8 @@ jobs:
             standby_ready=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
               psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
               --command 'SELECT pg_is_in_recovery()' 2>/dev/null || true)
-            routed_primary=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
-              "$RUNNER_TEMP/dataground-postgres-route-conformance" --mode role \
-              2>/dev/null || true)
             if curl --fail --silent http://127.0.0.1:8333/ >/dev/null \
-              && [ "$primary_ready" = "t" ] && [ "$standby_ready" = "t" ] \
-              && [ "$routed_primary" = "writable-primary" ]; then
+              && [ "$primary_ready" = "t" ] && [ "$standby_ready" = "t" ]; then
               generation=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
                 psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
                 --command "SELECT (pg_split_walfile_name(pg_walfile_name(pg_current_wal_lsn()))).timeline_id")
@@ -666,11 +747,40 @@ jobs:
                 exit 1
               fi
               printf '%s\n' "$generation" >"$RUNNER_TEMP/postgres-primary-generation"
-              exit 0
+              break
             fi
             sleep 1
           done
-          echo "recreated failover pair did not become ready"
+          if [[ ! "$generation" =~ ^[1-9][0-9]*$ ]]; then
+            echo "recreated failover pair did not become ready"
+            exit 1
+          fi
+          "$router" \
+            --mode serve \
+            --listen-address 127.0.0.1:55431 \
+            --control-socket "$control" \
+            --state-file "$state" \
+            --primary-target 127.0.0.1:55432 \
+            --promoted-target 127.0.0.1:55433 \
+            --route primary \
+            --promotion-generation "$generation" \
+            >>"$RUNNER_TEMP/postgres-route.stdout" \
+            2>>"$RUNNER_TEMP/postgres-route.stderr" &
+          printf '%s\n' "$!" >"$RUNNER_TEMP/postgres-route.pid"
+          for attempt in {1..30}; do
+            state_status=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
+            routed_primary=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+              "$router" --mode role 2>/dev/null || true)
+            if [ "$state_status" = "primary $generation" ] \
+              && [ "$routed_primary" = "writable-primary" ]; then
+              exit 0
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-route.pid")" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          echo "recreated stable database endpoint did not become ready"
           exit 1
 
       - name: Prepare in-flight failover scope on primary
@@ -777,7 +887,7 @@ jobs:
           fi
           if "$RUNNER_TEMP/dataground-postgres-route-conformance" \
             --mode select \
-            --control-socket "$RUNNER_TEMP/dataground-postgres-route.sock" \
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route/control.sock" \
             --promotion-generation "$initial_generation" \
             >/dev/null 2>&1; then
             echo "stable database endpoint accepted a stale in-flight promotion generation"
@@ -785,18 +895,18 @@ jobs:
           fi
           route=$("$RUNNER_TEMP/dataground-postgres-route-conformance" \
             --mode status \
-            --control-socket "$RUNNER_TEMP/dataground-postgres-route.sock")
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route/control.sock")
           if [ "$route" != "primary" ]; then
             echo "stale in-flight promotion generation changed the stable database route"
             exit 1
           fi
           selected=$("$RUNNER_TEMP/dataground-postgres-route-conformance" \
             --mode select \
-            --control-socket "$RUNNER_TEMP/dataground-postgres-route.sock" \
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route/control.sock" \
             --promotion-generation "$promoted_generation")
           route=$("$RUNNER_TEMP/dataground-postgres-route-conformance" \
             --mode status \
-            --control-socket "$RUNNER_TEMP/dataground-postgres-route.sock")
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route/control.sock")
           routed_promoted=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
             "$RUNNER_TEMP/dataground-postgres-route-conformance" --mode role \
             2>/dev/null || true)

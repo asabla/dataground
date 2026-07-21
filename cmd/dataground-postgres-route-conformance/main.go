@@ -26,9 +26,10 @@ func main() {
 func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
 	flags := flag.NewFlagSet("dataground-postgres-route-conformance", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	mode := flags.String("mode", "", "serve, route, select, status, role or pool")
+	mode := flags.String("mode", "", "serve, select, status, state, role or pool")
 	listenAddress := flags.String("listen-address", "", "literal loopback client endpoint")
 	controlSocket := flags.String("control-socket", "", "absolute private Unix control socket path")
+	stateFile := flags.String("state-file", "", "absolute private persistent route state path")
 	primaryTarget := flags.String("primary-target", "", "literal loopback primary endpoint")
 	promotedTarget := flags.String("promoted-target", "", "literal loopback promoted endpoint")
 	routeValue := flags.String("route", "", "primary or promoted")
@@ -40,8 +41,10 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 
 	switch *mode {
 	case "serve":
+		initializing := *routeValue != "" || *promotionGeneration != 0
 		if *listenAddress == "" || *controlSocket == "" || *primaryTarget == "" ||
-			*promotedTarget == "" || !validRoute(*routeValue) || *promotionGeneration != 0 {
+			*stateFile == "" || *promotedTarget == "" ||
+			(initializing && (!validRoute(*routeValue) || *promotionGeneration == 0)) {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
@@ -51,12 +54,14 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 			return 2
 		}
 		proxy, err := pgrouteproxy.Start(ctx, pgrouteproxy.Config{
-			ListenAddress:  *listenAddress,
-			ControlSocket:  *controlSocket,
-			PrimaryTarget:  *primaryTarget,
-			PromotedTarget: *promotedTarget,
-			InitialRoute:   pgrouteproxy.Route(*routeValue),
-			HealthProbe:    probe,
+			ListenAddress:              *listenAddress,
+			ControlSocket:              *controlSocket,
+			StateFile:                  *stateFile,
+			PrimaryTarget:              *primaryTarget,
+			PromotedTarget:             *promotedTarget,
+			InitialRoute:               pgrouteproxy.Route(*routeValue),
+			InitialPromotionGeneration: *promotionGeneration,
+			HealthProbe:                probe,
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, "could not start PostgreSQL route conformance proxy")
@@ -70,7 +75,8 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		return 0
 	case "select":
 		if *controlSocket == "" || *routeValue != "" || *listenAddress != "" ||
-			*primaryTarget != "" || *promotedTarget != "" || *promotionGeneration == 0 {
+			*stateFile != "" || *primaryTarget != "" || *promotedTarget != "" ||
+			*promotionGeneration == 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
@@ -83,22 +89,10 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		}
 		fmt.Fprintln(stdout, route)
 		return 0
-	case "route":
-		if *controlSocket == "" || !validRoute(*routeValue) || *listenAddress != "" ||
-			*primaryTarget != "" || *promotedTarget != "" || *promotionGeneration != 0 {
-			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
-			return 2
-		}
-		bounded, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		if err := pgrouteproxy.RouteTo(bounded, *controlSocket, pgrouteproxy.Route(*routeValue)); err != nil {
-			fmt.Fprintln(stderr, "could not change PostgreSQL route conformance proxy")
-			return 1
-		}
-		return 0
 	case "status":
 		if *controlSocket == "" || *routeValue != "" || *listenAddress != "" ||
-			*primaryTarget != "" || *promotedTarget != "" || *promotionGeneration != 0 {
+			*stateFile != "" || *primaryTarget != "" || *promotedTarget != "" ||
+			*promotionGeneration != 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
@@ -111,9 +105,26 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		}
 		fmt.Fprintln(stdout, route)
 		return 0
+	case "state":
+		if *controlSocket == "" || *routeValue != "" || *listenAddress != "" ||
+			*stateFile != "" || *primaryTarget != "" || *promotedTarget != "" ||
+			*promotionGeneration != 0 {
+			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
+			return 2
+		}
+		bounded, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		route, generation, err := pgrouteproxy.StateStatus(bounded, *controlSocket)
+		if err != nil {
+			fmt.Fprintln(stderr, "could not read PostgreSQL route conformance state")
+			return 1
+		}
+		fmt.Fprintf(stdout, "%s %d\n", route, generation)
+		return 0
 	case "role":
 		if *controlSocket != "" || *routeValue != "" || *listenAddress != "" ||
-			*primaryTarget != "" || *promotedTarget != "" || *promotionGeneration != 0 {
+			*stateFile != "" || *primaryTarget != "" || *promotedTarget != "" ||
+			*promotionGeneration != 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
@@ -128,7 +139,8 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		return 0
 	case "pool":
 		if *controlSocket != "" || *routeValue != "" || *listenAddress != "" ||
-			*primaryTarget != "" || *promotedTarget != "" || *promotionGeneration != 0 {
+			*stateFile != "" || *primaryTarget != "" || *promotedTarget != "" ||
+			*promotionGeneration != 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}

@@ -54,8 +54,8 @@
         "address": "127.0.0.1:55431",
         "clientContract": "unchanged database URL before and after promotion",
         "targets": ["127.0.0.1:55432", "127.0.0.1:55433"],
-        "control": "mode-0600 Unix socket with predeclared routes",
-        "routeChange": "control-triggered generation-bound health confirmation after external promotion",
+        "control": "mode-0600 Unix socket in an exclusive mode-0700 private state workspace",
+        "routeChange": "durably persisted control-triggered generation-bound health confirmation after external promotion",
         "existingSessions": "closed on route change without transaction replay",
         "healthSelection": {
           "probe": "PostgreSQL recovery, transaction read-only state and WAL timeline through a non-owner identity without application table privileges",
@@ -69,6 +69,15 @@
           "zeroWritable": "rejected without route or session change",
           "multipleWritable": "rejected without route or session change",
           "promotionOwnership": "external"
+        },
+        "restartRecovery": {
+          "state": "canonical mode-0600 cluster-scoped record binding route, PostgreSQL timeline and both predeclared targets",
+          "lock": "exclusive non-blocking advisory lock held for the router process lifetime",
+          "updateOrder": "temporary file sync, atomic replacement and parent-directory sync before route or session change",
+          "startupAcceptance": "three consecutive unique-writable observations matching the exact persisted route and PostgreSQL timeline before traffic acceptance",
+          "staleControlSocket": "single-link current-user-owned mode-0600 socket reclaimed only while the state lock is held",
+          "processLoss": "SIGKILL after promoted state persistence followed by recovery without caller-supplied route or timeline",
+          "clusterReset": "persisted state retired only after the disposable database cluster and router are stopped"
         },
         "longLivedPool": {
           "implementation": "one pgxpool process across primary loss and route switch",

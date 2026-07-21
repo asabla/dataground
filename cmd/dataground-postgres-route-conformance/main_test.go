@@ -23,13 +23,42 @@ func TestRunServeRejectsMissingHealthIdentityWithoutStartingListener(t *testing.
 		"--mode", "serve",
 		"--listen-address", "127.0.0.1:0",
 		"--control-socket", "/tmp/dataground-missing-health.sock",
+		"--state-file", "/tmp/dataground-missing-health.json",
 		"--primary-target", "127.0.0.1:55432",
 		"--promoted-target", "127.0.0.1:55433",
 		"--route", "primary",
+		"--promotion-generation", "1",
 	}, &stdout, &stderr)
 	if status != 2 || stdout.Len() != 0 ||
 		stderr.String() != "invalid PostgreSQL route conformance configuration\n" {
 		t.Fatalf("status=%d stdout=%q stderr=%q", status, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunServeRejectsPartialInitialState(t *testing.T) {
+	t.Setenv(
+		"DATAGROUND_ROUTER_HEALTH_DATABASE_URL",
+		"postgres://user:secret@127.0.0.1:55431/database?sslmode=disable",
+	)
+	for _, arguments := range [][]string{
+		{"--route", "primary"},
+		{"--promotion-generation", "1"},
+	} {
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		base := []string{
+			"--mode", "serve",
+			"--listen-address", "127.0.0.1:0",
+			"--control-socket", "/tmp/dataground-partial-state.sock",
+			"--state-file", "/tmp/dataground-partial-state.json",
+			"--primary-target", "127.0.0.1:55432",
+			"--promoted-target", "127.0.0.1:55433",
+		}
+		status := run(context.Background(), append(base, arguments...), &stdout, &stderr)
+		if status != 2 || stdout.Len() != 0 ||
+			stderr.String() != "invalid PostgreSQL route conformance configuration\n" {
+			t.Fatalf("arguments=%v status=%d stdout=%q stderr=%q", arguments, status, stdout.String(), stderr.String())
+		}
 	}
 }
 

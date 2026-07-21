@@ -20,16 +20,12 @@ func TestProxyRoutesNewConnectionsAndClosesOldSessions(t *testing.T) {
 	controlSocket := filepath.Join(t.TempDir(), "route.sock")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	proxy, err := Start(ctx, Config{
+	proxy, probes := startTestProxy(t, ctx, Config{
 		ListenAddress:  "127.0.0.1:0",
 		ControlSocket:  controlSocket,
 		PrimaryTarget:  primary,
 		PromotedTarget: promoted,
-		InitialRoute:   Primary,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	}, nil)
 	defer proxy.Close()
 
 	if got := roundTrip(t, proxy.Address()); got != "primary" {
@@ -49,7 +45,10 @@ func TestProxyRoutesNewConnectionsAndClosesOldSessions(t *testing.T) {
 	if response, err := bufio.NewReader(oldSession).ReadString('\n'); err != nil || response != "primary\n" {
 		t.Fatalf("old session was not established through primary: response=%q error=%v", response, err)
 	}
-	if err := RouteTo(ctx, controlSocket, Promoted); err != nil {
+	probes.set(func(_ context.Context, target string) (Health, error) {
+		return Health{Writable: target == promoted, PromotionGeneration: 2}, nil
+	})
+	if _, err := SelectWritable(ctx, controlSocket, 2); err != nil {
 		t.Fatal(err)
 	}
 	if got := roundTrip(t, proxy.Address()); got != "promoted" {
@@ -78,25 +77,20 @@ func TestSelectWritableSwitchesToUniqueHealthyTargetAndClosesOldSessions(t *test
 	controlSocket := filepath.Join(t.TempDir(), "route.sock")
 	var probeMu sync.Mutex
 	probeCalls := 0
-	proxy, err := Start(context.Background(), Config{
+	proxy, _ := startTestProxy(t, context.Background(), Config{
 		ListenAddress:  "127.0.0.1:0",
 		ControlSocket:  controlSocket,
 		PrimaryTarget:  primary,
 		PromotedTarget: promoted,
-		InitialRoute:   Primary,
-		HealthProbe: func(_ context.Context, target string) (Health, error) {
-			probeMu.Lock()
-			probeCalls++
-			probeMu.Unlock()
-			if target == primary {
-				return Health{}, errors.New("unavailable")
-			}
-			return Health{Writable: target == promoted, PromotionGeneration: 2}, nil
-		},
+	}, func(_ context.Context, target string) (Health, error) {
+		probeMu.Lock()
+		probeCalls++
+		probeMu.Unlock()
+		if target == primary {
+			return Health{}, errors.New("unavailable")
+		}
+		return Health{Writable: target == promoted, PromotionGeneration: 2}, nil
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	defer proxy.Close()
 
 	oldSession := establishedSession(t, proxy.Address(), "primary")
@@ -142,6 +136,35 @@ func TestSelectWritableRejectsUnexpectedPromotionGenerationWithoutChangingRoute(
 	})
 }
 
+func TestSelectWritableRejectsPromotionGenerationRollback(t *testing.T) {
+	primary := startReplyServer(t, "primary")
+	promoted := startReplyServer(t, "promoted")
+	controlSocket := filepath.Join(t.TempDir(), "route.sock")
+	proxy, probes := startTestProxy(t, context.Background(), Config{
+		ListenAddress:  "127.0.0.1:0",
+		ControlSocket:  controlSocket,
+		PrimaryTarget:  primary,
+		PromotedTarget: promoted,
+	}, nil)
+	defer proxy.Close()
+	probes.set(func(_ context.Context, target string) (Health, error) {
+		return Health{Writable: target == promoted, PromotionGeneration: 3}, nil
+	})
+	if _, err := SelectWritable(context.Background(), controlSocket, 3); err != nil {
+		t.Fatal(err)
+	}
+	probes.set(func(_ context.Context, target string) (Health, error) {
+		return Health{Writable: target == primary, PromotionGeneration: 2}, nil
+	})
+	if _, err := SelectWritable(context.Background(), controlSocket, 2); err == nil {
+		t.Fatal("proxy accepted a promotion-generation rollback")
+	}
+	route, generation, err := StateStatus(context.Background(), controlSocket)
+	if err != nil || route != Promoted || generation != 3 {
+		t.Fatalf("state after rollback attempt = %q %d, error=%v", route, generation, err)
+	}
+}
+
 func TestSelectWritableRejectsCandidateChangeAcrossConfirmations(t *testing.T) {
 	primary := startReplyServer(t, "primary")
 	promoted := startReplyServer(t, "promoted")
@@ -184,28 +207,23 @@ func TestSelectWritableRejectsObservationsAfterConcurrentRouteChanges(t *testing
 	releaseProbe := make(chan struct{})
 	var first sync.Once
 	controlSocket := filepath.Join(t.TempDir(), "route.sock")
-	proxy, err := Start(context.Background(), Config{
+	proxy, _ := startTestProxy(t, context.Background(), Config{
 		ListenAddress:  "127.0.0.1:0",
 		ControlSocket:  controlSocket,
 		PrimaryTarget:  primary,
 		PromotedTarget: promoted,
-		InitialRoute:   Primary,
-		HealthProbe: func(ctx context.Context, target string) (Health, error) {
-			if target == primary {
-				return Health{}, nil
-			}
-			first.Do(func() { close(firstProbe) })
-			select {
-			case <-releaseProbe:
-				return Health{Writable: true, PromotionGeneration: 2}, nil
-			case <-ctx.Done():
-				return Health{}, ctx.Err()
-			}
-		},
+	}, func(ctx context.Context, target string) (Health, error) {
+		if target == primary {
+			return Health{}, nil
+		}
+		first.Do(func() { close(firstProbe) })
+		select {
+		case <-releaseProbe:
+			return Health{Writable: true, PromotionGeneration: 2}, nil
+		case <-ctx.Done():
+			return Health{}, ctx.Err()
+		}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	defer proxy.Close()
 
 	selectionResult := make(chan error, 1)
@@ -214,10 +232,7 @@ func TestSelectWritableRejectsObservationsAfterConcurrentRouteChanges(t *testing
 		selectionResult <- selectErr
 	}()
 	<-firstProbe
-	if err := RouteTo(context.Background(), controlSocket, Promoted); err != nil {
-		t.Fatal(err)
-	}
-	if err := RouteTo(context.Background(), controlSocket, Primary); err != nil {
+	if err := proxy.persistSelection(Primary, 3, 0); err != nil {
 		t.Fatal(err)
 	}
 	close(releaseProbe)
@@ -253,17 +268,12 @@ func testRejectedWritableSelectionWithTargets(
 ) {
 	t.Helper()
 	controlSocket := filepath.Join(t.TempDir(), "route.sock")
-	proxy, err := Start(context.Background(), Config{
+	proxy, _ := startTestProxy(t, context.Background(), Config{
 		ListenAddress:  "127.0.0.1:0",
 		ControlSocket:  controlSocket,
 		PrimaryTarget:  primary,
 		PromotedTarget: promoted,
-		InitialRoute:   Primary,
-		HealthProbe:    probe,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	}, probe)
 	defer proxy.Close()
 
 	session := establishedSession(t, proxy.Address(), "primary")
@@ -313,16 +323,12 @@ func TestProxyControlSocketIsPrivateAndRemovedOnClose(t *testing.T) {
 	primary := startReplyServer(t, "primary")
 	promoted := startReplyServer(t, "promoted")
 	controlSocket := filepath.Join(t.TempDir(), "route.sock")
-	proxy, err := Start(context.Background(), Config{
+	proxy, _ := startTestProxy(t, context.Background(), Config{
 		ListenAddress:  "127.0.0.1:0",
 		ControlSocket:  controlSocket,
 		PrimaryTarget:  primary,
 		PromotedTarget: promoted,
-		InitialRoute:   Primary,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	}, nil)
 	info, err := os.Lstat(controlSocket)
 	if err != nil {
 		t.Fatal(err)
@@ -346,11 +352,14 @@ func TestProxyRejectsPreexistingControlPathWithoutRemovingIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := Start(context.Background(), Config{
-		ListenAddress:  "127.0.0.1:0",
-		ControlSocket:  controlSocket,
-		PrimaryTarget:  primary,
-		PromotedTarget: promoted,
-		InitialRoute:   Primary,
+		ListenAddress:              "127.0.0.1:0",
+		ControlSocket:              controlSocket,
+		StateFile:                  filepath.Join(filepath.Dir(controlSocket), "state.json"),
+		PrimaryTarget:              primary,
+		PromotedTarget:             promoted,
+		InitialRoute:               Primary,
+		InitialPromotionGeneration: 1,
+		HealthProbe:                primaryHealthProbe(primary),
 	})
 	if err == nil {
 		t.Fatal("proxy accepted a preexisting control path")
@@ -365,16 +374,12 @@ func TestProxyClosePreservesReplacementControlPath(t *testing.T) {
 	primary := startReplyServer(t, "primary")
 	promoted := startReplyServer(t, "promoted")
 	controlSocket := filepath.Join(t.TempDir(), "route.sock")
-	proxy, err := Start(context.Background(), Config{
+	proxy, _ := startTestProxy(t, context.Background(), Config{
 		ListenAddress:  "127.0.0.1:0",
 		ControlSocket:  controlSocket,
 		PrimaryTarget:  primary,
 		PromotedTarget: promoted,
-		InitialRoute:   Primary,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	}, nil)
 	if err := os.Remove(controlSocket); err != nil {
 		t.Fatal(err)
 	}
@@ -394,16 +399,12 @@ func TestProxyRejectsMalformedControlWithoutChangingRoute(t *testing.T) {
 	primary := startReplyServer(t, "primary")
 	promoted := startReplyServer(t, "promoted")
 	controlSocket := filepath.Join(t.TempDir(), "route.sock")
-	proxy, err := Start(context.Background(), Config{
+	proxy, _ := startTestProxy(t, context.Background(), Config{
 		ListenAddress:  "127.0.0.1:0",
 		ControlSocket:  controlSocket,
 		PrimaryTarget:  primary,
 		PromotedTarget: promoted,
-		InitialRoute:   Primary,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	}, nil)
 	defer proxy.Close()
 
 	connection, err := net.Dial("unix", controlSocket)
@@ -436,16 +437,12 @@ func TestProxySurvivesUnavailableTarget(t *testing.T) {
 	unavailableAddress := unavailable.Addr().String()
 	_ = unavailable.Close()
 	controlSocket := filepath.Join(t.TempDir(), "route.sock")
-	proxy, err := Start(context.Background(), Config{
+	proxy, probes := startTestProxy(t, context.Background(), Config{
 		ListenAddress:  "127.0.0.1:0",
 		ControlSocket:  controlSocket,
 		PrimaryTarget:  unavailableAddress,
 		PromotedTarget: promoted,
-		InitialRoute:   Primary,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	}, nil)
 	defer proxy.Close()
 	connection, err := net.Dial("tcp4", proxy.Address())
 	if err != nil {
@@ -457,7 +454,10 @@ func TestProxySurvivesUnavailableTarget(t *testing.T) {
 		t.Fatal("unavailable target produced a response")
 	}
 	_ = connection.Close()
-	if err := RouteTo(context.Background(), controlSocket, Promoted); err != nil {
+	probes.set(func(_ context.Context, target string) (Health, error) {
+		return Health{Writable: target == promoted, PromotionGeneration: 2}, nil
+	})
+	if _, err := SelectWritable(context.Background(), controlSocket, 2); err != nil {
 		t.Fatal(err)
 	}
 	if got := roundTrip(t, proxy.Address()); got != "promoted" {
@@ -469,16 +469,12 @@ func TestProxyConcurrentRouteChangesAndConnections(t *testing.T) {
 	primary := startReplyServer(t, "primary")
 	promoted := startReplyServer(t, "promoted")
 	controlSocket := filepath.Join(t.TempDir(), "route.sock")
-	proxy, err := Start(context.Background(), Config{
+	proxy, _ := startTestProxy(t, context.Background(), Config{
 		ListenAddress:  "127.0.0.1:0",
 		ControlSocket:  controlSocket,
 		PrimaryTarget:  primary,
 		PromotedTarget: promoted,
-		InitialRoute:   Primary,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	}, nil)
 	defer proxy.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -486,13 +482,9 @@ func TestProxyConcurrentRouteChangesAndConnections(t *testing.T) {
 	var wait sync.WaitGroup
 	for index := range 40 {
 		wait.Add(2)
-		go func(routeIndex int) {
+		go func(_ int) {
 			defer wait.Done()
-			route := Primary
-			if routeIndex%2 == 0 {
-				route = Promoted
-			}
-			_ = RouteTo(ctx, controlSocket, route)
+			_, _ = SelectWritable(ctx, controlSocket, 1)
 		}(index)
 		go func() {
 			defer wait.Done()
@@ -515,16 +507,12 @@ func TestProxyConcurrentRouteChangesAndConnections(t *testing.T) {
 func TestProxyBoundsActiveTrafficConnections(t *testing.T) {
 	primary := startReplyServer(t, "primary")
 	promoted := startReplyServer(t, "promoted")
-	proxy, err := Start(context.Background(), Config{
+	proxy, _ := startTestProxy(t, context.Background(), Config{
 		ListenAddress:  "127.0.0.1:0",
 		ControlSocket:  filepath.Join(t.TempDir(), "route.sock"),
 		PrimaryTarget:  primary,
 		PromotedTarget: promoted,
-		InitialRoute:   Primary,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	}, nil)
 	defer proxy.Close()
 
 	connections := make([]net.Conn, 0, maxActiveConnections)
@@ -567,12 +555,15 @@ func TestProxyBoundsActiveTrafficConnections(t *testing.T) {
 
 func TestStartRejectsUnsafeConfiguration(t *testing.T) {
 	valid := Config{
-		ListenAddress:  "127.0.0.1:0",
-		ControlSocket:  filepath.Join(t.TempDir(), "route.sock"),
-		PrimaryTarget:  "127.0.0.1:55432",
-		PromotedTarget: "127.0.0.1:55433",
-		InitialRoute:   Primary,
+		ListenAddress:              "127.0.0.1:0",
+		ControlSocket:              filepath.Join(t.TempDir(), "route.sock"),
+		PrimaryTarget:              "127.0.0.1:55432",
+		PromotedTarget:             "127.0.0.1:55433",
+		InitialRoute:               Primary,
+		InitialPromotionGeneration: 1,
 	}
+	valid.StateFile = filepath.Join(filepath.Dir(valid.ControlSocket), "state.json")
+	valid.HealthProbe = primaryHealthProbe(valid.PrimaryTarget)
 	tests := []struct {
 		name   string
 		change func(*Config)
@@ -583,6 +574,7 @@ func TestStartRejectsUnsafeConfiguration(t *testing.T) {
 		{name: "zero target port", change: func(config *Config) { config.PromotedTarget = "127.0.0.1:0" }},
 		{name: "same targets", change: func(config *Config) { config.PromotedTarget = config.PrimaryTarget }},
 		{name: "relative control", change: func(config *Config) { config.ControlSocket = "route.sock" }},
+		{name: "shared state and control path", change: func(config *Config) { config.StateFile = config.ControlSocket }},
 		{name: "unknown route", change: func(config *Config) { config.InitialRoute = "standby" }},
 	}
 	for _, test := range tests {
@@ -597,6 +589,54 @@ func TestStartRejectsUnsafeConfiguration(t *testing.T) {
 				t.Fatal("unsafe configuration was accepted")
 			}
 		})
+	}
+}
+
+type controlledHealthProbe struct {
+	mu    sync.RWMutex
+	probe HealthProbe
+}
+
+func (probe *controlledHealthProbe) set(next HealthProbe) {
+	probe.mu.Lock()
+	probe.probe = next
+	probe.mu.Unlock()
+}
+
+func (probe *controlledHealthProbe) run(ctx context.Context, target string) (Health, error) {
+	probe.mu.RLock()
+	current := probe.probe
+	probe.mu.RUnlock()
+	return current(ctx, target)
+}
+
+func startTestProxy(
+	t *testing.T,
+	ctx context.Context,
+	config Config,
+	afterStart HealthProbe,
+) (*Proxy, *controlledHealthProbe) {
+	t.Helper()
+	if afterStart == nil {
+		afterStart = primaryHealthProbe(config.PrimaryTarget)
+	}
+	probe := &controlledHealthProbe{}
+	probe.set(primaryHealthProbe(config.PrimaryTarget))
+	config.StateFile = filepath.Join(filepath.Dir(config.ControlSocket), "state.json")
+	config.InitialRoute = Primary
+	config.InitialPromotionGeneration = 1
+	config.HealthProbe = probe.run
+	proxy, err := Start(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe.set(afterStart)
+	return proxy, probe
+}
+
+func primaryHealthProbe(primary string) HealthProbe {
+	return func(_ context.Context, target string) (Health, error) {
+		return Health{Writable: target == primary, PromotionGeneration: 1}, nil
 	}
 }
 
