@@ -14,7 +14,7 @@ import (
 func TestProxyRecoversPersistedRouteAndGenerationFromStaleSocket(t *testing.T) {
 	primary := startReplyServer(t, "primary")
 	promoted := startReplyServer(t, "promoted")
-	directory := t.TempDir()
+	directory := privateRouteDirectory(t)
 	controlSocket := filepath.Join(directory, "route.sock")
 	stateFile := filepath.Join(directory, "state.json")
 	proxy, probes := startTestProxy(t, context.Background(), Config{
@@ -71,7 +71,7 @@ func TestProxyRecoversPersistedRouteAndGenerationFromStaleSocket(t *testing.T) {
 func TestProxyRejectsRecoveryWhenPersistedHealthIsStale(t *testing.T) {
 	primary := startReplyServer(t, "primary")
 	promoted := startReplyServer(t, "promoted")
-	directory := t.TempDir()
+	directory := privateRouteDirectory(t)
 	controlSocket := filepath.Join(directory, "route.sock")
 	stateFile := filepath.Join(directory, "state.json")
 	proxy, probes := startTestProxy(t, context.Background(), Config{
@@ -117,7 +117,7 @@ func TestProxyRejectsRecoveryWhenPersistedHealthIsStale(t *testing.T) {
 func TestSelectionPreservesRouteWhenStateReplacementFails(t *testing.T) {
 	primary := startReplyServer(t, "primary")
 	promoted := startReplyServer(t, "promoted")
-	directory := t.TempDir()
+	directory := privateRouteDirectory(t)
 	controlSocket := filepath.Join(directory, "route.sock")
 	stateFile := filepath.Join(directory, "state.json")
 	proxy, probes := startTestProxy(t, context.Background(), Config{
@@ -168,7 +168,7 @@ func TestProxyRejectsMalformedOrPermissionWeakenedState(t *testing.T) {
 		{name: "weak permissions", content: "{}\n", mode: 0o644},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			directory := t.TempDir()
+			directory := privateRouteDirectory(t)
 			controlSocket := filepath.Join(directory, "route.sock")
 			stateFile := filepath.Join(directory, "state.json")
 			if err := os.WriteFile(stateFile, []byte(test.content), test.mode); err != nil {
@@ -195,7 +195,7 @@ func TestProxyRejectsMalformedOrPermissionWeakenedState(t *testing.T) {
 func TestProxyRejectsPermissionWeakenedStateWorkspace(t *testing.T) {
 	primary := startReplyServer(t, "primary")
 	promoted := startReplyServer(t, "promoted")
-	directory := t.TempDir()
+	directory := privateRouteDirectory(t)
 	if err := os.Chmod(directory, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestProxyRejectsPermissionWeakenedStateWorkspace(t *testing.T) {
 func TestProxyRejectsHardLinkedState(t *testing.T) {
 	primary := startReplyServer(t, "primary")
 	promoted := startReplyServer(t, "promoted")
-	directory := t.TempDir()
+	directory := privateRouteDirectory(t)
 	controlSocket := filepath.Join(directory, "route.sock")
 	stateFile := filepath.Join(directory, "state.json")
 	proxy, _ := startTestProxy(t, context.Background(), Config{
@@ -255,7 +255,7 @@ func TestProxyRejectsHardLinkedState(t *testing.T) {
 func TestProxyRejectsTargetMismatchedState(t *testing.T) {
 	primary := startReplyServer(t, "primary")
 	promoted := startReplyServer(t, "promoted")
-	directory := t.TempDir()
+	directory := privateRouteDirectory(t)
 	controlSocket := filepath.Join(directory, "route.sock")
 	stateFile := filepath.Join(directory, "state.json")
 	content, err := encodeRouteState(persistedRouteState{
@@ -290,7 +290,7 @@ func TestProxyRejectsTargetMismatchedState(t *testing.T) {
 func TestProxyHoldsExclusiveStateLock(t *testing.T) {
 	primary := startReplyServer(t, "primary")
 	promoted := startReplyServer(t, "promoted")
-	directory := t.TempDir()
+	directory := privateRouteDirectory(t)
 	controlSocket := filepath.Join(directory, "route.sock")
 	stateFile := filepath.Join(directory, "state.json")
 	proxy, _ := startTestProxy(t, context.Background(), Config{
