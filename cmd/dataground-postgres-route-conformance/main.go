@@ -26,7 +26,7 @@ func main() {
 func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
 	flags := flag.NewFlagSet("dataground-postgres-route-conformance", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	mode := flags.String("mode", "", "serve, route, status or role")
+	mode := flags.String("mode", "", "serve, route, status, role or pool")
 	listenAddress := flags.String("listen-address", "", "literal loopback client endpoint")
 	controlSocket := flags.String("control-socket", "", "absolute private Unix control socket path")
 	primaryTarget := flags.String("primary-target", "", "literal loopback primary endpoint")
@@ -104,6 +104,17 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		}
 		fmt.Fprintln(stdout, role)
 		return 0
+	case "pool":
+		if *controlSocket != "" || *routeValue != "" || *listenAddress != "" ||
+			*primaryTarget != "" || *promotedTarget != "" {
+			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
+			return 2
+		}
+		if err := runPoolConformance(ctx, os.Getenv("DATAGROUND_TEST_DATABASE_URL"), stdout); err != nil {
+			fmt.Fprintln(stderr, "PostgreSQL pool reconnection conformance failed")
+			return 1
+		}
+		return 0
 	default:
 		fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 		return 2
@@ -115,15 +126,8 @@ func validRoute(route string) bool {
 }
 
 func databaseRole(ctx context.Context, databaseURL string) (string, error) {
-	parsed, err := url.Parse(databaseURL)
-	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") ||
-		parsed.Hostname() != "127.0.0.1" || parsed.Port() == "" || parsed.Fragment != "" {
-		return "", errors.New("invalid PostgreSQL route conformance database URL")
-	}
-	host, _, err := net.SplitHostPort(parsed.Host)
-	ip := net.ParseIP(host)
-	if err != nil || ip == nil || !ip.Equal(net.IPv4(127, 0, 0, 1)) {
-		return "", errors.New("invalid PostgreSQL route conformance database URL")
+	if err := validateLoopbackDatabaseURL(databaseURL); err != nil {
+		return "", err
 	}
 	database, err := persistence.OpenSQL(ctx, databaseURL)
 	if err != nil {
@@ -145,4 +149,23 @@ func databaseRole(ctx context.Context, databaseURL string) (string, error) {
 		return "read-only-standby", nil
 	}
 	return "", errors.New("inconsistent PostgreSQL route conformance role")
+}
+
+func validateLoopbackDatabaseURL(databaseURL string) error {
+	parsed, err := url.Parse(databaseURL)
+	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") ||
+		parsed.Hostname() != "127.0.0.1" || parsed.Port() == "" || parsed.Fragment != "" ||
+		parsed.User == nil || parsed.User.Username() == "" || parsed.Path == "" || parsed.Path == "/" {
+		return errors.New("invalid PostgreSQL route conformance database URL")
+	}
+	host, _, err := net.SplitHostPort(parsed.Host)
+	ip := net.ParseIP(host)
+	if err != nil || ip == nil || !ip.Equal(net.IPv4(127, 0, 0, 1)) {
+		return errors.New("invalid PostgreSQL route conformance database URL")
+	}
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil || len(query) != 1 || len(query["sslmode"]) != 1 || query.Get("sslmode") != "disable" {
+		return errors.New("invalid PostgreSQL route conformance database URL")
+	}
+	return nil
 }

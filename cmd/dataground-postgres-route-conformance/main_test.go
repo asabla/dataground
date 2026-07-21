@@ -32,3 +32,29 @@ func TestDatabaseRoleRejectsNonLoopbackURL(t *testing.T) {
 		t.Fatal("database role probe accepted a non-loopback URL")
 	}
 }
+
+func TestLoopbackDatabaseURLRejectsConnectionOverrides(t *testing.T) {
+	for _, databaseURL := range []string{
+		"postgres://user:secret@127.0.0.1:5432/database?sslmode=disable&host=192.0.2.1",
+		"postgres://user:secret@127.0.0.1:5432/database?sslmode=disable&service=external",
+		"postgres://user:secret@127.0.0.1:5432/database?sslmode=require",
+	} {
+		if err := validateLoopbackDatabaseURL(databaseURL); err == nil {
+			t.Fatalf("connection override was accepted: %q", databaseURL)
+		}
+	}
+}
+
+func TestRunPoolModeSanitizesConfigurationFailure(t *testing.T) {
+	t.Setenv(
+		"DATAGROUND_TEST_DATABASE_URL",
+		"postgres://user:secret@192.0.2.1:5432/database?sslmode=disable",
+	)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	status := run(context.Background(), []string{"--mode", "pool"}, &stdout, &stderr)
+	if status != 1 || stdout.Len() != 0 ||
+		stderr.String() != "PostgreSQL pool reconnection conformance failed\n" {
+		t.Fatalf("status=%d stdout=%q stderr=%q", status, stdout.String(), stderr.String())
+	}
+}
