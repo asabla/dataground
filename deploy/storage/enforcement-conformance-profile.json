@@ -86,6 +86,9 @@
           "restartBackoffSeconds": [2, 4, 8],
           "processLoss": "SIGKILL child while the parent remains active",
           "preReadyTraffic": "stable endpoint unavailable until the replacement child reports readiness",
+          "childOwnership": "Linux parent-death SIGKILL plus expected supervisor PID recheck before socket creation",
+          "parentLoss": "SIGKILL supervisor terminates the owned child and makes readiness and traffic unavailable",
+          "parentReplacement": "recovery-only replacement reconfirms the exact persisted route and PostgreSQL timeline before readiness",
           "exhaustion": "supervisor exits nonzero without serving traffic",
           "productionCertified": false
         },

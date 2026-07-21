@@ -149,13 +149,19 @@ func TestStopRouteChildEscalatesAfterShutdownTimeout(t *testing.T) {
 
 func TestRouteChildArgumentsDropInitialStateDuringRecovery(t *testing.T) {
 	config := testSupervisorConfig(true)
-	initial := strings.Join(routeChildArguments(config, true), " ")
-	recovered := strings.Join(routeChildArguments(config, false), " ")
+	initial := strings.Join(routeChildArguments(config, true, 1234), " ")
+	recovered := strings.Join(routeChildArguments(config, false, 1234), " ")
 	if !strings.Contains(initial, "--route primary --promotion-generation 1") {
 		t.Fatalf("initial arguments do not bind initial state: %q", initial)
 	}
+	if !strings.Contains(initial, "--supervisor-pid 1234") {
+		t.Fatalf("initial arguments do not bind supervisor ownership: %q", initial)
+	}
 	if strings.Contains(recovered, "--route") || strings.Contains(recovered, "--promotion-generation") {
 		t.Fatalf("recovery arguments contain caller-supplied state: %q", recovered)
+	}
+	if !strings.Contains(recovered, "--supervisor-pid 1234") {
+		t.Fatalf("recovery arguments do not bind supervisor ownership: %q", recovered)
 	}
 }
 

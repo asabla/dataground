@@ -591,6 +591,88 @@ jobs:
             exit 1
           fi
 
+      - name: Replace supervisor after parent process loss
+        env:
+          DATAGROUND_ROUTER_HEALTH_DATABASE_URL: postgres://dataground_health:dataground-health@127.0.0.1:55431/dataground_conformance?sslmode=disable
+        run: |
+          router="$RUNNER_TEMP/dataground-postgres-route-conformance"
+          workspace="$RUNNER_TEMP/dataground-postgres-route"
+          control="$workspace/control.sock"
+          state="$workspace/state.json"
+          expected="promoted $(cat "$RUNNER_TEMP/postgres-promoted-generation")"
+          state_before=$(cat "$state")
+          process_alive() {
+            local state
+            state=$(ps --no-headers --format stat --pid "$1" 2>/dev/null | tr -d '[:space:]')
+            [ -n "$state" ] && [[ "$state" != Z* ]]
+          }
+          supervisor_pid=$(cat "$RUNNER_TEMP/postgres-route-supervisor.pid")
+          child_pid=$(pgrep --parent "$supervisor_pid" || true)
+          if [[ ! "$child_pid" =~ ^[1-9][0-9]*$ ]]; then
+            echo "route supervisor did not own exactly one child before parent loss"
+            exit 1
+          fi
+          kill -KILL "$supervisor_pid"
+          wait "$supervisor_pid" 2>/dev/null || true
+          rm --force "$RUNNER_TEMP/postgres-route-supervisor.pid"
+          for attempt in {1..30}; do
+            if ! process_alive "$supervisor_pid" && ! process_alive "$child_pid"; then
+              break
+            fi
+            sleep 1
+          done
+          if process_alive "$supervisor_pid" || process_alive "$child_pid"; then
+            echo "router child outlived its supervisor ownership boundary"
+            exit 1
+          fi
+          if "$router" --mode state --control-socket "$control" >/dev/null 2>&1; then
+            echo "parent process loss left route readiness available"
+            exit 1
+          fi
+          if DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+            "$router" --mode role >/dev/null 2>&1; then
+            echo "parent process loss left the stable database endpoint available"
+            exit 1
+          fi
+          "$router" \
+            --mode supervise \
+            --listen-address 127.0.0.1:55431 \
+            --control-socket "$control" \
+            --state-file "$state" \
+            --primary-target 127.0.0.1:55432 \
+            --promoted-target 127.0.0.1:55433 \
+            >"$RUNNER_TEMP/postgres-route-replacement.stdout" \
+            2>"$RUNNER_TEMP/postgres-route-replacement.stderr" &
+          replacement_pid=$!
+          printf '%s\n' "$replacement_pid" >"$RUNNER_TEMP/postgres-route-supervisor.pid"
+          for attempt in {1..30}; do
+            recovered=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
+            role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+              "$router" --mode role 2>/dev/null || true)
+            replacement_child=$(pgrep --parent "$replacement_pid" || true)
+            if [ "$recovered" = "$expected" ] && [ "$role" = "writable-primary" ] \
+              && [[ "$replacement_child" =~ ^[1-9][0-9]*$ ]] \
+              && [ "$(cat "$RUNNER_TEMP/postgres-route-replacement.stdout")" = "router-ready" ]; then
+              break
+            fi
+            if ! kill -0 "$replacement_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if [ "$recovered" != "$expected" ] || [ "$role" != "writable-primary" ] \
+            || [[ ! "$replacement_child" =~ ^[1-9][0-9]*$ ]] \
+            || [ "$(cat "$state")" != "$state_before" ] \
+            || [ "$(cat "$RUNNER_TEMP/postgres-route-replacement.stdout")" != "router-ready" ] \
+            || [ -s "$RUNNER_TEMP/postgres-route-replacement.stderr" ] \
+            || [ "$(stat --format '%a' "$workspace")" != "700" ] \
+            || [ "$(stat --format '%a' "$state")" != "600" ] \
+            || [ "$(stat --format '%a' "$state.lock")" != "600" ] \
+            || [ "$(stat --format '%a' "$control")" != "600" ]; then
+            echo "replacement supervisor did not recover the exact ownership boundary"
+            exit 1
+          fi
+
       - name: Recover through promoted standby
         env:
           DATAGROUND_TEST_DATABASE_URL: ${{ env.DATAGROUND_ROUTED_DATABASE_URL }}
@@ -955,6 +1037,14 @@ jobs:
               '^(router-ready|router-restart-scheduled)$' \
               "$RUNNER_TEMP/postgres-route.stdout"; then
             echo "stable database endpoint emitted unexpected output"
+            cleanup_status=1
+          fi
+          if [ -s "$RUNNER_TEMP/postgres-route-replacement.stderr" ] \
+            || { [ -f "$RUNNER_TEMP/postgres-route-replacement.stdout" ] \
+              && grep --invert-match --extended-regexp --quiet \
+                '^(router-ready|router-restart-scheduled)$' \
+                "$RUNNER_TEMP/postgres-route-replacement.stdout"; }; then
+            echo "replacement database endpoint emitted unexpected output"
             cleanup_status=1
           fi
           docker compose -f deploy/storage/seaweedfs-conformance.yml \
