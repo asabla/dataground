@@ -87,6 +87,7 @@ func TestValidPhaseIncludesCommitLossRecoveryBoundary(t *testing.T) {
 		recoveryconformance.PhaseFailoverRecover,
 		recoveryconformance.PhaseFailoverCommitLoss,
 		recoveryconformance.PhaseFailoverCommitRecover,
+		recoveryconformance.PhaseFailoverRejoinObserve,
 	} {
 		if !validPhase(phase) {
 			t.Fatalf("phase rejected: %s", phase)

@@ -1,147 +1,174 @@
 {
-  "schemaVersion": "dataground.dev.s3-enforcement-profile/v1",
-  "status": "development-candidate",
-  "productionCertifiable": false,
-  "backend": {
-    "name": "SeaweedFS",
-    "version": "4.40",
-    "sourceCommit": "875cd1f67ea25e8965a4f5ba1e6aaf501ba6b6fa",
-    "license": "Apache-2.0",
-    "image": "chrislusf/seaweedfs@sha256:52194fba4fecd0083c842158b3a902ba6e04a63619b2b0efcd08007bdb6a4602",
-    "platforms": ["linux/amd64", "linux/arm64", "linux/arm/v7", "linux/386"]
-  },
-  "topology": {
-    "mode": "single-process disposable development backend",
-    "endpoint": "http://127.0.0.1:8333",
-    "bucket": "dataground-conformance",
-    "authentication": "anonymous development access",
-    "persistent": false,
-    "restartPersistentVolume": true,
-    "entrypointCapabilities": ["CHOWN", "SETGID", "SETUID"]
-  },
-  "conformance": {
-    "reportSchema": "dataground.s3-enforcement-conformance/v1",
-    "requiredCases": [
-      "missing-read",
-      "create-read",
-      "immutable-rewrite",
-      "concurrent-create",
-      "finalizer-lost-ack",
-      "finalizer-catalog-retry",
-      "finalizer-conflict"
-    ],
-    "concurrentWriters": 8,
-    "ciRequired": true
-  },
-  "recoveryConformance": {
-    "reportSchema": "dataground.enforcement-recovery-conformance/v1",
-    "database": "PostgreSQL 18.4 disposable test dependency",
-    "freshRunnerProcesses": true,
-    "postgresServerRestart": true,
-    "objectBackendOutage": true,
-    "objectContainerRecreated": true,
-    "concurrentRecoveryWorkers": 8,
-    "clusteredFailover": {
-      "phase": "failover-recover",
-      "mode": "PostgreSQL physical streaming replication",
-      "nodes": 2,
-      "replicationBoundary": "standby replay at or beyond captured primary WAL position",
-      "primaryLoss": "primary container stopped before promotion",
-      "promotion": "explicit pg_ctl promotion",
-      "automaticElection": false,
-      "clientEndpointFailover": false,
-      "partitionFencing": false,
-      "inFlightCommit": {
-        "lossPhase": "failover-commit-loss",
-        "recoveryPhase": "failover-commit-recover",
-        "faultBoundary": "COMMIT forwarded with response withheld before primary loss",
-        "acceptedOutcomes": ["exact binding and audit", "no binding or audit"],
-        "finalState": "one exact binding and audit with read-only replay"
-      }
-    },
-    "ambiguousCatalogCommit": {
-      "processLoss": {
-        "phase": "commit-loss",
-        "terminationBoundary": "after PostgreSQL commit before finalizer acknowledgement",
-        "expectedExitCode": 86
-      },
-      "connectionLoss": {
-        "phase": "commit-connection-loss",
-        "faultBoundary": "PostgreSQL COMMIT completion before client observation",
-        "transport": "bounded loopback protocol proxy"
-      },
-      "preDurabilityConnectionLoss": {
-        "phase": "pre-commit-connection-loss",
-        "faultBoundary": "PostgreSQL COMMIT request before server observation",
-        "expectedOutcome": "transaction rolled back"
-      }
-    },
-    "phases": {
-      "prepare": ["fresh-scope", "fixture-provisioned", "object-retained-after-database-loss"],
-      "outage": ["finalization-fails-closed-during-object-outage", "catalog-remains-unbound"],
-      "recover": [
-        "retained-object-present",
-        "concurrent-catalog-adoption-after-restarts",
-        "read-only-replay",
-        "single-audit-commit"
-      ],
-      "committed-recover": [
-        "catalog-commit-survived-process-loss",
-        "object-consistent-after-process-loss",
-        "read-only-replay-after-ambiguous-commit",
-        "single-audit-after-ambiguous-commit"
-      ],
-      "commit-connection-loss": ["commit-connection-loss-preconditions", "commit-result-ambiguous"],
-      "connection-loss-recover": [
-        "catalog-commit-observed-after-connection-loss",
-        "object-consistent-after-connection-loss",
-        "read-only-replay-after-connection-loss",
-        "single-audit-after-connection-loss"
-      ],
-      "pre-commit-connection-loss": [
-        "pre-commit-connection-loss-preconditions",
-        "pre-commit-result-ambiguous"
-      ],
-      "rolled-back-recover": [
-        "rollback-observed-after-pre-commit-loss",
-        "retained-object-adopted-after-rollback",
-        "read-only-replay-after-rollback",
-        "single-audit-after-rollback-adoption"
-      ],
-      "failover-recover": [
-        "promoted-standby-has-replicated-fixture",
-        "retained-object-unbound-after-primary-loss",
-        "catalog-adopted-on-promoted-standby",
-        "read-only-replay-after-failover",
-        "single-audit-after-failover"
-      ],
-      "failover-commit-loss": [
-        "in-flight-failover-preconditions",
-        "primary-loss-during-commit-is-ambiguous"
-      ],
-      "failover-commit-recover": [
-        "promoted-standby-ready-after-in-flight-loss",
-        "atomic-catalog-outcome-observed-after-failover",
-        "catalog-converged-after-in-flight-failover",
-        "read-only-replay-after-in-flight-failover",
-        "single-audit-after-in-flight-failover"
-      ]
-    }
-  },
-  "sources": {
-    "release": "https://github.com/seaweedfs/seaweedfs/releases/tag/4.40",
-    "license": "https://github.com/seaweedfs/seaweedfs/blob/4.40/LICENSE",
-    "conditionalWriteFix": "https://github.com/seaweedfs/seaweedfs/pull/8802",
-    "conditionalWriteSemantics": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html"
-  },
-  "blockers": [
-    "single-process anonymous development evidence is not an authenticated production topology",
-    "the two-node PostgreSQL profile proves controlled physical-standby promotion but not automatic election, client endpoint failover, multi-zone durability or production operator behavior",
-    "split-brain prevention, fencing, multi-gateway and network-partition behavior are not exercised by this profile",
-    "bucket policy, workload identity, TLS, encryption and KMS are not certified",
-    "versioning, retention, backup, restore, upgrade and rollback are not certified",
-    "image signature, SBOM and build provenance are not certified",
-    "a replacement backend has not passed the same suite",
-    "the complete platform-object and lakehouse S3 contract is broader than this enforcement subset"
-  ]
+	"schemaVersion": "dataground.dev.s3-enforcement-profile/v1",
+	"status": "development-candidate",
+	"productionCertifiable": false,
+	"backend": {
+		"name": "SeaweedFS",
+		"version": "4.40",
+		"sourceCommit": "875cd1f67ea25e8965a4f5ba1e6aaf501ba6b6fa",
+		"license": "Apache-2.0",
+		"image": "chrislusf/seaweedfs@sha256:52194fba4fecd0083c842158b3a902ba6e04a63619b2b0efcd08007bdb6a4602",
+		"platforms": ["linux/amd64", "linux/arm64", "linux/arm/v7", "linux/386"]
+	},
+	"topology": {
+		"mode": "single-process disposable development backend",
+		"endpoint": "http://127.0.0.1:8333",
+		"bucket": "dataground-conformance",
+		"authentication": "anonymous development access",
+		"persistent": false,
+		"restartPersistentVolume": true,
+		"entrypointCapabilities": ["CHOWN", "SETGID", "SETUID"]
+	},
+	"conformance": {
+		"reportSchema": "dataground.s3-enforcement-conformance/v1",
+		"requiredCases": [
+			"missing-read",
+			"create-read",
+			"immutable-rewrite",
+			"concurrent-create",
+			"finalizer-lost-ack",
+			"finalizer-catalog-retry",
+			"finalizer-conflict"
+		],
+		"concurrentWriters": 8,
+		"ciRequired": true
+	},
+	"recoveryConformance": {
+		"reportSchema": "dataground.enforcement-recovery-conformance/v1",
+		"database": "PostgreSQL 18.4 disposable test dependency",
+		"freshRunnerProcesses": true,
+		"postgresServerRestart": true,
+		"objectBackendOutage": true,
+		"objectContainerRecreated": true,
+		"concurrentRecoveryWorkers": 8,
+		"clusteredFailover": {
+			"phase": "failover-recover",
+			"mode": "PostgreSQL physical streaming replication",
+			"nodes": 2,
+			"replicationBoundary": "standby replay at or beyond captured primary WAL position",
+			"primaryLoss": "primary container stopped before promotion",
+			"promotion": "explicit pg_ctl promotion",
+			"automaticElection": false,
+			"clientEndpointFailover": false,
+			"partitionFencing": false,
+			"stalePrimaryRejoin": {
+				"observePhase": "failover-rejoin-observe",
+				"fence": "persistent data-volume marker enforced before PostgreSQL startup",
+				"fenceMode": "explicit after old primary is stopped",
+				"staleStartExitCode": 78,
+				"rewind": "pg_rewind from promoted primary before fence removal",
+				"uncleanTarget": "rejected; fresh rebuild required",
+				"rejoinRole": "read-only physical standby",
+				"replicationBoundary": "post-promotion binding and audit WAL position",
+				"automaticFencing": false
+			},
+			"inFlightCommit": {
+				"lossPhase": "failover-commit-loss",
+				"recoveryPhase": "failover-commit-recover",
+				"faultBoundary": "COMMIT forwarded with response withheld before primary loss",
+				"acceptedOutcomes": ["exact binding and audit", "no binding or audit"],
+				"finalState": "one exact binding and audit with read-only replay"
+			}
+		},
+		"ambiguousCatalogCommit": {
+			"processLoss": {
+				"phase": "commit-loss",
+				"terminationBoundary": "after PostgreSQL commit before finalizer acknowledgement",
+				"expectedExitCode": 86
+			},
+			"connectionLoss": {
+				"phase": "commit-connection-loss",
+				"faultBoundary": "PostgreSQL COMMIT completion before client observation",
+				"transport": "bounded loopback protocol proxy"
+			},
+			"preDurabilityConnectionLoss": {
+				"phase": "pre-commit-connection-loss",
+				"faultBoundary": "PostgreSQL COMMIT request before server observation",
+				"expectedOutcome": "transaction rolled back"
+			}
+		},
+		"phases": {
+			"prepare": [
+				"fresh-scope",
+				"fixture-provisioned",
+				"object-retained-after-database-loss"
+			],
+			"outage": [
+				"finalization-fails-closed-during-object-outage",
+				"catalog-remains-unbound"
+			],
+			"recover": [
+				"retained-object-present",
+				"concurrent-catalog-adoption-after-restarts",
+				"read-only-replay",
+				"single-audit-commit"
+			],
+			"committed-recover": [
+				"catalog-commit-survived-process-loss",
+				"object-consistent-after-process-loss",
+				"read-only-replay-after-ambiguous-commit",
+				"single-audit-after-ambiguous-commit"
+			],
+			"commit-connection-loss": [
+				"commit-connection-loss-preconditions",
+				"commit-result-ambiguous"
+			],
+			"connection-loss-recover": [
+				"catalog-commit-observed-after-connection-loss",
+				"object-consistent-after-connection-loss",
+				"read-only-replay-after-connection-loss",
+				"single-audit-after-connection-loss"
+			],
+			"pre-commit-connection-loss": [
+				"pre-commit-connection-loss-preconditions",
+				"pre-commit-result-ambiguous"
+			],
+			"rolled-back-recover": [
+				"rollback-observed-after-pre-commit-loss",
+				"retained-object-adopted-after-rollback",
+				"read-only-replay-after-rollback",
+				"single-audit-after-rollback-adoption"
+			],
+			"failover-recover": [
+				"promoted-standby-has-replicated-fixture",
+				"retained-object-unbound-after-primary-loss",
+				"catalog-adopted-on-promoted-standby",
+				"read-only-replay-after-failover",
+				"single-audit-after-failover"
+			],
+			"failover-commit-loss": [
+				"in-flight-failover-preconditions",
+				"primary-loss-during-commit-is-ambiguous"
+			],
+			"failover-commit-recover": [
+				"promoted-standby-ready-after-in-flight-loss",
+				"atomic-catalog-outcome-observed-after-failover",
+				"catalog-converged-after-in-flight-failover",
+				"read-only-replay-after-in-flight-failover",
+				"single-audit-after-in-flight-failover"
+			],
+			"failover-rejoin-observe": [
+				"rewound-primary-rejoined-read-only",
+				"rejoined-standby-has-converged-catalog",
+				"read-only-replay-on-rejoined-standby",
+				"single-audit-on-rejoined-standby"
+			]
+		}
+	},
+	"sources": {
+		"release": "https://github.com/seaweedfs/seaweedfs/releases/tag/4.40",
+		"license": "https://github.com/seaweedfs/seaweedfs/blob/4.40/LICENSE",
+		"conditionalWriteFix": "https://github.com/seaweedfs/seaweedfs/pull/8802",
+		"conditionalWriteSemantics": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html"
+	},
+	"blockers": [
+		"single-process anonymous development evidence is not an authenticated production topology",
+		"the two-node PostgreSQL profile proves controlled promotion and explicit stale-primary fencing and rewind but not automatic election, automatic fencing, client endpoint failover, multi-zone durability or production operator behavior",
+		"split-brain prevention under partitions, multi-gateway and network-partition behavior are not exercised by this profile",
+		"bucket policy, workload identity, TLS, encryption and KMS are not certified",
+		"versioning, retention, backup, restore, upgrade and rollback are not certified",
+		"image signature, SBOM and build provenance are not certified",
+		"a replacement backend has not passed the same suite",
+		"the complete platform-object and lakehouse S3 contract is broader than this enforcement subset"
+	]
 }

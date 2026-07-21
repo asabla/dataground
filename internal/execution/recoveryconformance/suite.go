@@ -36,6 +36,7 @@ const (
 	PhaseFailoverRecover         Phase = "failover-recover"
 	PhaseFailoverCommitLoss      Phase = "failover-commit-loss"
 	PhaseFailoverCommitRecover   Phase = "failover-commit-recover"
+	PhaseFailoverRejoinObserve   Phase = "failover-rejoin-observe"
 )
 
 var runIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
