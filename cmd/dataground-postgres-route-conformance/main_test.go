@@ -63,8 +63,8 @@ func TestLoopbackDatabaseURLRejectsConnectionOverrides(t *testing.T) {
 	}
 }
 
-func TestTargetWritableProbeRejectsNonLoopbackTargetWithoutLeakingIdentity(t *testing.T) {
-	probe, err := targetWritableProbe(
+func TestTargetHealthProbeRejectsNonLoopbackTargetWithoutLeakingIdentity(t *testing.T) {
+	probe, err := targetHealthProbe(
 		"postgres://user:secret@127.0.0.1:55431/database?sslmode=disable",
 	)
 	if err != nil {
@@ -76,6 +76,19 @@ func TestTargetWritableProbeRejectsNonLoopbackTargetWithoutLeakingIdentity(t *te
 	}
 	if bytes.Contains([]byte(err.Error()), []byte("secret")) {
 		t.Fatalf("health probe error leaked identity: %q", err)
+	}
+}
+
+func TestRunSelectRequiresPromotionGeneration(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	status := run(context.Background(), []string{
+		"--mode", "select",
+		"--control-socket", "/tmp/dataground-unused-route.sock",
+	}, &stdout, &stderr)
+	if status != 2 || stdout.Len() != 0 ||
+		stderr.String() != "invalid PostgreSQL route conformance configuration\n" {
+		t.Fatalf("status=%d stdout=%q stderr=%q", status, stdout.String(), stderr.String())
 	}
 }
 

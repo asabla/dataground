@@ -1,7 +1,8 @@
 // Package pgrouteproxy provides a bounded, loopback-only TCP routing proxy for
 // PostgreSQL failover conformance. Route changes are explicit or selected from
-// predeclared targets by a caller-triggered health probe, and invalidate existing
-// sessions; the proxy never promotes, elects, fences, or replays traffic.
+// predeclared targets by caller-triggered, generation-bound health confirmation,
+// and invalidate existing sessions; the proxy never promotes, elects, fences,
+// or replays traffic.
 package pgrouteproxy
 
 import (
@@ -22,9 +23,12 @@ const (
 	maxControlCommandBytes = 64
 	maxActiveConnections   = 64
 	maxControlConnections  = 8
-	controlDeadline        = 7 * time.Second
+	controlDeadline        = 9 * time.Second
 	dialTimeout            = 3 * time.Second
-	selectionTimeout       = 5 * time.Second
+	selectionTimeout       = 7 * time.Second
+	probeRoundTimeout      = 2 * time.Second
+	confirmationInterval   = 200 * time.Millisecond
+	confirmationCount      = 3
 )
 
 type Route string
@@ -40,16 +44,21 @@ type Config struct {
 	PrimaryTarget  string
 	PromotedTarget string
 	InitialRoute   Route
-	WritableProbe  WritableProbe
+	HealthProbe    HealthProbe
 }
 
-type WritableProbe func(context.Context, string) (bool, error)
+type Health struct {
+	Writable            bool
+	PromotionGeneration uint64
+}
+
+type HealthProbe func(context.Context, string) (Health, error)
 
 type Proxy struct {
 	listener *net.TCPListener
 	control  *net.UnixListener
 	routes   map[Route]string
-	probe    WritableProbe
+	probe    HealthProbe
 
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -118,7 +127,7 @@ func Start(ctx context.Context, config Config) (*Proxy, error) {
 	proxy := &Proxy{
 		listener: listener,
 		control:  control,
-		probe:    config.WritableProbe,
+		probe:    config.HealthProbe,
 		routes: map[Route]string{
 			Primary:  config.PrimaryTarget,
 			Promoted: config.PromotedTarget,
@@ -200,8 +209,15 @@ func Status(ctx context.Context, controlSocket string) (Route, error) {
 	return route, nil
 }
 
-func SelectWritable(ctx context.Context, controlSocket string) (Route, error) {
-	response, err := controlRequest(ctx, controlSocket, "select\n")
+func SelectWritable(ctx context.Context, controlSocket string, expectedGeneration uint64) (Route, error) {
+	if expectedGeneration == 0 {
+		return "", errors.New("invalid PostgreSQL promotion generation")
+	}
+	response, err := controlRequest(
+		ctx,
+		controlSocket,
+		"select "+strconv.FormatUint(expectedGeneration, 10)+"\n",
+	)
 	if err != nil {
 		return "", err
 	}
@@ -324,33 +340,71 @@ func (proxy *Proxy) handleControl(connection *net.UnixConn) {
 	case "route promoted\n":
 		proxy.switchRoute(Promoted)
 		_, _ = io.WriteString(connection, "ok promoted\n")
-	case "select\n":
-		route, err := proxy.selectWritable()
+	default:
+		expectedGeneration, ok := parseSelectionCommand(string(command))
+		if !ok {
+			_, _ = io.WriteString(connection, "error\n")
+			return
+		}
+		route, err := proxy.selectWritable(expectedGeneration)
 		if err != nil {
 			_, _ = io.WriteString(connection, "error\n")
 			return
 		}
 		_, _ = io.WriteString(connection, "ok "+string(route)+"\n")
-	default:
-		_, _ = io.WriteString(connection, "error\n")
 	}
 }
 
-func (proxy *Proxy) selectWritable() (Route, error) {
+func (proxy *Proxy) selectWritable(expectedGeneration uint64) (Route, error) {
 	if proxy.probe == nil {
-		return "", errors.New("PostgreSQL route proxy writable probe is unavailable")
+		return "", errors.New("PostgreSQL route proxy health probe is unavailable")
 	}
 	probeContext, cancel := context.WithTimeout(proxy.ctx, selectionTimeout)
 	defer cancel()
+	proxy.mu.Lock()
+	controlGeneration := proxy.generation
+	proxy.mu.Unlock()
+
+	var selected Route
+	for confirmation := range confirmationCount {
+		candidate, err := proxy.probeWritableRound(probeContext, expectedGeneration)
+		if err != nil {
+			return "", err
+		}
+		if selected != "" && candidate != selected {
+			return "", errors.New("PostgreSQL route proxy writable target changed during confirmation")
+		}
+		selected = candidate
+		if confirmation+1 == confirmationCount {
+			break
+		}
+		timer := time.NewTimer(confirmationInterval)
+		select {
+		case <-timer.C:
+		case <-probeContext.Done():
+			timer.Stop()
+			return "", errors.New("PostgreSQL route proxy writable confirmation timed out")
+		}
+	}
+	if !proxy.switchRouteAtGeneration(selected, controlGeneration) {
+		return "", errors.New("PostgreSQL route proxy route changed during writable confirmation")
+	}
+	return selected, nil
+}
+
+func (proxy *Proxy) probeWritableRound(ctx context.Context, expectedGeneration uint64) (Route, error) {
+	roundContext, cancel := context.WithTimeout(ctx, probeRoundTimeout)
+	defer cancel()
 	type result struct {
-		route    Route
-		writable bool
+		route  Route
+		health Health
+		err    error
 	}
 	results := make(chan result, len(proxy.routes))
 	for route, target := range proxy.routes {
 		go func() {
-			writable, err := proxy.probe(probeContext, target)
-			results <- result{route: route, writable: err == nil && writable}
+			health, err := proxy.probe(roundContext, target)
+			results <- result{route: route, health: health, err: err}
 		}()
 	}
 
@@ -358,29 +412,56 @@ func (proxy *Proxy) selectWritable() (Route, error) {
 	for range proxy.routes {
 		select {
 		case candidate := <-results:
-			if !candidate.writable {
+			if candidate.err != nil || !candidate.health.Writable {
 				continue
 			}
 			if selected != "" {
 				return "", errors.New("PostgreSQL route proxy found multiple writable targets")
 			}
+			if candidate.health.PromotionGeneration != expectedGeneration {
+				return "", errors.New("PostgreSQL route proxy writable target has unexpected promotion generation")
+			}
 			selected = candidate.route
-		case <-probeContext.Done():
-			return "", errors.New("PostgreSQL route proxy writable selection timed out")
+		case <-roundContext.Done():
+			return "", errors.New("PostgreSQL route proxy writable probe timed out")
 		}
 	}
 	if selected == "" {
 		return "", errors.New("PostgreSQL route proxy found no writable target")
 	}
-	proxy.switchRoute(selected)
 	return selected, nil
 }
 
+func parseSelectionCommand(command string) (uint64, bool) {
+	const prefix = "select "
+	if !strings.HasPrefix(command, prefix) || !strings.HasSuffix(command, "\n") {
+		return 0, false
+	}
+	value := strings.TrimSuffix(strings.TrimPrefix(command, prefix), "\n")
+	if value == "" || (len(value) > 1 && value[0] == '0') {
+		return 0, false
+	}
+	generation, err := strconv.ParseUint(value, 10, 64)
+	return generation, err == nil && generation > 0
+}
+
 func (proxy *Proxy) switchRoute(route Route) {
+	proxy.switchRouteConditionally(route, nil)
+}
+
+func (proxy *Proxy) switchRouteAtGeneration(route Route, expectedGeneration uint64) bool {
+	return proxy.switchRouteConditionally(route, &expectedGeneration)
+}
+
+func (proxy *Proxy) switchRouteConditionally(route Route, expectedGeneration *uint64) bool {
 	proxy.mu.Lock()
+	if expectedGeneration != nil && proxy.generation != *expectedGeneration {
+		proxy.mu.Unlock()
+		return false
+	}
 	if proxy.route == route {
 		proxy.mu.Unlock()
-		return
+		return true
 	}
 	proxy.route = route
 	proxy.generation++
@@ -392,6 +473,7 @@ func (proxy *Proxy) switchRoute(route Route) {
 	for _, connection := range connections {
 		connection.close()
 	}
+	return true
 }
 
 func (pair *connectionPair) close() {
