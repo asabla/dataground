@@ -60,6 +60,25 @@ if (
   fail("the enforcement-object conformance contract is incomplete");
 }
 
+const recoveryPhases = {
+  prepare: ["fresh-scope", "fixture-provisioned", "object-retained-after-database-loss"],
+  recover: [
+    "retained-object-present",
+    "catalog-adoption-after-restart",
+    "read-only-replay",
+    "single-audit-commit",
+  ],
+};
+if (
+  profile.recoveryConformance?.reportSchema !== "dataground.enforcement-recovery-conformance/v1" ||
+  profile.recoveryConformance?.database !== "PostgreSQL 18.4 disposable test dependency" ||
+  profile.recoveryConformance?.freshRunnerProcesses !== true ||
+  profile.recoveryConformance?.postgresServerRestart !== true ||
+  JSON.stringify(profile.recoveryConformance?.phases) !== JSON.stringify(recoveryPhases)
+) {
+  fail("the joint PostgreSQL and enforcement-object recovery contract is incomplete");
+}
+
 if (
   profile.topology?.endpoint !== "http://127.0.0.1:8333" ||
   profile.topology?.bucket !== "dataground-conformance" ||
@@ -88,9 +107,32 @@ if (
   fail("Docker Compose does not match the pinned candidate profile");
 }
 if (
+  !compose.includes("image: postgres:18.4-bookworm") ||
+  !compose.includes('user: "999:999"') ||
+  !compose.includes('"127.0.0.1:55432:5432"') ||
+  !compose.includes("PGDATA: /var/lib/postgresql/data/pgdata") ||
+  !compose.includes("postgres-conformance-data:/var/lib/postgresql") ||
+  !compose.includes("volumes:\n  postgres-conformance-data:")
+) {
+  fail("the disposable PostgreSQL recovery dependency is not isolated consistently");
+}
+const postgresCompose = compose.split("\n  postgres:")[1] ?? "";
+if (
+  !postgresCompose.includes("mem_limit: 512m") ||
+  !postgresCompose.includes("pids_limit: 256") ||
+  !postgresCompose.includes("cap_drop:\n      - ALL") ||
+  !postgresCompose.includes("no-new-privileges:true") ||
+  postgresCompose.includes("cap_add:")
+) {
+  fail("the disposable PostgreSQL process does not retain its least-privilege boundary");
+}
+if (
   !packageManifest.scripts?.verify?.includes("pnpm run s3:profile:check") ||
   !workflow.includes("pnpm verify") ||
   !workflow.includes("dataground-s3-conformance") ||
+  !workflow.includes("dataground-enforcement-recovery-conformance") ||
+  !workflow.includes("restart postgres") ||
+  !workflow.includes("DATAGROUND_TEST_DATABASE_URL") ||
   !workflow.includes("deploy/storage/seaweedfs-conformance.yml up --detach") ||
   !workflow.includes("deploy/storage/seaweedfs-conformance.yml down --volumes")
 ) {
