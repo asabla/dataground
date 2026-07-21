@@ -428,7 +428,14 @@ jobs:
             --command "SELECT NOT pg_is_in_recovery()
               AND current_setting('transaction_read_only') = 'off'")
           if [ "$rejoined" != "t" ] || [ "$promoted" != "t" ]; then
-            echo "rewound primary did not rejoin behind the promoted writer"
+            target_state=$(docker inspect --format '{{.State.Status}}' \
+              "$(docker compose -f deploy/storage/seaweedfs-conformance.yml ps --all --quiet postgres)")
+            replication_connections=$(docker compose -f deploy/storage/seaweedfs-conformance.yml \
+              exec -T postgres-standby psql --username dataground --dbname dataground_conformance \
+              --tuples-only --no-align --command \
+              "SELECT count(*) FROM pg_stat_replication
+                WHERE application_name = 'dataground-rejoined-primary'")
+            echo "rejoin check failed: target-state=$target_state replication-connections=$replication_connections"
             exit 1
           fi
           if docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \

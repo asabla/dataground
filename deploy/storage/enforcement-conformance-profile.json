@@ -59,6 +59,7 @@
         "rewind": "pg_rewind from promoted primary before fence removal",
         "uncleanTarget": "rejected; fresh rebuild required",
         "replicationCredential": "mode-0600 private data-volume passfile",
+        "primaryConnection": "explicit promoted-service primary_conninfo with private passfile",
         "rejoinRole": "read-only physical standby",
         "replicationBoundary": "post-promotion binding and audit WAL position",
         "automaticFencing": false
