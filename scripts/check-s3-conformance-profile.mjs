@@ -206,7 +206,7 @@ if (
   profile.recoveryConformance?.clusteredFailover?.stalePrimaryRejoin?.rejoinRole !==
     "read-only physical standby" ||
   profile.recoveryConformance?.clusteredFailover?.stalePrimaryRejoin?.replicationBoundary !==
-    "post-promotion binding and audit WAL position" ||
+    "durable post-promotion binding and audit WAL flush position" ||
   profile.recoveryConformance?.clusteredFailover?.stalePrimaryRejoin?.automaticFencing !== false ||
   profile.recoveryConformance?.clusteredFailover?.inFlightCommit?.lossPhase !==
     "failover-commit-loss" ||
@@ -512,8 +512,11 @@ if (
   !workflow.includes('"$exit_code" -ne 78') ||
   !workflow.includes("--profile postgres-failover-admin run --rm --no-deps postgres-rejoin") ||
   !workflow.includes("dataground_stale_write_probe") ||
+  !workflow.includes("pg_current_wal_flush_lsn()") ||
   !workflow.includes("pg_stat_replication") ||
   !workflow.includes("rejoin check failed: target-state=") ||
+  !workflow.includes("' boundary-replayed='") ||
+  !workflow.includes("' replay-paused='") ||
   !workflow.includes("--phase failover-rejoin-observe") ||
   !workflow.includes("DATAGROUND_TEST_DATABASE_URL") ||
   !workflow.includes("deploy/storage/seaweedfs-conformance.yml up --detach") ||
