@@ -414,6 +414,22 @@ func TestReportsDoNotSerializeSensitiveRoutingOrContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	inFlightCatalog := &ambiguousCommitCatalog{Catalog: &memoryCatalog{available: true}}
+	inFlight, err := RunFailoverCommitLoss(
+		context.Background(), inFlightCatalog, failoverBackend,
+		func(context.Context) error { return nil }, func() error { return nil },
+		Config{RunID: testRunID},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inFlightRecovered, err := RunFailoverCommitRecover(
+		context.Background(), inFlightCatalog.Catalog, failoverBackend,
+		func(context.Context, Fixture) error { return nil }, Config{RunID: testRunID},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, report := range []Report{
 		prepare,
 		outage,
@@ -424,6 +440,8 @@ func TestReportsDoNotSerializeSensitiveRoutingOrContent(t *testing.T) {
 		preCommitLoss,
 		rolledBack,
 		failover,
+		inFlight,
+		inFlightRecovered,
 	} {
 		encoded, err := json.Marshal(report)
 		if err != nil {

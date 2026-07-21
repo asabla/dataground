@@ -85,6 +85,8 @@ func TestValidPhaseIncludesCommitLossRecoveryBoundary(t *testing.T) {
 		recoveryconformance.PhasePreCommitConnectionLoss,
 		recoveryconformance.PhaseRolledBackRecover,
 		recoveryconformance.PhaseFailoverRecover,
+		recoveryconformance.PhaseFailoverCommitLoss,
+		recoveryconformance.PhaseFailoverCommitRecover,
 	} {
 		if !validPhase(phase) {
 			t.Fatalf("phase rejected: %s", phase)
@@ -102,6 +104,7 @@ func TestCommitProxyFaultMatchesRecoveryPhase(t *testing.T) {
 	}{
 		{phase: recoveryconformance.PhaseCommitConnectionLoss, fault: pgcommitproxy.AfterCommitDurability},
 		{phase: recoveryconformance.PhasePreCommitConnectionLoss, fault: pgcommitproxy.BeforeCommitDurability},
+		{phase: recoveryconformance.PhaseFailoverCommitLoss, fault: pgcommitproxy.DuringCommitPrimaryLoss},
 	} {
 		fault, required := commitProxyFault(test.phase)
 		if !required || fault != test.fault {
@@ -110,6 +113,24 @@ func TestCommitProxyFaultMatchesRecoveryPhase(t *testing.T) {
 	}
 	if fault, required := commitProxyFault(recoveryconformance.PhaseRecover); required || fault != "" {
 		t.Fatalf("ordinary recovery requested proxy fault %q", fault)
+	}
+}
+
+func TestPrimaryLossSignalDescriptorIsConfinedToInFlightFailover(t *testing.T) {
+	if !validPrimaryLossSignalFD(recoveryconformance.PhaseFailoverCommitLoss, 3) {
+		t.Fatal("in-flight failover rejected a dedicated signal descriptor")
+	}
+	for _, test := range []struct {
+		phase      recoveryconformance.Phase
+		descriptor int
+	}{
+		{phase: recoveryconformance.PhaseFailoverCommitLoss, descriptor: -1},
+		{phase: recoveryconformance.PhaseFailoverCommitLoss, descriptor: 2},
+		{phase: recoveryconformance.PhasePrepare, descriptor: 3},
+	} {
+		if validPrimaryLossSignalFD(test.phase, test.descriptor) {
+			t.Fatalf("phase %q accepted descriptor %d", test.phase, test.descriptor)
+		}
 	}
 }
 
