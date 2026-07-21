@@ -16,7 +16,15 @@ const commitLossSuite = await readFile(
   resolve(root, "internal/execution/recoveryconformance/commit_loss.go"),
   "utf8",
 );
-const recoveryImplementation = `${recoverySuite}\n${commitLossSuite}`;
+const connectionLossSuite = await readFile(
+  resolve(root, "internal/execution/recoveryconformance/commit_connection_loss.go"),
+  "utf8",
+);
+const commitProxy = await readFile(
+  resolve(root, "internal/execution/recoveryconformance/pgcommitproxy/proxy.go"),
+  "utf8",
+);
+const recoveryImplementation = `${recoverySuite}\n${commitLossSuite}\n${connectionLossSuite}`;
 const recoveryCommand = await readFile(
   resolve(root, "cmd/dataground-enforcement-recovery-conformance/main.go"),
   "utf8",
@@ -88,6 +96,13 @@ const recoveryPhases = {
     "read-only-replay-after-ambiguous-commit",
     "single-audit-after-ambiguous-commit",
   ],
+  "commit-connection-loss": ["commit-connection-loss-preconditions", "commit-result-ambiguous"],
+  "connection-loss-recover": [
+    "catalog-commit-observed-after-connection-loss",
+    "object-consistent-after-connection-loss",
+    "read-only-replay-after-connection-loss",
+    "single-audit-after-connection-loss",
+  ],
 };
 if (
   profile.recoveryConformance?.reportSchema !== "dataground.enforcement-recovery-conformance/v1" ||
@@ -97,10 +112,16 @@ if (
   profile.recoveryConformance?.objectBackendOutage !== true ||
   profile.recoveryConformance?.objectContainerRecreated !== true ||
   profile.recoveryConformance?.concurrentRecoveryWorkers !== 8 ||
-  profile.recoveryConformance?.ambiguousCatalogCommit?.phase !== "commit-loss" ||
-  profile.recoveryConformance?.ambiguousCatalogCommit?.terminationBoundary !==
+  profile.recoveryConformance?.ambiguousCatalogCommit?.processLoss?.phase !== "commit-loss" ||
+  profile.recoveryConformance?.ambiguousCatalogCommit?.processLoss?.terminationBoundary !==
     "after PostgreSQL commit before finalizer acknowledgement" ||
-  profile.recoveryConformance?.ambiguousCatalogCommit?.expectedExitCode !== 86 ||
+  profile.recoveryConformance?.ambiguousCatalogCommit?.processLoss?.expectedExitCode !== 86 ||
+  profile.recoveryConformance?.ambiguousCatalogCommit?.connectionLoss?.phase !==
+    "commit-connection-loss" ||
+  profile.recoveryConformance?.ambiguousCatalogCommit?.connectionLoss?.faultBoundary !==
+    "PostgreSQL COMMIT completion before client observation" ||
+  profile.recoveryConformance?.ambiguousCatalogCommit?.connectionLoss?.transport !==
+    "bounded loopback protocol proxy" ||
   JSON.stringify(profile.recoveryConformance?.phases) !== JSON.stringify(recoveryPhases)
 ) {
   fail("the joint PostgreSQL and enforcement-object recovery contract is incomplete");
@@ -110,12 +131,26 @@ if (
   !/PhaseOutage\s+Phase = "outage"/.test(recoveryImplementation) ||
   !/PhaseCommitLoss\s+Phase = "commit-loss"/.test(recoveryImplementation) ||
   !/PhaseCommittedRecover\s+Phase = "committed-recover"/.test(recoveryImplementation) ||
+  !/PhaseCommitConnectionLoss\s+Phase = "commit-connection-loss"/.test(recoveryImplementation) ||
+  !/PhaseConnectionLossRecover\s+Phase = "connection-loss-recover"/.test(recoveryImplementation) ||
   !recoveryImplementation.includes('"finalization-fails-closed-during-object-outage"') ||
   !recoveryImplementation.includes('"concurrent-catalog-adoption-after-restarts"') ||
   !recoveryImplementation.includes('"read-only-replay-after-ambiguous-commit"') ||
+  !recoveryImplementation.includes('"commit-result-ambiguous"') ||
+  !recoveryImplementation.includes('"read-only-replay-after-connection-loss"') ||
   !recoveryImplementation.includes("newArrivalBarrier(ConcurrentRecoveryWorkers)")
 ) {
   fail("the executable recovery suite has drifted from the scored profile");
+}
+if (
+  !commitProxy.includes('net.Listen("tcp", "127.0.0.1:0")') ||
+  !commitProxy.includes("address.IsLoopback()") ||
+  !commitProxy.includes("const maxMessageBytes = 16 << 20") ||
+  !commitProxy.includes("proxy.listener.Close()") ||
+  !commitProxy.includes('bytes.Equal(payload, []byte("COMMIT\\x00"))') ||
+  !commitProxy.includes("close(proxy.dropped)")
+) {
+  fail("the bounded loopback PostgreSQL commit proxy has drifted from the recovery contract");
 }
 if (
   !recoveryCommand.includes("const commitLossExitCode = 86") ||
@@ -124,6 +159,14 @@ if (
   !recoveryCommand.includes("recoveryconformance.RunCommittedRecover")
 ) {
   fail("the recovery command has drifted from the process-loss contract");
+}
+if (
+  !recoveryCommand.includes("pgcommitproxy.Start") ||
+  !recoveryCommand.includes("recoveryconformance.RunCommitConnectionLoss") ||
+  !recoveryCommand.includes("recoveryconformance.RunConnectionLossRecover") ||
+  !recoveryCommand.includes("10*time.Second")
+) {
+  fail("the recovery command has drifted from the commit-connection-loss contract");
 }
 
 if (
@@ -190,6 +233,8 @@ if (
   !workflow.includes("--phase commit-loss") ||
   !workflow.includes('"$status" -ne 86') ||
   !workflow.includes("--phase committed-recover") ||
+  !workflow.includes("--phase commit-connection-loss") ||
+  !workflow.includes("--phase connection-loss-recover") ||
   !workflow.includes("DATAGROUND_TEST_DATABASE_URL") ||
   !workflow.includes("deploy/storage/seaweedfs-conformance.yml up --detach") ||
   !workflow.includes("deploy/storage/seaweedfs-conformance.yml down --volumes")

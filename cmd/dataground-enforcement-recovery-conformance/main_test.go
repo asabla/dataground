@@ -79,6 +79,8 @@ func TestValidPhaseIncludesCommitLossRecoveryBoundary(t *testing.T) {
 		recoveryconformance.PhaseRecover,
 		recoveryconformance.PhaseCommitLoss,
 		recoveryconformance.PhaseCommittedRecover,
+		recoveryconformance.PhaseCommitConnectionLoss,
+		recoveryconformance.PhaseConnectionLossRecover,
 	} {
 		if !validPhase(phase) {
 			t.Fatalf("phase rejected: %s", phase)
@@ -86,6 +88,26 @@ func TestValidPhaseIncludesCommitLossRecoveryBoundary(t *testing.T) {
 	}
 	if validPhase("unknown") {
 		t.Fatal("unknown phase accepted")
+	}
+}
+
+func TestCommitProxyDatabaseAddressingStaysLoopback(t *testing.T) {
+	target, err := databaseTarget("postgres://dataground:secret@127.0.0.1:55432/database?sslmode=disable")
+	if err != nil || target != "127.0.0.1:55432" {
+		t.Fatalf("database target = %q, error = %v", target, err)
+	}
+	proxied, err := proxiedDatabaseURL(
+		"postgres://dataground:secret@127.0.0.1:55432/database?sslmode=disable",
+		"127.0.0.1:41234",
+	)
+	if err != nil || proxied != "postgres://dataground:secret@127.0.0.1:41234/database?sslmode=disable" {
+		t.Fatalf("proxied database URL = %q, error = %v", proxied, err)
+	}
+	if _, err := proxiedDatabaseURL(
+		"postgres://dataground:secret@127.0.0.1:55432/database?sslmode=disable",
+		"192.0.2.1:41234",
+	); err == nil {
+		t.Fatal("remote commit proxy address accepted")
 	}
 }
 

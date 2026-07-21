@@ -26,18 +26,7 @@ func RunCommitLoss(
 	if terminate == nil {
 		return report, errors.New("enforcement recovery conformance termination hook is required")
 	}
-	persisted, err := read(ctx, backend, fixture.Record.ObjectKey)
-	if err != nil || !bytes.Equal(persisted, fixture.Content) {
-		return fail(ctx, report, "commit-loss-preconditions")
-	}
-	if _, err := catalog.GetEnforcementBundleRecord(ctx, fixture.IsolationDomainID, fixture.Record.ID); !errors.Is(
-		err,
-		execution.ErrEnforcementBundleMissing,
-	) {
-		return fail(ctx, report, "commit-loss-preconditions")
-	}
-	audits, err := catalog.CountEnforcementBundleBindingAudits(ctx, fixture.IsolationDomainID, fixture.Record.ID)
-	if err != nil || audits != 0 {
+	if requireRetainedUnbound(ctx, catalog, backend, fixture) != nil {
 		return fail(ctx, report, "commit-loss-preconditions")
 	}
 	report.Cases = append(report.Cases, CaseResult{Name: "commit-loss-preconditions", Status: "passed"})
@@ -57,47 +46,88 @@ func RunCommitLoss(
 // RunCommittedRecover proves a fresh caller observes the committed relational
 // and object effects and can replay finalization without another write or audit.
 func RunCommittedRecover(ctx context.Context, catalog Catalog, backend Backend, config Config) (Report, error) {
-	report, fixture, err := newReport(ctx, PhaseCommittedRecover, catalog, backend, config, 4)
+	return runCommittedRecover(ctx, catalog, backend, config, PhaseCommittedRecover, committedRecoveryCases{
+		catalog: "catalog-commit-survived-process-loss",
+		object:  "object-consistent-after-process-loss",
+		replay:  "read-only-replay-after-ambiguous-commit",
+		audit:   "single-audit-after-ambiguous-commit",
+	})
+}
+
+type committedRecoveryCases struct {
+	catalog string
+	object  string
+	replay  string
+	audit   string
+}
+
+func runCommittedRecover(
+	ctx context.Context,
+	catalog Catalog,
+	backend Backend,
+	config Config,
+	phase Phase,
+	cases committedRecoveryCases,
+) (Report, error) {
+	report, fixture, err := newReport(ctx, phase, catalog, backend, config, 4)
 	if err != nil {
 		return report, err
 	}
 	existing, err := catalog.GetEnforcementBundleRecord(ctx, fixture.IsolationDomainID, fixture.Record.ID)
 	if err != nil || !execution.EqualEnforcementBundleRecords(existing, fixture.Record) {
-		return fail(ctx, report, "catalog-commit-survived-process-loss")
+		return fail(ctx, report, cases.catalog)
 	}
 	audits, err := catalog.CountEnforcementBundleBindingAudits(ctx, fixture.IsolationDomainID, fixture.Record.ID)
 	if err != nil || audits != 1 {
-		return fail(ctx, report, "catalog-commit-survived-process-loss")
+		return fail(ctx, report, cases.catalog)
 	}
-	report.Cases = append(report.Cases, CaseResult{Name: "catalog-commit-survived-process-loss", Status: "passed"})
+	report.Cases = append(report.Cases, CaseResult{Name: cases.catalog, Status: "passed"})
 
 	persisted, err := read(ctx, backend, fixture.Record.ObjectKey)
 	if err != nil || !bytes.Equal(persisted, fixture.Content) {
-		return fail(ctx, report, "object-consistent-after-process-loss")
+		return fail(ctx, report, cases.object)
 	}
-	report.Cases = append(report.Cases, CaseResult{Name: "object-consistent-after-process-loss", Status: "passed"})
+	report.Cases = append(report.Cases, CaseResult{Name: cases.object, Status: "passed"})
 
 	observed := &observedBackend{Backend: backend}
 	finalizer, err := execution.NewEnforcementBundleFinalizer(catalog, observed, observed)
 	if err != nil {
-		return fail(ctx, report, "read-only-replay-after-ambiguous-commit")
+		return fail(ctx, report, cases.replay)
 	}
 	replayed, err := finalizer.Finalize(ctx, execution.EnforcementBundleFinalization{
 		Binding: fixture.Binding,
 		Content: bytes.Clone(fixture.Content),
 	})
 	if err != nil || !execution.EqualEnforcementBundleRecords(replayed, fixture.Record) || observed.writes.Load() != 0 {
-		return fail(ctx, report, "read-only-replay-after-ambiguous-commit")
+		return fail(ctx, report, cases.replay)
 	}
-	report.Cases = append(report.Cases, CaseResult{Name: "read-only-replay-after-ambiguous-commit", Status: "passed"})
+	report.Cases = append(report.Cases, CaseResult{Name: cases.replay, Status: "passed"})
 
 	audits, err = catalog.CountEnforcementBundleBindingAudits(ctx, fixture.IsolationDomainID, fixture.Record.ID)
 	if err != nil || audits != 1 {
-		return fail(ctx, report, "single-audit-after-ambiguous-commit")
+		return fail(ctx, report, cases.audit)
 	}
-	report.Cases = append(report.Cases, CaseResult{Name: "single-audit-after-ambiguous-commit", Status: "passed"})
+	report.Cases = append(report.Cases, CaseResult{Name: cases.audit, Status: "passed"})
 	report.Status = "passed"
 	return report, nil
+}
+
+func requireRetainedUnbound(ctx context.Context, catalog Catalog, backend Backend, fixture Fixture) error {
+	persisted, err := read(ctx, backend, fixture.Record.ObjectKey)
+	if err != nil || !bytes.Equal(persisted, fixture.Content) {
+		return errors.New("retained enforcement object is unavailable")
+	}
+	if _, err := catalog.GetEnforcementBundleRecord(ctx, fixture.IsolationDomainID, fixture.Record.ID); !errors.Is(
+		err,
+		execution.ErrEnforcementBundleMissing,
+	) {
+		return errors.New("enforcement bundle catalog is not fresh")
+	}
+	audits, err := catalog.CountEnforcementBundleBindingAudits(ctx, fixture.IsolationDomainID, fixture.Record.ID)
+	if err != nil || audits != 0 {
+		return errors.New("enforcement bundle audit scope is not fresh")
+	}
+	return nil
 }
 
 type terminatingCatalog struct {
