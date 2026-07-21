@@ -235,16 +235,16 @@ func TestEnforcementBundleFinalizerFailsClosedBeforeBinding(t *testing.T) {
 		wantWrite bool
 	}{
 		"invalid metadata": {
-			mutate: func(request *EnforcementBundleFinalization) { request.Binding.Record.IsolationDomainID = "bad" },
+			mutate:  func(request *EnforcementBundleFinalization) { request.Binding.Record.IsolationDomainID = "bad" },
 			objects: &finalizerObjectStoreStub{},
 		},
 		"content digest mismatch": {
-			mutate: func(request *EnforcementBundleFinalization) { request.Content = []byte("changed") },
+			mutate:  func(request *EnforcementBundleFinalization) { request.Content = []byte("changed") },
 			objects: &finalizerObjectStoreStub{}, want: ErrEnforcementBundleMismatch,
 		},
 		"missing read back": {
 			objects: &finalizerObjectStoreStub{readErr: ErrEnforcementObjectMissing},
-			want: ErrEnforcementBundleUnavailable, wantWrite: true,
+			want:    ErrEnforcementBundleUnavailable, wantWrite: true,
 		},
 		"conflicting object": {
 			objects: &finalizerObjectStoreStub{
@@ -254,11 +254,11 @@ func TestEnforcementBundleFinalizerFailsClosedBeforeBinding(t *testing.T) {
 		},
 		"corrupt read back": {
 			objects: &finalizerObjectStoreStub{content: []byte("different")},
-			want: ErrEnforcementBundleConflict, wantWrite: true,
+			want:    ErrEnforcementBundleConflict, wantWrite: true,
 		},
 		"read close failure": {
 			objects: &finalizerObjectStoreStub{content: bytes.Clone(content), closeErr: errors.New("close")},
-			want: ErrEnforcementBundleUnavailable, wantWrite: true,
+			want:    ErrEnforcementBundleUnavailable, wantWrite: true,
 		},
 	}
 	for name, test := range tests {
