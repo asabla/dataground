@@ -330,6 +330,17 @@ jobs:
           echo "stable database endpoint did not become ready"
           exit 1
 
+      - name: Capture initial PostgreSQL promotion generation
+        run: |
+          generation=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+            psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+            --command "SELECT (pg_split_walfile_name(pg_walfile_name(pg_current_wal_lsn()))).timeline_id")
+          if [[ ! "$generation" =~ ^[1-9][0-9]*$ ]]; then
+            echo "could not establish the initial PostgreSQL promotion generation"
+            exit 1
+          fi
+          printf '%s\n' "$generation" >"$RUNNER_TEMP/postgres-primary-generation"
+
       - name: Migrate primary database
         env:
           DATAGROUND_DATABASE_URL: ${{ env.DATAGROUND_ROUTED_DATABASE_URL }}
@@ -422,6 +433,7 @@ jobs:
           if "$RUNNER_TEMP/dataground-postgres-route-conformance" \
             --mode select \
             --control-socket "$RUNNER_TEMP/dataground-postgres-route.sock" \
+            --promotion-generation "$(cat "$RUNNER_TEMP/postgres-primary-generation")" \
             >/dev/null 2>&1; then
             echo "stable database endpoint selected a target before promotion"
             exit 1
@@ -442,12 +454,42 @@ jobs:
             echo "standby promotion was not observed"
             exit 1
           fi
+          initial_generation=$(cat "$RUNNER_TEMP/postgres-primary-generation")
+          promoted_generation=$(docker compose -f deploy/storage/seaweedfs-conformance.yml \
+            exec -T postgres-standby psql --username dataground \
+            --dbname dataground_conformance --tuples-only --no-align \
+            --command "SELECT (pg_split_walfile_name(pg_walfile_name(pg_current_wal_lsn()))).timeline_id")
+          if [[ ! "$promoted_generation" =~ ^[1-9][0-9]*$ ]] \
+            || (( promoted_generation <= initial_generation )); then
+            echo "promoted standby did not advance the PostgreSQL promotion generation"
+            exit 1
+          fi
+          if "$RUNNER_TEMP/dataground-postgres-route-conformance" \
+            --mode select \
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route.sock" \
+            --promotion-generation "$initial_generation" \
+            >/dev/null 2>&1; then
+            echo "stable database endpoint accepted a stale promotion generation"
+            exit 1
+          fi
+          route=$("$RUNNER_TEMP/dataground-postgres-route-conformance" \
+            --mode status \
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route.sock")
+          if [ "$route" != "primary" ]; then
+            echo "stale promotion generation changed the stable database route"
+            exit 1
+          fi
+          printf '%s\n' "$promoted_generation" \
+            >"$RUNNER_TEMP/postgres-promoted-generation"
 
-      - name: Select promoted standby by health
+      - name: Confirm promoted standby generation and health
         run: |
           router="$RUNNER_TEMP/dataground-postgres-route-conformance"
           control="$RUNNER_TEMP/dataground-postgres-route.sock"
-          selected=$("$router" --mode select --control-socket "$control")
+          selected=$("$router" \
+            --mode select \
+            --control-socket "$control" \
+            --promotion-generation "$(cat "$RUNNER_TEMP/postgres-promoted-generation")")
           route=$("$router" --mode status --control-socket "$control")
           role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
             "$router" --mode role)
@@ -616,6 +658,14 @@ jobs:
             if curl --fail --silent http://127.0.0.1:8333/ >/dev/null \
               && [ "$primary_ready" = "t" ] && [ "$standby_ready" = "t" ] \
               && [ "$routed_primary" = "writable-primary" ]; then
+              generation=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+                psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+                --command "SELECT (pg_split_walfile_name(pg_walfile_name(pg_current_wal_lsn()))).timeline_id")
+              if [[ ! "$generation" =~ ^[1-9][0-9]*$ ]]; then
+                echo "could not establish the recreated PostgreSQL promotion generation"
+                exit 1
+              fi
+              printf '%s\n' "$generation" >"$RUNNER_TEMP/postgres-primary-generation"
               exit 0
             fi
             sleep 1
@@ -715,9 +765,35 @@ jobs:
             echo "standby promotion after in-flight loss was not observed"
             exit 1
           fi
+          initial_generation=$(cat "$RUNNER_TEMP/postgres-primary-generation")
+          promoted_generation=$(docker compose -f deploy/storage/seaweedfs-conformance.yml \
+            exec -T postgres-standby psql --username dataground \
+            --dbname dataground_conformance --tuples-only --no-align \
+            --command "SELECT (pg_split_walfile_name(pg_walfile_name(pg_current_wal_lsn()))).timeline_id")
+          if [[ ! "$promoted_generation" =~ ^[1-9][0-9]*$ ]] \
+            || (( promoted_generation <= initial_generation )); then
+            echo "in-flight promotion did not advance the PostgreSQL promotion generation"
+            exit 1
+          fi
+          if "$RUNNER_TEMP/dataground-postgres-route-conformance" \
+            --mode select \
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route.sock" \
+            --promotion-generation "$initial_generation" \
+            >/dev/null 2>&1; then
+            echo "stable database endpoint accepted a stale in-flight promotion generation"
+            exit 1
+          fi
+          route=$("$RUNNER_TEMP/dataground-postgres-route-conformance" \
+            --mode status \
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route.sock")
+          if [ "$route" != "primary" ]; then
+            echo "stale in-flight promotion generation changed the stable database route"
+            exit 1
+          fi
           selected=$("$RUNNER_TEMP/dataground-postgres-route-conformance" \
             --mode select \
-            --control-socket "$RUNNER_TEMP/dataground-postgres-route.sock")
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route.sock" \
+            --promotion-generation "$promoted_generation")
           route=$("$RUNNER_TEMP/dataground-postgres-route-conformance" \
             --mode status \
             --control-socket "$RUNNER_TEMP/dataground-postgres-route.sock")

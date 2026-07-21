@@ -32,6 +32,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	primaryTarget := flags.String("primary-target", "", "literal loopback primary endpoint")
 	promotedTarget := flags.String("promoted-target", "", "literal loopback promoted endpoint")
 	routeValue := flags.String("route", "", "primary or promoted")
+	promotionGeneration := flags.Uint64("promotion-generation", 0, "expected nonzero PostgreSQL timeline ID")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 		return 2
@@ -40,11 +41,11 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	switch *mode {
 	case "serve":
 		if *listenAddress == "" || *controlSocket == "" || *primaryTarget == "" ||
-			*promotedTarget == "" || !validRoute(*routeValue) {
+			*promotedTarget == "" || !validRoute(*routeValue) || *promotionGeneration != 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
-		probe, err := targetWritableProbe(os.Getenv("DATAGROUND_ROUTER_HEALTH_DATABASE_URL"))
+		probe, err := targetHealthProbe(os.Getenv("DATAGROUND_ROUTER_HEALTH_DATABASE_URL"))
 		if err != nil {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
@@ -55,7 +56,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 			PrimaryTarget:  *primaryTarget,
 			PromotedTarget: *promotedTarget,
 			InitialRoute:   pgrouteproxy.Route(*routeValue),
-			WritableProbe:  probe,
+			HealthProbe:    probe,
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, "could not start PostgreSQL route conformance proxy")
@@ -69,13 +70,13 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		return 0
 	case "select":
 		if *controlSocket == "" || *routeValue != "" || *listenAddress != "" ||
-			*primaryTarget != "" || *promotedTarget != "" {
+			*primaryTarget != "" || *promotedTarget != "" || *promotionGeneration == 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
-		bounded, cancel := context.WithTimeout(ctx, 10*time.Second)
+		bounded, cancel := context.WithTimeout(ctx, 12*time.Second)
 		defer cancel()
-		route, err := pgrouteproxy.SelectWritable(bounded, *controlSocket)
+		route, err := pgrouteproxy.SelectWritable(bounded, *controlSocket, *promotionGeneration)
 		if err != nil {
 			fmt.Fprintln(stderr, "could not select writable PostgreSQL route conformance target")
 			return 1
@@ -84,7 +85,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		return 0
 	case "route":
 		if *controlSocket == "" || !validRoute(*routeValue) || *listenAddress != "" ||
-			*primaryTarget != "" || *promotedTarget != "" {
+			*primaryTarget != "" || *promotedTarget != "" || *promotionGeneration != 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
@@ -97,7 +98,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		return 0
 	case "status":
 		if *controlSocket == "" || *routeValue != "" || *listenAddress != "" ||
-			*primaryTarget != "" || *promotedTarget != "" {
+			*primaryTarget != "" || *promotedTarget != "" || *promotionGeneration != 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
@@ -112,7 +113,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		return 0
 	case "role":
 		if *controlSocket != "" || *routeValue != "" || *listenAddress != "" ||
-			*primaryTarget != "" || *promotedTarget != "" {
+			*primaryTarget != "" || *promotedTarget != "" || *promotionGeneration != 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
@@ -127,7 +128,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		return 0
 	case "pool":
 		if *controlSocket != "" || *routeValue != "" || *listenAddress != "" ||
-			*primaryTarget != "" || *promotedTarget != "" {
+			*primaryTarget != "" || *promotedTarget != "" || *promotionGeneration != 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
@@ -142,7 +143,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	}
 }
 
-func targetWritableProbe(databaseURL string) (pgrouteproxy.WritableProbe, error) {
+func targetHealthProbe(databaseURL string) (pgrouteproxy.HealthProbe, error) {
 	if err := validateLoopbackDatabaseURL(databaseURL); err != nil {
 		return nil, err
 	}
@@ -150,14 +151,14 @@ func targetWritableProbe(databaseURL string) (pgrouteproxy.WritableProbe, error)
 	if err != nil {
 		return nil, errors.New("invalid PostgreSQL route conformance database URL")
 	}
-	return func(ctx context.Context, target string) (bool, error) {
+	return func(ctx context.Context, target string) (pgrouteproxy.Health, error) {
 		candidate := *parsed
 		candidate.Host = target
-		role, err := databaseRole(ctx, candidate.String())
+		health, err := databaseHealth(ctx, candidate.String())
 		if err != nil {
-			return false, err
+			return pgrouteproxy.Health{}, err
 		}
-		return role == "writable-primary", nil
+		return health, nil
 	}, nil
 }
 
@@ -166,29 +167,54 @@ func validRoute(route string) bool {
 }
 
 func databaseRole(ctx context.Context, databaseURL string) (string, error) {
-	if err := validateLoopbackDatabaseURL(databaseURL); err != nil {
+	health, err := databaseHealth(ctx, databaseURL)
+	if err != nil {
 		return "", err
+	}
+	if health.Writable {
+		return "writable-primary", nil
+	}
+	return "read-only-standby", nil
+}
+
+func databaseHealth(ctx context.Context, databaseURL string) (pgrouteproxy.Health, error) {
+	if err := validateLoopbackDatabaseURL(databaseURL); err != nil {
+		return pgrouteproxy.Health{}, err
 	}
 	database, err := persistence.OpenSQL(ctx, databaseURL)
 	if err != nil {
-		return "", errors.New("open PostgreSQL route conformance database")
+		return pgrouteproxy.Health{}, errors.New("open PostgreSQL route conformance database")
 	}
 	defer database.Close()
 	var inRecovery bool
 	var readOnly bool
+	var promotionGeneration int64
 	if err := database.QueryRowContext(
 		ctx,
-		"SELECT pg_is_in_recovery(), current_setting('transaction_read_only') = 'on'",
-	).Scan(&inRecovery, &readOnly); err != nil {
-		return "", errors.New("query PostgreSQL route conformance role")
+		`SELECT pg_is_in_recovery(),
+          current_setting('transaction_read_only') = 'on',
+          CASE
+            WHEN NOT pg_is_in_recovery()
+              AND current_setting('transaction_read_only') = 'off'
+            THEN (pg_split_walfile_name(pg_walfile_name(pg_current_wal_lsn()))).timeline_id::bigint
+            ELSE 0::bigint
+          END`,
+	).Scan(&inRecovery, &readOnly, &promotionGeneration); err != nil {
+		return pgrouteproxy.Health{}, errors.New("query PostgreSQL route conformance health")
 	}
 	if !inRecovery && !readOnly {
-		return "writable-primary", nil
+		if promotionGeneration <= 0 {
+			return pgrouteproxy.Health{}, errors.New("invalid PostgreSQL promotion generation")
+		}
+		return pgrouteproxy.Health{
+			Writable:            true,
+			PromotionGeneration: uint64(promotionGeneration),
+		}, nil
 	}
 	if inRecovery && readOnly {
-		return "read-only-standby", nil
+		return pgrouteproxy.Health{}, nil
 	}
-	return "", errors.New("inconsistent PostgreSQL route conformance role")
+	return pgrouteproxy.Health{}, errors.New("inconsistent PostgreSQL route conformance role")
 }
 
 func validateLoopbackDatabaseURL(databaseURL string) error {

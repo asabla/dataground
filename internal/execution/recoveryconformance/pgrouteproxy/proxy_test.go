@@ -76,17 +76,22 @@ func TestSelectWritableSwitchesToUniqueHealthyTargetAndClosesOldSessions(t *test
 	primary := startReplyServer(t, "primary")
 	promoted := startReplyServer(t, "promoted")
 	controlSocket := filepath.Join(t.TempDir(), "route.sock")
+	var probeMu sync.Mutex
+	probeCalls := 0
 	proxy, err := Start(context.Background(), Config{
 		ListenAddress:  "127.0.0.1:0",
 		ControlSocket:  controlSocket,
 		PrimaryTarget:  primary,
 		PromotedTarget: promoted,
 		InitialRoute:   Primary,
-		WritableProbe: func(_ context.Context, target string) (bool, error) {
+		HealthProbe: func(_ context.Context, target string) (Health, error) {
+			probeMu.Lock()
+			probeCalls++
+			probeMu.Unlock()
 			if target == primary {
-				return false, errors.New("unavailable")
+				return Health{}, errors.New("unavailable")
 			}
-			return target == promoted, nil
+			return Health{Writable: target == promoted, PromotionGeneration: 2}, nil
 		},
 	})
 	if err != nil {
@@ -96,12 +101,18 @@ func TestSelectWritableSwitchesToUniqueHealthyTargetAndClosesOldSessions(t *test
 
 	oldSession := establishedSession(t, proxy.Address(), "primary")
 	defer oldSession.Close()
-	selected, err := SelectWritable(context.Background(), controlSocket)
+	selected, err := SelectWritable(context.Background(), controlSocket, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if selected != Promoted || roundTrip(t, proxy.Address()) != "promoted" {
 		t.Fatalf("selected route = %q, want promoted", selected)
+	}
+	probeMu.Lock()
+	observedProbeCalls := probeCalls
+	probeMu.Unlock()
+	if observedProbeCalls != confirmationCount*2 {
+		t.Fatalf("health probe calls = %d, want %d", observedProbeCalls, confirmationCount*2)
 	}
 	if err := oldSession.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
@@ -114,21 +125,64 @@ func TestSelectWritableSwitchesToUniqueHealthyTargetAndClosesOldSessions(t *test
 }
 
 func TestSelectWritableRejectsZeroCandidatesWithoutChangingRoute(t *testing.T) {
-	testRejectedWritableSelection(t, func(_ context.Context, _ string) (bool, error) {
-		return false, nil
+	testRejectedWritableSelection(t, 2, func(_ context.Context, _ string) (Health, error) {
+		return Health{}, nil
 	})
 }
 
 func TestSelectWritableRejectsMultipleCandidatesWithoutChangingRoute(t *testing.T) {
-	testRejectedWritableSelection(t, func(_ context.Context, _ string) (bool, error) {
-		return true, nil
+	testRejectedWritableSelection(t, 2, func(_ context.Context, _ string) (Health, error) {
+		return Health{Writable: true, PromotionGeneration: 2}, nil
 	})
 }
 
-func testRejectedWritableSelection(t *testing.T, probe WritableProbe) {
-	t.Helper()
+func TestSelectWritableRejectsUnexpectedPromotionGenerationWithoutChangingRoute(t *testing.T) {
+	testRejectedWritableSelection(t, 2, func(_ context.Context, _ string) (Health, error) {
+		return Health{Writable: true, PromotionGeneration: 1}, nil
+	})
+}
+
+func TestSelectWritableRejectsCandidateChangeAcrossConfirmations(t *testing.T) {
 	primary := startReplyServer(t, "primary")
 	promoted := startReplyServer(t, "promoted")
+	var mu sync.Mutex
+	probeCount := map[string]int{}
+	testRejectedWritableSelectionWithTargets(t, primary, promoted, 2, func(_ context.Context, target string) (Health, error) {
+		mu.Lock()
+		probeCount[target]++
+		observation := probeCount[target]
+		mu.Unlock()
+		writable := target == promoted
+		if observation > 1 {
+			writable = target == primary
+		}
+		return Health{Writable: writable, PromotionGeneration: 2}, nil
+	})
+}
+
+func TestSelectWritableRejectsGenerationChangeAcrossConfirmations(t *testing.T) {
+	primary := startReplyServer(t, "primary")
+	promoted := startReplyServer(t, "promoted")
+	var mu sync.Mutex
+	promotedObservations := 0
+	testRejectedWritableSelectionWithTargets(t, primary, promoted, 2, func(_ context.Context, target string) (Health, error) {
+		if target == primary {
+			return Health{}, nil
+		}
+		mu.Lock()
+		promotedObservations++
+		generation := uint64(promotedObservations + 1)
+		mu.Unlock()
+		return Health{Writable: true, PromotionGeneration: generation}, nil
+	})
+}
+
+func TestSelectWritableRejectsObservationsAfterConcurrentRouteChanges(t *testing.T) {
+	primary := startReplyServer(t, "primary")
+	promoted := startReplyServer(t, "promoted")
+	firstProbe := make(chan struct{})
+	releaseProbe := make(chan struct{})
+	var first sync.Once
 	controlSocket := filepath.Join(t.TempDir(), "route.sock")
 	proxy, err := Start(context.Background(), Config{
 		ListenAddress:  "127.0.0.1:0",
@@ -136,7 +190,76 @@ func testRejectedWritableSelection(t *testing.T, probe WritableProbe) {
 		PrimaryTarget:  primary,
 		PromotedTarget: promoted,
 		InitialRoute:   Primary,
-		WritableProbe:  probe,
+		HealthProbe: func(ctx context.Context, target string) (Health, error) {
+			if target == primary {
+				return Health{}, nil
+			}
+			first.Do(func() { close(firstProbe) })
+			select {
+			case <-releaseProbe:
+				return Health{Writable: true, PromotionGeneration: 2}, nil
+			case <-ctx.Done():
+				return Health{}, ctx.Err()
+			}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.Close()
+
+	selectionResult := make(chan error, 1)
+	go func() {
+		_, selectErr := SelectWritable(context.Background(), controlSocket, 2)
+		selectionResult <- selectErr
+	}()
+	<-firstProbe
+	if err := RouteTo(context.Background(), controlSocket, Promoted); err != nil {
+		t.Fatal(err)
+	}
+	if err := RouteTo(context.Background(), controlSocket, Primary); err != nil {
+		t.Fatal(err)
+	}
+	close(releaseProbe)
+	if err := <-selectionResult; err == nil {
+		t.Fatal("stale writable confirmation overrode concurrent route changes")
+	}
+	if route, err := Status(context.Background(), controlSocket); err != nil || route != Primary {
+		t.Fatalf("route after stale confirmation = %q, error=%v", route, err)
+	}
+}
+
+func testRejectedWritableSelection(
+	t *testing.T,
+	expectedGeneration uint64,
+	probe HealthProbe,
+) {
+	t.Helper()
+	testRejectedWritableSelectionWithTargets(
+		t,
+		startReplyServer(t, "primary"),
+		startReplyServer(t, "promoted"),
+		expectedGeneration,
+		probe,
+	)
+}
+
+func testRejectedWritableSelectionWithTargets(
+	t *testing.T,
+	primary string,
+	promoted string,
+	expectedGeneration uint64,
+	probe HealthProbe,
+) {
+	t.Helper()
+	controlSocket := filepath.Join(t.TempDir(), "route.sock")
+	proxy, err := Start(context.Background(), Config{
+		ListenAddress:  "127.0.0.1:0",
+		ControlSocket:  controlSocket,
+		PrimaryTarget:  primary,
+		PromotedTarget: promoted,
+		InitialRoute:   Primary,
+		HealthProbe:    probe,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -145,7 +268,7 @@ func testRejectedWritableSelection(t *testing.T, probe WritableProbe) {
 
 	session := establishedSession(t, proxy.Address(), "primary")
 	defer session.Close()
-	if _, err := SelectWritable(context.Background(), controlSocket); err == nil {
+	if _, err := SelectWritable(context.Background(), controlSocket, expectedGeneration); err == nil {
 		t.Fatal("unsafe writable selection succeeded")
 	}
 	if route, err := Status(context.Background(), controlSocket); err != nil || route != Primary {
@@ -159,6 +282,30 @@ func testRejectedWritableSelection(t *testing.T, probe WritableProbe) {
 	}
 	if response, err := bufio.NewReader(session).ReadString('\n'); err != nil || response != "primary\n" {
 		t.Fatalf("session changed after rejected selection: response=%q error=%v", response, err)
+	}
+}
+
+func TestSelectWritableRejectsInvalidPromotionGeneration(t *testing.T) {
+	if _, err := SelectWritable(context.Background(), "/tmp/unused.sock", 0); err == nil {
+		t.Fatal("zero promotion generation was accepted")
+	}
+}
+
+func TestParseSelectionCommandRejectsNoncanonicalGeneration(t *testing.T) {
+	for _, command := range []string{
+		"select\n",
+		"select 0\n",
+		"select 01\n",
+		"select -1\n",
+		"select 2 trailing\n",
+		"select 18446744073709551616\n",
+	} {
+		if _, ok := parseSelectionCommand(command); ok {
+			t.Fatalf("malformed selection command was accepted: %q", command)
+		}
+	}
+	if generation, ok := parseSelectionCommand("select 2\n"); !ok || generation != 2 {
+		t.Fatalf("valid selection command parsed as generation=%d ok=%t", generation, ok)
 	}
 }
 

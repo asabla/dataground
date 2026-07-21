@@ -209,15 +209,26 @@ if (
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.control !==
     "mode-0600 Unix socket with predeclared routes" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.routeChange !==
-    "control-triggered health selection after external promotion" ||
+    "control-triggered generation-bound health confirmation after external promotion" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.existingSessions !==
     "closed on route change without transaction replay" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.healthSelection?.probe !==
-    "PostgreSQL recovery and transaction read-only state through a non-owner identity without application table privileges" ||
+    "PostgreSQL recovery, transaction read-only state and WAL timeline through a non-owner identity without application table privileges" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.healthSelection?.targets !==
     "both startup-predeclared loopback endpoints probed concurrently" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.healthSelection
-    ?.acceptance !== "exactly one writable primary" ||
+    ?.acceptance !==
+    "three consecutive observations of one writable primary on the expected PostgreSQL timeline" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.healthSelection
+    ?.confirmations !== 3 ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.healthSelection
+    ?.confirmationIntervalMillis !== 200 ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.healthSelection
+    ?.generationBinding !== "caller-supplied exact PostgreSQL timeline ID" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.healthSelection
+    ?.staleGeneration !== "rejected without route or session change" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.healthSelection
+    ?.concurrentRouteChange !== "invalidates in-progress confirmation" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.healthSelection
     ?.zeroWritable !== "rejected without route or session change" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.healthSelection
@@ -565,13 +576,17 @@ if (
   !routeProxy.includes('Promoted Route = "promoted"') ||
   !routeProxy.includes("maxActiveConnections   = 64") ||
   !routeProxy.includes("maxControlConnections  = 8") ||
-  !routeProxy.includes("selectionTimeout       = 5 * time.Second") ||
+  !routeProxy.includes("selectionTimeout       = 7 * time.Second") ||
+  !routeProxy.includes("probeRoundTimeout      = 2 * time.Second") ||
+  !routeProxy.includes("confirmationInterval   = 200 * time.Millisecond") ||
+  !routeProxy.includes("confirmationCount      = 3") ||
   !routeProxy.includes("proxy.generation++") ||
   !routeProxy.includes("connection.close()") ||
-  !routeProxy.includes('controlRequest(ctx, controlSocket, "select\\n")') ||
-  !routeProxy.includes('case "select\\n":') ||
-  !routeProxy.includes("proxy.selectWritable()") ||
-  !routeProxy.includes("err == nil && writable") ||
+  !routeProxy.includes('"select "+strconv.FormatUint(expectedGeneration, 10)+"\\n"') ||
+  !routeProxy.includes("proxy.selectWritable(expectedGeneration)") ||
+  !routeProxy.includes("proxy.probeWritableRound(probeContext, expectedGeneration)") ||
+  !routeProxy.includes("candidate.health.PromotionGeneration != expectedGeneration") ||
+  !routeProxy.includes("proxy.switchRouteAtGeneration(selected, controlGeneration)") ||
   !routeProxy.includes("found multiple writable targets") ||
   !routeProxy.includes("found no writable target") ||
   !routeProxy.includes('host != "127.0.0.1"') ||
@@ -584,6 +599,8 @@ if (
   !routeCommand.includes('os.Getenv("DATAGROUND_TEST_DATABASE_URL")') ||
   !routeCommand.includes('os.Getenv("DATAGROUND_ROUTER_HEALTH_DATABASE_URL")') ||
   !routeCommand.includes("candidate.Host = target") ||
+  !routeCommand.includes('flags.Uint64("promotion-generation"') ||
+  !routeCommand.includes("pg_split_walfile_name(pg_walfile_name(pg_current_wal_lsn()))") ||
   !poolCommand.includes("poolConformanceSize       = int32(3)") ||
   !poolCommand.includes("poolOperationTimeout      = 2 * time.Second") ||
   !poolCommand.includes("poolPhaseTimeout          = 45 * time.Second") ||
@@ -634,10 +651,17 @@ if (
   !workflow.includes("--primary-target 127.0.0.1:55432") ||
   !workflow.includes("--promoted-target 127.0.0.1:55433") ||
   !workflow.includes('--control-socket "$control"') ||
-  !workflow.includes('--mode select --control-socket "$control"') ||
+  !workflow.includes("--promotion-generation") ||
+  !workflow.includes("postgres-primary-generation") ||
+  !workflow.includes("postgres-promoted-generation") ||
+  !workflow.includes("stable database endpoint accepted a stale promotion generation") ||
+  !workflow.includes("stale promotion generation changed the stable database route") ||
+  !workflow.includes("stable database endpoint accepted a stale in-flight promotion generation") ||
+  !workflow.includes("stale in-flight promotion generation changed the stable database route") ||
+  !workflow.includes("promoted_generation <= initial_generation") ||
   !workflow.includes("stable database endpoint selected a target before promotion") ||
   !workflow.includes("failed health selection changed the stable database route") ||
-  !workflow.includes('selected=$("$router" --mode select --control-socket "$control")') ||
+  !workflow.includes('selected=$("$router" \\') ||
   !workflow.includes('--mode pool >"$pool_stdout" 2>"$pool_stderr"') ||
   !workflow.includes("'pool-primary-ready'") ||
   !workflow.includes("'pool-failure-observed'") ||
