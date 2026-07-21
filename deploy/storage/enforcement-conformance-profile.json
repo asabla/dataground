@@ -46,6 +46,7 @@
       "mode": "PostgreSQL physical streaming replication",
       "nodes": 2,
       "replicationBoundary": "standby replay at or beyond captured primary WAL position",
+      "promotionParameterSymmetry": "identical WAL sender, slot, retention and hint settings",
       "primaryLoss": "primary container stopped before promotion",
       "promotion": "explicit pg_ctl promotion",
       "automaticElection": false,

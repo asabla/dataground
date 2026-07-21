@@ -182,6 +182,8 @@ if (
   profile.recoveryConformance?.clusteredFailover?.nodes !== 2 ||
   profile.recoveryConformance?.clusteredFailover?.replicationBoundary !==
     "standby replay at or beyond captured primary WAL position" ||
+  profile.recoveryConformance?.clusteredFailover?.promotionParameterSymmetry !==
+    "identical WAL sender, slot, retention and hint settings" ||
   profile.recoveryConformance?.clusteredFailover?.primaryLoss !==
     "primary container stopped before promotion" ||
   profile.recoveryConformance?.clusteredFailover?.promotion !== "explicit pg_ctl promotion" ||
@@ -387,6 +389,10 @@ if (
   !postgresCompose.includes("DATAGROUND_FENCE_PATH: /var/lib/postgresql/.dataground-fenced") ||
   !postgresCompose.includes("PGPASSFILE: /var/lib/postgresql/.dataground-replication-pass") ||
   !postgresCompose.includes("postgres-primary-entrypoint.sh") ||
+  !postgresCompose.includes("wal_level=replica") ||
+  !postgresCompose.includes("max_wal_senders=4") ||
+  !postgresCompose.includes("max_replication_slots=4") ||
+  !postgresCompose.includes("wal_keep_size=64MB") ||
   !postgresCompose.includes("wal_log_hints=on") ||
   postgresCompose.includes("cap_add:")
 ) {
@@ -445,7 +451,13 @@ if (
   !standbyEntrypoint.includes("pg_basebackup") ||
   !standbyEntrypoint.includes("--write-recovery-conf") ||
   !standbyEntrypoint.includes("application_name=dataground-standby") ||
-  !standbyEntrypoint.includes('exec postgres -D "$PGDATA" -c hot_standby=on')
+  !standbyEntrypoint.includes('exec postgres -D "$PGDATA"') ||
+  !standbyEntrypoint.includes("-c hot_standby=on") ||
+  !standbyEntrypoint.includes("-c wal_level=replica") ||
+  !standbyEntrypoint.includes("-c max_wal_senders=4") ||
+  !standbyEntrypoint.includes("-c max_replication_slots=4") ||
+  !standbyEntrypoint.includes("-c wal_keep_size=64MB") ||
+  !standbyEntrypoint.includes("-c wal_log_hints=on")
 ) {
   fail("the physical-streaming bootstrap has drifted from the failover contract");
 }
