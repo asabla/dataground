@@ -379,9 +379,18 @@ func TestNewEnforcementBundleFinalizerRequiresDependencies(t *testing.T) {
 	catalog := &finalizerCatalogStub{}
 	objects := &finalizerObjectStoreStub{}
 	for name, construct := range map[string]func() error{
-		"catalog": func() error { _, err := NewEnforcementBundleFinalizer(nil, objects, objects); return err },
-		"reader":  func() error { _, err := NewEnforcementBundleFinalizer(catalog, nil, objects); return err },
-		"writer":  func() error { _, err := NewEnforcementBundleFinalizer(catalog, objects, nil); return err },
+		"catalog": func() error {
+			_, err := NewEnforcementBundleFinalizer(nil, objects, objects)
+			return err
+		},
+		"reader": func() error {
+			_, err := NewEnforcementBundleFinalizer(catalog, nil, objects)
+			return err
+		},
+		"writer": func() error {
+			_, err := NewEnforcementBundleFinalizer(catalog, objects, nil)
+			return err
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := construct(); err == nil || !strings.Contains(err.Error(), "dependencies") {
