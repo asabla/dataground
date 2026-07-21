@@ -41,8 +41,9 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	phase := flags.String(
 		"phase",
 		"",
-		"prepare, outage, recover, commit-loss, committed-recover, commit-connection-loss, connection-loss-recover, pre-commit-connection-loss, rolled-back-recover or failover-recover",
+		"prepare, outage, recover, commit-loss, committed-recover, commit-connection-loss, connection-loss-recover, pre-commit-connection-loss, rolled-back-recover, failover-recover, failover-commit-loss or failover-commit-recover",
 	)
+	primaryLossSignalFD := flags.Int("primary-loss-signal-fd", -1, "pre-opened descriptor notified after COMMIT is forwarded")
 	allowLoopbackHTTP := flags.Bool("allow-loopback-http", false, "allow explicit plaintext loopback development endpoint")
 	databaseURL := os.Getenv("DATAGROUND_TEST_DATABASE_URL")
 	if err := flags.Parse(args); err != nil {
@@ -53,7 +54,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	if flags.NArg() != 0 || *endpoint == "" || *bucket == "" ||
 		*runID == "" || databaseURL == "" || !*allowLoopbackHTTP || !isHTTPStyleLoopback(*endpoint) ||
 		!isLoopbackPostgresURL(databaseURL) || invalidRunID(*runID) ||
-		!validPhase(selectedPhase) {
+		!validPhase(selectedPhase) || !validPrimaryLossSignalFD(selectedPhase, *primaryLossSignalFD) {
 		fmt.Fprintln(stderr, "invalid enforcement recovery conformance command configuration")
 		return 2
 	}
@@ -76,6 +77,19 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		return 2
 	}
 
+	var signalPrimaryLoss func() error
+	if selectedPhase == recoveryconformance.PhaseFailoverCommitLoss {
+		signalFile := os.NewFile(uintptr(*primaryLossSignalFD), "primary-loss-signal")
+		if signalFile == nil {
+			fmt.Fprintln(stderr, "invalid enforcement recovery conformance command configuration")
+			return 2
+		}
+		defer signalFile.Close()
+		signalPrimaryLoss = func() error {
+			_, err := io.WriteString(signalFile, "commit-forwarded\n")
+			return err
+		}
+	}
 	report, runErr := execute(
 		ctx,
 		databaseURL,
@@ -83,6 +97,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		recoveryconformance.Config{RunID: *runID},
 		selectedPhase,
 		func() { os.Exit(commitLossExitCode) },
+		signalPrimaryLoss,
 	)
 	encoder := json.NewEncoder(stdout)
 	encoder.SetIndent("", "  ")
@@ -104,6 +119,7 @@ func execute(
 	config recoveryconformance.Config,
 	phase recoveryconformance.Phase,
 	terminate func(),
+	signalPrimaryLoss func() error,
 ) (recoveryconformance.Report, error) {
 	if _, err := recoveryconformance.FixtureFor(config); err != nil {
 		return recoveryconformance.Report{}, err
@@ -122,6 +138,7 @@ func execute(
 	poolURL := databaseURL
 	var commitProxy *pgcommitproxy.Proxy
 	var waitForCommitLoss func(context.Context) error
+	var waitForCommitForwarded func(context.Context) error
 	if fault, required := commitProxyFault(phase); required {
 		target, err := databaseTarget(databaseURL)
 		if err != nil {
@@ -140,6 +157,11 @@ func execute(
 			bounded, cancel := context.WithTimeout(waitContext, 10*time.Second)
 			defer cancel()
 			return commitProxy.Wait(bounded)
+		}
+		waitForCommitForwarded = func(waitContext context.Context) error {
+			bounded, cancel := context.WithTimeout(waitContext, 10*time.Second)
+			defer cancel()
+			return commitProxy.WaitForwarded(bounded)
 		}
 	}
 	pool, err := persistence.OpenPool(ctx, poolURL)
@@ -183,6 +205,20 @@ func execute(
 			},
 			config,
 		)
+	case recoveryconformance.PhaseFailoverCommitLoss:
+		return recoveryconformance.RunFailoverCommitLoss(
+			ctx, catalog, backend, waitForCommitForwarded, signalPrimaryLoss, config,
+		)
+	case recoveryconformance.PhaseFailoverCommitRecover:
+		return recoveryconformance.RunFailoverCommitRecover(
+			ctx,
+			catalog,
+			backend,
+			func(ctx context.Context, fixture recoveryconformance.Fixture) error {
+				return verifyPromotedFixture(ctx, pool, fixture)
+			},
+			config,
+		)
 	default:
 		return recoveryconformance.Report{}, errors.New("invalid recovery conformance phase")
 	}
@@ -196,7 +232,16 @@ func validPhase(phase recoveryconformance.Phase) bool {
 		phase == recoveryconformance.PhaseConnectionLossRecover ||
 		phase == recoveryconformance.PhasePreCommitConnectionLoss ||
 		phase == recoveryconformance.PhaseRolledBackRecover ||
-		phase == recoveryconformance.PhaseFailoverRecover
+		phase == recoveryconformance.PhaseFailoverRecover ||
+		phase == recoveryconformance.PhaseFailoverCommitLoss ||
+		phase == recoveryconformance.PhaseFailoverCommitRecover
+}
+
+func validPrimaryLossSignalFD(phase recoveryconformance.Phase, descriptor int) bool {
+	if phase == recoveryconformance.PhaseFailoverCommitLoss {
+		return descriptor >= 3
+	}
+	return descriptor == -1
 }
 
 func commitProxyFault(phase recoveryconformance.Phase) (pgcommitproxy.FaultPoint, bool) {
@@ -205,6 +250,8 @@ func commitProxyFault(phase recoveryconformance.Phase) (pgcommitproxy.FaultPoint
 		return pgcommitproxy.AfterCommitDurability, true
 	case recoveryconformance.PhasePreCommitConnectionLoss:
 		return pgcommitproxy.BeforeCommitDurability, true
+	case recoveryconformance.PhaseFailoverCommitLoss:
+		return pgcommitproxy.DuringCommitPrimaryLoss, true
 	default:
 		return "", false
 	}

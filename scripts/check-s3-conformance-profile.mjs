@@ -28,6 +28,10 @@ const failoverSuite = await readFile(
   resolve(root, "internal/execution/recoveryconformance/failover.go"),
   "utf8",
 );
+const failoverCommitSuite = await readFile(
+  resolve(root, "internal/execution/recoveryconformance/failover_commit_loss.go"),
+  "utf8",
+);
 const primaryInit = await readFile(
   resolve(root, "deploy/storage/postgres-primary-init.sh"),
   "utf8",
@@ -40,7 +44,7 @@ const commitProxy = await readFile(
   resolve(root, "internal/execution/recoveryconformance/pgcommitproxy/proxy.go"),
   "utf8",
 );
-const recoveryImplementation = `${recoverySuite}\n${commitLossSuite}\n${connectionLossSuite}\n${preCommitConnectionLossSuite}\n${failoverSuite}`;
+const recoveryImplementation = `${recoverySuite}\n${commitLossSuite}\n${connectionLossSuite}\n${preCommitConnectionLossSuite}\n${failoverSuite}\n${failoverCommitSuite}`;
 const recoveryCommand = await readFile(
   resolve(root, "cmd/dataground-enforcement-recovery-conformance/main.go"),
   "utf8",
@@ -136,6 +140,17 @@ const recoveryPhases = {
     "read-only-replay-after-failover",
     "single-audit-after-failover",
   ],
+  "failover-commit-loss": [
+    "in-flight-failover-preconditions",
+    "primary-loss-during-commit-is-ambiguous",
+  ],
+  "failover-commit-recover": [
+    "promoted-standby-ready-after-in-flight-loss",
+    "atomic-catalog-outcome-observed-after-failover",
+    "catalog-converged-after-in-flight-failover",
+    "read-only-replay-after-in-flight-failover",
+    "single-audit-after-in-flight-failover",
+  ],
 };
 if (
   profile.recoveryConformance?.reportSchema !== "dataground.enforcement-recovery-conformance/v1" ||
@@ -157,6 +172,17 @@ if (
   profile.recoveryConformance?.clusteredFailover?.automaticElection !== false ||
   profile.recoveryConformance?.clusteredFailover?.clientEndpointFailover !== false ||
   profile.recoveryConformance?.clusteredFailover?.partitionFencing !== false ||
+  profile.recoveryConformance?.clusteredFailover?.inFlightCommit?.lossPhase !==
+    "failover-commit-loss" ||
+  profile.recoveryConformance?.clusteredFailover?.inFlightCommit?.recoveryPhase !==
+    "failover-commit-recover" ||
+  profile.recoveryConformance?.clusteredFailover?.inFlightCommit?.faultBoundary !==
+    "COMMIT forwarded with response withheld before primary loss" ||
+  JSON.stringify(
+    profile.recoveryConformance?.clusteredFailover?.inFlightCommit?.acceptedOutcomes,
+  ) !== JSON.stringify(["exact binding and audit", "no binding or audit"]) ||
+  profile.recoveryConformance?.clusteredFailover?.inFlightCommit?.finalState !==
+    "one exact binding and audit with read-only replay" ||
   profile.recoveryConformance?.ambiguousCatalogCommit?.processLoss?.phase !== "commit-loss" ||
   profile.recoveryConformance?.ambiguousCatalogCommit?.processLoss?.terminationBoundary !==
     "after PostgreSQL commit before finalizer acknowledgement" ||
@@ -189,6 +215,8 @@ if (
   ) ||
   !/PhaseRolledBackRecover\s+Phase = "rolled-back-recover"/.test(recoveryImplementation) ||
   !/PhaseFailoverRecover\s+Phase = "failover-recover"/.test(recoveryImplementation) ||
+  !/PhaseFailoverCommitLoss\s+Phase = "failover-commit-loss"/.test(recoveryImplementation) ||
+  !/PhaseFailoverCommitRecover\s+Phase = "failover-commit-recover"/.test(recoveryImplementation) ||
   !recoveryImplementation.includes('"finalization-fails-closed-during-object-outage"') ||
   !recoveryImplementation.includes('"concurrent-catalog-adoption-after-restarts"') ||
   !recoveryImplementation.includes('"read-only-replay-after-ambiguous-commit"') ||
@@ -200,6 +228,10 @@ if (
   !recoveryImplementation.includes('"promoted-standby-has-replicated-fixture"') ||
   !recoveryImplementation.includes('"catalog-adopted-on-promoted-standby"') ||
   !recoveryImplementation.includes('"read-only-replay-after-failover"') ||
+  !recoveryImplementation.includes('"primary-loss-during-commit-is-ambiguous"') ||
+  !recoveryImplementation.includes('"atomic-catalog-outcome-observed-after-failover"') ||
+  !recoveryImplementation.includes('"catalog-converged-after-in-flight-failover"') ||
+  !recoveryImplementation.includes('"read-only-replay-after-in-flight-failover"') ||
   !recoveryImplementation.includes("newArrivalBarrier(ConcurrentRecoveryWorkers)")
 ) {
   fail("the executable recovery suite has drifted from the scored profile");
@@ -210,8 +242,10 @@ if (
   !commitProxy.includes("const maxMessageBytes = 16 << 20") ||
   !commitProxy.includes("proxy.listener.Close()") ||
   !commitProxy.includes('bytes.Equal(payload, []byte("COMMIT\\x00"))') ||
-  !commitProxy.includes('BeforeCommitDurability FaultPoint = "before-commit-durability"') ||
-  !commitProxy.includes('AfterCommitDurability  FaultPoint = "after-commit-durability"') ||
+  !/BeforeCommitDurability\s+FaultPoint = "before-commit-durability"/.test(commitProxy) ||
+  !/AfterCommitDurability\s+FaultPoint = "after-commit-durability"/.test(commitProxy) ||
+  !/DuringCommitPrimaryLoss\s+FaultPoint = "during-commit-primary-loss"/.test(commitProxy) ||
+  !commitProxy.includes("close(proxy.forwarded)") ||
   !commitProxy.includes("close(proxy.dropped)")
 ) {
   fail("the bounded loopback PostgreSQL commit proxy has drifted from the recovery contract");
@@ -243,6 +277,15 @@ if (
   !recoveryCommand.includes("current_setting('transaction_read_only')")
 ) {
   fail("the recovery command has drifted from the promoted-standby contract");
+}
+if (
+  !recoveryCommand.includes("recoveryconformance.RunFailoverCommitLoss") ||
+  !recoveryCommand.includes("recoveryconformance.RunFailoverCommitRecover") ||
+  !recoveryCommand.includes("pgcommitproxy.DuringCommitPrimaryLoss") ||
+  !recoveryCommand.includes('io.WriteString(signalFile, "commit-forwarded\\n")') ||
+  !recoveryCommand.includes("validPrimaryLossSignalFD")
+) {
+  fail("the recovery command has drifted from the in-flight failover contract");
 }
 
 if (
@@ -347,6 +390,10 @@ if (
   !workflow.includes("stop postgres") ||
   !workflow.includes("pg_ctl promote") ||
   !workflow.includes("--phase failover-recover") ||
+  !workflow.includes("--phase failover-commit-loss") ||
+  !workflow.includes("--primary-loss-signal-fd 3") ||
+  !workflow.includes('state" != "commit-forwarded') ||
+  !workflow.includes("--phase failover-commit-recover") ||
   !workflow.includes("DATAGROUND_TEST_DATABASE_URL") ||
   !workflow.includes("deploy/storage/seaweedfs-conformance.yml up --detach") ||
   !workflow.includes("deploy/storage/seaweedfs-conformance.yml down --volumes")

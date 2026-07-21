@@ -50,7 +50,14 @@
       "promotion": "explicit pg_ctl promotion",
       "automaticElection": false,
       "clientEndpointFailover": false,
-      "partitionFencing": false
+      "partitionFencing": false,
+      "inFlightCommit": {
+        "lossPhase": "failover-commit-loss",
+        "recoveryPhase": "failover-commit-recover",
+        "faultBoundary": "COMMIT forwarded with response withheld before primary loss",
+        "acceptedOutcomes": ["exact binding and audit", "no binding or audit"],
+        "finalState": "one exact binding and audit with read-only replay"
+      }
     },
     "ambiguousCatalogCommit": {
       "processLoss": {
@@ -107,6 +114,17 @@
         "catalog-adopted-on-promoted-standby",
         "read-only-replay-after-failover",
         "single-audit-after-failover"
+      ],
+      "failover-commit-loss": [
+        "in-flight-failover-preconditions",
+        "primary-loss-during-commit-is-ambiguous"
+      ],
+      "failover-commit-recover": [
+        "promoted-standby-ready-after-in-flight-loss",
+        "atomic-catalog-outcome-observed-after-failover",
+        "catalog-converged-after-in-flight-failover",
+        "read-only-replay-after-in-flight-failover",
+        "single-audit-after-in-flight-failover"
       ]
     }
   },

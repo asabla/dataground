@@ -264,7 +264,7 @@ jobs:
 
   postgres-failover-conformance:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       DATAGROUND_PRIMARY_DATABASE_URL: postgres://dataground:dataground@127.0.0.1:55432/dataground_conformance?sslmode=disable
       DATAGROUND_PROMOTED_DATABASE_URL: postgres://dataground:dataground@127.0.0.1:55433/dataground_conformance?sslmode=disable
@@ -366,6 +366,133 @@ jobs:
           --bucket dataground-conformance
           --addressing-style path
           --run-id 223344556677889900aabbccddeeff11
+          --allow-loopback-http
+
+      - name: Recreate streaming pair for in-flight commit loss
+        run: |
+          docker compose -f deploy/storage/seaweedfs-conformance.yml \
+            --profile postgres-failover down --volumes
+          docker compose -f deploy/storage/seaweedfs-conformance.yml \
+            --profile postgres-failover up --detach
+          for attempt in {1..30}; do
+            primary_ready=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+              psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+              --command 'SELECT NOT pg_is_in_recovery()' 2>/dev/null || true)
+            standby_ready=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+              psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+              --command 'SELECT pg_is_in_recovery()' 2>/dev/null || true)
+            if curl --fail --silent http://127.0.0.1:8333/ >/dev/null \
+              && [ "$primary_ready" = "t" ] && [ "$standby_ready" = "t" ]; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "recreated failover pair did not become ready"
+          exit 1
+
+      - name: Prepare in-flight failover scope on primary
+        env:
+          DATAGROUND_DATABASE_URL: ${{ env.DATAGROUND_PRIMARY_DATABASE_URL }}
+          DATAGROUND_TEST_DATABASE_URL: ${{ env.DATAGROUND_PRIMARY_DATABASE_URL }}
+        run: |
+          go run ./cmd/dataground-migrate up
+          go run ./cmd/dataground-enforcement-recovery-conformance \
+            --phase prepare \
+            --endpoint http://127.0.0.1:8333 \
+            --bucket dataground-conformance \
+            --addressing-style path \
+            --run-id 3344556677889900aabbccddeeff1122 \
+            --allow-loopback-http
+
+      - name: Require standby replay through in-flight fixture
+        run: |
+          target_lsn=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+            psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+            --command 'SELECT pg_current_wal_lsn()')
+          if [[ ! "$target_lsn" =~ ^[0-9A-F]+/[0-9A-F]+$ ]]; then
+            echo "could not establish the in-flight fixture WAL boundary"
+            exit 1
+          fi
+          for attempt in {1..30}; do
+            replayed=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+              psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+              --command "SELECT pg_last_wal_replay_lsn() >= '$target_lsn'::pg_lsn" 2>/dev/null || true)
+            if [ "$replayed" = "t" ]; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "standby did not replay the in-flight fixture"
+          exit 1
+
+      - name: Lose primary while catalog commit is in flight
+        env:
+          DATAGROUND_TEST_DATABASE_URL: ${{ env.DATAGROUND_PRIMARY_DATABASE_URL }}
+        run: |
+          runner="$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          signal="$RUNNER_TEMP/in-flight-commit.signal"
+          report="$RUNNER_TEMP/in-flight-commit.json"
+          stderr="$RUNNER_TEMP/in-flight-commit.stderr"
+          go build -o "$runner" ./cmd/dataground-enforcement-recovery-conformance
+          mkfifo "$signal"
+          "$runner" \
+            --phase failover-commit-loss \
+            --primary-loss-signal-fd 3 \
+            --endpoint http://127.0.0.1:8333 \
+            --bucket dataground-conformance \
+            --addressing-style path \
+            --run-id 3344556677889900aabbccddeeff1122 \
+            --allow-loopback-http >"$report" 2>"$stderr" 3>"$signal" &
+          runner_pid=$!
+          trap 'kill "$runner_pid" 2>/dev/null || true; rm -f "$signal"' EXIT
+          state=""
+          if ! IFS= read -r -t 30 state <"$signal" || [ "$state" != "commit-forwarded" ]; then
+            kill "$runner_pid" 2>/dev/null || true
+            wait "$runner_pid" 2>/dev/null || true
+            echo "in-flight commit boundary was not reached"
+            exit 1
+          fi
+          docker compose -f deploy/storage/seaweedfs-conformance.yml stop postgres
+          set +e
+          wait "$runner_pid"
+          status=$?
+          set -e
+          trap - EXIT
+          rm -f "$signal"
+          if [ "$status" -ne 0 ] || [ -s "$stderr" ] \
+            || ! grep --quiet '"phase": "failover-commit-loss"' "$report" \
+            || ! grep --quiet '"status": "passed"' "$report"; then
+            echo "in-flight primary-loss injection failed"
+            exit 1
+          fi
+
+      - name: Promote standby after in-flight commit loss
+        run: |
+          if docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+            pg_isready --host postgres --port 5432 --username dataground >/dev/null 2>&1; then
+            echo "stopped primary remained reachable"
+            exit 1
+          fi
+          docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+            pg_ctl promote --pgdata /var/lib/postgresql/data/pgdata --wait
+          promoted=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+            psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+            --command 'SELECT NOT pg_is_in_recovery()')
+          if [ "$promoted" != "t" ]; then
+            echo "standby promotion after in-flight loss was not observed"
+            exit 1
+          fi
+
+      - name: Recover ambiguous commit through promoted standby
+        env:
+          DATAGROUND_TEST_DATABASE_URL: ${{ env.DATAGROUND_PROMOTED_DATABASE_URL }}
+        run: >-
+          "$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          --phase failover-commit-recover
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id 3344556677889900aabbccddeeff1122
           --allow-loopback-http
 
       - name: Stop disposable failover backends

@@ -160,6 +160,81 @@ func TestProxyDropsCommitRequestBeforeServerObservation(t *testing.T) {
 	}
 }
 
+func TestProxySignalsForwardedCommitAndWithholdsOutcomeUntilPrimaryLoss(t *testing.T) {
+	upstream, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverDone := make(chan error, 1)
+	go func() {
+		connection, acceptErr := upstream.Accept()
+		if acceptErr != nil {
+			serverDone <- acceptErr
+			return
+		}
+		defer connection.Close()
+		if err := discardStartup(connection); err != nil {
+			serverDone <- err
+			return
+		}
+		if _, err := connection.Write(message('R', []byte{0, 0, 0, 0})); err != nil {
+			serverDone <- err
+			return
+		}
+		if _, err := connection.Write(message('Z', []byte{'I'})); err != nil {
+			serverDone <- err
+			return
+		}
+		kind, payload, _, err := readTypedMessage(connection)
+		if err != nil || kind != 'Q' || string(payload) != "commit\x00" {
+			serverDone <- errors.New("proxy did not forward the in-flight COMMIT")
+			return
+		}
+		if _, err := connection.Write(message('C', []byte("COMMIT\x00"))); err != nil {
+			serverDone <- err
+			return
+		}
+		serverDone <- upstream.Close()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	proxy, err := Start(ctx, upstream.Addr().String(), DuringCommitPrimaryLoss)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.Close()
+	client, err := net.Dial("tcp", proxy.Address())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	startup := make([]byte, 8)
+	binary.BigEndian.PutUint32(startup, uint32(len(startup)))
+	binary.BigEndian.PutUint32(startup[4:], 196608)
+	if _, err := client.Write(startup); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := readTypedMessage(client); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := readTypedMessage(client); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Write(message('Q', []byte("commit\x00"))); err != nil {
+		t.Fatal(err)
+	}
+	if err := proxy.WaitForwarded(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-serverDone; err != nil && !errors.Is(err, net.ErrClosed) {
+		t.Fatal(err)
+	}
+	if _, _, _, err := readTypedMessage(client); err == nil {
+		t.Fatal("client observed an in-flight COMMIT outcome")
+	}
+}
+
 func TestProxyRejectsRemoteTarget(t *testing.T) {
 	if _, err := Start(context.Background(), "192.0.2.1:5432", AfterCommitDurability); err == nil {
 		t.Fatal("remote PostgreSQL target accepted")
@@ -187,6 +262,9 @@ func TestProxyWaitPreservesCancellation(t *testing.T) {
 	cancel()
 	if err := proxy.Wait(ctx); err != context.Canceled {
 		t.Fatalf("wait error = %v, want context.Canceled", err)
+	}
+	if err := proxy.WaitForwarded(ctx); err != context.Canceled {
+		t.Fatalf("forwarded wait error = %v, want context.Canceled", err)
 	}
 }
 

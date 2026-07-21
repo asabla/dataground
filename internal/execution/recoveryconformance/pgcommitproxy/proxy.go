@@ -1,6 +1,7 @@
 // Package pgcommitproxy provides a bounded loopback-only PostgreSQL wire proxy
-// for recovery conformance. It can drop either the COMMIT request before
-// PostgreSQL receives it or the completion after PostgreSQL makes it durable.
+// for recovery conformance. It can drop the COMMIT request before PostgreSQL
+// receives it, drop the durable completion, or hold the result through primary
+// loss after forwarding the request.
 package pgcommitproxy
 
 import (
@@ -20,8 +21,9 @@ const maxMessageBytes = 16 << 20
 type FaultPoint string
 
 const (
-	BeforeCommitDurability FaultPoint = "before-commit-durability"
-	AfterCommitDurability  FaultPoint = "after-commit-durability"
+	BeforeCommitDurability  FaultPoint = "before-commit-durability"
+	AfterCommitDurability   FaultPoint = "after-commit-durability"
+	DuringCommitPrimaryLoss FaultPoint = "during-commit-primary-loss"
 )
 
 type Proxy struct {
@@ -29,10 +31,12 @@ type Proxy struct {
 	target   string
 	fault    FaultPoint
 
-	cancel  context.CancelFunc
-	dropped chan struct{}
-	drop    sync.Once
-	wait    sync.WaitGroup
+	cancel      context.CancelFunc
+	dropped     chan struct{}
+	forwarded   chan struct{}
+	drop        sync.Once
+	forwardOnce sync.Once
+	wait        sync.WaitGroup
 }
 
 func Start(ctx context.Context, target string, fault FaultPoint) (*Proxy, error) {
@@ -44,7 +48,7 @@ func Start(ctx context.Context, target string, fault FaultPoint) (*Proxy, error)
 	if address == nil || !address.IsLoopback() {
 		return nil, errors.New("PostgreSQL commit proxy target must be loopback")
 	}
-	if fault != BeforeCommitDurability && fault != AfterCommitDurability {
+	if fault != BeforeCommitDurability && fault != AfterCommitDurability && fault != DuringCommitPrimaryLoss {
 		return nil, errors.New("invalid PostgreSQL commit proxy fault point")
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -53,15 +57,28 @@ func Start(ctx context.Context, target string, fault FaultPoint) (*Proxy, error)
 	}
 	proxyContext, cancel := context.WithCancel(ctx)
 	proxy := &Proxy{
-		listener: listener,
-		target:   target,
-		fault:    fault,
-		cancel:   cancel,
-		dropped:  make(chan struct{}),
+		listener:  listener,
+		target:    target,
+		fault:     fault,
+		cancel:    cancel,
+		dropped:   make(chan struct{}),
+		forwarded: make(chan struct{}),
 	}
 	proxy.wait.Add(1)
 	go proxy.accept(proxyContext)
 	return proxy, nil
+}
+
+// WaitForwarded reports when the one accepted connection has forwarded its
+// COMMIT request to PostgreSQL. DuringCommitPrimaryLoss withholds every later
+// server response so the caller cannot observe an outcome before primary loss.
+func (proxy *Proxy) WaitForwarded(ctx context.Context) error {
+	select {
+	case <-proxy.forwarded:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (proxy *Proxy) Address() string {
@@ -114,6 +131,7 @@ func (proxy *Proxy) forward(ctx context.Context, client net.Conn, server net.Con
 	defer client.Close()
 	defer server.Close()
 	var commitPending atomic.Bool
+	var responseWithheld atomic.Bool
 	done := make(chan struct{}, 2)
 	go func() {
 		defer func() { done <- struct{}{} }()
@@ -125,7 +143,8 @@ func (proxy *Proxy) forward(ctx context.Context, client net.Conn, server net.Con
 			if err != nil {
 				return
 			}
-			if isCommitRequest(kind, payload) {
+			commitRequest := isCommitRequest(kind, payload)
+			if commitRequest {
 				if proxy.fault == BeforeCommitDurability {
 					proxy.signalDrop()
 					return
@@ -134,6 +153,9 @@ func (proxy *Proxy) forward(ctx context.Context, client net.Conn, server net.Con
 			}
 			if err := writeAll(server, raw); err != nil {
 				return
+			}
+			if commitRequest && proxy.fault == DuringCommitPrimaryLoss {
+				proxy.signalForwarded()
 			}
 		}
 	}()
@@ -149,6 +171,12 @@ func (proxy *Proxy) forward(ctx context.Context, client net.Conn, server net.Con
 				proxy.signalDrop()
 				return
 			}
+			if proxy.fault == DuringCommitPrimaryLoss && commitPending.Load() {
+				responseWithheld.Store(true)
+			}
+			if responseWithheld.Load() {
+				continue
+			}
 			if err := writeAll(client, raw); err != nil {
 				return
 			}
@@ -158,6 +186,10 @@ func (proxy *Proxy) forward(ctx context.Context, client net.Conn, server net.Con
 	case <-ctx.Done():
 	case <-done:
 	}
+}
+
+func (proxy *Proxy) signalForwarded() {
+	proxy.forwardOnce.Do(func() { close(proxy.forwarded) })
 }
 
 func (proxy *Proxy) signalDrop() {
