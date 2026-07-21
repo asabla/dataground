@@ -16,6 +16,7 @@ PostgreSQL 18 is required for durable integration tests and durable control-plan
 | `cmd/dataground-repair` | Audited failed-operation repair command |
 | `internal` | Platform-owned Go implementation packages |
 | `deploy/openshell` | Pinned, loopback-only OpenShell development profile and deny-all fixture |
+| `deploy/storage` | Pinned, disposable S3 enforcement-object conformance candidate |
 | `apps/workbench` | TypeScript/React workbench application |
 | `packages/tokens` | DTCG token sources, deterministic generator, themes and densities |
 | `packages/ui` | Accessible React primitives, component styles and Storybook contracts |
@@ -45,7 +46,7 @@ pnpm verify
 
 The verification command runs Biome formatting and lint checks, `gofmt`, `go vet`, OpenAPI and JSON Schema fixture and compatibility checks, generated contract and token drift checks, TypeScript type checking, Go and Node tests, Playwright-backed Storybook interaction and accessibility tests, the Storybook production build, and production builds for the API and workbench.
 
-It also verifies that the blocked OpenShell development profile remains immutable and internally consistent. This is a configuration check, not a live runtime certification.
+It also verifies that the blocked OpenShell and S3 development profiles remain immutable and internally consistent. The ordinary baseline does not start either dependency. GitHub CI separately exercises the enforcement-object subset against the pinned disposable S3 candidate; neither check is a production certification.
 
 Regenerate the typed workbench contract after an accepted OpenAPI change:
 

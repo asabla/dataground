@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "dataground.dev.s3-enforcement-profile/v1",
+  "status": "development-candidate",
+  "productionCertifiable": false,
+  "backend": {
+    "name": "SeaweedFS",
+    "version": "4.40",
+    "sourceCommit": "875cd1f67ea25e8965a4f5ba1e6aaf501ba6b6fa",
+    "license": "Apache-2.0",
+    "image": "chrislusf/seaweedfs@sha256:52194fba4fecd0083c842158b3a902ba6e04a63619b2b0efcd08007bdb6a4602",
+    "platforms": ["linux/amd64", "linux/arm64", "linux/arm/v7", "linux/386"]
+  },
+  "topology": {
+    "mode": "single-process disposable development backend",
+    "endpoint": "http://127.0.0.1:8333",
+    "bucket": "dataground-conformance",
+    "authentication": "anonymous development access",
+    "persistent": false
+  },
+  "conformance": {
+    "reportSchema": "dataground.s3-enforcement-conformance/v1",
+    "requiredCases": ["missing-read", "create-read", "immutable-rewrite", "concurrent-create"],
+    "concurrentWriters": 8,
+    "ciRequired": true
+  },
+  "sources": {
+    "release": "https://github.com/seaweedfs/seaweedfs/releases/tag/4.40",
+    "license": "https://github.com/seaweedfs/seaweedfs/blob/4.40/LICENSE",
+    "conditionalWriteFix": "https://github.com/seaweedfs/seaweedfs/pull/8802",
+    "conditionalWriteSemantics": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html"
+  },
+  "blockers": [
+    "single-process anonymous development evidence is not an authenticated production topology",
+    "multi-gateway and network-partition behavior is not exercised by this profile",
+    "bucket policy, workload identity, TLS, encryption and KMS are not certified",
+    "versioning, retention, backup, restore, upgrade and rollback are not certified",
+    "image signature, SBOM and build provenance are not certified",
+    "a replacement backend has not passed the same suite",
+    "the complete platform-object and lakehouse S3 contract is broader than this enforcement subset"
+  ]
+}
