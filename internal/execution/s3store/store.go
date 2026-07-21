@@ -30,7 +30,7 @@ const (
 var (
 	bucketPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
 	digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-	keyPattern    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,1023}$`)
+	keyPattern    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
 
 	errUnavailable = errors.New("s3 enforcement-object storage is unavailable")
 )
@@ -216,7 +216,8 @@ func validBucket(bucket string) bool {
 }
 
 func validKey(key string) bool {
-	if !keyPattern.MatchString(key) || strings.Contains(key, "//") || strings.Contains(key, `\`) {
+	if len(key) > 1024 || !keyPattern.MatchString(key) || strings.Contains(key, "//") ||
+		strings.Contains(key, `\`) {
 		return false
 	}
 	for _, segment := range strings.Split(key, "/") {

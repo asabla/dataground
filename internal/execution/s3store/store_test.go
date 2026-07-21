@@ -128,6 +128,7 @@ func TestStoreRejectsInvalidWriteBeforeRequest(t *testing.T) {
 	}{
 		"path traversal": {key: "enforcement-bundles/v1/../secret", content: bytes.NewReader(content), size: int64(len(content)), digest: digest},
 		"wrong prefix":   {key: "lakehouse/object", content: bytes.NewReader(content), size: int64(len(content)), digest: digest},
+		"oversized key":  {key: "enforcement-bundles/v1/" + strings.Repeat("a", 1024), content: bytes.NewReader(content), size: int64(len(content)), digest: digest},
 		"nil content":    {key: objectKey, size: int64(len(content)), digest: digest},
 		"short content":  {key: objectKey, content: bytes.NewReader(content[:2]), size: int64(len(content)), digest: digest},
 		"extra content":  {key: objectKey, content: bytes.NewReader(append(content, 'x')), size: int64(len(content)), digest: digest},
