@@ -9,7 +9,12 @@ import (
 	"slices"
 )
 
-const maximumEnforcementPolicyBytes = 4 << 20
+const (
+	// MaximumEnforcementPolicyBytes is the shared admission and object-adapter
+	// limit for materialized enforcement policies.
+	MaximumEnforcementPolicyBytes = 4 << 20
+	maximumEnforcementPolicyBytes = MaximumEnforcementPolicyBytes
+)
 
 var (
 	ErrEnforcementBundleMissing  = errors.New("enforcement bundle not found")
