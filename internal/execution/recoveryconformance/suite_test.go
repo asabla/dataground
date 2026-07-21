@@ -277,7 +277,15 @@ func TestReportsDoNotSerializeSensitiveRoutingOrContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"endpoint", "bucket", "objectKey", "database", "version: 1", "correlation"} {
+	for _, forbidden := range []string{
+		"endpoint",
+		"bucket",
+		"objectKey",
+		"postgres://",
+		"127.0.0.1",
+		"version: 1",
+		"correlation",
+	} {
 		if strings.Contains(string(encoded), forbidden) {
 			t.Fatalf("report serialized forbidden detail %q: %s", forbidden, encoded)
 		}
