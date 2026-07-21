@@ -17,6 +17,7 @@ import (
 
 	"github.com/asabla/dataground/internal/execution/postgres"
 	"github.com/asabla/dataground/internal/execution/recoveryconformance"
+	"github.com/asabla/dataground/internal/execution/recoveryconformance/pgcommitproxy"
 	"github.com/asabla/dataground/internal/execution/s3store"
 	"github.com/asabla/dataground/internal/persistence"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -37,7 +38,11 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	bucket := flags.String("bucket", "", "caller-provisioned disposable bucket")
 	style := flags.String("addressing-style", string(s3store.PathStyle), "path or virtual-hosted")
 	runID := flags.String("run-id", "", "unique 32-character lowercase hexadecimal run identifier")
-	phase := flags.String("phase", "", "prepare, outage, recover, commit-loss or committed-recover")
+	phase := flags.String(
+		"phase",
+		"",
+		"prepare, outage, recover, commit-loss, committed-recover, commit-connection-loss or connection-loss-recover",
+	)
 	allowLoopbackHTTP := flags.Bool("allow-loopback-http", false, "allow explicit plaintext loopback development endpoint")
 	databaseURL := os.Getenv("DATAGROUND_TEST_DATABASE_URL")
 	if err := flags.Parse(args); err != nil {
@@ -114,7 +119,24 @@ func execute(
 	if err := database.Close(); err != nil {
 		return recoveryconformance.Report{}, errors.New("close recovery conformance schema connection")
 	}
-	pool, err := persistence.OpenPool(ctx, databaseURL)
+	poolURL := databaseURL
+	var commitProxy *pgcommitproxy.Proxy
+	if phase == recoveryconformance.PhaseCommitConnectionLoss {
+		target, err := databaseTarget(databaseURL)
+		if err != nil {
+			return recoveryconformance.Report{}, errors.New("resolve recovery conformance database target")
+		}
+		commitProxy, err = pgcommitproxy.Start(ctx, target)
+		if err != nil {
+			return recoveryconformance.Report{}, errors.New("start recovery conformance commit proxy")
+		}
+		defer commitProxy.Close()
+		poolURL, err = proxiedDatabaseURL(databaseURL, commitProxy.Address())
+		if err != nil {
+			return recoveryconformance.Report{}, errors.New("configure recovery conformance commit proxy")
+		}
+	}
+	pool, err := persistence.OpenPool(ctx, poolURL)
 	if err != nil {
 		return recoveryconformance.Report{}, errors.New("open recovery conformance database pool")
 	}
@@ -137,6 +159,15 @@ func execute(
 		return recoveryconformance.RunCommitLoss(ctx, catalog, backend, terminate, config)
 	case recoveryconformance.PhaseCommittedRecover:
 		return recoveryconformance.RunCommittedRecover(ctx, catalog, backend, config)
+	case recoveryconformance.PhaseCommitConnectionLoss:
+		waitForLoss := func(waitContext context.Context) error {
+			bounded, cancel := context.WithTimeout(waitContext, 10*time.Second)
+			defer cancel()
+			return commitProxy.Wait(bounded)
+		}
+		return recoveryconformance.RunCommitConnectionLoss(ctx, catalog, backend, waitForLoss, config)
+	case recoveryconformance.PhaseConnectionLossRecover:
+		return recoveryconformance.RunConnectionLossRecover(ctx, catalog, backend, config)
 	default:
 		return recoveryconformance.Report{}, errors.New("invalid recovery conformance phase")
 	}
@@ -145,7 +176,38 @@ func execute(
 func validPhase(phase recoveryconformance.Phase) bool {
 	return phase == recoveryconformance.PhasePrepare || phase == recoveryconformance.PhaseOutage ||
 		phase == recoveryconformance.PhaseRecover || phase == recoveryconformance.PhaseCommitLoss ||
-		phase == recoveryconformance.PhaseCommittedRecover
+		phase == recoveryconformance.PhaseCommittedRecover ||
+		phase == recoveryconformance.PhaseCommitConnectionLoss ||
+		phase == recoveryconformance.PhaseConnectionLossRecover
+}
+
+func databaseTarget(raw string) (string, error) {
+	databaseURL, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	port := databaseURL.Port()
+	if port == "" {
+		port = "5432"
+	}
+	return net.JoinHostPort(databaseURL.Hostname(), port), nil
+}
+
+func proxiedDatabaseURL(raw string, address string) (string, error) {
+	databaseURL, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return "", err
+	}
+	proxyAddress := net.ParseIP(host)
+	if proxyAddress == nil || !proxyAddress.IsLoopback() {
+		return "", errors.New("PostgreSQL commit proxy address must be loopback")
+	}
+	databaseURL.Host = address
+	return databaseURL.String(), nil
 }
 
 type durableCatalog struct {

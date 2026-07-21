@@ -42,9 +42,16 @@
     "objectContainerRecreated": true,
     "concurrentRecoveryWorkers": 8,
     "ambiguousCatalogCommit": {
-      "phase": "commit-loss",
-      "terminationBoundary": "after PostgreSQL commit before finalizer acknowledgement",
-      "expectedExitCode": 86
+      "processLoss": {
+        "phase": "commit-loss",
+        "terminationBoundary": "after PostgreSQL commit before finalizer acknowledgement",
+        "expectedExitCode": 86
+      },
+      "connectionLoss": {
+        "phase": "commit-connection-loss",
+        "faultBoundary": "PostgreSQL COMMIT completion before client observation",
+        "transport": "bounded loopback protocol proxy"
+      }
     },
     "phases": {
       "prepare": ["fresh-scope", "fixture-provisioned", "object-retained-after-database-loss"],
@@ -60,6 +67,13 @@
         "object-consistent-after-process-loss",
         "read-only-replay-after-ambiguous-commit",
         "single-audit-after-ambiguous-commit"
+      ],
+      "commit-connection-loss": ["commit-connection-loss-preconditions", "commit-result-ambiguous"],
+      "connection-loss-recover": [
+        "catalog-commit-observed-after-connection-loss",
+        "object-consistent-after-connection-loss",
+        "read-only-replay-after-connection-loss",
+        "single-audit-after-connection-loss"
       ]
     }
   },

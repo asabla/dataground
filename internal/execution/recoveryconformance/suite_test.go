@@ -366,7 +366,24 @@ func TestReportsDoNotSerializeSensitiveRoutingOrContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, report := range []Report{prepare, outage, recover, committed} {
+	connectionLossCatalog := &ambiguousCommitCatalog{Catalog: &memoryCatalog{available: true}}
+	connectionLoss, err := RunCommitConnectionLoss(
+		context.Background(),
+		connectionLossCatalog,
+		recoverBackend,
+		func(context.Context) error { return nil },
+		Config{RunID: testRunID},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connectionRecovered, err := RunConnectionLossRecover(
+		context.Background(), connectionLossCatalog.Catalog, recoverBackend, Config{RunID: testRunID},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, report := range []Report{prepare, outage, recover, committed, connectionLoss, connectionRecovered} {
 		encoded, err := json.Marshal(report)
 		if err != nil {
 			t.Fatal(err)

@@ -198,6 +198,36 @@ jobs:
           --run-id 00112233445566778899aabbccddeeff
           --allow-loopback-http
 
+      - name: Prepare commit-connection-loss scope
+        run: >-
+          "$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          --phase prepare
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id aabbccddeeff00112233445566778899
+          --allow-loopback-http
+
+      - name: Lose PostgreSQL commit acknowledgement
+        run: >-
+          "$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          --phase commit-connection-loss
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id aabbccddeeff00112233445566778899
+          --allow-loopback-http
+
+      - name: Observe and recover ambiguous commit
+        run: >-
+          "$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          --phase connection-loss-recover
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id aabbccddeeff00112233445566778899
+          --allow-loopback-http
+
       - name: Stop disposable conformance backends
         if: always()
         run: docker compose -f deploy/storage/seaweedfs-conformance.yml down --volumes
