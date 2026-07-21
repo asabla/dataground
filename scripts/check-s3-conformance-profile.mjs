@@ -70,6 +70,10 @@ const routeSupervisor = await readFile(
   resolve(root, "cmd/dataground-postgres-route-conformance/supervisor.go"),
   "utf8",
 );
+const routeManager = await readFile(
+  resolve(root, "cmd/dataground-postgres-route-conformance/manager.go"),
+  "utf8",
+);
 const routeChildOwnership = await readFile(
   resolve(root, "cmd/dataground-postgres-route-conformance/child_ownership.go"),
   "utf8",
@@ -307,6 +311,34 @@ if (
     "recovery-only replacement acquires released ownership after the former supervisor and child terminate" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.exhaustion !==
     "supervisor exits nonzero without serving traffic" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.manager
+    ?.implementation !==
+    "same-binary outer conformance parent with one singleton supervisor child" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.manager
+    ?.readiness !==
+    "private state control succeeds only after the managed supervisor restores the exact persisted route and PostgreSQL timeline" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.manager
+    ?.restartBudget !== 3 ||
+  JSON.stringify(
+    profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.manager
+      ?.restartBackoffSeconds,
+  ) !== JSON.stringify([2, 4, 8]) ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.manager
+    ?.supervisorLoss !== "SIGKILL supervisor and owned router while the manager remains active" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.manager
+    ?.preReadyTraffic !==
+    "stable endpoint unavailable throughout bounded replacement backoff and recovery" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.manager
+    ?.childOwnership !==
+    "Linux parent-death SIGKILL plus expected manager PID recheck before singleton acquisition" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.manager
+    ?.replacement !==
+    "automatic recovery-only supervisor replacement reconfirms exact persisted state before readiness" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.manager
+    ?.parentLoss !==
+    "SIGKILL manager terminates the owned supervisor and router before controlled manager replacement" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.manager
+    ?.exhaustion !== "manager exits nonzero without serving traffic" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision
     ?.productionCertified !== false ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.longLivedPool
@@ -733,6 +765,28 @@ if (
   fail("the PostgreSQL route supervisor has drifted from its bounded conformance contract");
 }
 if (
+  !routeManager.includes(
+    "RestartBackoffs:  []time.Duration{2 * time.Second, 4 * time.Second, 8 * time.Second}",
+  ) ||
+  !routeManager.includes("ReadinessTimeout: 12 * time.Second") ||
+  !routeManager.includes("ShutdownTimeout:  5 * time.Second") ||
+  !routeManager.includes("command := exec.Command(executable, arguments...)") ||
+  !routeManager.includes("command.Stdout = io.Discard") ||
+  !routeManager.includes("command.Stderr = io.Discard") ||
+  !routeManager.includes("configureRouteChildOwnership(command)") ||
+  !routeManager.includes("runBoundedConformanceSupervisor(") ||
+  !routeManager.includes("supervisorChildArguments(config, initializing, os.Getpid())") ||
+  !routeManager.includes('"--mode", "supervise"') ||
+  !routeManager.includes('"--manager-pid", strconv.Itoa(managerPID)') ||
+  !routeManager.includes('const supervisorReadyState = "supervisor-ready"') ||
+  !routeManager.includes(
+    'const supervisorRestartScheduledState = "supervisor-restart-scheduled"',
+  ) ||
+  routeManager.includes("password")
+) {
+  fail("the PostgreSQL route manager has drifted from its bounded replacement contract");
+}
+if (
   !routeSupervisorOwnershipLinux.includes("syscall.O_NOFOLLOW") ||
   !routeSupervisorOwnershipLinux.includes("syscall.O_CLOEXEC") ||
   !routeSupervisorOwnershipLinux.includes("syscall.LOCK_EX|syscall.LOCK_NB") ||
@@ -744,7 +798,9 @@ if (
 }
 if (
   !routeCommand.includes('flags.Int("supervisor-pid"') ||
+  !routeCommand.includes('flags.Int("manager-pid"') ||
   !routeCommand.includes("validateRouteChildOwnership(*supervisorPID)") ||
+  !routeCommand.includes("validateRouteChildOwnership(*managerPID)") ||
   !routeChildOwnership.includes("os.Getppid() != expectedSupervisorPID") ||
   !routeChildOwnershipLinux.includes("Pdeathsig: syscall.SIGKILL")
 ) {
@@ -809,22 +865,29 @@ if (
   !workflow.includes("long-lived database pool did not reconnect through the stable endpoint") ||
   !workflow.includes("Supervise stable endpoint after router process loss") ||
   !workflow.includes("--mode supervise") ||
-  !workflow.includes('supervisor_pid=$(cat "$RUNNER_TEMP/postgres-route-supervisor.pid")') ||
+  !workflow.includes("--mode manage") ||
+  !workflow.includes('manager_pid=$(cat "$RUNNER_TEMP/postgres-route-manager.pid")') ||
+  !workflow.includes('supervisor_pid=$(pgrep --parent "$manager_pid" || true)') ||
   !workflow.includes('child_pid=$(pgrep --parent "$supervisor_pid" || true)') ||
   !workflow.includes('kill -KILL "$child_pid"') ||
-  !workflow.includes("route supervisor reported readiness before child recovery") ||
-  !workflow.includes(
-    "expected_supervisor_states=$'router-ready\\nrouter-restart-scheduled\\nrouter-ready'",
-  ) ||
+  !workflow.includes("route manager reported readiness before router recovery") ||
   !workflow.includes("stable database endpoint remained usable after router process loss") ||
-  !workflow.includes("Replace supervisor after parent process loss") ||
+  !workflow.includes("Automatically replace supervisor after process loss") ||
   !workflow.includes('kill -KILL "$supervisor_pid"') ||
-  !workflow.includes('rm --force "$RUNNER_TEMP/postgres-route-supervisor.pid"') ||
-  !workflow.includes("router child outlived its supervisor ownership boundary") ||
-  !workflow.includes("parent process loss left route readiness available") ||
-  !workflow.includes("parent process loss left the stable database endpoint available") ||
-  !workflow.includes("replacement supervisor did not recover the exact ownership boundary") ||
-  !workflow.includes("replacement database endpoint emitted unexpected output") ||
+  !workflow.includes(
+    "expected_manager_states=$'supervisor-ready\\nsupervisor-restart-scheduled\\nsupervisor-ready'",
+  ) ||
+  !workflow.includes("supervisor process loss did not enter bounded replacement backoff") ||
+  !workflow.includes("route manager reported readiness before supervisor replacement") ||
+  !workflow.includes("route manager did not restore the exact persisted supervisor boundary") ||
+  !workflow.includes("Replace manager after parent process loss") ||
+  !workflow.includes('kill -KILL "$manager_pid"') ||
+  !workflow.includes('rm --force "$RUNNER_TEMP/postgres-route-manager.pid"') ||
+  !workflow.includes("managed route processes outlived the manager ownership boundary") ||
+  !workflow.includes("manager process loss left route readiness available") ||
+  !workflow.includes("manager process loss left the stable database endpoint available") ||
+  !workflow.includes("replacement manager did not recover the exact ownership boundary") ||
+  !workflow.includes("replacement database endpoint manager emitted unexpected output") ||
   !workflow.includes("stable database endpoint did not recover its exact private state") ||
   !workflow.includes("stat --format '%a' \"$state.lock\"") ||
   !workflow.includes('rm "$state"') ||

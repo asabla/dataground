@@ -117,27 +117,52 @@ func runRouteSupervisor(
 	dependencies routeSupervisorDependencies,
 	output io.Writer,
 ) error {
+	return runBoundedConformanceSupervisor(
+		ctx,
+		config.ControlSocket,
+		config.StateFile,
+		config.InitialRoute != "",
+		policy,
+		dependencies,
+		output,
+		routerReadyState,
+		routerRestartScheduledState,
+		func(initializing bool) []string {
+			return routeChildArguments(config, initializing, os.Getpid())
+		},
+	)
+}
+
+func runBoundedConformanceSupervisor(
+	ctx context.Context,
+	controlSocket string,
+	stateFile string,
+	initializing bool,
+	policy routeSupervisorPolicy,
+	dependencies routeSupervisorDependencies,
+	output io.Writer,
+	readyState string,
+	restartScheduledState string,
+	childArguments func(bool) []string,
+) error {
 	if err := validateSupervisorPolicy(policy); err != nil {
 		return err
 	}
-	stateExists, err := dependencies.StateExists(config.StateFile)
+	stateExists, err := dependencies.StateExists(stateFile)
 	if err != nil {
 		return err
 	}
-	initializing := config.InitialRoute != ""
 	if initializing == stateExists {
 		return errors.New("PostgreSQL route supervisor state boundary is invalid")
 	}
 
 	for attempt := 0; ; attempt++ {
-		child, startErr := dependencies.StartChild(
-			routeChildArguments(config, initializing, os.Getpid()),
-		)
+		child, startErr := dependencies.StartChild(childArguments(initializing))
 		if startErr == nil {
 			exited, childExit, waitErr := waitForRouteChild(
 				ctx,
 				child,
-				config.ControlSocket,
+				controlSocket,
 				policy,
 				dependencies.StateStatus,
 			)
@@ -148,7 +173,7 @@ func runRouteSupervisor(
 				return nil
 			}
 			if waitErr == nil {
-				if err := writeSupervisorState(output, routerReadyState); err != nil {
+				if err := writeSupervisorState(output, readyState); err != nil {
 					stopRouteChild(child, childExit, policy.ShutdownTimeout)
 					return err
 				}
@@ -166,11 +191,11 @@ func runRouteSupervisor(
 		if attempt >= len(policy.RestartBackoffs) {
 			return errors.New("PostgreSQL route supervisor restart budget exhausted")
 		}
-		if err := writeSupervisorState(output, routerRestartScheduledState); err != nil {
+		if err := writeSupervisorState(output, restartScheduledState); err != nil {
 			return err
 		}
 		if initializing {
-			stateExists, err = dependencies.StateExists(config.StateFile)
+			stateExists, err = dependencies.StateExists(stateFile)
 			if err != nil {
 				return err
 			}

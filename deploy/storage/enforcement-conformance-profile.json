@@ -93,6 +93,18 @@
           "contender": "rejected before state inspection or child launch without disturbing the active owner",
           "controlledTakeover": "recovery-only replacement acquires released ownership after the former supervisor and child terminate",
           "exhaustion": "supervisor exits nonzero without serving traffic",
+          "manager": {
+            "implementation": "same-binary outer conformance parent with one singleton supervisor child",
+            "readiness": "private state control succeeds only after the managed supervisor restores the exact persisted route and PostgreSQL timeline",
+            "restartBudget": 3,
+            "restartBackoffSeconds": [2, 4, 8],
+            "supervisorLoss": "SIGKILL supervisor and owned router while the manager remains active",
+            "preReadyTraffic": "stable endpoint unavailable throughout bounded replacement backoff and recovery",
+            "childOwnership": "Linux parent-death SIGKILL plus expected manager PID recheck before singleton acquisition",
+            "replacement": "automatic recovery-only supervisor replacement reconfirms exact persisted state before readiness",
+            "parentLoss": "SIGKILL manager terminates the owned supervisor and router before controlled manager replacement",
+            "exhaustion": "manager exits nonzero without serving traffic"
+          },
           "productionCertified": false
         },
         "longLivedPool": {
@@ -223,3 +235,4 @@
     "the complete platform-object and lakehouse S3 contract is broader than this enforcement subset"
   ]
 }
+
