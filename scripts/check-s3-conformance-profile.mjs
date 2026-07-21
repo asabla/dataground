@@ -78,6 +78,10 @@ const routeChildOwnershipLinux = await readFile(
   resolve(root, "cmd/dataground-postgres-route-conformance/child_ownership_linux.go"),
   "utf8",
 );
+const routeSupervisorOwnershipLinux = await readFile(
+  resolve(root, "cmd/dataground-postgres-route-conformance/supervisor_ownership_linux.go"),
+  "utf8",
+);
 const poolCommand = await readFile(
   resolve(root, "cmd/dataground-postgres-route-conformance/pool.go"),
   "utf8",
@@ -293,6 +297,14 @@ if (
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision
     ?.parentReplacement !==
     "recovery-only replacement reconfirms the exact persisted route and PostgreSQL timeline before readiness" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision
+    ?.singletonOwnership !==
+    "exclusive non-blocking supervisor-lifetime lock in the private route workspace" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.contender !==
+    "rejected before state inspection or child launch without disturbing the active owner" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision
+    ?.controlledTakeover !==
+    "recovery-only replacement acquires released ownership after the former supervisor and child terminate" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.exhaustion !==
     "supervisor exits nonzero without serving traffic" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision
@@ -705,6 +717,8 @@ if (
   !routeSupervisor.includes("command.Stdout = io.Discard") ||
   !routeSupervisor.includes("command.Stderr = io.Discard") ||
   !routeSupervisor.includes("configureRouteChildOwnership(command)") ||
+  !routeSupervisor.includes("acquireRouteSupervisorOwnership(config)") ||
+  !routeSupervisor.includes("ownership.Close()") ||
   !routeSupervisor.includes("dependencies.StateStatus") ||
   !routeSupervisor.includes("routeChildArguments(config, initializing, os.Getpid())") ||
   !routeSupervisor.includes('"--mode", "serve"') ||
@@ -717,6 +731,16 @@ if (
   routeSupervisor.includes("password")
 ) {
   fail("the PostgreSQL route supervisor has drifted from its bounded conformance contract");
+}
+if (
+  !routeSupervisorOwnershipLinux.includes("syscall.O_NOFOLLOW") ||
+  !routeSupervisorOwnershipLinux.includes("syscall.O_CLOEXEC") ||
+  !routeSupervisorOwnershipLinux.includes("syscall.LOCK_EX | syscall.LOCK_NB") ||
+  !routeSupervisorOwnershipLinux.includes("info.Mode().Perm() != 0o600") ||
+  !routeSupervisorOwnershipLinux.includes("stat.Nlink != 1") ||
+  !routeSupervisorOwnershipLinux.includes("stat.Uid != uint32(os.Geteuid())")
+) {
+  fail("the PostgreSQL route supervisor singleton boundary has drifted");
 }
 if (
   !routeCommand.includes('flags.Int("supervisor-pid"') ||
@@ -763,6 +787,10 @@ if (
   !workflow.includes("--promotion-generation") ||
   !workflow.includes("postgres-primary-generation") ||
   !workflow.includes("postgres-promoted-generation") ||
+  !workflow.includes("Reject concurrent route supervisor contender") ||
+  !workflow.includes("concurrent route supervisor acquired active ownership") ||
+  !workflow.includes("route supervisor contender disturbed the active ownership boundary") ||
+  !workflow.includes('state.supervisor.lock') ||
   !workflow.includes("stable database endpoint accepted a stale promotion generation") ||
   !workflow.includes("stale promotion generation changed the stable database route") ||
   !workflow.includes("stable database endpoint accepted a stale in-flight promotion generation") ||

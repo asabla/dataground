@@ -40,6 +40,10 @@ type routeSupervisorPolicy struct {
 	ShutdownTimeout  time.Duration
 }
 
+type routeSupervisorOwnership interface {
+	Close() error
+}
+
 type routeChild interface {
 	Wait() error
 	Signal(os.Signal) error
@@ -68,7 +72,21 @@ type routeSupervisorDependencies struct {
 	StateExists func(string) (bool, error)
 }
 
-func superviseRoute(ctx context.Context, config routeSupervisorConfig, output io.Writer) error {
+func superviseRoute(
+	ctx context.Context,
+	config routeSupervisorConfig,
+	output io.Writer,
+) (result error) {
+	ownership, err := acquireRouteSupervisorOwnership(config)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := ownership.Close(); result == nil && closeErr != nil {
+			result = errors.New("release PostgreSQL route supervisor ownership")
+		}
+	}()
+
 	executable, err := os.Executable()
 	if err != nil {
 		return errors.New("resolve PostgreSQL route conformance executable")
