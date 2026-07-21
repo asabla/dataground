@@ -586,8 +586,57 @@ jobs:
             || [ "$(stat --format '%a' "$workspace")" != "700" ] \
             || [ "$(stat --format '%a' "$state")" != "600" ] \
             || [ "$(stat --format '%a' "$state.lock")" != "600" ] \
+            || [ "$(stat --format '%a' "$state.supervisor.lock")" != "600" ] \
             || [ "$(stat --format '%a' "$control")" != "600" ]; then
             echo "stable database endpoint did not recover its exact private state"
+            exit 1
+          fi
+
+      - name: Reject concurrent route supervisor contender
+        env:
+          DATAGROUND_ROUTER_HEALTH_DATABASE_URL: postgres://dataground_health:dataground-health@127.0.0.1:55431/dataground_conformance?sslmode=disable
+        run: |
+          router="$RUNNER_TEMP/dataground-postgres-route-conformance"
+          workspace="$RUNNER_TEMP/dataground-postgres-route"
+          control="$workspace/control.sock"
+          state="$workspace/state.json"
+          ownership="$state.supervisor.lock"
+          expected="promoted $(cat "$RUNNER_TEMP/postgres-promoted-generation")"
+          expected_supervisor_states=$'router-ready\nrouter-restart-scheduled\nrouter-ready'
+          state_before=$(cat "$state")
+          supervisor_pid=$(cat "$RUNNER_TEMP/postgres-route-supervisor.pid")
+          child_pid=$(pgrep --parent "$supervisor_pid" || true)
+          if [[ ! "$child_pid" =~ ^[1-9][0-9]*$ ]]; then
+            echo "active route supervisor did not own exactly one child"
+            exit 1
+          fi
+          if "$router" \
+            --mode supervise \
+            --listen-address 127.0.0.1:55431 \
+            --control-socket "$control" \
+            --state-file "$state" \
+            --primary-target 127.0.0.1:55432 \
+            --promoted-target 127.0.0.1:55433 \
+            >"$RUNNER_TEMP/postgres-route-contender.stdout" \
+            2>"$RUNNER_TEMP/postgres-route-contender.stderr"; then
+            echo "concurrent route supervisor acquired active ownership"
+            exit 1
+          fi
+          active_child=$(pgrep --parent "$supervisor_pid" || true)
+          observed=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
+          role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+            "$router" --mode role 2>/dev/null || true)
+          if ! kill -0 "$supervisor_pid" 2>/dev/null \
+            || [ "$active_child" != "$child_pid" ] \
+            || [ "$(cat "$state")" != "$state_before" ] \
+            || [ "$observed" != "$expected" ] \
+            || [ "$role" != "writable-primary" ] \
+            || [ "$(cat "$RUNNER_TEMP/postgres-route.stdout")" != "$expected_supervisor_states" ] \
+            || [ -s "$RUNNER_TEMP/postgres-route-contender.stdout" ] \
+            || [ "$(cat "$RUNNER_TEMP/postgres-route-contender.stderr")" != \
+              "PostgreSQL route supervision failed" ] \
+            || [ "$(stat --format '%a' "$ownership")" != "600" ]; then
+            echo "route supervisor contender disturbed the active ownership boundary"
             exit 1
           fi
 
@@ -668,6 +717,7 @@ jobs:
             || [ "$(stat --format '%a' "$workspace")" != "700" ] \
             || [ "$(stat --format '%a' "$state")" != "600" ] \
             || [ "$(stat --format '%a' "$state.lock")" != "600" ] \
+            || [ "$(stat --format '%a' "$state.supervisor.lock")" != "600" ] \
             || [ "$(stat --format '%a' "$control")" != "600" ]; then
             echo "replacement supervisor did not recover the exact ownership boundary"
             exit 1

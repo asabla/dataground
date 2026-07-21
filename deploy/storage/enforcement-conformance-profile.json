@@ -89,6 +89,9 @@
           "childOwnership": "Linux parent-death SIGKILL plus expected supervisor PID recheck before socket creation",
           "parentLoss": "SIGKILL supervisor terminates the owned child and makes readiness and traffic unavailable",
           "parentReplacement": "recovery-only replacement reconfirms the exact persisted route and PostgreSQL timeline before readiness",
+          "singletonOwnership": "exclusive non-blocking supervisor-lifetime lock in the private route workspace",
+          "contender": "rejected before state inspection or child launch without disturbing the active owner",
+          "controlledTakeover": "recovery-only replacement acquires released ownership after the former supervisor and child terminate",
           "exhaustion": "supervisor exits nonzero without serving traffic",
           "productionCertified": false
         },
