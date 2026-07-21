@@ -3,6 +3,7 @@ set -eu
 
 : "${PGDATA:?PostgreSQL target data directory is required}"
 : "${DATAGROUND_FENCE_PATH:?PostgreSQL fence path is required}"
+: "${DATAGROUND_REPLICATION_PASSFILE:?PostgreSQL replication passfile path is required}"
 : "${POSTGRES_USER:?PostgreSQL rejoin user is required}"
 : "${POSTGRES_PASSWORD:?PostgreSQL rejoin password is required}"
 
@@ -36,4 +37,7 @@ PGPASSWORD="$POSTGRES_PASSWORD" pg_rewind \
   --progress
 
 test -f "$PGDATA/standby.signal"
+umask 077
+printf 'postgres-standby:5432:*:%s:%s\n' "$POSTGRES_USER" "$POSTGRES_PASSWORD" \
+  >"$DATAGROUND_REPLICATION_PASSFILE"
 rm -f "$fence"

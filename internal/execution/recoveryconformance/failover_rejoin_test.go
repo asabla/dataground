@@ -50,7 +50,7 @@ func TestFailoverRejoinRequiresVerificationBeforeObservation(t *testing.T) {
 	}
 	for name, verify := range map[string]func(context.Context, Fixture) error{
 		"missing hook": nil,
-		"not ready":   func(context.Context, Fixture) error { return errors.New("database detail") },
+		"not ready":    func(context.Context, Fixture) error { return errors.New("database detail") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			catalog := &memoryCatalog{available: true, record: fixture.Record, audits: 1}
