@@ -29,6 +29,7 @@ services:
     user: "999:999"
     environment:
       DATAGROUND_FENCE_PATH: /var/lib/postgresql/.dataground-fenced
+      PGPASSFILE: /var/lib/postgresql/.dataground-replication-pass
       PGDATA: /var/lib/postgresql/data/pgdata
       POSTGRES_DB: dataground_conformance
       POSTGRES_PASSWORD: dataground
@@ -114,6 +115,7 @@ services:
     user: "999:999"
     environment:
       DATAGROUND_FENCE_PATH: /var/lib/postgresql/.dataground-fenced
+      DATAGROUND_REPLICATION_PASSFILE: /var/lib/postgresql/.dataground-replication-pass
       PGDATA: /var/lib/postgresql/data/pgdata
       POSTGRES_PASSWORD: dataground
       POSTGRES_USER: dataground

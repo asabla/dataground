@@ -199,6 +199,8 @@ if (
     "pg_rewind from promoted primary before fence removal" ||
   profile.recoveryConformance?.clusteredFailover?.stalePrimaryRejoin?.uncleanTarget !==
     "rejected; fresh rebuild required" ||
+  profile.recoveryConformance?.clusteredFailover?.stalePrimaryRejoin?.replicationCredential !==
+    "mode-0600 private data-volume passfile" ||
   profile.recoveryConformance?.clusteredFailover?.stalePrimaryRejoin?.rejoinRole !==
     "read-only physical standby" ||
   profile.recoveryConformance?.clusteredFailover?.stalePrimaryRejoin?.replicationBoundary !==
@@ -374,20 +376,22 @@ if (
 ) {
   fail("the disposable PostgreSQL recovery dependency is not isolated consistently");
 }
-const postgresCompose = compose.split("\n  postgres:")[1] ?? "";
+const postgresCompose = compose.split("\n  postgres:")[1]?.split("\n  postgres-standby:")[0] ?? "";
 if (
   !postgresCompose.includes("mem_limit: 512m") ||
   !postgresCompose.includes("pids_limit: 256") ||
   !postgresCompose.includes("cap_drop:\n      - ALL") ||
   !postgresCompose.includes("no-new-privileges:true") ||
   !postgresCompose.includes("DATAGROUND_FENCE_PATH: /var/lib/postgresql/.dataground-fenced") ||
+  !postgresCompose.includes("PGPASSFILE: /var/lib/postgresql/.dataground-replication-pass") ||
   !postgresCompose.includes("postgres-primary-entrypoint.sh") ||
   !postgresCompose.includes("wal_log_hints=on") ||
   postgresCompose.includes("cap_add:")
 ) {
   fail("the disposable PostgreSQL process does not retain its least-privilege boundary");
 }
-const standbyCompose = compose.split("\n  postgres-standby:")[1]?.split("\nvolumes:")[0] ?? "";
+const standbyCompose =
+  compose.split("\n  postgres-standby:")[1]?.split("\n  postgres-fence:")[0] ?? "";
 if (
   !standbyCompose.includes("postgres-failover") ||
   !standbyCompose.includes("image: postgres:18.4-bookworm") ||
@@ -427,6 +431,13 @@ for (const [name, service, script] of [
   }
 }
 if (
+  !rejoinCompose.includes(
+    "DATAGROUND_REPLICATION_PASSFILE: /var/lib/postgresql/.dataground-replication-pass",
+  )
+) {
+  fail("the PostgreSQL rejoin service does not retain its private replication credential boundary");
+}
+if (
   !primaryInit.includes("host replication all all scram-sha-256") ||
   !primaryInit.includes('ALTER ROLE :"replication_role" WITH REPLICATION;') ||
   !standbyEntrypoint.includes("pg_basebackup") ||
@@ -451,6 +462,9 @@ if (
   !rejoinScript.includes("--source-server=") ||
   !rejoinScript.includes("--write-recovery-conf") ||
   !rejoinScript.includes("--no-ensure-shutdown") ||
+  !rejoinScript.includes("DATAGROUND_REPLICATION_PASSFILE") ||
+  !rejoinScript.includes("postgres-standby:5432:*:%s:%s") ||
+  !rejoinScript.includes("umask 077") ||
   rejoinScript.includes("password=") ||
   rewindIndex < 0 ||
   standbySignalIndex <= rewindIndex ||
