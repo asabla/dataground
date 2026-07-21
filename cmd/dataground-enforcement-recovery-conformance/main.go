@@ -41,7 +41,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	phase := flags.String(
 		"phase",
 		"",
-		"prepare, outage, recover, commit-loss, committed-recover, commit-connection-loss or connection-loss-recover",
+		"prepare, outage, recover, commit-loss, committed-recover, commit-connection-loss, connection-loss-recover, pre-commit-connection-loss or rolled-back-recover",
 	)
 	allowLoopbackHTTP := flags.Bool("allow-loopback-http", false, "allow explicit plaintext loopback development endpoint")
 	databaseURL := os.Getenv("DATAGROUND_TEST_DATABASE_URL")
@@ -121,12 +121,13 @@ func execute(
 	}
 	poolURL := databaseURL
 	var commitProxy *pgcommitproxy.Proxy
-	if phase == recoveryconformance.PhaseCommitConnectionLoss {
+	var waitForCommitLoss func(context.Context) error
+	if fault, required := commitProxyFault(phase); required {
 		target, err := databaseTarget(databaseURL)
 		if err != nil {
 			return recoveryconformance.Report{}, errors.New("resolve recovery conformance database target")
 		}
-		commitProxy, err = pgcommitproxy.Start(ctx, target)
+		commitProxy, err = pgcommitproxy.Start(ctx, target, fault)
 		if err != nil {
 			return recoveryconformance.Report{}, errors.New("start recovery conformance commit proxy")
 		}
@@ -134,6 +135,11 @@ func execute(
 		poolURL, err = proxiedDatabaseURL(databaseURL, commitProxy.Address())
 		if err != nil {
 			return recoveryconformance.Report{}, errors.New("configure recovery conformance commit proxy")
+		}
+		waitForCommitLoss = func(waitContext context.Context) error {
+			bounded, cancel := context.WithTimeout(waitContext, 10*time.Second)
+			defer cancel()
+			return commitProxy.Wait(bounded)
 		}
 	}
 	pool, err := persistence.OpenPool(ctx, poolURL)
@@ -160,14 +166,13 @@ func execute(
 	case recoveryconformance.PhaseCommittedRecover:
 		return recoveryconformance.RunCommittedRecover(ctx, catalog, backend, config)
 	case recoveryconformance.PhaseCommitConnectionLoss:
-		waitForLoss := func(waitContext context.Context) error {
-			bounded, cancel := context.WithTimeout(waitContext, 10*time.Second)
-			defer cancel()
-			return commitProxy.Wait(bounded)
-		}
-		return recoveryconformance.RunCommitConnectionLoss(ctx, catalog, backend, waitForLoss, config)
+		return recoveryconformance.RunCommitConnectionLoss(ctx, catalog, backend, waitForCommitLoss, config)
 	case recoveryconformance.PhaseConnectionLossRecover:
 		return recoveryconformance.RunConnectionLossRecover(ctx, catalog, backend, config)
+	case recoveryconformance.PhasePreCommitConnectionLoss:
+		return recoveryconformance.RunPreCommitConnectionLoss(ctx, catalog, backend, waitForCommitLoss, config)
+	case recoveryconformance.PhaseRolledBackRecover:
+		return recoveryconformance.RunRolledBackRecover(ctx, catalog, backend, config)
 	default:
 		return recoveryconformance.Report{}, errors.New("invalid recovery conformance phase")
 	}
@@ -178,7 +183,20 @@ func validPhase(phase recoveryconformance.Phase) bool {
 		phase == recoveryconformance.PhaseRecover || phase == recoveryconformance.PhaseCommitLoss ||
 		phase == recoveryconformance.PhaseCommittedRecover ||
 		phase == recoveryconformance.PhaseCommitConnectionLoss ||
-		phase == recoveryconformance.PhaseConnectionLossRecover
+		phase == recoveryconformance.PhaseConnectionLossRecover ||
+		phase == recoveryconformance.PhasePreCommitConnectionLoss ||
+		phase == recoveryconformance.PhaseRolledBackRecover
+}
+
+func commitProxyFault(phase recoveryconformance.Phase) (pgcommitproxy.FaultPoint, bool) {
+	switch phase {
+	case recoveryconformance.PhaseCommitConnectionLoss:
+		return pgcommitproxy.AfterCommitDurability, true
+	case recoveryconformance.PhasePreCommitConnectionLoss:
+		return pgcommitproxy.BeforeCommitDurability, true
+	default:
+		return "", false
+	}
 }
 
 func databaseTarget(raw string) (string, error) {

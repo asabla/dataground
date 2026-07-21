@@ -52,7 +52,7 @@ func TestProxyDropsCommittedResponseBeforeClientObservation(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	proxy, err := Start(ctx, upstream.Addr().String())
+	proxy, err := Start(ctx, upstream.Addr().String(), AfterCommitDurability)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,9 +88,87 @@ func TestProxyDropsCommittedResponseBeforeClientObservation(t *testing.T) {
 	}
 }
 
+func TestProxyDropsCommitRequestBeforeServerObservation(t *testing.T) {
+	upstream, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upstream.Close()
+	serverDone := make(chan error, 1)
+	go func() {
+		connection, acceptErr := upstream.Accept()
+		if acceptErr != nil {
+			serverDone <- acceptErr
+			return
+		}
+		defer connection.Close()
+		if err := discardStartup(connection); err != nil {
+			serverDone <- err
+			return
+		}
+		if _, err := connection.Write(message('R', []byte{0, 0, 0, 0})); err != nil {
+			serverDone <- err
+			return
+		}
+		if _, err := connection.Write(message('Z', []byte{'I'})); err != nil {
+			serverDone <- err
+			return
+		}
+		_, _, _, err := readTypedMessage(connection)
+		if err == nil {
+			serverDone <- errors.New("server observed the intercepted COMMIT request")
+			return
+		}
+		serverDone <- nil
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	proxy, err := Start(ctx, upstream.Addr().String(), BeforeCommitDurability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.Close()
+	client, err := net.Dial("tcp", proxy.Address())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	startup := make([]byte, 8)
+	binary.BigEndian.PutUint32(startup, uint32(len(startup)))
+	binary.BigEndian.PutUint32(startup[4:], 196608)
+	if _, err := client.Write(startup); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := readTypedMessage(client); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := readTypedMessage(client); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Write(message('Q', []byte("commit\x00"))); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := readTypedMessage(client); err == nil {
+		t.Fatal("client connection remained available after intercepted COMMIT")
+	}
+	if err := proxy.Wait(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestProxyRejectsRemoteTarget(t *testing.T) {
-	if _, err := Start(context.Background(), "192.0.2.1:5432"); err == nil {
+	if _, err := Start(context.Background(), "192.0.2.1:5432", AfterCommitDurability); err == nil {
 		t.Fatal("remote PostgreSQL target accepted")
+	}
+}
+
+func TestProxyRejectsUnknownFaultPoint(t *testing.T) {
+	if _, err := Start(context.Background(), "127.0.0.1:5432", FaultPoint("unknown")); err == nil {
+		t.Fatal("unknown PostgreSQL commit proxy fault point accepted")
 	}
 }
 
@@ -100,7 +178,7 @@ func TestProxyWaitPreservesCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer upstream.Close()
-	proxy, err := Start(context.Background(), upstream.Addr().String())
+	proxy, err := Start(context.Background(), upstream.Addr().String(), AfterCommitDurability)
 	if err != nil {
 		t.Fatal(err)
 	}
