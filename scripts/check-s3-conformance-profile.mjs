@@ -12,6 +12,15 @@ const recoverySuite = await readFile(
   resolve(root, "internal/execution/recoveryconformance/suite.go"),
   "utf8",
 );
+const commitLossSuite = await readFile(
+  resolve(root, "internal/execution/recoveryconformance/commit_loss.go"),
+  "utf8",
+);
+const recoveryImplementation = `${recoverySuite}\n${commitLossSuite}`;
+const recoveryCommand = await readFile(
+  resolve(root, "cmd/dataground-enforcement-recovery-conformance/main.go"),
+  "utf8",
+);
 const packageManifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
 
 function fail(message) {
@@ -73,6 +82,12 @@ const recoveryPhases = {
     "read-only-replay",
     "single-audit-commit",
   ],
+  "committed-recover": [
+    "catalog-commit-survived-process-loss",
+    "object-consistent-after-process-loss",
+    "read-only-replay-after-ambiguous-commit",
+    "single-audit-after-ambiguous-commit",
+  ],
 };
 if (
   profile.recoveryConformance?.reportSchema !== "dataground.enforcement-recovery-conformance/v1" ||
@@ -82,18 +97,33 @@ if (
   profile.recoveryConformance?.objectBackendOutage !== true ||
   profile.recoveryConformance?.objectContainerRecreated !== true ||
   profile.recoveryConformance?.concurrentRecoveryWorkers !== 8 ||
+  profile.recoveryConformance?.ambiguousCatalogCommit?.phase !== "commit-loss" ||
+  profile.recoveryConformance?.ambiguousCatalogCommit?.terminationBoundary !==
+    "after PostgreSQL commit before finalizer acknowledgement" ||
+  profile.recoveryConformance?.ambiguousCatalogCommit?.expectedExitCode !== 86 ||
   JSON.stringify(profile.recoveryConformance?.phases) !== JSON.stringify(recoveryPhases)
 ) {
   fail("the joint PostgreSQL and enforcement-object recovery contract is incomplete");
 }
 if (
-  !recoverySuite.includes("const ConcurrentRecoveryWorkers = 8") ||
-  !recoverySuite.includes('PhaseOutage  Phase = "outage"') ||
-  !recoverySuite.includes('"finalization-fails-closed-during-object-outage"') ||
-  !recoverySuite.includes('"concurrent-catalog-adoption-after-restarts"') ||
-  !recoverySuite.includes("newArrivalBarrier(ConcurrentRecoveryWorkers)")
+  !recoveryImplementation.includes("const ConcurrentRecoveryWorkers = 8") ||
+  !/PhaseOutage\s+Phase = "outage"/.test(recoveryImplementation) ||
+  !/PhaseCommitLoss\s+Phase = "commit-loss"/.test(recoveryImplementation) ||
+  !/PhaseCommittedRecover\s+Phase = "committed-recover"/.test(recoveryImplementation) ||
+  !recoveryImplementation.includes('"finalization-fails-closed-during-object-outage"') ||
+  !recoveryImplementation.includes('"concurrent-catalog-adoption-after-restarts"') ||
+  !recoveryImplementation.includes('"read-only-replay-after-ambiguous-commit"') ||
+  !recoveryImplementation.includes("newArrivalBarrier(ConcurrentRecoveryWorkers)")
 ) {
   fail("the executable recovery suite has drifted from the scored profile");
+}
+if (
+  !recoveryCommand.includes("const commitLossExitCode = 86") ||
+  !recoveryCommand.includes("func() { os.Exit(commitLossExitCode) }") ||
+  !recoveryCommand.includes("recoveryconformance.RunCommitLoss") ||
+  !recoveryCommand.includes("recoveryconformance.RunCommittedRecover")
+) {
+  fail("the recovery command has drifted from the process-loss contract");
 }
 
 if (
@@ -157,6 +187,9 @@ if (
   !workflow.includes("rm --force seaweedfs") ||
   !workflow.includes("up --detach seaweedfs") ||
   !workflow.includes("restart postgres") ||
+  !workflow.includes("--phase commit-loss") ||
+  !workflow.includes('"$status" -ne 86') ||
+  !workflow.includes("--phase committed-recover") ||
   !workflow.includes("DATAGROUND_TEST_DATABASE_URL") ||
   !workflow.includes("deploy/storage/seaweedfs-conformance.yml up --detach") ||
   !workflow.includes("deploy/storage/seaweedfs-conformance.yml down --volumes")

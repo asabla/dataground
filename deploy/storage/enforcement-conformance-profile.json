@@ -41,17 +41,25 @@
     "objectBackendOutage": true,
     "objectContainerRecreated": true,
     "concurrentRecoveryWorkers": 8,
+    "ambiguousCatalogCommit": {
+      "phase": "commit-loss",
+      "terminationBoundary": "after PostgreSQL commit before finalizer acknowledgement",
+      "expectedExitCode": 86
+    },
     "phases": {
       "prepare": ["fresh-scope", "fixture-provisioned", "object-retained-after-database-loss"],
-      "outage": [
-        "finalization-fails-closed-during-object-outage",
-        "catalog-remains-unbound"
-      ],
+      "outage": ["finalization-fails-closed-during-object-outage", "catalog-remains-unbound"],
       "recover": [
         "retained-object-present",
         "concurrent-catalog-adoption-after-restarts",
         "read-only-replay",
         "single-audit-commit"
+      ],
+      "committed-recover": [
+        "catalog-commit-survived-process-loss",
+        "object-consistent-after-process-loss",
+        "read-only-replay-after-ambiguous-commit",
+        "single-audit-after-ambiguous-commit"
       ]
     }
   },

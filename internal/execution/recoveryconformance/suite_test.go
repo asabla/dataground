@@ -359,7 +359,14 @@ func TestReportsDoNotSerializeSensitiveRoutingOrContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, report := range []Report{prepare, outage, recover} {
+	committedCatalog := &memoryCatalog{available: true, record: fixture.Record, audits: 1}
+	committed, err := RunCommittedRecover(
+		context.Background(), committedCatalog, recoverBackend, Config{RunID: testRunID},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, report := range []Report{prepare, outage, recover, committed} {
 		encoded, err := json.Marshal(report)
 		if err != nil {
 			t.Fatal(err)

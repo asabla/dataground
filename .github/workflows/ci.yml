@@ -157,6 +157,47 @@ jobs:
           --run-id fedcba9876543210fedcba9876543210
           --allow-loopback-http
 
+      - name: Prepare ambiguous catalog commit
+        run: >-
+          go run ./cmd/dataground-enforcement-recovery-conformance
+          --phase prepare
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id 00112233445566778899aabbccddeeff
+          --allow-loopback-http
+
+      - name: Terminate after committed catalog transaction
+        run: |
+          runner="$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          stdout="$RUNNER_TEMP/catalog-commit-loss.stdout"
+          stderr="$RUNNER_TEMP/catalog-commit-loss.stderr"
+          go build -o "$runner" ./cmd/dataground-enforcement-recovery-conformance
+          set +e
+          "$runner" \
+            --phase commit-loss \
+            --endpoint http://127.0.0.1:8333 \
+            --bucket dataground-conformance \
+            --addressing-style path \
+            --run-id 00112233445566778899aabbccddeeff \
+            --allow-loopback-http >"$stdout" 2>"$stderr"
+          status=$?
+          set -e
+          if [ "$status" -ne 86 ] || [ -s "$stdout" ] || [ -s "$stderr" ]; then
+            echo "catalog commit-loss injection failed"
+            exit 1
+          fi
+
+      - name: Recover ambiguous catalog commit
+        run: >-
+          "$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          --phase committed-recover
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id 00112233445566778899aabbccddeeff
+          --allow-loopback-http
+
       - name: Stop disposable conformance backends
         if: always()
         run: docker compose -f deploy/storage/seaweedfs-conformance.yml down --volumes

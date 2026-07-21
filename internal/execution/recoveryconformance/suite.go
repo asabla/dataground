@@ -24,9 +24,11 @@ const ConcurrentRecoveryWorkers = 8
 type Phase string
 
 const (
-	PhasePrepare Phase = "prepare"
-	PhaseOutage  Phase = "outage"
-	PhaseRecover Phase = "recover"
+	PhasePrepare          Phase = "prepare"
+	PhaseOutage           Phase = "outage"
+	PhaseRecover          Phase = "recover"
+	PhaseCommitLoss       Phase = "commit-loss"
+	PhaseCommittedRecover Phase = "committed-recover"
 )
 
 var runIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
