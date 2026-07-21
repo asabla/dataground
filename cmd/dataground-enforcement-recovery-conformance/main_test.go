@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/asabla/dataground/internal/execution/recoveryconformance"
+	"github.com/asabla/dataground/internal/execution/recoveryconformance/pgcommitproxy"
 )
 
 func TestRunRejectsUnsafeOrIncompleteConfigurationBeforeConnections(t *testing.T) {
@@ -81,6 +82,8 @@ func TestValidPhaseIncludesCommitLossRecoveryBoundary(t *testing.T) {
 		recoveryconformance.PhaseCommittedRecover,
 		recoveryconformance.PhaseCommitConnectionLoss,
 		recoveryconformance.PhaseConnectionLossRecover,
+		recoveryconformance.PhasePreCommitConnectionLoss,
+		recoveryconformance.PhaseRolledBackRecover,
 	} {
 		if !validPhase(phase) {
 			t.Fatalf("phase rejected: %s", phase)
@@ -88,6 +91,24 @@ func TestValidPhaseIncludesCommitLossRecoveryBoundary(t *testing.T) {
 	}
 	if validPhase("unknown") {
 		t.Fatal("unknown phase accepted")
+	}
+}
+
+func TestCommitProxyFaultMatchesRecoveryPhase(t *testing.T) {
+	for _, test := range []struct {
+		phase recoveryconformance.Phase
+		fault pgcommitproxy.FaultPoint
+	}{
+		{phase: recoveryconformance.PhaseCommitConnectionLoss, fault: pgcommitproxy.AfterCommitDurability},
+		{phase: recoveryconformance.PhasePreCommitConnectionLoss, fault: pgcommitproxy.BeforeCommitDurability},
+	} {
+		fault, required := commitProxyFault(test.phase)
+		if !required || fault != test.fault {
+			t.Fatalf("commitProxyFault(%q) = %q, %t", test.phase, fault, required)
+		}
+	}
+	if fault, required := commitProxyFault(recoveryconformance.PhaseRecover); required || fault != "" {
+		t.Fatalf("ordinary recovery requested proxy fault %q", fault)
 	}
 }
 

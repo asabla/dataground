@@ -51,6 +51,11 @@
         "phase": "commit-connection-loss",
         "faultBoundary": "PostgreSQL COMMIT completion before client observation",
         "transport": "bounded loopback protocol proxy"
+      },
+      "preDurabilityConnectionLoss": {
+        "phase": "pre-commit-connection-loss",
+        "faultBoundary": "PostgreSQL COMMIT request before server observation",
+        "expectedOutcome": "transaction rolled back"
       }
     },
     "phases": {
@@ -74,6 +79,16 @@
         "object-consistent-after-connection-loss",
         "read-only-replay-after-connection-loss",
         "single-audit-after-connection-loss"
+      ],
+      "pre-commit-connection-loss": [
+        "pre-commit-connection-loss-preconditions",
+        "pre-commit-result-ambiguous"
+      ],
+      "rolled-back-recover": [
+        "rollback-observed-after-pre-commit-loss",
+        "retained-object-adopted-after-rollback",
+        "read-only-replay-after-rollback",
+        "single-audit-after-rollback-adoption"
       ]
     }
   },

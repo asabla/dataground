@@ -1,6 +1,6 @@
 // Package pgcommitproxy provides a bounded loopback-only PostgreSQL wire proxy
-// for recovery conformance. It drops the COMMIT completion before the client
-// receives it, after PostgreSQL has made the transaction durable.
+// for recovery conformance. It can drop either the COMMIT request before
+// PostgreSQL receives it or the completion after PostgreSQL makes it durable.
 package pgcommitproxy
 
 import (
@@ -17,9 +17,17 @@ import (
 
 const maxMessageBytes = 16 << 20
 
+type FaultPoint string
+
+const (
+	BeforeCommitDurability FaultPoint = "before-commit-durability"
+	AfterCommitDurability  FaultPoint = "after-commit-durability"
+)
+
 type Proxy struct {
 	listener net.Listener
 	target   string
+	fault    FaultPoint
 
 	cancel  context.CancelFunc
 	dropped chan struct{}
@@ -27,7 +35,7 @@ type Proxy struct {
 	wait    sync.WaitGroup
 }
 
-func Start(ctx context.Context, target string) (*Proxy, error) {
+func Start(ctx context.Context, target string, fault FaultPoint) (*Proxy, error) {
 	host, _, err := net.SplitHostPort(target)
 	if err != nil {
 		return nil, errors.New("invalid PostgreSQL commit proxy target")
@@ -35,6 +43,9 @@ func Start(ctx context.Context, target string) (*Proxy, error) {
 	address := net.ParseIP(host)
 	if address == nil || !address.IsLoopback() {
 		return nil, errors.New("PostgreSQL commit proxy target must be loopback")
+	}
+	if fault != BeforeCommitDurability && fault != AfterCommitDurability {
+		return nil, errors.New("invalid PostgreSQL commit proxy fault point")
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -44,6 +55,7 @@ func Start(ctx context.Context, target string) (*Proxy, error) {
 	proxy := &Proxy{
 		listener: listener,
 		target:   target,
+		fault:    fault,
 		cancel:   cancel,
 		dropped:  make(chan struct{}),
 	}
@@ -114,6 +126,10 @@ func (proxy *Proxy) forward(ctx context.Context, client net.Conn, server net.Con
 				return
 			}
 			if isCommitRequest(kind, payload) {
+				if proxy.fault == BeforeCommitDurability {
+					proxy.signalDrop()
+					return
+				}
 				commitPending.Store(true)
 			}
 			if err := writeAll(server, raw); err != nil {
@@ -128,8 +144,9 @@ func (proxy *Proxy) forward(ctx context.Context, client net.Conn, server net.Con
 			if err != nil {
 				return
 			}
-			if commitPending.Load() && kind == 'C' && bytes.Equal(payload, []byte("COMMIT\x00")) {
-				proxy.drop.Do(func() { close(proxy.dropped) })
+			if proxy.fault == AfterCommitDurability && commitPending.Load() &&
+				kind == 'C' && bytes.Equal(payload, []byte("COMMIT\x00")) {
+				proxy.signalDrop()
 				return
 			}
 			if err := writeAll(client, raw); err != nil {
@@ -141,6 +158,10 @@ func (proxy *Proxy) forward(ctx context.Context, client net.Conn, server net.Con
 	case <-ctx.Done():
 	case <-done:
 	}
+}
+
+func (proxy *Proxy) signalDrop() {
+	proxy.drop.Do(func() { close(proxy.dropped) })
 }
 
 func copyStartupMessage(destination io.Writer, source io.Reader) error {

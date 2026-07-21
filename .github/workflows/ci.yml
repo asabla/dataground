@@ -228,6 +228,36 @@ jobs:
           --run-id aabbccddeeff00112233445566778899
           --allow-loopback-http
 
+      - name: Prepare pre-durability connection-loss scope
+        run: >-
+          "$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          --phase prepare
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id 11223344556677889900aabbccddeeff
+          --allow-loopback-http
+
+      - name: Lose PostgreSQL connection before commit durability
+        run: >-
+          "$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          --phase pre-commit-connection-loss
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id 11223344556677889900aabbccddeeff
+          --allow-loopback-http
+
+      - name: Observe rollback and adopt retained object
+        run: >-
+          "$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          --phase rolled-back-recover
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id 11223344556677889900aabbccddeeff
+          --allow-loopback-http
+
       - name: Stop disposable conformance backends
         if: always()
         run: docker compose -f deploy/storage/seaweedfs-conformance.yml down --volumes
