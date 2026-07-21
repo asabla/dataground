@@ -65,4 +65,3 @@ Before finishing substantive work, review the complete change in five passes: fa
 ## Maintaining this file
 
 Use `.agents/skills/update-agents-md/SKILL.md` when creating or substantially revising agent guidance. Keep this file concise and repository-specific. Add durable instructions only after verifying them against the current tree and toolchain, remove obsolete guidance when the repository changes, and place detailed repeatable procedures in focused documentation or skills rather than expanding this file indefinitely.
-

@@ -96,4 +96,3 @@ The selected product is replaceable; the conformance fixture is the durable asse
 - release-manifest schema;
 - adapter and driver conformance harnesses;
 - threat model and failure-injection harness.
-
