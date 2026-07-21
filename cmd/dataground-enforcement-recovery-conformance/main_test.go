@@ -5,6 +5,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/asabla/dataground/internal/execution/recoveryconformance"
 )
 
 func TestRunRejectsUnsafeOrIncompleteConfigurationBeforeConnections(t *testing.T) {
@@ -67,6 +69,23 @@ func TestRunRequiresDatabaseConfiguration(t *testing.T) {
 	var stderr bytes.Buffer
 	if code := run(context.Background(), args, &stdout, &stderr); code != 2 || stdout.Len() != 0 {
 		t.Fatalf("exit code = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestValidPhaseIncludesCommitLossRecoveryBoundary(t *testing.T) {
+	for _, phase := range []recoveryconformance.Phase{
+		recoveryconformance.PhasePrepare,
+		recoveryconformance.PhaseOutage,
+		recoveryconformance.PhaseRecover,
+		recoveryconformance.PhaseCommitLoss,
+		recoveryconformance.PhaseCommittedRecover,
+	} {
+		if !validPhase(phase) {
+			t.Fatalf("phase rejected: %s", phase)
+		}
+	}
+	if validPhase("unknown") {
+		t.Fatal("unknown phase accepted")
 	}
 }
 

@@ -22,6 +22,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+const commitLossExitCode = 86
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -35,7 +37,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	bucket := flags.String("bucket", "", "caller-provisioned disposable bucket")
 	style := flags.String("addressing-style", string(s3store.PathStyle), "path or virtual-hosted")
 	runID := flags.String("run-id", "", "unique 32-character lowercase hexadecimal run identifier")
-	phase := flags.String("phase", "", "prepare, outage or recover")
+	phase := flags.String("phase", "", "prepare, outage, recover, commit-loss or committed-recover")
 	allowLoopbackHTTP := flags.Bool("allow-loopback-http", false, "allow explicit plaintext loopback development endpoint")
 	databaseURL := os.Getenv("DATAGROUND_TEST_DATABASE_URL")
 	if err := flags.Parse(args); err != nil {
@@ -46,8 +48,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	if flags.NArg() != 0 || *endpoint == "" || *bucket == "" ||
 		*runID == "" || databaseURL == "" || !*allowLoopbackHTTP || !isHTTPStyleLoopback(*endpoint) ||
 		!isLoopbackPostgresURL(databaseURL) || invalidRunID(*runID) ||
-		(selectedPhase != recoveryconformance.PhasePrepare && selectedPhase != recoveryconformance.PhaseOutage &&
-			selectedPhase != recoveryconformance.PhaseRecover) {
+		!validPhase(selectedPhase) {
 		fmt.Fprintln(stderr, "invalid enforcement recovery conformance command configuration")
 		return 2
 	}
@@ -70,7 +71,14 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		return 2
 	}
 
-	report, runErr := execute(ctx, databaseURL, backend, recoveryconformance.Config{RunID: *runID}, selectedPhase)
+	report, runErr := execute(
+		ctx,
+		databaseURL,
+		backend,
+		recoveryconformance.Config{RunID: *runID},
+		selectedPhase,
+		func() { os.Exit(commitLossExitCode) },
+	)
 	encoder := json.NewEncoder(stdout)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(report); err != nil {
@@ -90,6 +98,7 @@ func execute(
 	backend recoveryconformance.Backend,
 	config recoveryconformance.Config,
 	phase recoveryconformance.Phase,
+	terminate func(),
 ) (recoveryconformance.Report, error) {
 	if _, err := recoveryconformance.FixtureFor(config); err != nil {
 		return recoveryconformance.Report{}, err
@@ -124,9 +133,19 @@ func execute(
 		return recoveryconformance.RunOutage(ctx, catalog, backend, config)
 	case recoveryconformance.PhaseRecover:
 		return recoveryconformance.RunRecover(ctx, catalog, backend, config)
+	case recoveryconformance.PhaseCommitLoss:
+		return recoveryconformance.RunCommitLoss(ctx, catalog, backend, terminate, config)
+	case recoveryconformance.PhaseCommittedRecover:
+		return recoveryconformance.RunCommittedRecover(ctx, catalog, backend, config)
 	default:
 		return recoveryconformance.Report{}, errors.New("invalid recovery conformance phase")
 	}
+}
+
+func validPhase(phase recoveryconformance.Phase) bool {
+	return phase == recoveryconformance.PhasePrepare || phase == recoveryconformance.PhaseOutage ||
+		phase == recoveryconformance.PhaseRecover || phase == recoveryconformance.PhaseCommitLoss ||
+		phase == recoveryconformance.PhaseCommittedRecover
 }
 
 type durableCatalog struct {
