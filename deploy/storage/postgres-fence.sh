@@ -15,3 +15,4 @@ fi
 
 umask 077
 printf '%s\n' 'stale-primary-start-refused' >"$DATAGROUND_FENCE_PATH"
+

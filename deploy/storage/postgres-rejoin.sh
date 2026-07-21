@@ -28,6 +28,11 @@ if [ "$promoted" != "t" ]; then
   echo "PostgreSQL rejoin source is not the promoted primary" >&2
   exit 1
 fi
+if [ "$POSTGRES_USER" != "dataground" ] || \
+  [ "$DATAGROUND_REPLICATION_PASSFILE" != "/var/lib/postgresql/.dataground-replication-pass" ]; then
+  echo "PostgreSQL rejoin identity configuration is invalid" >&2
+  exit 1
+fi
 
 PGPASSWORD="$POSTGRES_PASSWORD" pg_rewind \
   --target-pgdata="$PGDATA" \
@@ -40,4 +45,7 @@ test -f "$PGDATA/standby.signal"
 umask 077
 printf 'postgres-standby:5432:*:%s:%s\n' "$POSTGRES_USER" "$POSTGRES_PASSWORD" \
   >"$DATAGROUND_REPLICATION_PASSFILE"
+printf "\nprimary_conninfo = 'host=postgres-standby port=5432 user=%s application_name=dataground-rejoined-primary sslmode=disable passfile=%s'\n" \
+  "$POSTGRES_USER" "$DATAGROUND_REPLICATION_PASSFILE" >>"$PGDATA/postgresql.auto.conf"
 rm -f "$fence"
+

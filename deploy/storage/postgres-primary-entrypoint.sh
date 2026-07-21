@@ -10,3 +10,4 @@ if [ -e "$DATAGROUND_FENCE_PATH" ]; then
 fi
 
 exec /usr/local/bin/docker-entrypoint.sh "$@"
+

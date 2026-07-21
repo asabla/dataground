@@ -201,6 +201,8 @@ if (
     "rejected; fresh rebuild required" ||
   profile.recoveryConformance?.clusteredFailover?.stalePrimaryRejoin?.replicationCredential !==
     "mode-0600 private data-volume passfile" ||
+  profile.recoveryConformance?.clusteredFailover?.stalePrimaryRejoin?.primaryConnection !==
+    "explicit promoted-service primary_conninfo with private passfile" ||
   profile.recoveryConformance?.clusteredFailover?.stalePrimaryRejoin?.rejoinRole !==
     "read-only physical standby" ||
   profile.recoveryConformance?.clusteredFailover?.stalePrimaryRejoin?.replicationBoundary !==
@@ -449,6 +451,8 @@ if (
 }
 const rewindIndex = rejoinScript.indexOf("pg_rewind");
 const standbySignalIndex = rejoinScript.indexOf('test -f "$PGDATA/standby.signal"');
+const passfileIndex = rejoinScript.indexOf('>"$DATAGROUND_REPLICATION_PASSFILE"');
+const primaryConnectionIndex = rejoinScript.indexOf("primary_conninfo = 'host=postgres-standby");
 const fenceRemovalIndex = rejoinScript.indexOf('rm -f "$fence"');
 if (
   !primaryEntrypoint.includes('if [ -e "$DATAGROUND_FENCE_PATH" ]') ||
@@ -465,10 +469,14 @@ if (
   !rejoinScript.includes("DATAGROUND_REPLICATION_PASSFILE") ||
   !rejoinScript.includes("postgres-standby:5432:*:%s:%s") ||
   !rejoinScript.includes("umask 077") ||
+  !rejoinScript.includes("primary_conninfo = 'host=postgres-standby") ||
+  !rejoinScript.includes("passfile=%s") ||
   rejoinScript.includes("password=") ||
   rewindIndex < 0 ||
   standbySignalIndex <= rewindIndex ||
-  fenceRemovalIndex <= standbySignalIndex
+  passfileIndex <= standbySignalIndex ||
+  primaryConnectionIndex <= passfileIndex ||
+  fenceRemovalIndex <= primaryConnectionIndex
 ) {
   fail("the explicit stale-primary fence and rejoin procedure has drifted");
 }
@@ -504,6 +512,8 @@ if (
   !workflow.includes('"$exit_code" -ne 78') ||
   !workflow.includes("--profile postgres-failover-admin run --rm --no-deps postgres-rejoin") ||
   !workflow.includes("dataground_stale_write_probe") ||
+  !workflow.includes("pg_stat_replication") ||
+  !workflow.includes("rejoin check failed: target-state=") ||
   !workflow.includes("--phase failover-rejoin-observe") ||
   !workflow.includes("DATAGROUND_TEST_DATABASE_URL") ||
   !workflow.includes("deploy/storage/seaweedfs-conformance.yml up --detach") ||
