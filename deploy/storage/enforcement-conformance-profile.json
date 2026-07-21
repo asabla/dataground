@@ -20,7 +20,15 @@
   },
   "conformance": {
     "reportSchema": "dataground.s3-enforcement-conformance/v1",
-    "requiredCases": ["missing-read", "create-read", "immutable-rewrite", "concurrent-create"],
+    "requiredCases": [
+      "missing-read",
+      "create-read",
+      "immutable-rewrite",
+      "concurrent-create",
+      "finalizer-lost-ack",
+      "finalizer-catalog-retry",
+      "finalizer-conflict"
+    ],
     "concurrentWriters": 8,
     "ciRequired": true
   },

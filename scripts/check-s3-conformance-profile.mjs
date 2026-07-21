@@ -42,7 +42,15 @@ if (
   fail("the candidate multi-architecture image evidence is incomplete");
 }
 
-const requiredCases = ["missing-read", "create-read", "immutable-rewrite", "concurrent-create"];
+const requiredCases = [
+  "missing-read",
+  "create-read",
+  "immutable-rewrite",
+  "concurrent-create",
+  "finalizer-lost-ack",
+  "finalizer-catalog-retry",
+  "finalizer-conflict",
+];
 if (
   profile.conformance?.reportSchema !== "dataground.s3-enforcement-conformance/v1" ||
   profile.conformance?.concurrentWriters !== 8 ||
