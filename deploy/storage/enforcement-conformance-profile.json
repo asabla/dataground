@@ -50,7 +50,16 @@
       "primaryLoss": "primary container stopped before promotion",
       "promotion": "explicit pg_ctl promotion",
       "automaticElection": false,
-      "clientEndpointFailover": false,
+      "stableClientEndpoint": {
+        "address": "127.0.0.1:55431",
+        "clientContract": "unchanged database URL before and after promotion",
+        "targets": ["127.0.0.1:55432", "127.0.0.1:55433"],
+        "control": "mode-0600 Unix socket with predeclared routes",
+        "routeChange": "explicit after promotion",
+        "existingSessions": "closed on route change without transaction replay",
+        "automaticDiscovery": false,
+        "productionCertified": false
+      },
       "partitionFencing": false,
       "stalePrimaryRejoin": {
         "observePhase": "failover-rejoin-observe",
@@ -156,7 +165,7 @@
   },
   "blockers": [
     "single-process anonymous development evidence is not an authenticated production topology",
-    "the two-node PostgreSQL profile proves controlled promotion and explicit stale-primary fencing and rewind but not automatic election, automatic fencing, client endpoint failover, multi-zone durability or production operator behavior",
+    "the two-node PostgreSQL profile proves explicit stable-endpoint switching, controlled promotion and stale-primary fencing and rewind but not automatic election or routing, automatic fencing, multi-zone durability or production operator behavior",
     "split-brain prevention under partitions, multi-gateway and network-partition behavior are not exercised by this profile",
     "bucket policy, workload identity, TLS, encryption and KMS are not certified",
     "versioning, retention, backup, restore, upgrade and rollback are not certified",

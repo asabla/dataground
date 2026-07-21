@@ -54,6 +54,14 @@ const commitProxy = await readFile(
   resolve(root, "internal/execution/recoveryconformance/pgcommitproxy/proxy.go"),
   "utf8",
 );
+const routeProxy = await readFile(
+  resolve(root, "internal/execution/recoveryconformance/pgrouteproxy/proxy.go"),
+  "utf8",
+);
+const routeCommand = await readFile(
+  resolve(root, "cmd/dataground-postgres-route-conformance/main.go"),
+  "utf8",
+);
 const recoveryImplementation = `${recoverySuite}\n${commitLossSuite}\n${connectionLossSuite}\n${preCommitConnectionLossSuite}\n${failoverSuite}\n${failoverCommitSuite}\n${failoverRejoinSuite}`;
 const recoveryCommand = await readFile(
   resolve(root, "cmd/dataground-enforcement-recovery-conformance/main.go"),
@@ -188,7 +196,22 @@ if (
     "primary container stopped before promotion" ||
   profile.recoveryConformance?.clusteredFailover?.promotion !== "explicit pg_ctl promotion" ||
   profile.recoveryConformance?.clusteredFailover?.automaticElection !== false ||
-  profile.recoveryConformance?.clusteredFailover?.clientEndpointFailover !== false ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.address !==
+    "127.0.0.1:55431" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.clientContract !==
+    "unchanged database URL before and after promotion" ||
+  JSON.stringify(profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.targets) !==
+    JSON.stringify(["127.0.0.1:55432", "127.0.0.1:55433"]) ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.control !==
+    "mode-0600 Unix socket with predeclared routes" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.routeChange !==
+    "explicit after promotion" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.existingSessions !==
+    "closed on route change without transaction replay" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.automaticDiscovery !==
+    false ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.productionCertified !==
+    false ||
   profile.recoveryConformance?.clusteredFailover?.partitionFencing !== false ||
   profile.recoveryConformance?.clusteredFailover?.stalePrimaryRejoin?.observePhase !==
     "failover-rejoin-observe" ||
@@ -493,6 +516,26 @@ if (
   fail("the explicit stale-primary fence and rejoin procedure has drifted");
 }
 if (
+  !routeProxy.includes('net.ListenTCP("tcp4"') ||
+  !routeProxy.includes('net.ListenUnix("unix"') ||
+  !routeProxy.includes("os.Chmod(config.ControlSocket, 0o600)") ||
+  !routeProxy.includes('Primary  Route = "primary"') ||
+  !routeProxy.includes('Promoted Route = "promoted"') ||
+  !routeProxy.includes("maxActiveConnections   = 64") ||
+  !routeProxy.includes("maxControlConnections  = 8") ||
+  !routeProxy.includes("proxy.generation++") ||
+  !routeProxy.includes("connection.close()") ||
+  !routeProxy.includes('host != "127.0.0.1"') ||
+  !routeCommand.includes('case "serve":') ||
+  !routeCommand.includes('case "route":') ||
+  !routeCommand.includes('case "status":') ||
+  !routeCommand.includes('case "role":') ||
+  !routeCommand.includes('os.Getenv("DATAGROUND_TEST_DATABASE_URL")') ||
+  routeCommand.includes("password")
+) {
+  fail("the stable PostgreSQL client endpoint has drifted from its bounded routing contract");
+}
+if (
   !packageManifest.scripts?.verify?.includes("pnpm run s3:profile:check") ||
   !workflow.includes("pnpm verify") ||
   !workflow.includes("dataground-s3-conformance") ||
@@ -511,6 +554,21 @@ if (
   !workflow.includes("--phase rolled-back-recover") ||
   !workflow.includes("postgres-failover-conformance") ||
   !workflow.includes("--profile postgres-failover") ||
+  !workflow.includes(
+    "DATAGROUND_ROUTED_DATABASE_URL: postgres://dataground:dataground@127.0.0.1:55431/dataground_conformance?sslmode=disable",
+  ) ||
+  workflow.includes("DATAGROUND_PRIMARY_DATABASE_URL") ||
+  workflow.includes("DATAGROUND_PROMOTED_DATABASE_URL") ||
+  !workflow.includes('go build -o "$router" ./cmd/dataground-postgres-route-conformance') ||
+  !workflow.includes("--listen-address 127.0.0.1:55431") ||
+  !workflow.includes("--primary-target 127.0.0.1:55432") ||
+  !workflow.includes("--promoted-target 127.0.0.1:55433") ||
+  !workflow.includes('--control-socket "$control"') ||
+  !workflow.includes('--mode route --control-socket "$control" --route promoted') ||
+  !workflow.includes("stable database endpoint remained usable before route change") ||
+  !workflow.includes(
+    "DATAGROUND_TEST_DATABASE_URL: $" + "{{ env.DATAGROUND_ROUTED_DATABASE_URL }}",
+  ) ||
   !workflow.includes("pg_current_wal_lsn()") ||
   !workflow.includes("pg_last_wal_replay_lsn()") ||
   !workflow.includes("stop postgres") ||
