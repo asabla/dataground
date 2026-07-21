@@ -66,6 +66,10 @@ const routeCommand = await readFile(
   resolve(root, "cmd/dataground-postgres-route-conformance/main.go"),
   "utf8",
 );
+const routeSupervisor = await readFile(
+  resolve(root, "cmd/dataground-postgres-route-conformance/supervisor.go"),
+  "utf8",
+);
 const poolCommand = await readFile(
   resolve(root, "cmd/dataground-postgres-route-conformance/pool.go"),
   "utf8",
@@ -258,6 +262,25 @@ if (
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.restartRecovery
     ?.clusterReset !==
     "persisted state retired only after the disposable database cluster and router are stopped" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision
+    ?.implementation !== "same-binary conformance parent with one router child" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.readiness !==
+    "private state control succeeds after exact persisted route and PostgreSQL timeline reconfirmation" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision
+    ?.restartBudget !== 3 ||
+  JSON.stringify(
+    profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision
+      ?.restartBackoffSeconds,
+  ) !== JSON.stringify([2, 4, 8]) ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.processLoss !==
+    "SIGKILL child while the parent remains active" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision
+    ?.preReadyTraffic !==
+    "stable endpoint unavailable until the replacement child reports readiness" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.exhaustion !==
+    "supervisor exits nonzero without serving traffic" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision
+    ?.productionCertified !== false ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.longLivedPool
     ?.implementation !== "one pgxpool process across primary loss and route switch" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.longLivedPool
@@ -625,6 +648,7 @@ if (
   !routeState.includes("directoryFile.Sync()") ||
   !routeProxy.includes('host != "127.0.0.1"') ||
   !routeCommand.includes('case "serve":') ||
+  !routeCommand.includes('case "supervise":') ||
   routeCommand.includes('case "route":') ||
   !routeCommand.includes('case "select":') ||
   !routeCommand.includes('case "status":') ||
@@ -654,6 +678,27 @@ if (
   poolCommand.includes("password")
 ) {
   fail("the stable PostgreSQL client endpoint has drifted from its bounded routing contract");
+}
+if (
+  !routeSupervisor.includes(
+    "RestartBackoffs:  []time.Duration{2 * time.Second, 4 * time.Second, 8 * time.Second}",
+  ) ||
+  !routeSupervisor.includes("ReadinessTimeout: 12 * time.Second") ||
+  !routeSupervisor.includes("ShutdownTimeout:  3 * time.Second") ||
+  !routeSupervisor.includes("command := exec.Command(executable, arguments...)") ||
+  !routeSupervisor.includes("command.Stdout = io.Discard") ||
+  !routeSupervisor.includes("command.Stderr = io.Discard") ||
+  !routeSupervisor.includes("dependencies.StateStatus") ||
+  !routeSupervisor.includes("routeChildArguments(config, initializing)") ||
+  !routeSupervisor.includes('"--mode", "serve"') ||
+  !routeSupervisor.includes("if initializing == stateExists") ||
+  !routeSupervisor.includes("if attempt >= len(policy.RestartBackoffs)") ||
+  !routeSupervisor.includes("stopRouteChild(child, childExit, policy.ShutdownTimeout)") ||
+  !routeSupervisor.includes('const routerReadyState = "router-ready"') ||
+  !routeSupervisor.includes('const routerRestartScheduledState = "router-restart-scheduled"') ||
+  routeSupervisor.includes("password")
+) {
+  fail("the PostgreSQL route supervisor has drifted from its bounded conformance contract");
 }
 if (
   !packageManifest.scripts?.verify?.includes("pnpm run s3:profile:check") ||
@@ -708,8 +753,15 @@ if (
     "expected_pool_states=$'pool-primary-ready\\npool-failure-observed\\npool-promoted-ready'",
   ) ||
   !workflow.includes("long-lived database pool did not reconnect through the stable endpoint") ||
-  !workflow.includes("Recover stable endpoint after router process loss") ||
-  !workflow.includes('kill -KILL "$(cat "$RUNNER_TEMP/postgres-route.pid")"') ||
+  !workflow.includes("Supervise stable endpoint after router process loss") ||
+  !workflow.includes("--mode supervise") ||
+  !workflow.includes('supervisor_pid=$(cat "$RUNNER_TEMP/postgres-route-supervisor.pid")') ||
+  !workflow.includes('child_pid=$(pgrep --parent "$supervisor_pid" || true)') ||
+  !workflow.includes('kill -KILL "$child_pid"') ||
+  !workflow.includes("route supervisor reported readiness before child recovery") ||
+  !workflow.includes(
+    "expected_supervisor_states=$'router-ready\\nrouter-restart-scheduled\\nrouter-ready'",
+  ) ||
   !workflow.includes("stable database endpoint remained usable after router process loss") ||
   !workflow.includes("stable database endpoint did not recover its exact private state") ||
   !workflow.includes("stat --format '%a' \"$state.lock\"") ||

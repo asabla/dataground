@@ -79,6 +79,16 @@
           "processLoss": "SIGKILL after promoted state persistence followed by recovery without caller-supplied route or timeline",
           "clusterReset": "persisted state retired only after the disposable database cluster and router are stopped"
         },
+        "supervision": {
+          "implementation": "same-binary conformance parent with one router child",
+          "readiness": "private state control succeeds after exact persisted route and PostgreSQL timeline reconfirmation",
+          "restartBudget": 3,
+          "restartBackoffSeconds": [2, 4, 8],
+          "processLoss": "SIGKILL child while the parent remains active",
+          "preReadyTraffic": "stable endpoint unavailable until the replacement child reports readiness",
+          "exhaustion": "supervisor exits nonzero without serving traffic",
+          "productionCertified": false
+        },
         "longLivedPool": {
           "implementation": "one pgxpool process across primary loss and route switch",
           "connections": 3,

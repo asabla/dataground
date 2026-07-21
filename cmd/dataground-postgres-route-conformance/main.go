@@ -26,7 +26,7 @@ func main() {
 func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
 	flags := flag.NewFlagSet("dataground-postgres-route-conformance", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	mode := flags.String("mode", "", "serve, select, status, state, role or pool")
+	mode := flags.String("mode", "", "serve, supervise, select, status, state, role or pool")
 	listenAddress := flags.String("listen-address", "", "literal loopback client endpoint")
 	controlSocket := flags.String("control-socket", "", "absolute private Unix control socket path")
 	stateFile := flags.String("state-file", "", "absolute private persistent route state path")
@@ -70,6 +70,31 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		<-ctx.Done()
 		if err := proxy.Close(); err != nil {
 			fmt.Fprintln(stderr, "could not stop PostgreSQL route conformance proxy")
+			return 1
+		}
+		return 0
+	case "supervise":
+		initializing := *routeValue != "" || *promotionGeneration != 0
+		if *listenAddress == "" || *controlSocket == "" || *primaryTarget == "" ||
+			*stateFile == "" || *promotedTarget == "" ||
+			(initializing && (!validRoute(*routeValue) || *promotionGeneration == 0)) {
+			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
+			return 2
+		}
+		if _, err := targetHealthProbe(os.Getenv("DATAGROUND_ROUTER_HEALTH_DATABASE_URL")); err != nil {
+			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
+			return 2
+		}
+		if err := superviseRoute(ctx, routeSupervisorConfig{
+			ListenAddress:              *listenAddress,
+			ControlSocket:              *controlSocket,
+			StateFile:                  *stateFile,
+			PrimaryTarget:              *primaryTarget,
+			PromotedTarget:             *promotedTarget,
+			InitialRoute:               *routeValue,
+			InitialPromotionGeneration: *promotionGeneration,
+		}, stdout); err != nil {
+			fmt.Fprintln(stderr, "PostgreSQL route supervision failed")
 			return 1
 		}
 		return 0
