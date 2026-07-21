@@ -1,0 +1,21 @@
+name: dataground-s3-conformance
+
+services:
+  seaweedfs:
+    image: chrislusf/seaweedfs@sha256:52194fba4fecd0083c842158b3a902ba6e04a63619b2b0efcd08007bdb6a4602
+    command:
+      - mini
+      - -dir=/data
+    environment:
+      S3_BUCKET: dataground-conformance
+    ports:
+      - "127.0.0.1:8333:8333"
+    tmpfs:
+      - /data:size=256m,mode=0700
+    mem_limit: 512m
+    pids_limit: 256
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true

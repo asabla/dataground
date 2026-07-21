@@ -52,7 +52,7 @@ The first adapter is an implementation sequence choice only. It does not demote 
 
 ## P-006 — Reference object store, catalog and identity provider
 
-**Status:** Proposed; the bootstrap selects none of these products.
+**Status:** Evidence spike active. SeaweedFS 4.40 is pinned only as the disposable enforcement-object development candidate; no production object store, catalog, or identity provider is selected.
 
 **Recommendation:** make three separate, scored selection decisions after conformance spikes. Do not embed vendor-specific APIs into the core.
 
