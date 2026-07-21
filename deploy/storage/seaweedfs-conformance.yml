@@ -29,6 +29,7 @@ services:
     user: "999:999"
     environment:
       DATAGROUND_FENCE_PATH: /var/lib/postgresql/.dataground-fenced
+      DATAGROUND_HEALTH_PASSWORD: dataground-health
       PGPASSFILE: /var/lib/postgresql/.dataground-replication-pass
       PGDATA: /var/lib/postgresql/data/pgdata
       POSTGRES_DB: dataground_conformance

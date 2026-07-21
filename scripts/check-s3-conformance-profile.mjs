@@ -209,9 +209,21 @@ if (
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.control !==
     "mode-0600 Unix socket with predeclared routes" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.routeChange !==
-    "explicit after promotion" ||
+    "control-triggered health selection after external promotion" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.existingSessions !==
     "closed on route change without transaction replay" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.healthSelection?.probe !==
+    "PostgreSQL recovery and transaction read-only state through a non-owner identity without application table privileges" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.healthSelection?.targets !==
+    "both startup-predeclared loopback endpoints probed concurrently" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.healthSelection
+    ?.acceptance !== "exactly one writable primary" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.healthSelection
+    ?.zeroWritable !== "rejected without route or session change" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.healthSelection
+    ?.multipleWritable !== "rejected without route or session change" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.healthSelection
+    ?.promotionOwnership !== "external" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.longLivedPool
     ?.implementation !== "one pgxpool process across primary loss and route switch" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.longLivedPool
@@ -433,6 +445,7 @@ if (
   !postgresCompose.includes("cap_drop:\n      - ALL") ||
   !postgresCompose.includes("no-new-privileges:true") ||
   !postgresCompose.includes("DATAGROUND_FENCE_PATH: /var/lib/postgresql/.dataground-fenced") ||
+  !postgresCompose.includes("DATAGROUND_HEALTH_PASSWORD: dataground-health") ||
   !postgresCompose.includes("PGPASSFILE: /var/lib/postgresql/.dataground-replication-pass") ||
   !postgresCompose.includes("postgres-primary-entrypoint.sh") ||
   !postgresCompose.includes("wal_level=replica") ||
@@ -494,6 +507,12 @@ if (
 if (
   !primaryInit.includes("host replication all all scram-sha-256") ||
   !primaryInit.includes('ALTER ROLE :"replication_role" WITH REPLICATION;') ||
+  !primaryInit.includes('CREATE ROLE :"health_role" WITH LOGIN PASSWORD') ||
+  !primaryInit.includes("NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION") ||
+  !primaryInit.includes('REVOKE CONNECT, TEMPORARY ON DATABASE :"database" FROM PUBLIC;') ||
+  !primaryInit.includes('GRANT CONNECT ON DATABASE :"database" TO :"health_role";') ||
+  !primaryInit.includes('ALTER ROLE :"health_role" SET search_path = pg_catalog;') ||
+  !primaryInit.includes("ALTER ROLE :\"health_role\" SET statement_timeout = '2s';") ||
   !standbyEntrypoint.includes("pg_basebackup") ||
   !standbyEntrypoint.includes("--write-recovery-conf") ||
   !standbyEntrypoint.includes("application_name=dataground-standby") ||
@@ -546,15 +565,25 @@ if (
   !routeProxy.includes('Promoted Route = "promoted"') ||
   !routeProxy.includes("maxActiveConnections   = 64") ||
   !routeProxy.includes("maxControlConnections  = 8") ||
+  !routeProxy.includes("selectionTimeout       = 5 * time.Second") ||
   !routeProxy.includes("proxy.generation++") ||
   !routeProxy.includes("connection.close()") ||
+  !routeProxy.includes('controlRequest(ctx, controlSocket, "select\\n")') ||
+  !routeProxy.includes('case "select\\n":') ||
+  !routeProxy.includes("proxy.selectWritable()") ||
+  !routeProxy.includes("err == nil && writable") ||
+  !routeProxy.includes("found multiple writable targets") ||
+  !routeProxy.includes("found no writable target") ||
   !routeProxy.includes('host != "127.0.0.1"') ||
   !routeCommand.includes('case "serve":') ||
   !routeCommand.includes('case "route":') ||
+  !routeCommand.includes('case "select":') ||
   !routeCommand.includes('case "status":') ||
   !routeCommand.includes('case "role":') ||
   !routeCommand.includes('case "pool":') ||
   !routeCommand.includes('os.Getenv("DATAGROUND_TEST_DATABASE_URL")') ||
+  !routeCommand.includes('os.Getenv("DATAGROUND_ROUTER_HEALTH_DATABASE_URL")') ||
+  !routeCommand.includes("candidate.Host = target") ||
   !poolCommand.includes("poolConformanceSize       = int32(3)") ||
   !poolCommand.includes("poolOperationTimeout      = 2 * time.Second") ||
   !poolCommand.includes("poolPhaseTimeout          = 45 * time.Second") ||
@@ -595,6 +624,9 @@ if (
   !workflow.includes(
     "DATAGROUND_ROUTED_DATABASE_URL: postgres://dataground:dataground@127.0.0.1:55431/dataground_conformance?sslmode=disable",
   ) ||
+  !workflow.includes(
+    "DATAGROUND_ROUTER_HEALTH_DATABASE_URL: postgres://dataground_health:dataground-health@127.0.0.1:55431/dataground_conformance?sslmode=disable",
+  ) ||
   workflow.includes("DATAGROUND_PRIMARY_DATABASE_URL") ||
   workflow.includes("DATAGROUND_PROMOTED_DATABASE_URL") ||
   !workflow.includes('go build -o "$router" ./cmd/dataground-postgres-route-conformance') ||
@@ -602,7 +634,10 @@ if (
   !workflow.includes("--primary-target 127.0.0.1:55432") ||
   !workflow.includes("--promoted-target 127.0.0.1:55433") ||
   !workflow.includes('--control-socket "$control"') ||
-  !workflow.includes('--mode route --control-socket "$control" --route promoted') ||
+  !workflow.includes('--mode select --control-socket "$control"') ||
+  !workflow.includes("stable database endpoint selected a target before promotion") ||
+  !workflow.includes("failed health selection changed the stable database route") ||
+  !workflow.includes('selected=$("$router" --mode select --control-socket "$control")') ||
   !workflow.includes('--mode pool >"$pool_stdout" 2>"$pool_stderr"') ||
   !workflow.includes("'pool-primary-ready'") ||
   !workflow.includes("'pool-failure-observed'") ||

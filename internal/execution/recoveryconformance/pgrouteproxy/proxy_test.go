@@ -72,6 +72,96 @@ func TestProxyRoutesNewConnectionsAndClosesOldSessions(t *testing.T) {
 	}
 }
 
+func TestSelectWritableSwitchesToUniqueHealthyTargetAndClosesOldSessions(t *testing.T) {
+	primary := startReplyServer(t, "primary")
+	promoted := startReplyServer(t, "promoted")
+	controlSocket := filepath.Join(t.TempDir(), "route.sock")
+	proxy, err := Start(context.Background(), Config{
+		ListenAddress:  "127.0.0.1:0",
+		ControlSocket:  controlSocket,
+		PrimaryTarget:  primary,
+		PromotedTarget: promoted,
+		InitialRoute:   Primary,
+		WritableProbe: func(_ context.Context, target string) (bool, error) {
+			if target == primary {
+				return false, errors.New("unavailable")
+			}
+			return target == promoted, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.Close()
+
+	oldSession := establishedSession(t, proxy.Address(), "primary")
+	defer oldSession.Close()
+	selected, err := SelectWritable(context.Background(), controlSocket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected != Promoted || roundTrip(t, proxy.Address()) != "promoted" {
+		t.Fatalf("selected route = %q, want promoted", selected)
+	}
+	if err := oldSession.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := oldSession.Read(make([]byte, 1)); err == nil {
+		t.Fatal("session established before health selection remained open")
+	} else if networkError, ok := err.(net.Error); ok && networkError.Timeout() {
+		t.Fatal("session established before health selection timed out instead of closing")
+	}
+}
+
+func TestSelectWritableRejectsZeroCandidatesWithoutChangingRoute(t *testing.T) {
+	testRejectedWritableSelection(t, func(_ context.Context, _ string) (bool, error) {
+		return false, nil
+	})
+}
+
+func TestSelectWritableRejectsMultipleCandidatesWithoutChangingRoute(t *testing.T) {
+	testRejectedWritableSelection(t, func(_ context.Context, _ string) (bool, error) {
+		return true, nil
+	})
+}
+
+func testRejectedWritableSelection(t *testing.T, probe WritableProbe) {
+	t.Helper()
+	primary := startReplyServer(t, "primary")
+	promoted := startReplyServer(t, "promoted")
+	controlSocket := filepath.Join(t.TempDir(), "route.sock")
+	proxy, err := Start(context.Background(), Config{
+		ListenAddress:  "127.0.0.1:0",
+		ControlSocket:  controlSocket,
+		PrimaryTarget:  primary,
+		PromotedTarget: promoted,
+		InitialRoute:   Primary,
+		WritableProbe:  probe,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.Close()
+
+	session := establishedSession(t, proxy.Address(), "primary")
+	defer session.Close()
+	if _, err := SelectWritable(context.Background(), controlSocket); err == nil {
+		t.Fatal("unsafe writable selection succeeded")
+	}
+	if route, err := Status(context.Background(), controlSocket); err != nil || route != Primary {
+		t.Fatalf("route after rejected selection = %q, error=%v", route, err)
+	}
+	if err := session.SetDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(session, "request\n"); err != nil {
+		t.Fatal(err)
+	}
+	if response, err := bufio.NewReader(session).ReadString('\n'); err != nil || response != "primary\n" {
+		t.Fatalf("session changed after rejected selection: response=%q error=%v", response, err)
+	}
+}
+
 func TestProxyControlSocketIsPrivateAndRemovedOnClose(t *testing.T) {
 	primary := startReplyServer(t, "primary")
 	promoted := startReplyServer(t, "promoted")
@@ -391,6 +481,28 @@ func startReplyServer(t *testing.T, response string) string {
 		}
 	}()
 	return listener.Addr().String()
+}
+
+func establishedSession(t *testing.T, address string, expected string) net.Conn {
+	t.Helper()
+	connection, err := net.DialTimeout("tcp4", address, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.SetDeadline(time.Now().Add(time.Second)); err != nil {
+		_ = connection.Close()
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(connection, "request\n"); err != nil {
+		_ = connection.Close()
+		t.Fatal(err)
+	}
+	response, err := bufio.NewReader(connection).ReadString('\n')
+	if err != nil || strings.TrimSpace(response) != expected {
+		_ = connection.Close()
+		t.Fatalf("session was not established through %s: response=%q error=%v", expected, response, err)
+	}
+	return connection
 }
 
 func roundTrip(t *testing.T, address string) string {
