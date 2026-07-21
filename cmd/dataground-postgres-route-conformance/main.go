@@ -26,7 +26,7 @@ func main() {
 func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
 	flags := flag.NewFlagSet("dataground-postgres-route-conformance", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	mode := flags.String("mode", "", "serve, supervise, select, status, state, role or pool")
+	mode := flags.String("mode", "", "serve, supervise, manage, select, status, state, role or pool")
 	listenAddress := flags.String("listen-address", "", "literal loopback client endpoint")
 	controlSocket := flags.String("control-socket", "", "absolute private Unix control socket path")
 	stateFile := flags.String("state-file", "", "absolute private persistent route state path")
@@ -35,6 +35,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	routeValue := flags.String("route", "", "primary or promoted")
 	promotionGeneration := flags.Uint64("promotion-generation", 0, "expected nonzero PostgreSQL timeline ID")
 	supervisorPID := flags.Int("supervisor-pid", 0, "expected conformance supervisor process ID")
+	managerPID := flags.Int("manager-pid", 0, "expected conformance manager process ID")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 		return 2
@@ -45,7 +46,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		initializing := *routeValue != "" || *promotionGeneration != 0
 		if *listenAddress == "" || *controlSocket == "" || *primaryTarget == "" ||
 			*stateFile == "" || *promotedTarget == "" ||
-			*supervisorPID < 0 ||
+			*supervisorPID < 0 || *managerPID != 0 ||
 			(initializing && (!validRoute(*routeValue) || *promotionGeneration == 0)) {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
@@ -83,10 +84,14 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		initializing := *routeValue != "" || *promotionGeneration != 0
 		if *listenAddress == "" || *controlSocket == "" || *primaryTarget == "" ||
 			*stateFile == "" || *promotedTarget == "" ||
-			*supervisorPID != 0 ||
+			*supervisorPID != 0 || *managerPID < 0 ||
 			(initializing && (!validRoute(*routeValue) || *promotionGeneration == 0)) {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
+		}
+		if err := validateRouteChildOwnership(*managerPID); err != nil {
+			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance ownership")
+			return 1
 		}
 		if _, err := targetHealthProbe(os.Getenv("DATAGROUND_ROUTER_HEALTH_DATABASE_URL")); err != nil {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
@@ -105,10 +110,36 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 			return 1
 		}
 		return 0
+	case "manage":
+		initializing := *routeValue != "" || *promotionGeneration != 0
+		if *listenAddress == "" || *controlSocket == "" || *primaryTarget == "" ||
+			*stateFile == "" || *promotedTarget == "" ||
+			*supervisorPID != 0 || *managerPID != 0 ||
+			(initializing && (!validRoute(*routeValue) || *promotionGeneration == 0)) {
+			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
+			return 2
+		}
+		if _, err := targetHealthProbe(os.Getenv("DATAGROUND_ROUTER_HEALTH_DATABASE_URL")); err != nil {
+			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
+			return 2
+		}
+		if err := manageRouteSupervisor(ctx, routeSupervisorConfig{
+			ListenAddress:              *listenAddress,
+			ControlSocket:              *controlSocket,
+			StateFile:                  *stateFile,
+			PrimaryTarget:              *primaryTarget,
+			PromotedTarget:             *promotedTarget,
+			InitialRoute:               *routeValue,
+			InitialPromotionGeneration: *promotionGeneration,
+		}, stdout); err != nil {
+			fmt.Fprintln(stderr, "PostgreSQL route manager failed")
+			return 1
+		}
+		return 0
 	case "select":
 		if *controlSocket == "" || *routeValue != "" || *listenAddress != "" ||
 			*stateFile != "" || *primaryTarget != "" || *promotedTarget != "" ||
-			*promotionGeneration == 0 || *supervisorPID != 0 {
+			*promotionGeneration == 0 || *supervisorPID != 0 || *managerPID != 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
@@ -124,7 +155,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	case "status":
 		if *controlSocket == "" || *routeValue != "" || *listenAddress != "" ||
 			*stateFile != "" || *primaryTarget != "" || *promotedTarget != "" ||
-			*promotionGeneration != 0 || *supervisorPID != 0 {
+			*promotionGeneration != 0 || *supervisorPID != 0 || *managerPID != 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
@@ -140,7 +171,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	case "state":
 		if *controlSocket == "" || *routeValue != "" || *listenAddress != "" ||
 			*stateFile != "" || *primaryTarget != "" || *promotedTarget != "" ||
-			*promotionGeneration != 0 || *supervisorPID != 0 {
+			*promotionGeneration != 0 || *supervisorPID != 0 || *managerPID != 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
@@ -156,7 +187,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	case "role":
 		if *controlSocket != "" || *routeValue != "" || *listenAddress != "" ||
 			*stateFile != "" || *primaryTarget != "" || *promotedTarget != "" ||
-			*promotionGeneration != 0 || *supervisorPID != 0 {
+			*promotionGeneration != 0 || *supervisorPID != 0 || *managerPID != 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}
@@ -172,7 +203,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	case "pool":
 		if *controlSocket != "" || *routeValue != "" || *listenAddress != "" ||
 			*stateFile != "" || *primaryTarget != "" || *promotedTarget != "" ||
-			*promotionGeneration != 0 || *supervisorPID != 0 {
+			*promotionGeneration != 0 || *supervisorPID != 0 || *managerPID != 0 {
 			fmt.Fprintln(stderr, "invalid PostgreSQL route conformance configuration")
 			return 2
 		}

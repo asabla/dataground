@@ -322,7 +322,7 @@ jobs:
           install -d -m 700 "$workspace"
           go build -o "$router" ./cmd/dataground-postgres-route-conformance
           "$router" \
-            --mode supervise \
+            --mode manage \
             --listen-address 127.0.0.1:55431 \
             --control-socket "$control" \
             --state-file "$state" \
@@ -330,15 +330,17 @@ jobs:
             --promoted-target 127.0.0.1:55433 \
             --route primary \
             --promotion-generation "$(cat "$RUNNER_TEMP/postgres-primary-generation")" \
-            >"$RUNNER_TEMP/postgres-route.stdout" \
-            2>"$RUNNER_TEMP/postgres-route.stderr" &
-          printf '%s\n' "$!" >"$RUNNER_TEMP/postgres-route-supervisor.pid"
+            >"$RUNNER_TEMP/postgres-route-manager.stdout" \
+            2>"$RUNNER_TEMP/postgres-route-manager.stderr" &
+          printf '%s\n' "$!" >"$RUNNER_TEMP/postgres-route-manager.pid"
           for attempt in {1..30}; do
             state_status=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
-            if [ "$state_status" = "primary $(cat "$RUNNER_TEMP/postgres-primary-generation")" ]; then
+            manager_state=$(cat "$RUNNER_TEMP/postgres-route-manager.stdout")
+            if [ "$state_status" = "primary $(cat "$RUNNER_TEMP/postgres-primary-generation")" ] \
+              && [ "$manager_state" = "supervisor-ready" ]; then
               exit 0
             fi
-            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-route-supervisor.pid")" 2>/dev/null; then
+            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-route-manager.pid")" 2>/dev/null; then
               break
             fi
             sleep 1
@@ -536,10 +538,12 @@ jobs:
             echo "stable database endpoint did not persist the promoted state"
             exit 1
           fi
-          supervisor_pid=$(cat "$RUNNER_TEMP/postgres-route-supervisor.pid")
+          manager_pid=$(cat "$RUNNER_TEMP/postgres-route-manager.pid")
+          supervisor_pid=$(pgrep --parent "$manager_pid" || true)
           child_pid=$(pgrep --parent "$supervisor_pid" || true)
-          if [[ ! "$child_pid" =~ ^[1-9][0-9]*$ ]]; then
-            echo "route supervisor did not own exactly one router child"
+          if [[ ! "$supervisor_pid" =~ ^[1-9][0-9]*$ ]] \
+            || [[ ! "$child_pid" =~ ^[1-9][0-9]*$ ]]; then
+            echo "route manager did not own exactly one supervisor and router child"
             exit 1
           fi
           kill -KILL "$child_pid"
@@ -550,13 +554,14 @@ jobs:
             sleep 1
           done
           if kill -0 "$child_pid" 2>/dev/null \
+            || ! kill -0 "$manager_pid" 2>/dev/null \
             || ! kill -0 "$supervisor_pid" 2>/dev/null \
             || [ ! -S "$control" ]; then
             echo "router process loss did not leave the expected recoverable boundary"
             exit 1
           fi
           if "$router" --mode state --control-socket "$control" >/dev/null 2>&1; then
-            echo "route supervisor reported readiness before child recovery"
+            echo "route manager reported readiness before router recovery"
             exit 1
           fi
           if DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
@@ -564,25 +569,28 @@ jobs:
             echo "stable database endpoint remained usable after router process loss"
             exit 1
           fi
-          expected_supervisor_states=$'router-ready\nrouter-restart-scheduled\nrouter-ready'
           for attempt in {1..30}; do
             recovered=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
             role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
               "$router" --mode role 2>/dev/null || true)
-            supervisor_states=$(cat "$RUNNER_TEMP/postgres-route.stdout")
+            replacement_child=$(pgrep --parent "$supervisor_pid" || true)
             if [ "$recovered" = "$expected" ] && [ "$role" = "writable-primary" ] \
-              && [ "$supervisor_states" = "$expected_supervisor_states" ]; then
+              && [[ "$replacement_child" =~ ^[1-9][0-9]*$ ]] \
+              && [ "$replacement_child" != "$child_pid" ]; then
               break
             fi
-            if ! kill -0 "$supervisor_pid" 2>/dev/null; then
+            if ! kill -0 "$manager_pid" 2>/dev/null \
+              || ! kill -0 "$supervisor_pid" 2>/dev/null; then
               break
             fi
             sleep 1
           done
           if [ "$recovered" != "$expected" ] || [ "$role" != "writable-primary" ] \
+            || [[ ! "$replacement_child" =~ ^[1-9][0-9]*$ ]] \
+            || [ "$replacement_child" = "$child_pid" ] \
             || [ "$(cat "$state")" != "$state_before" ] \
-            || [ "$(cat "$RUNNER_TEMP/postgres-route.stdout")" != "$expected_supervisor_states" ] \
-            || [ -s "$RUNNER_TEMP/postgres-route.stderr" ] \
+            || [ "$(cat "$RUNNER_TEMP/postgres-route-manager.stdout")" != "supervisor-ready" ] \
+            || [ -s "$RUNNER_TEMP/postgres-route-manager.stderr" ] \
             || [ "$(stat --format '%a' "$workspace")" != "700" ] \
             || [ "$(stat --format '%a' "$state")" != "600" ] \
             || [ "$(stat --format '%a' "$state.lock")" != "600" ] \
@@ -602,12 +610,13 @@ jobs:
           state="$workspace/state.json"
           ownership="$state.supervisor.lock"
           expected="promoted $(cat "$RUNNER_TEMP/postgres-promoted-generation")"
-          expected_supervisor_states=$'router-ready\nrouter-restart-scheduled\nrouter-ready'
           state_before=$(cat "$state")
-          supervisor_pid=$(cat "$RUNNER_TEMP/postgres-route-supervisor.pid")
+          manager_pid=$(cat "$RUNNER_TEMP/postgres-route-manager.pid")
+          supervisor_pid=$(pgrep --parent "$manager_pid" || true)
           child_pid=$(pgrep --parent "$supervisor_pid" || true)
-          if [[ ! "$child_pid" =~ ^[1-9][0-9]*$ ]]; then
-            echo "active route supervisor did not own exactly one child"
+          if [[ ! "$supervisor_pid" =~ ^[1-9][0-9]*$ ]] \
+            || [[ ! "$child_pid" =~ ^[1-9][0-9]*$ ]]; then
+            echo "active route manager hierarchy was incomplete"
             exit 1
           fi
           if "$router" \
@@ -622,16 +631,18 @@ jobs:
             echo "concurrent route supervisor acquired active ownership"
             exit 1
           fi
+          active_supervisor=$(pgrep --parent "$manager_pid" || true)
           active_child=$(pgrep --parent "$supervisor_pid" || true)
           observed=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
           role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
             "$router" --mode role 2>/dev/null || true)
-          if ! kill -0 "$supervisor_pid" 2>/dev/null \
+          if ! kill -0 "$manager_pid" 2>/dev/null \
+            || [ "$active_supervisor" != "$supervisor_pid" ] \
             || [ "$active_child" != "$child_pid" ] \
             || [ "$(cat "$state")" != "$state_before" ] \
             || [ "$observed" != "$expected" ] \
             || [ "$role" != "writable-primary" ] \
-            || [ "$(cat "$RUNNER_TEMP/postgres-route.stdout")" != "$expected_supervisor_states" ] \
+            || [ "$(cat "$RUNNER_TEMP/postgres-route-manager.stdout")" != "supervisor-ready" ] \
             || [ -s "$RUNNER_TEMP/postgres-route-contender.stdout" ] \
             || [ "$(cat "$RUNNER_TEMP/postgres-route-contender.stderr")" != \
               "PostgreSQL route supervision failed" ] \
@@ -640,7 +651,85 @@ jobs:
             exit 1
           fi
 
-      - name: Replace supervisor after parent process loss
+      - name: Automatically replace supervisor after process loss
+        env:
+          DATAGROUND_ROUTER_HEALTH_DATABASE_URL: postgres://dataground_health:dataground-health@127.0.0.1:55431/dataground_conformance?sslmode=disable
+        run: |
+          router="$RUNNER_TEMP/dataground-postgres-route-conformance"
+          workspace="$RUNNER_TEMP/dataground-postgres-route"
+          control="$workspace/control.sock"
+          state="$workspace/state.json"
+          expected="promoted $(cat "$RUNNER_TEMP/postgres-promoted-generation")"
+          expected_manager_states=$'supervisor-ready\nsupervisor-restart-scheduled\nsupervisor-ready'
+          state_before=$(cat "$state")
+          process_alive() {
+            local process_state
+            process_state=$(ps --no-headers --format stat --pid "$1" 2>/dev/null | tr -d '[:space:]')
+            [ -n "$process_state" ] && [[ "$process_state" != Z* ]]
+          }
+          manager_pid=$(cat "$RUNNER_TEMP/postgres-route-manager.pid")
+          supervisor_pid=$(pgrep --parent "$manager_pid" || true)
+          child_pid=$(pgrep --parent "$supervisor_pid" || true)
+          if [[ ! "$supervisor_pid" =~ ^[1-9][0-9]*$ ]] \
+            || [[ ! "$child_pid" =~ ^[1-9][0-9]*$ ]]; then
+            echo "route manager did not own the expected process hierarchy"
+            exit 1
+          fi
+          kill -KILL "$supervisor_pid"
+          for attempt in {1..30}; do
+            manager_states=$(cat "$RUNNER_TEMP/postgres-route-manager.stdout")
+            if ! process_alive "$supervisor_pid" && ! process_alive "$child_pid" \
+              && [ "$manager_states" = $'supervisor-ready\nsupervisor-restart-scheduled' ]; then
+              break
+            fi
+            sleep 0.1
+          done
+          if process_alive "$supervisor_pid" || process_alive "$child_pid" \
+            || ! process_alive "$manager_pid" \
+            || [ "$manager_states" != $'supervisor-ready\nsupervisor-restart-scheduled' ]; then
+            echo "supervisor process loss did not enter bounded replacement backoff"
+            exit 1
+          fi
+          if "$router" --mode state --control-socket "$control" >/dev/null 2>&1; then
+            echo "route manager reported readiness before supervisor replacement"
+            exit 1
+          fi
+          if DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+            "$router" --mode role >/dev/null 2>&1; then
+            echo "supervisor process loss left the stable database endpoint available"
+            exit 1
+          fi
+          for attempt in {1..30}; do
+            replacement_supervisor=$(pgrep --parent "$manager_pid" || true)
+            replacement_child=$(pgrep --parent "$replacement_supervisor" || true)
+            recovered=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
+            role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+              "$router" --mode role 2>/dev/null || true)
+            manager_states=$(cat "$RUNNER_TEMP/postgres-route-manager.stdout")
+            if [[ "$replacement_supervisor" =~ ^[1-9][0-9]*$ ]] \
+              && [ "$replacement_supervisor" != "$supervisor_pid" ] \
+              && [[ "$replacement_child" =~ ^[1-9][0-9]*$ ]] \
+              && [ "$recovered" = "$expected" ] && [ "$role" = "writable-primary" ] \
+              && [ "$manager_states" = "$expected_manager_states" ]; then
+              break
+            fi
+            if ! process_alive "$manager_pid"; then
+              break
+            fi
+            sleep 1
+          done
+          if [[ ! "$replacement_supervisor" =~ ^[1-9][0-9]*$ ]] \
+            || [ "$replacement_supervisor" = "$supervisor_pid" ] \
+            || [[ ! "$replacement_child" =~ ^[1-9][0-9]*$ ]] \
+            || [ "$recovered" != "$expected" ] || [ "$role" != "writable-primary" ] \
+            || [ "$(cat "$state")" != "$state_before" ] \
+            || [ "$manager_states" != "$expected_manager_states" ] \
+            || [ -s "$RUNNER_TEMP/postgres-route-manager.stderr" ]; then
+            echo "route manager did not restore the exact persisted supervisor boundary"
+            exit 1
+          fi
+
+      - name: Replace manager after parent process loss
         env:
           DATAGROUND_ROUTER_HEALTH_DATABASE_URL: postgres://dataground_health:dataground-health@127.0.0.1:55431/dataground_conformance?sslmode=disable
         run: |
@@ -651,75 +740,84 @@ jobs:
           expected="promoted $(cat "$RUNNER_TEMP/postgres-promoted-generation")"
           state_before=$(cat "$state")
           process_alive() {
-            local state
-            state=$(ps --no-headers --format stat --pid "$1" 2>/dev/null | tr -d '[:space:]')
-            [ -n "$state" ] && [[ "$state" != Z* ]]
+            local process_state
+            process_state=$(ps --no-headers --format stat --pid "$1" 2>/dev/null | tr -d '[:space:]')
+            [ -n "$process_state" ] && [[ "$process_state" != Z* ]]
           }
-          supervisor_pid=$(cat "$RUNNER_TEMP/postgres-route-supervisor.pid")
+          manager_pid=$(cat "$RUNNER_TEMP/postgres-route-manager.pid")
+          supervisor_pid=$(pgrep --parent "$manager_pid" || true)
           child_pid=$(pgrep --parent "$supervisor_pid" || true)
-          if [[ ! "$child_pid" =~ ^[1-9][0-9]*$ ]]; then
-            echo "route supervisor did not own exactly one child before parent loss"
+          if [[ ! "$supervisor_pid" =~ ^[1-9][0-9]*$ ]] \
+            || [[ ! "$child_pid" =~ ^[1-9][0-9]*$ ]]; then
+            echo "route manager did not own the expected hierarchy before parent loss"
             exit 1
           fi
-          kill -KILL "$supervisor_pid"
-          wait "$supervisor_pid" 2>/dev/null || true
-          rm --force "$RUNNER_TEMP/postgres-route-supervisor.pid"
+          kill -KILL "$manager_pid"
+          wait "$manager_pid" 2>/dev/null || true
+          rm --force "$RUNNER_TEMP/postgres-route-manager.pid"
           for attempt in {1..30}; do
-            if ! process_alive "$supervisor_pid" && ! process_alive "$child_pid"; then
+            if ! process_alive "$manager_pid" && ! process_alive "$supervisor_pid" \
+              && ! process_alive "$child_pid"; then
               break
             fi
             sleep 1
           done
-          if process_alive "$supervisor_pid" || process_alive "$child_pid"; then
-            echo "router child outlived its supervisor ownership boundary"
+          if process_alive "$manager_pid" || process_alive "$supervisor_pid" \
+            || process_alive "$child_pid"; then
+            echo "managed route processes outlived the manager ownership boundary"
             exit 1
           fi
           if "$router" --mode state --control-socket "$control" >/dev/null 2>&1; then
-            echo "parent process loss left route readiness available"
+            echo "manager process loss left route readiness available"
             exit 1
           fi
           if DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
             "$router" --mode role >/dev/null 2>&1; then
-            echo "parent process loss left the stable database endpoint available"
+            echo "manager process loss left the stable database endpoint available"
             exit 1
           fi
           "$router" \
-            --mode supervise \
+            --mode manage \
             --listen-address 127.0.0.1:55431 \
             --control-socket "$control" \
             --state-file "$state" \
             --primary-target 127.0.0.1:55432 \
             --promoted-target 127.0.0.1:55433 \
-            >"$RUNNER_TEMP/postgres-route-replacement.stdout" \
-            2>"$RUNNER_TEMP/postgres-route-replacement.stderr" &
-          replacement_pid=$!
-          printf '%s\n' "$replacement_pid" >"$RUNNER_TEMP/postgres-route-supervisor.pid"
+            >"$RUNNER_TEMP/postgres-route-manager-replacement.stdout" \
+            2>"$RUNNER_TEMP/postgres-route-manager-replacement.stderr" &
+          replacement_manager=$!
+          printf '%s\n' "$replacement_manager" >"$RUNNER_TEMP/postgres-route-manager.pid"
           for attempt in {1..30}; do
             recovered=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
             role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
               "$router" --mode role 2>/dev/null || true)
-            replacement_child=$(pgrep --parent "$replacement_pid" || true)
+            replacement_supervisor=$(pgrep --parent "$replacement_manager" || true)
+            replacement_child=$(pgrep --parent "$replacement_supervisor" || true)
             if [ "$recovered" = "$expected" ] && [ "$role" = "writable-primary" ] \
+              && [[ "$replacement_supervisor" =~ ^[1-9][0-9]*$ ]] \
               && [[ "$replacement_child" =~ ^[1-9][0-9]*$ ]] \
-              && [ "$(cat "$RUNNER_TEMP/postgres-route-replacement.stdout")" = "router-ready" ]; then
+              && [ "$(cat "$RUNNER_TEMP/postgres-route-manager-replacement.stdout")" = \
+                "supervisor-ready" ]; then
               break
             fi
-            if ! kill -0 "$replacement_pid" 2>/dev/null; then
+            if ! kill -0 "$replacement_manager" 2>/dev/null; then
               break
             fi
             sleep 1
           done
           if [ "$recovered" != "$expected" ] || [ "$role" != "writable-primary" ] \
+            || [[ ! "$replacement_supervisor" =~ ^[1-9][0-9]*$ ]] \
             || [[ ! "$replacement_child" =~ ^[1-9][0-9]*$ ]] \
             || [ "$(cat "$state")" != "$state_before" ] \
-            || [ "$(cat "$RUNNER_TEMP/postgres-route-replacement.stdout")" != "router-ready" ] \
-            || [ -s "$RUNNER_TEMP/postgres-route-replacement.stderr" ] \
+            || [ "$(cat "$RUNNER_TEMP/postgres-route-manager-replacement.stdout")" != \
+              "supervisor-ready" ] \
+            || [ -s "$RUNNER_TEMP/postgres-route-manager-replacement.stderr" ] \
             || [ "$(stat --format '%a' "$workspace")" != "700" ] \
             || [ "$(stat --format '%a' "$state")" != "600" ] \
             || [ "$(stat --format '%a' "$state.lock")" != "600" ] \
             || [ "$(stat --format '%a' "$state.supervisor.lock")" != "600" ] \
             || [ "$(stat --format '%a' "$control")" != "600" ]; then
-            echo "replacement supervisor did not recover the exact ownership boundary"
+            echo "replacement manager did not recover the exact ownership boundary"
             exit 1
           fi
 
@@ -850,14 +948,14 @@ jobs:
           workspace="$RUNNER_TEMP/dataground-postgres-route"
           control="$workspace/control.sock"
           state="$workspace/state.json"
-          kill "$(cat "$RUNNER_TEMP/postgres-route-supervisor.pid")"
+          kill "$(cat "$RUNNER_TEMP/postgres-route-manager.pid")"
           for attempt in {1..30}; do
-            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-route-supervisor.pid")" 2>/dev/null; then
+            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-route-manager.pid")" 2>/dev/null; then
               break
             fi
             sleep 1
           done
-          if kill -0 "$(cat "$RUNNER_TEMP/postgres-route-supervisor.pid")" 2>/dev/null \
+          if kill -0 "$(cat "$RUNNER_TEMP/postgres-route-manager.pid")" 2>/dev/null \
             || [ -e "$control" ]; then
             echo "stable database endpoint did not stop cleanly before cluster recreation"
             exit 1
@@ -894,7 +992,7 @@ jobs:
             exit 1
           fi
           "$router" \
-            --mode supervise \
+            --mode manage \
             --listen-address 127.0.0.1:55431 \
             --control-socket "$control" \
             --state-file "$state" \
@@ -902,18 +1000,20 @@ jobs:
             --promoted-target 127.0.0.1:55433 \
             --route primary \
             --promotion-generation "$generation" \
-            >"$RUNNER_TEMP/postgres-route.stdout" \
-            2>"$RUNNER_TEMP/postgres-route.stderr" &
-          printf '%s\n' "$!" >"$RUNNER_TEMP/postgres-route-supervisor.pid"
+            >"$RUNNER_TEMP/postgres-route-manager.stdout" \
+            2>"$RUNNER_TEMP/postgres-route-manager.stderr" &
+          printf '%s\n' "$!" >"$RUNNER_TEMP/postgres-route-manager.pid"
           for attempt in {1..30}; do
             state_status=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
             routed_primary=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
               "$router" --mode role 2>/dev/null || true)
+            manager_state=$(cat "$RUNNER_TEMP/postgres-route-manager.stdout")
             if [ "$state_status" = "primary $generation" ] \
-              && [ "$routed_primary" = "writable-primary" ]; then
+              && [ "$routed_primary" = "writable-primary" ] \
+              && [ "$manager_state" = "supervisor-ready" ]; then
               exit 0
             fi
-            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-route-supervisor.pid")" 2>/dev/null; then
+            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-route-manager.pid")" 2>/dev/null; then
               break
             fi
             sleep 1
@@ -1078,25 +1178,26 @@ jobs:
             echo "long-lived database pool emitted unexpected error output"
             cleanup_status=1
           fi
-          if [ -f "$RUNNER_TEMP/postgres-route-supervisor.pid" ]; then
-            kill "$(cat "$RUNNER_TEMP/postgres-route-supervisor.pid")" 2>/dev/null || true
-            wait "$(cat "$RUNNER_TEMP/postgres-route-supervisor.pid")" 2>/dev/null || true
+          if [ -f "$RUNNER_TEMP/postgres-route-manager.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/postgres-route-manager.pid")" 2>/dev/null || true
+            wait "$(cat "$RUNNER_TEMP/postgres-route-manager.pid")" 2>/dev/null || true
           fi
-          if [ -s "$RUNNER_TEMP/postgres-route.stderr" ] \
+          if [ -s "$RUNNER_TEMP/postgres-route-manager.stderr" ] \
             || grep --invert-match --extended-regexp --quiet \
-              '^(router-ready|router-restart-scheduled)$' \
-              "$RUNNER_TEMP/postgres-route.stdout"; then
-            echo "stable database endpoint emitted unexpected output"
+              '^(supervisor-ready|supervisor-restart-scheduled)$' \
+              "$RUNNER_TEMP/postgres-route-manager.stdout"; then
+            echo "stable database endpoint manager emitted unexpected output"
             cleanup_status=1
           fi
-          if [ -s "$RUNNER_TEMP/postgres-route-replacement.stderr" ] \
-            || { [ -f "$RUNNER_TEMP/postgres-route-replacement.stdout" ] \
+          if [ -s "$RUNNER_TEMP/postgres-route-manager-replacement.stderr" ] \
+            || { [ -f "$RUNNER_TEMP/postgres-route-manager-replacement.stdout" ] \
               && grep --invert-match --extended-regexp --quiet \
-                '^(router-ready|router-restart-scheduled)$' \
-                "$RUNNER_TEMP/postgres-route-replacement.stdout"; }; then
-            echo "replacement database endpoint emitted unexpected output"
+                '^(supervisor-ready|supervisor-restart-scheduled)$' \
+                "$RUNNER_TEMP/postgres-route-manager-replacement.stdout"; }; then
+            echo "replacement database endpoint manager emitted unexpected output"
             cleanup_status=1
           fi
           docker compose -f deploy/storage/seaweedfs-conformance.yml \
             --profile postgres-failover down --volumes || cleanup_status=1
           exit "$cleanup_status"
+
