@@ -16,6 +16,8 @@ The reusable suite under `internal/execution/s3conformance` operates only throug
 
 The first live profile uses [SeaweedFS 4.40](https://github.com/seaweedfs/seaweedfs/releases/tag/4.40), pinned by its multi-architecture image digest and source commit. The version includes the upstream [atomic conditional-mutation change](https://github.com/seaweedfs/seaweedfs/pull/8802) that closed the concurrent `If-None-Match: *` defect. Its Apache-2.0 license, local single-binary mode, Kubernetes chart, and multi-architecture image make it a suitable first evidence candidate. It is not a production selection.
 
+The disposable container drops every Linux capability, then restores only `CHOWN`, `SETGID`, and `SETUID` so the pinned image entrypoint can assign its temporary data directory and switch to its unprivileged runtime user. The profile check pins that exact set; it is startup plumbing, not storage authority or production hardening evidence.
+
 The checked-in Compose profile is destructive only inside its disposable, memory-backed bucket and deliberately runs anonymous on loopback. Start a fresh instance for every run so the fixed evidence scope is absent:
 
 ```shell

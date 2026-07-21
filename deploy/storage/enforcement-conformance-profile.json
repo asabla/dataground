@@ -15,7 +15,8 @@
     "endpoint": "http://127.0.0.1:8333",
     "bucket": "dataground-conformance",
     "authentication": "anonymous development access",
-    "persistent": false
+    "persistent": false,
+    "entrypointCapabilities": ["CHOWN", "SETGID", "SETUID"]
   },
   "conformance": {
     "reportSchema": "dataground.s3-enforcement-conformance/v1",
