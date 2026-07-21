@@ -23,3 +23,26 @@ services:
     security_opt:
       - no-new-privileges:true
     init: true
+
+  postgres:
+    image: postgres:18.4-bookworm
+    user: "999:999"
+    environment:
+      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_DB: dataground_conformance
+      POSTGRES_PASSWORD: dataground
+      POSTGRES_USER: dataground
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres-conformance-data:/var/lib/postgresql
+    mem_limit: 512m
+    pids_limit: 256
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+
+volumes:
+  postgres-conformance-data:

@@ -32,6 +32,21 @@
     "concurrentWriters": 8,
     "ciRequired": true
   },
+  "recoveryConformance": {
+    "reportSchema": "dataground.enforcement-recovery-conformance/v1",
+    "database": "PostgreSQL 18.4 disposable test dependency",
+    "freshRunnerProcesses": true,
+    "postgresServerRestart": true,
+    "phases": {
+      "prepare": ["fresh-scope", "fixture-provisioned", "object-retained-after-database-loss"],
+      "recover": [
+        "retained-object-present",
+        "catalog-adoption-after-restart",
+        "read-only-replay",
+        "single-audit-commit"
+      ]
+    }
+  },
   "sources": {
     "release": "https://github.com/seaweedfs/seaweedfs/releases/tag/4.40",
     "license": "https://github.com/seaweedfs/seaweedfs/blob/4.40/LICENSE",
@@ -40,6 +55,7 @@
   },
   "blockers": [
     "single-process anonymous development evidence is not an authenticated production topology",
+    "the recovery profile uses one disposable PostgreSQL server and does not exercise a database cluster or network partition",
     "multi-gateway and network-partition behavior is not exercised by this profile",
     "bucket policy, workload identity, TLS, encryption and KMS are not certified",
     "versioning, retention, backup, restore, upgrade and rollback are not certified",
