@@ -41,7 +41,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 	phase := flags.String(
 		"phase",
 		"",
-		"prepare, outage, recover, commit-loss, committed-recover, commit-connection-loss, connection-loss-recover, pre-commit-connection-loss, rolled-back-recover, failover-recover, failover-commit-loss or failover-commit-recover",
+		"prepare, outage, recover, commit-loss, committed-recover, commit-connection-loss, connection-loss-recover, pre-commit-connection-loss, rolled-back-recover, failover-recover, failover-commit-loss, failover-commit-recover or failover-rejoin-observe",
 	)
 	primaryLossSignalFD := flags.Int("primary-loss-signal-fd", -1, "pre-opened descriptor notified after COMMIT is forwarded")
 	allowLoopbackHTTP := flags.Bool("allow-loopback-http", false, "allow explicit plaintext loopback development endpoint")
@@ -219,6 +219,16 @@ func execute(
 			},
 			config,
 		)
+	case recoveryconformance.PhaseFailoverRejoinObserve:
+		return recoveryconformance.RunFailoverRejoinObserve(
+			ctx,
+			catalog,
+			backend,
+			func(ctx context.Context, fixture recoveryconformance.Fixture) error {
+				return verifyRejoinedFixture(ctx, pool, fixture)
+			},
+			config,
+		)
 	default:
 		return recoveryconformance.Report{}, errors.New("invalid recovery conformance phase")
 	}
@@ -234,7 +244,8 @@ func validPhase(phase recoveryconformance.Phase) bool {
 		phase == recoveryconformance.PhaseRolledBackRecover ||
 		phase == recoveryconformance.PhaseFailoverRecover ||
 		phase == recoveryconformance.PhaseFailoverCommitLoss ||
-		phase == recoveryconformance.PhaseFailoverCommitRecover
+		phase == recoveryconformance.PhaseFailoverCommitRecover ||
+		phase == recoveryconformance.PhaseFailoverRejoinObserve
 }
 
 func validPrimaryLossSignalFD(phase recoveryconformance.Phase, descriptor int) bool {
@@ -366,6 +377,21 @@ func provisionFixture(ctx context.Context, pool *pgxpool.Pool, fixture recoveryc
 }
 
 func verifyPromotedFixture(ctx context.Context, pool *pgxpool.Pool, fixture recoveryconformance.Fixture) error {
+	return verifyFixtureRole(ctx, pool, fixture, false, "off", "promoted PostgreSQL fixture is unavailable")
+}
+
+func verifyRejoinedFixture(ctx context.Context, pool *pgxpool.Pool, fixture recoveryconformance.Fixture) error {
+	return verifyFixtureRole(ctx, pool, fixture, true, "on", "rejoined PostgreSQL fixture is unavailable")
+}
+
+func verifyFixtureRole(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	fixture recoveryconformance.Fixture,
+	expectedRecovery bool,
+	expectedReadOnly string,
+	failureMessage string,
+) error {
 	var inRecovery bool
 	var transactionReadOnly string
 	var fixturePresent bool
@@ -387,8 +413,8 @@ func verifyPromotedFixture(ctx context.Context, pool *pgxpool.Pool, fixture reco
 		&transactionReadOnly,
 		&fixturePresent,
 	)
-	if err != nil || inRecovery || transactionReadOnly != "off" || !fixturePresent {
-		return errors.New("promoted PostgreSQL fixture is unavailable")
+	if err != nil || inRecovery != expectedRecovery || transactionReadOnly != expectedReadOnly || !fixturePresent {
+		return errors.New(failureMessage)
 	}
 	return nil
 }

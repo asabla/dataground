@@ -28,6 +28,7 @@ services:
     image: postgres:18.4-bookworm
     user: "999:999"
     environment:
+      DATAGROUND_FENCE_PATH: /var/lib/postgresql/.dataground-fenced
       PGDATA: /var/lib/postgresql/data/pgdata
       POSTGRES_DB: dataground_conformance
       POSTGRES_PASSWORD: dataground
@@ -37,6 +38,9 @@ services:
     volumes:
       - postgres-conformance-data:/var/lib/postgresql
       - ./postgres-primary-init.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro
+      - ./postgres-primary-entrypoint.sh:/opt/dataground/postgres-primary-entrypoint.sh:ro
+    entrypoint:
+      - /opt/dataground/postgres-primary-entrypoint.sh
     command:
       - postgres
       - -c
@@ -47,6 +51,8 @@ services:
       - max_replication_slots=4
       - -c
       - wal_keep_size=64MB
+      - -c
+      - wal_log_hints=on
     mem_limit: 512m
     pids_limit: 256
     cap_drop:
@@ -80,6 +86,48 @@ services:
     security_opt:
       - no-new-privileges:true
     init: true
+
+  postgres-fence:
+    profiles:
+      - postgres-failover-admin
+    image: postgres:18.4-bookworm
+    user: "999:999"
+    environment:
+      DATAGROUND_FENCE_PATH: /var/lib/postgresql/.dataground-fenced
+      PGDATA: /var/lib/postgresql/data/pgdata
+    entrypoint:
+      - /opt/dataground/postgres-fence.sh
+    volumes:
+      - postgres-conformance-data:/var/lib/postgresql
+      - ./postgres-fence.sh:/opt/dataground/postgres-fence.sh:ro
+    mem_limit: 128m
+    pids_limit: 64
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  postgres-rejoin:
+    profiles:
+      - postgres-failover-admin
+    image: postgres:18.4-bookworm
+    user: "999:999"
+    environment:
+      DATAGROUND_FENCE_PATH: /var/lib/postgresql/.dataground-fenced
+      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_PASSWORD: dataground
+      POSTGRES_USER: dataground
+    entrypoint:
+      - /opt/dataground/postgres-rejoin.sh
+    volumes:
+      - postgres-conformance-data:/var/lib/postgresql
+      - ./postgres-rejoin.sh:/opt/dataground/postgres-rejoin.sh:ro
+    mem_limit: 256m
+    pids_limit: 64
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   seaweedfs-conformance-data:

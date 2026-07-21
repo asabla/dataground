@@ -264,7 +264,7 @@ jobs:
 
   postgres-failover-conformance:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       DATAGROUND_PRIMARY_DATABASE_URL: postgres://dataground:dataground@127.0.0.1:55432/dataground_conformance?sslmode=disable
       DATAGROUND_PROMOTED_DATABASE_URL: postgres://dataground:dataground@127.0.0.1:55433/dataground_conformance?sslmode=disable
@@ -362,6 +362,93 @@ jobs:
         run: >-
           go run ./cmd/dataground-enforcement-recovery-conformance
           --phase failover-recover
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id 223344556677889900aabbccddeeff11
+          --allow-loopback-http
+
+      - name: Fence stale former primary
+        run: |
+          target_lsn=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+            psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+            --command 'SELECT pg_current_wal_lsn()')
+          if [[ ! "$target_lsn" =~ ^[0-9A-F]+/[0-9A-F]+$ ]]; then
+            echo "could not establish the post-promotion WAL boundary"
+            exit 1
+          fi
+          printf '%s\n' "$target_lsn" >"$RUNNER_TEMP/rejoin-target-lsn"
+          docker compose -f deploy/storage/seaweedfs-conformance.yml \
+            --profile postgres-failover-admin run --rm --no-deps postgres-fence
+
+      - name: Refuse stale primary restart
+        run: |
+          docker compose -f deploy/storage/seaweedfs-conformance.yml \
+            --profile postgres-failover start postgres
+          primary_id=$(docker compose -f deploy/storage/seaweedfs-conformance.yml ps --all --quiet postgres)
+          if [ -z "$primary_id" ]; then
+            echo "fenced primary container was not found"
+            exit 1
+          fi
+          for attempt in {1..10}; do
+            running=$(docker inspect --format '{{.State.Running}}' "$primary_id")
+            if [ "$running" = "false" ]; then
+              break
+            fi
+            sleep 1
+          done
+          exit_code=$(docker inspect --format '{{.State.ExitCode}}' "$primary_id")
+          if [ "$running" != "false" ] || [ "$exit_code" -ne 78 ] \
+            || docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+              pg_isready --username dataground >/dev/null 2>&1; then
+            echo "fenced stale primary accepted a restart"
+            exit 1
+          fi
+
+      - name: Rewind and rejoin former primary
+        run: |
+          docker compose -f deploy/storage/seaweedfs-conformance.yml \
+            --profile postgres-failover-admin run --rm --no-deps postgres-rejoin
+          docker compose -f deploy/storage/seaweedfs-conformance.yml \
+            --profile postgres-failover start postgres
+          target_lsn=$(cat "$RUNNER_TEMP/rejoin-target-lsn")
+          for attempt in {1..30}; do
+            rejoined=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+              psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+              --command "SELECT pg_is_in_recovery()
+                AND current_setting('transaction_read_only') = 'on'
+                AND pg_last_wal_replay_lsn() >= '$target_lsn'::pg_lsn" 2>/dev/null || true)
+            if [ "$rejoined" = "t" ]; then
+              break
+            fi
+            sleep 1
+          done
+          promoted=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+            psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+            --command "SELECT NOT pg_is_in_recovery()
+              AND current_setting('transaction_read_only') = 'off'")
+          if [ "$rejoined" != "t" ] || [ "$promoted" != "t" ]; then
+            echo "rewound primary did not rejoin behind the promoted writer"
+            exit 1
+          fi
+          if docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+            psql --username dataground --dbname dataground_conformance \
+            --command 'CREATE TEMPORARY TABLE dataground_stale_write_probe (id integer)' \
+            >/dev/null 2>&1; then
+            echo "rejoined former primary accepted a write"
+            exit 1
+          fi
+          docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+            psql --username dataground --dbname dataground_conformance \
+            --command 'CREATE TEMPORARY TABLE dataground_promoted_write_probe (id integer)' \
+            >/dev/null
+
+      - name: Observe catalog through rejoined standby
+        env:
+          DATAGROUND_TEST_DATABASE_URL: ${{ env.DATAGROUND_PRIMARY_DATABASE_URL }}
+        run: >-
+          go run ./cmd/dataground-enforcement-recovery-conformance
+          --phase failover-rejoin-observe
           --endpoint http://127.0.0.1:8333
           --bucket dataground-conformance
           --addressing-style path
