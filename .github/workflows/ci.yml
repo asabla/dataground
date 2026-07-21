@@ -120,20 +120,34 @@ jobs:
           --run-id fedcba9876543210fedcba9876543210
           --allow-loopback-http
 
-      - name: Restart PostgreSQL recovery boundary
+      - name: Exercise object-store outage
         run: |
+          docker compose -f deploy/storage/seaweedfs-conformance.yml stop seaweedfs
+          go run ./cmd/dataground-enforcement-recovery-conformance \
+            --phase outage \
+            --endpoint http://127.0.0.1:8333 \
+            --bucket dataground-conformance \
+            --addressing-style path \
+            --run-id fedcba9876543210fedcba9876543210 \
+            --allow-loopback-http
+
+      - name: Recreate storage and restart database boundaries
+        run: |
+          docker compose -f deploy/storage/seaweedfs-conformance.yml rm --force seaweedfs
+          docker compose -f deploy/storage/seaweedfs-conformance.yml up --detach seaweedfs
           docker compose -f deploy/storage/seaweedfs-conformance.yml restart postgres
           for attempt in {1..30}; do
-            if docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
-              pg_isready --username dataground --dbname dataground_conformance >/dev/null; then
+            if curl --fail --silent http://127.0.0.1:8333/ >/dev/null \
+              && docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+                pg_isready --username dataground --dbname dataground_conformance >/dev/null; then
               exit 0
             fi
             sleep 1
           done
-          docker compose -f deploy/storage/seaweedfs-conformance.yml logs postgres
+          docker compose -f deploy/storage/seaweedfs-conformance.yml logs
           exit 1
 
-      - name: Recover PostgreSQL catalog binding
+      - name: Recover PostgreSQL catalog binding concurrently
         run: >-
           go run ./cmd/dataground-enforcement-recovery-conformance
           --phase recover

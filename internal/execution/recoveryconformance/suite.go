@@ -1,5 +1,5 @@
 // Package recoveryconformance verifies that immutable enforcement-object and
-// PostgreSQL catalog effects recover together across a process restart.
+// PostgreSQL catalog effects recover across outages, restarts and contention.
 package recoveryconformance
 
 import (
@@ -10,6 +10,8 @@ import (
 	"errors"
 	"io"
 	"regexp"
+	"sync"
+	"sync/atomic"
 
 	"github.com/asabla/dataground/internal/execution"
 	"github.com/asabla/dataground/internal/identity"
@@ -17,10 +19,13 @@ import (
 
 const ReportSchemaV1 = "dataground.enforcement-recovery-conformance/v1"
 
+const ConcurrentRecoveryWorkers = 8
+
 type Phase string
 
 const (
 	PhasePrepare Phase = "prepare"
+	PhaseOutage  Phase = "outage"
 	PhaseRecover Phase = "recover"
 )
 
@@ -179,26 +184,46 @@ func RunRecover(ctx context.Context, catalog Catalog, backend Backend, config Co
 	report.Cases = append(report.Cases, CaseResult{Name: "retained-object-present", Status: "passed"})
 
 	observed := &observedBackend{Backend: backend}
-	finalizer, err := execution.NewEnforcementBundleFinalizer(catalog, observed, observed)
-	if err != nil {
-		return fail(ctx, report, "catalog-adoption-after-restart")
-	}
 	request := execution.EnforcementBundleFinalization{
 		Binding: fixture.Binding,
 		Content: bytes.Clone(fixture.Content),
 	}
-	bound, err := finalizer.Finalize(ctx, request)
-	if err != nil || !execution.EqualEnforcementBundleRecords(bound, fixture.Record) || observed.writes != 1 {
-		return fail(ctx, report, "catalog-adoption-after-restart")
+	barrier := newArrivalBarrier(ConcurrentRecoveryWorkers)
+	results := make(chan recoveryResult, ConcurrentRecoveryWorkers)
+	var workers sync.WaitGroup
+	for range ConcurrentRecoveryWorkers {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			synchronized := &barrierCatalog{Catalog: catalog, barrier: barrier}
+			finalizer, finalizerErr := execution.NewEnforcementBundleFinalizer(synchronized, observed, observed)
+			if finalizerErr != nil {
+				results <- recoveryResult{err: finalizerErr}
+				return
+			}
+			bound, finalizationErr := finalizer.Finalize(ctx, request)
+			results <- recoveryResult{record: bound, err: finalizationErr}
+		}()
 	}
-	report.Cases = append(report.Cases, CaseResult{Name: "catalog-adoption-after-restart", Status: "passed"})
+	workers.Wait()
+	close(results)
+	for result := range results {
+		if result.err != nil || !execution.EqualEnforcementBundleRecords(result.record, fixture.Record) {
+			return fail(ctx, report, "concurrent-catalog-adoption-after-restarts")
+		}
+	}
+	if observed.writes.Load() != ConcurrentRecoveryWorkers {
+		return fail(ctx, report, "concurrent-catalog-adoption-after-restarts")
+	}
+	report.Cases = append(report.Cases, CaseResult{Name: "concurrent-catalog-adoption-after-restarts", Status: "passed"})
 
 	restartedFinalizer, err := execution.NewEnforcementBundleFinalizer(catalog, observed, observed)
 	if err != nil {
 		return fail(ctx, report, "read-only-replay")
 	}
 	replayed, err := restartedFinalizer.Finalize(ctx, request)
-	if err != nil || !execution.EqualEnforcementBundleRecords(replayed, fixture.Record) || observed.writes != 1 {
+	if err != nil || !execution.EqualEnforcementBundleRecords(replayed, fixture.Record) ||
+		observed.writes.Load() != ConcurrentRecoveryWorkers {
 		return fail(ctx, report, "read-only-replay")
 	}
 	report.Cases = append(report.Cases, CaseResult{Name: "read-only-replay", Status: "passed"})
@@ -212,6 +237,39 @@ func RunRecover(ctx context.Context, catalog Catalog, backend Backend, config Co
 		return fail(ctx, report, "single-audit-commit")
 	}
 	report.Cases = append(report.Cases, CaseResult{Name: "single-audit-commit", Status: "passed"})
+	report.Status = "passed"
+	return report, nil
+}
+
+func RunOutage(ctx context.Context, catalog Catalog, backend Backend, config Config) (Report, error) {
+	report, fixture, err := newReport(ctx, PhaseOutage, catalog, backend, config, 2)
+	if err != nil {
+		return report, err
+	}
+	finalizer, err := execution.NewEnforcementBundleFinalizer(catalog, backend, backend)
+	if err != nil {
+		return fail(ctx, report, "finalization-fails-closed-during-object-outage")
+	}
+	_, err = finalizer.Finalize(ctx, execution.EnforcementBundleFinalization{
+		Binding: fixture.Binding,
+		Content: bytes.Clone(fixture.Content),
+	})
+	if !errors.Is(err, execution.ErrEnforcementBundleUnavailable) {
+		return fail(ctx, report, "finalization-fails-closed-during-object-outage")
+	}
+	report.Cases = append(report.Cases, CaseResult{Name: "finalization-fails-closed-during-object-outage", Status: "passed"})
+
+	if _, err := catalog.GetEnforcementBundleRecord(ctx, fixture.IsolationDomainID, fixture.Record.ID); !errors.Is(
+		err,
+		execution.ErrEnforcementBundleMissing,
+	) {
+		return fail(ctx, report, "catalog-remains-unbound")
+	}
+	audits, err := catalog.CountEnforcementBundleBindingAudits(ctx, fixture.IsolationDomainID, fixture.Record.ID)
+	if err != nil || audits != 0 {
+		return fail(ctx, report, "catalog-remains-unbound")
+	}
+	report.Cases = append(report.Cases, CaseResult{Name: "catalog-remains-unbound", Status: "passed"})
 	report.Status = "passed"
 	return report, nil
 }
@@ -308,7 +366,7 @@ func (backend *disconnectingBackend) PutEnforcementObjectIfAbsent(
 
 type observedBackend struct {
 	Backend
-	writes int
+	writes atomic.Int64
 }
 
 func (backend *observedBackend) PutEnforcementObjectIfAbsent(
@@ -318,8 +376,58 @@ func (backend *observedBackend) PutEnforcementObjectIfAbsent(
 	size int64,
 	digest string,
 ) error {
-	backend.writes++
+	backend.writes.Add(1)
 	return backend.Backend.PutEnforcementObjectIfAbsent(ctx, key, content, size, digest)
+}
+
+type recoveryResult struct {
+	record execution.EnforcementBundleRecord
+	err    error
+}
+
+type arrivalBarrier struct {
+	mutex     sync.Mutex
+	remaining int
+	ready     chan struct{}
+}
+
+func newArrivalBarrier(participants int) *arrivalBarrier {
+	return &arrivalBarrier{remaining: participants, ready: make(chan struct{})}
+}
+
+func (barrier *arrivalBarrier) arrive(ctx context.Context) error {
+	barrier.mutex.Lock()
+	barrier.remaining--
+	if barrier.remaining == 0 {
+		close(barrier.ready)
+	}
+	barrier.mutex.Unlock()
+	select {
+	case <-barrier.ready:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+type barrierCatalog struct {
+	Catalog
+	barrier *arrivalBarrier
+	once    sync.Once
+	err     error
+}
+
+func (catalog *barrierCatalog) GetEnforcementBundleRecord(
+	ctx context.Context,
+	isolationDomainID string,
+	bundleID string,
+) (execution.EnforcementBundleRecord, error) {
+	record, err := catalog.Catalog.GetEnforcementBundleRecord(ctx, isolationDomainID, bundleID)
+	catalog.once.Do(func() { catalog.err = catalog.barrier.arrive(ctx) })
+	if catalog.err != nil {
+		return execution.EnforcementBundleRecord{}, catalog.err
+	}
+	return record, err
 }
 
 var _ Backend = (*disconnectingBackend)(nil)

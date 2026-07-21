@@ -10,6 +10,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/asabla/dataground/internal/execution"
@@ -76,6 +77,7 @@ func (backend *memoryBackend) PutEnforcementObjectIfAbsent(
 }
 
 type memoryCatalog struct {
+	mutex     sync.Mutex
 	available bool
 	record    execution.EnforcementBundleRecord
 	audits    int
@@ -86,6 +88,8 @@ func (catalog *memoryCatalog) GetEnforcementBundleRecord(
 	isolationDomainID string,
 	bundleID string,
 ) (execution.EnforcementBundleRecord, error) {
+	catalog.mutex.Lock()
+	defer catalog.mutex.Unlock()
 	if err := ctx.Err(); err != nil {
 		return execution.EnforcementBundleRecord{}, err
 	}
@@ -103,6 +107,8 @@ func (catalog *memoryCatalog) BindEnforcementBundle(
 	ctx context.Context,
 	binding execution.EnforcementBundleBinding,
 ) (execution.EnforcementBundleRecord, error) {
+	catalog.mutex.Lock()
+	defer catalog.mutex.Unlock()
 	if err := ctx.Err(); err != nil {
 		return execution.EnforcementBundleRecord{}, err
 	}
@@ -128,6 +134,8 @@ func (catalog *memoryCatalog) CountEnforcementBundleBindingAudits(
 	isolationDomainID string,
 	bundleID string,
 ) (int, error) {
+	catalog.mutex.Lock()
+	defer catalog.mutex.Unlock()
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
@@ -163,21 +171,78 @@ func TestPrepareAndRecoverAcrossCatalogRestart(t *testing.T) {
 		t.Fatalf("prepare effects = record %#v, audits %d, writes %d", catalog.record, catalog.audits, backend.writes)
 	}
 
+	catalog.mutex.Lock()
 	catalog.available = true
+	catalog.mutex.Unlock()
 	recover, err := RunRecover(context.Background(), catalog, backend, Config{RunID: testRunID})
 	if err != nil || recover.Status != "passed" || recover.Phase != PhaseRecover {
 		t.Fatalf("recover report = %#v, error = %v", recover, err)
 	}
 	if got, want := caseNames(recover), []string{
 		"retained-object-present",
-		"catalog-adoption-after-restart",
+		"concurrent-catalog-adoption-after-restarts",
 		"read-only-replay",
 		"single-audit-commit",
 	}; !equalStrings(got, want) {
 		t.Fatalf("recover cases = %#v, want %#v", got, want)
 	}
-	if catalog.record.SchemaVersion == "" || catalog.audits != 1 || backend.writes != 2 {
+	if catalog.record.SchemaVersion == "" || catalog.audits != 1 || backend.writes != 1+ConcurrentRecoveryWorkers {
 		t.Fatalf("recover effects = record %#v, audits %d, writes %d", catalog.record, catalog.audits, backend.writes)
+	}
+}
+
+func TestOutageRequiresUnavailableObjectBackendAndNoCatalogEffect(t *testing.T) {
+	backend := newMemoryBackend()
+	catalog := &memoryCatalog{available: true}
+	report, err := RunOutage(context.Background(), catalog, unavailableBackend{Backend: backend}, Config{RunID: testRunID})
+	if err != nil || report.Status != "passed" || report.Phase != PhaseOutage {
+		t.Fatalf("outage report = %#v, error = %v", report, err)
+	}
+	if got, want := caseNames(report), []string{
+		"finalization-fails-closed-during-object-outage",
+		"catalog-remains-unbound",
+	}; !equalStrings(got, want) {
+		t.Fatalf("outage cases = %#v, want %#v", got, want)
+	}
+	if catalog.record.SchemaVersion != "" || catalog.audits != 0 || backend.writes != 0 {
+		t.Fatalf("outage effects = record %#v, audits %d, writes %d", catalog.record, catalog.audits, backend.writes)
+	}
+}
+
+func TestOutageRejectsAvailableMissingOrAlreadyBoundScope(t *testing.T) {
+	fixture, err := FixtureFor(Config{RunID: testRunID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := map[string]struct {
+		backend  Backend
+		catalog  *memoryCatalog
+		wantCase string
+	}{
+		"available object": {
+			backend:  &memoryBackend{objects: map[string][]byte{fixture.Record.ObjectKey: bytes.Clone(fixture.Content)}},
+			catalog:  &memoryCatalog{available: true},
+			wantCase: "finalization-fails-closed-during-object-outage",
+		},
+		"missing object": {
+			backend:  newMemoryBackend(),
+			catalog:  &memoryCatalog{available: true},
+			wantCase: "finalization-fails-closed-during-object-outage",
+		},
+		"bound catalog": {
+			backend:  unavailableBackend{Backend: newMemoryBackend()},
+			catalog:  &memoryCatalog{available: true, record: fixture.Record, audits: 1},
+			wantCase: "catalog-remains-unbound",
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			report, err := RunOutage(context.Background(), test.catalog, test.backend, Config{RunID: testRunID})
+			var suiteErr *SuiteError
+			if !errors.As(err, &suiteErr) || suiteErr.Case != test.wantCase || report.Status != "failed" {
+				t.Fatalf("report = %#v, error = %v", report, err)
+			}
+		})
 	}
 }
 
@@ -264,30 +329,55 @@ func TestInvalidConfigurationFailsBeforeEffectsAndIsNotReflected(t *testing.T) {
 }
 
 func TestReportsDoNotSerializeSensitiveRoutingOrContent(t *testing.T) {
-	backend := newMemoryBackend()
-	catalog := &memoryCatalog{available: true}
-	report, err := RunPrepare(
-		context.Background(), catalog, backend, func(context.Context, Fixture) error { return nil },
-		func() { catalog.available = false }, Config{RunID: testRunID},
+	fixture, err := FixtureFor(Config{RunID: testRunID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepareCatalog := &memoryCatalog{available: true}
+	prepare, err := RunPrepare(
+		context.Background(), prepareCatalog, newMemoryBackend(), func(context.Context, Fixture) error { return nil },
+		func() { prepareCatalog.available = false }, Config{RunID: testRunID},
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.Marshal(report)
+	outage, err := RunOutage(
+		context.Background(),
+		&memoryCatalog{available: true},
+		unavailableBackend{Backend: newMemoryBackend()},
+		Config{RunID: testRunID},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{
-		"endpoint",
-		"bucket",
-		"objectKey",
-		"postgres://",
-		"127.0.0.1",
-		"version: 1",
-		"correlation",
-	} {
-		if strings.Contains(string(encoded), forbidden) {
-			t.Fatalf("report serialized forbidden detail %q: %s", forbidden, encoded)
+	recoverBackend := &memoryBackend{objects: map[string][]byte{
+		fixture.Record.ObjectKey: bytes.Clone(fixture.Content),
+	}}
+	recover, err := RunRecover(
+		context.Background(), &memoryCatalog{available: true}, recoverBackend, Config{RunID: testRunID},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, report := range []Report{prepare, outage, recover} {
+		encoded, err := json.Marshal(report)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, forbidden := range []string{
+			"endpoint",
+			"bucket",
+			"objectKey",
+			"enforcement/",
+			"sha256:",
+			"postgres://",
+			"127.0.0.1",
+			"version: 1",
+			"correlation",
+		} {
+			if strings.Contains(string(encoded), forbidden) {
+				t.Fatalf("report serialized forbidden detail %q: %s", forbidden, encoded)
+			}
 		}
 	}
 }
@@ -318,6 +408,26 @@ func TestCancellationDuringFreshScopeCheckIsPreserved(t *testing.T) {
 	}
 }
 
+func TestCancellationDuringConcurrentRecoveryIsPreserved(t *testing.T) {
+	fixture, err := FixtureFor(Config{RunID: testRunID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	catalog := &cancelAfterInitialReadCatalog{
+		Catalog: &memoryCatalog{available: true},
+		cancel:  cancel,
+	}
+	backend := &memoryBackend{objects: map[string][]byte{
+		fixture.Record.ObjectKey: bytes.Clone(fixture.Content),
+	}}
+	report, err := RunRecover(ctx, catalog, backend, Config{RunID: testRunID})
+	if !errors.Is(err, context.Canceled) || len(report.Cases) != 2 ||
+		report.Cases[1] != (CaseResult{Name: "concurrent-catalog-adoption-after-restarts", Status: "failed"}) {
+		t.Fatalf("report = %#v, error = %v", report, err)
+	}
+}
+
 func caseNames(report Report) []string {
 	names := make([]string, 0, len(report.Cases))
 	for _, result := range report.Cases {
@@ -344,3 +454,37 @@ func equalStrings(left, right []string) bool {
 var _ Backend = (*memoryBackend)(nil)
 var _ Backend = (*cancelingBackend)(nil)
 var _ Catalog = (*memoryCatalog)(nil)
+
+type unavailableBackend struct {
+	Backend
+}
+
+func (unavailableBackend) OpenEnforcementObject(context.Context, string) (io.ReadCloser, error) {
+	return nil, errors.New("backend unavailable")
+}
+
+func (unavailableBackend) PutEnforcementObjectIfAbsent(context.Context, string, io.Reader, int64, string) error {
+	return errors.New("backend unavailable")
+}
+
+var _ Backend = unavailableBackend{}
+
+type cancelAfterInitialReadCatalog struct {
+	Catalog
+	cancel context.CancelFunc
+	reads  atomic.Int64
+}
+
+func (catalog *cancelAfterInitialReadCatalog) GetEnforcementBundleRecord(
+	ctx context.Context,
+	isolationDomainID string,
+	bundleID string,
+) (execution.EnforcementBundleRecord, error) {
+	record, err := catalog.Catalog.GetEnforcementBundleRecord(ctx, isolationDomainID, bundleID)
+	if catalog.reads.Add(1) == 2 {
+		catalog.cancel()
+	}
+	return record, err
+}
+
+var _ Catalog = (*cancelAfterInitialReadCatalog)(nil)
