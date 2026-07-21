@@ -399,6 +399,140 @@ func durableExecutionPlan(domainID, revisionID string) execution.ExecutionPlan {
 	}
 }
 
+func TestDurableEnforcementBundleCatalogIsImmutableAuditedAndScoped(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	databaseURL := testDatabaseURL(t)
+	database, err := persistence.OpenSQL(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := persistence.MigrateDownTo(ctx, database, 0); err != nil {
+		database.Close()
+		t.Fatalf("reset schema: %v", err)
+	}
+	if err := persistence.MigrateUp(ctx, database); err != nil {
+		database.Close()
+		t.Fatalf("migrate schema: %v", err)
+	}
+	database.Close()
+	pool, err := persistence.OpenPool(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	domainID := identity.New("iso")
+	serviceID := identity.New("svc")
+	revisionID := identity.New("rev")
+	now := time.Now().UTC()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO agent_services (
+			isolation_domain_id, id, name, description, created_at, updated_at, created_by
+		) VALUES ($1, $2, 'enforcement bundle fixture', '', $3, $3, 'test:author')
+	`, domainID, serviceID, now); err != nil {
+		t.Fatalf("insert service fixture: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO service_revisions (
+			isolation_domain_id, id, service_id, revision_number, state,
+			runtime_profile, required_capabilities, created_at, updated_at, created_by
+		) VALUES ($1, $2, $3, 1, 'draft', 'codex.app-server/v1',
+		          ARRAY['runtime.codex'], $4, $4, 'test:author')
+	`, domainID, revisionID, serviceID, now); err != nil {
+		t.Fatalf("insert revision fixture: %v", err)
+	}
+
+	store := executionpostgres.New(pool)
+	missingRevision := durableEnforcementBundle(domainID, identity.New("rev"), []byte("version: 1\n"))
+	if _, err := store.BindEnforcementBundle(ctx, execution.EnforcementBundleBinding{
+		Record: missingRevision, ActorID: "worker:rosetta", CorrelationID: "correlation-missing",
+	}); !errors.Is(err, execution.ErrEnforcementBundleRevisionMissing) {
+		t.Fatalf("bind bundle to missing revision = %v, want ErrEnforcementBundleRevisionMissing", err)
+	}
+
+	record := durableEnforcementBundle(domainID, revisionID, []byte("version: 1\n"))
+	binding := execution.EnforcementBundleBinding{
+		Record: record, ActorID: "worker:rosetta", CorrelationID: "correlation-bundle-1",
+	}
+	bound, err := store.BindEnforcementBundle(ctx, binding)
+	if err != nil {
+		t.Fatalf("bind enforcement bundle: %v", err)
+	}
+	if bound.ObjectKey != execution.EnforcementBundleObjectKey(record) {
+		t.Fatalf("derived object key = %q", bound.ObjectKey)
+	}
+	replayed, err := store.BindEnforcementBundle(ctx, execution.EnforcementBundleBinding{
+		Record: record, ActorID: "worker:retry", CorrelationID: "correlation-bundle-retry",
+	})
+	if err != nil || !execution.EqualEnforcementBundleRecords(bound, replayed) {
+		t.Fatalf("replay enforcement bundle: %#v, %v", replayed, err)
+	}
+	restored, err := executionpostgres.New(pool).GetEnforcementBundleRecord(ctx, domainID, record.ID)
+	if err != nil || !execution.EqualEnforcementBundleRecords(bound, restored) {
+		t.Fatalf("restore enforcement bundle: %#v, %v", restored, err)
+	}
+	changed := record
+	changed.Provenance.BindingDigest = "sha256:" + strings.Repeat("0", 64)
+	if _, err := store.BindEnforcementBundle(ctx, execution.EnforcementBundleBinding{
+		Record: changed, ActorID: binding.ActorID, CorrelationID: binding.CorrelationID,
+	}); !errors.Is(err, execution.ErrEnforcementBundleConflict) {
+		t.Fatalf("replace enforcement bundle = %v, want ErrEnforcementBundleConflict", err)
+	}
+	if _, err := store.GetEnforcementBundleRecord(ctx, identity.New("iso"), record.ID); !errors.Is(err, execution.ErrEnforcementBundleMissing) {
+		t.Fatalf("cross-domain bundle lookup = %v, want ErrEnforcementBundleMissing", err)
+	}
+
+	var auditCount int
+	var auditActor, auditCorrelation, auditMetadata string
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*), min(actor_id), min(correlation_id), min(safe_metadata::text)
+		FROM audit_records
+		WHERE isolation_domain_id = $1 AND resource_type = 'enforcement-bundle'
+		  AND resource_id = $2 AND action = 'enforcement-bundle.bind'
+	`, domainID, record.ID).Scan(&auditCount, &auditActor, &auditCorrelation, &auditMetadata); err != nil {
+		t.Fatalf("read enforcement bundle audit: %v", err)
+	}
+	if auditCount != 1 || auditActor != binding.ActorID || auditCorrelation != binding.CorrelationID {
+		t.Fatalf("enforcement bundle audit = count %d, actor %q, correlation %q", auditCount, auditActor, auditCorrelation)
+	}
+	if strings.Contains(auditMetadata, bound.ObjectKey) {
+		t.Fatalf("audit metadata exposes internal object key: %s", auditMetadata)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		DELETE FROM service_revisions WHERE isolation_domain_id = $1 AND id = $2
+	`, domainID, revisionID); err != nil {
+		t.Fatalf("delete revision: %v", err)
+	}
+	if _, err := store.GetEnforcementBundleRecord(ctx, domainID, record.ID); !errors.Is(err, execution.ErrEnforcementBundleMissing) {
+		t.Fatalf("bundle after revision deletion = %v, want ErrEnforcementBundleMissing", err)
+	}
+}
+
+func durableEnforcementBundle(domainID, revisionID string, policy []byte) execution.EnforcementBundleRecord {
+	digest := sha256.Sum256(policy)
+	return execution.EnforcementBundleRecord{
+		SchemaVersion:     execution.EnforcementBundleSchemaV1,
+		IsolationDomainID: domainID,
+		ID:                "rosetta-" + hex.EncodeToString(digest[:]),
+		RevisionID:        revisionID,
+		Digest:            "sha256:" + hex.EncodeToString(digest[:]),
+		MediaType:         execution.EnforcementBundleMediaType,
+		SizeBytes:         int64(len(policy)),
+		Provenance: execution.EnforcementBundleProvenance{
+			Producer:              "rosetta",
+			SourceRevision:        strings.Repeat("a", 40),
+			CompilerVersion:       "1.0.0",
+			CatalogVersion:        "rosetta/v1",
+			TargetContractVersion: "rosetta/openshell-policy-v1",
+			Mode:                  "strict",
+			InputDigest:           "sha256:" + strings.Repeat("b", 64),
+			BindingDigest:         "sha256:" + strings.Repeat("c", 64),
+		},
+	}
+}
+
 func slicesEqualIntegration(left, right []string) bool {
 	if len(left) != len(right) {
 		return false
