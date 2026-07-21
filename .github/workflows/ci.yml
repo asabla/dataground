@@ -372,7 +372,7 @@ jobs:
         run: |
           target_lsn=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
             psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
-            --command 'SELECT pg_current_wal_lsn()')
+            --command 'SELECT pg_current_wal_flush_lsn()')
           if [[ ! "$target_lsn" =~ ^[0-9A-F]+/[0-9A-F]+$ ]]; then
             echo "could not establish the post-promotion WAL boundary"
             exit 1
@@ -435,7 +435,20 @@ jobs:
               --tuples-only --no-align --command \
               "SELECT count(*) FROM pg_stat_replication
                 WHERE application_name = 'dataground-rejoined-primary'")
-            echo "rejoin check failed: target-state=$target_state replication-connections=$replication_connections"
+            sender_state=$(docker compose -f deploy/storage/seaweedfs-conformance.yml \
+              exec -T postgres-standby psql --username dataground --dbname dataground_conformance \
+              --tuples-only --no-align --command \
+              "SELECT coalesce(max(state), 'none') FROM pg_stat_replication
+                WHERE application_name = 'dataground-rejoined-primary'")
+            target_probe=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+              psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+              --command "SELECT concat(
+                'in-recovery=', pg_is_in_recovery(),
+                ' read-only=', current_setting('transaction_read_only') = 'on',
+                ' boundary-replayed=', coalesce(pg_last_wal_replay_lsn() >= '$target_lsn'::pg_lsn, false),
+                ' replay-paused=', pg_is_wal_replay_paused()
+              )" 2>/dev/null || printf '%s' 'unreachable')
+            echo "rejoin check failed: target-state=$target_state replication-connections=$replication_connections sender-state=$sender_state target=$target_probe"
             exit 1
           fi
           if docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \

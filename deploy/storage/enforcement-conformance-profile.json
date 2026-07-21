@@ -61,7 +61,7 @@
         "replicationCredential": "mode-0600 private data-volume passfile",
         "primaryConnection": "explicit promoted-service primary_conninfo with private passfile",
         "rejoinRole": "read-only physical standby",
-        "replicationBoundary": "post-promotion binding and audit WAL position",
+        "replicationBoundary": "durable post-promotion binding and audit WAL flush position",
         "automaticFencing": false
       },
       "inFlightCommit": {
