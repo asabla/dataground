@@ -57,6 +57,17 @@
         "control": "mode-0600 Unix socket with predeclared routes",
         "routeChange": "explicit after promotion",
         "existingSessions": "closed on route change without transaction replay",
+        "longLivedPool": {
+          "implementation": "one pgxpool process across primary loss and route switch",
+          "connections": 3,
+          "outageObservation": "at least one failed independent role probe before promotion",
+          "reconnection": "bounded retries through the unchanged URL",
+          "operationTimeoutMillis": 2000,
+          "phaseTimeoutSeconds": 45,
+          "retryIntervalMillis": 200,
+          "postSwitchAcceptance": "three distinct promoted-primary sessions with rollback-scoped temporary writes",
+          "transactionReplay": false
+        },
         "automaticDiscovery": false,
         "productionCertified": false
       },
@@ -165,7 +176,7 @@
   },
   "blockers": [
     "single-process anonymous development evidence is not an authenticated production topology",
-    "the two-node PostgreSQL profile proves explicit stable-endpoint switching, controlled promotion and stale-primary fencing and rewind but not automatic election or routing, automatic fencing, multi-zone durability or production operator behavior",
+    "the two-node PostgreSQL profile proves explicit stable-endpoint switching, bounded long-lived pool reconnection, controlled promotion and stale-primary fencing and rewind but not automatic election or routing, automatic fencing, multi-zone durability or production operator behavior",
     "split-brain prevention under partitions, multi-gateway and network-partition behavior are not exercised by this profile",
     "bucket policy, workload identity, TLS, encryption and KMS are not certified",
     "versioning, retention, backup, restore, upgrade and rollback are not certified",

@@ -62,6 +62,10 @@ const routeCommand = await readFile(
   resolve(root, "cmd/dataground-postgres-route-conformance/main.go"),
   "utf8",
 );
+const poolCommand = await readFile(
+  resolve(root, "cmd/dataground-postgres-route-conformance/pool.go"),
+  "utf8",
+);
 const recoveryImplementation = `${recoverySuite}\n${commitLossSuite}\n${connectionLossSuite}\n${preCommitConnectionLossSuite}\n${failoverSuite}\n${failoverCommitSuite}\n${failoverRejoinSuite}`;
 const recoveryCommand = await readFile(
   resolve(root, "cmd/dataground-enforcement-recovery-conformance/main.go"),
@@ -208,6 +212,25 @@ if (
     "explicit after promotion" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.existingSessions !==
     "closed on route change without transaction replay" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.longLivedPool
+    ?.implementation !== "one pgxpool process across primary loss and route switch" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.longLivedPool
+    ?.connections !== 3 ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.longLivedPool
+    ?.outageObservation !== "at least one failed independent role probe before promotion" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.longLivedPool
+    ?.reconnection !== "bounded retries through the unchanged URL" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.longLivedPool
+    ?.operationTimeoutMillis !== 2000 ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.longLivedPool
+    ?.phaseTimeoutSeconds !== 45 ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.longLivedPool
+    ?.retryIntervalMillis !== 200 ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.longLivedPool
+    ?.postSwitchAcceptance !==
+    "three distinct promoted-primary sessions with rollback-scoped temporary writes" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.longLivedPool
+    ?.transactionReplay !== false ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.automaticDiscovery !==
     false ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.productionCertified !==
@@ -530,8 +553,23 @@ if (
   !routeCommand.includes('case "route":') ||
   !routeCommand.includes('case "status":') ||
   !routeCommand.includes('case "role":') ||
+  !routeCommand.includes('case "pool":') ||
   !routeCommand.includes('os.Getenv("DATAGROUND_TEST_DATABASE_URL")') ||
-  routeCommand.includes("password")
+  !poolCommand.includes("poolConformanceSize       = int32(3)") ||
+  !poolCommand.includes("poolOperationTimeout      = 2 * time.Second") ||
+  !poolCommand.includes("poolPhaseTimeout          = 45 * time.Second") ||
+  !poolCommand.includes("poolRetryInterval         = 200 * time.Millisecond") ||
+  !poolCommand.includes('"pool-primary-ready"') ||
+  !poolCommand.includes('"pool-failure-observed"') ||
+  !poolCommand.includes('"pool-promoted-ready"') ||
+  !poolCommand.includes("config.MinConns = poolConformanceSize") ||
+  !poolCommand.includes("config.MaxConns = poolConformanceSize") ||
+  !poolCommand.includes("pgxpool.NewWithConfig(ctx, config)") ||
+  !poolCommand.includes("current.postmasterStarted.Equal(initial.postmasterStarted)") ||
+  !poolCommand.includes("verifyPoolWrite(ctx, connection)") ||
+  !poolCommand.includes("transaction.Rollback(ctx)") ||
+  routeCommand.includes("password") ||
+  poolCommand.includes("password")
 ) {
   fail("the stable PostgreSQL client endpoint has drifted from its bounded routing contract");
 }
@@ -565,6 +603,14 @@ if (
   !workflow.includes("--promoted-target 127.0.0.1:55433") ||
   !workflow.includes('--control-socket "$control"') ||
   !workflow.includes('--mode route --control-socket "$control" --route promoted') ||
+  !workflow.includes('--mode pool >"$pool_stdout" 2>"$pool_stderr"') ||
+  !workflow.includes("'pool-primary-ready'") ||
+  !workflow.includes("'pool-failure-observed'") ||
+  !workflow.includes("'pool-promoted-ready'") ||
+  !workflow.includes(
+    "expected_pool_states=$'pool-primary-ready\\npool-failure-observed\\npool-promoted-ready'",
+  ) ||
+  !workflow.includes("long-lived database pool did not reconnect through the stable endpoint") ||
   !workflow.includes("stable database endpoint remained usable before route change") ||
   !workflow.includes(
     "DATAGROUND_TEST_DATABASE_URL: $" + "{{ env.DATAGROUND_ROUTED_DATABASE_URL }}",

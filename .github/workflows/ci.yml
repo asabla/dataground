@@ -366,6 +366,28 @@ jobs:
           echo "standby did not replay the prepared primary state"
           exit 1
 
+      - name: Start long-lived pool through stable endpoint
+        env:
+          DATAGROUND_TEST_DATABASE_URL: ${{ env.DATAGROUND_ROUTED_DATABASE_URL }}
+        run: |
+          pool_stdout="$RUNNER_TEMP/postgres-pool.stdout"
+          pool_stderr="$RUNNER_TEMP/postgres-pool.stderr"
+          "$RUNNER_TEMP/dataground-postgres-route-conformance" \
+            --mode pool >"$pool_stdout" 2>"$pool_stderr" &
+          printf '%s\n' "$!" >"$RUNNER_TEMP/postgres-pool.pid"
+          for attempt in {1..45}; do
+            if grep --fixed-strings --line-regexp --quiet \
+              'pool-primary-ready' "$pool_stdout"; then
+              exit 0
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-pool.pid")" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          echo "long-lived database pool did not establish primary sessions"
+          exit 1
+
       - name: Stop primary and promote standby
         run: |
           docker compose -f deploy/storage/seaweedfs-conformance.yml stop postgres
@@ -378,6 +400,21 @@ jobs:
             "$RUNNER_TEMP/dataground-postgres-route-conformance" --mode role \
               >/dev/null 2>&1; then
             echo "stable database endpoint remained usable before route change"
+            exit 1
+          fi
+          for attempt in {1..45}; do
+            if grep --fixed-strings --line-regexp --quiet \
+              'pool-failure-observed' "$RUNNER_TEMP/postgres-pool.stdout"; then
+              break
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-pool.pid")" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if ! grep --fixed-strings --line-regexp --quiet \
+            'pool-failure-observed' "$RUNNER_TEMP/postgres-pool.stdout"; then
+            echo "long-lived database pool did not observe primary loss"
             exit 1
           fi
           docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
@@ -400,6 +437,23 @@ jobs:
             "$router" --mode role)
           if [ "$route" != "promoted" ] || [ "$role" != "writable-primary" ]; then
             echo "stable database endpoint did not select the promoted node"
+            exit 1
+          fi
+          for attempt in {1..45}; do
+            if grep --fixed-strings --line-regexp --quiet \
+              'pool-promoted-ready' "$RUNNER_TEMP/postgres-pool.stdout"; then
+              break
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-pool.pid")" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          expected_pool_states=$'pool-primary-ready\npool-failure-observed\npool-promoted-ready'
+          observed_pool_states=$(cat "$RUNNER_TEMP/postgres-pool.stdout")
+          if [ "$observed_pool_states" != "$expected_pool_states" ] \
+            || [ -s "$RUNNER_TEMP/postgres-pool.stderr" ]; then
+            echo "long-lived database pool did not reconnect through the stable endpoint"
             exit 1
           fi
 
@@ -675,6 +729,14 @@ jobs:
         if: always()
         run: |
           cleanup_status=0
+          if [ -f "$RUNNER_TEMP/postgres-pool.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/postgres-pool.pid")" 2>/dev/null || true
+            wait "$(cat "$RUNNER_TEMP/postgres-pool.pid")" 2>/dev/null || true
+          fi
+          if [ -s "$RUNNER_TEMP/postgres-pool.stderr" ]; then
+            echo "long-lived database pool emitted unexpected error output"
+            cleanup_status=1
+          fi
           if [ -f "$RUNNER_TEMP/postgres-route.pid" ]; then
             kill "$(cat "$RUNNER_TEMP/postgres-route.pid")" 2>/dev/null || true
             wait "$(cat "$RUNNER_TEMP/postgres-route.pid")" 2>/dev/null || true
