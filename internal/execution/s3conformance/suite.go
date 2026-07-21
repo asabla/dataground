@@ -60,7 +60,7 @@ func Run(ctx context.Context, backend Backend, config Config) (Report, error) {
 	report := Report{
 		SchemaVersion: ReportSchemaV1,
 		Status:        "failed",
-		Cases:         make([]CaseResult, 0, 4),
+		Cases:         make([]CaseResult, 0, 7),
 	}
 	if err := ctx.Err(); err != nil {
 		return report, err
@@ -84,6 +84,9 @@ func Run(ctx context.Context, backend Backend, config Config) (Report, error) {
 		{name: "create-read", run: verifyCreateAndRead},
 		{name: "immutable-rewrite", run: verifyImmutableRewrite},
 		{name: "concurrent-create", run: verifyConcurrentCreate},
+		{name: "finalizer-lost-ack", run: verifyFinalizerLostAcknowledgement},
+		{name: "finalizer-catalog-retry", run: verifyFinalizerCatalogRetry},
+		{name: "finalizer-conflict", run: verifyFinalizerConflict},
 	}
 	for _, candidate := range cases {
 		if err := ctx.Err(); err != nil {

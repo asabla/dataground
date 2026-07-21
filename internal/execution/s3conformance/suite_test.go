@@ -94,11 +94,20 @@ func TestRunAcceptsAnAtomicImmutableBackend(t *testing.T) {
 		t.Fatalf("run conformance: %v", err)
 	}
 	if report.SchemaVersion != ReportSchemaV1 || report.RunID != testRunID || report.Status != "passed" ||
-		len(report.Cases) != 4 {
+		len(report.Cases) != 7 {
 		t.Fatalf("unexpected report: %#v", report)
 	}
-	for _, result := range report.Cases {
-		if result.Status != "passed" {
+	expectedCases := []string{
+		"missing-read",
+		"create-read",
+		"immutable-rewrite",
+		"concurrent-create",
+		"finalizer-lost-ack",
+		"finalizer-catalog-retry",
+		"finalizer-conflict",
+	}
+	for index, result := range report.Cases {
+		if result.Name != expectedCases[index] || result.Status != "passed" {
 			t.Fatalf("case did not pass: %#v", result)
 		}
 	}
@@ -191,6 +200,9 @@ func TestObjectKeysAreIsolatedAndStable(t *testing.T) {
 		objectKey(testRunID, "create-read"),
 		objectKey(testRunID, "immutable-rewrite"),
 		objectKey(testRunID, "concurrent-create"),
+		finalizerRecord(testRunID, "finalizer-lost-ack", []byte("version: 1\n")).ObjectKey,
+		finalizerRecord(testRunID, "finalizer-catalog-retry", []byte("version: 1\n")).ObjectKey,
+		finalizerRecord(testRunID, "finalizer-conflict", []byte("version: 1\n")).ObjectKey,
 	}
 	sorted := append([]string(nil), keys...)
 	sort.Strings(sorted)
@@ -204,6 +216,10 @@ func TestObjectKeysAreIsolatedAndStable(t *testing.T) {
 	}
 	if objectKey(testRunID, "create-read") == objectKey("fedcba9876543210fedcba9876543210", "create-read") {
 		t.Fatal("run identifiers share object scope")
+	}
+	if finalizerRecord(testRunID, "finalizer-lost-ack", []byte("version: 1\n")).ObjectKey ==
+		finalizerRecord("fedcba9876543210fedcba9876543210", "finalizer-lost-ack", []byte("version: 1\n")).ObjectKey {
+		t.Fatal("finalizer run identifiers share object scope")
 	}
 }
 

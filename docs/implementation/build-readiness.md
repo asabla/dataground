@@ -61,7 +61,7 @@ Run bounded, scored spikes rather than selecting by popularity.
 
 Score license, S3 conformance for required operations, versioning, object lock/retention, encryption and KMS integration, multipart behavior, presigned operations, replication, backup/restore, Kubernetes operation, observability, upgrade history, and multi-architecture support.
 
-SeaweedFS 4.40 is the first development candidate for the enforcement-object subset because its upstream release includes the atomic conditional-mutation fix required by DataGround and publishes an Apache-2.0 multi-architecture image. The digest-pinned profile and live CI job are evidence for `GetObject`, conditional checksummed `PutObject`, immutable replacement denial, and concurrent first-writer-wins behavior only. The product remains unselected until authenticated multi-node, failure, lifecycle, backup/restore, upgrade, replacement, and complete platform/lakehouse object evidence passes.
+SeaweedFS 4.40 is the first development candidate for the enforcement-object subset because its upstream release includes the atomic conditional-mutation fix required by DataGround and publishes an Apache-2.0 multi-architecture image. The digest-pinned profile and live CI job are evidence for `GetObject`, conditional checksummed `PutObject`, immutable replacement denial, concurrent first-writer-wins behavior, and finalizer recovery after a lost write acknowledgement or catalog failure. The catalog faults are process-local scaffolding rather than distributed PostgreSQL/storage evidence. The product remains unselected until authenticated multi-node, failure, lifecycle, backup/restore, upgrade, replacement, and complete platform/lakehouse object evidence passes.
 
 ### Iceberg REST catalog
 
