@@ -1,0 +1,414 @@
+package pgrouteproxy
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+func TestProxyRoutesNewConnectionsAndClosesOldSessions(t *testing.T) {
+	primary := startReplyServer(t, "primary")
+	promoted := startReplyServer(t, "promoted")
+	controlSocket := filepath.Join(t.TempDir(), "route.sock")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	proxy, err := Start(ctx, Config{
+		ListenAddress:  "127.0.0.1:0",
+		ControlSocket:  controlSocket,
+		PrimaryTarget:  primary,
+		PromotedTarget: promoted,
+		InitialRoute:   Primary,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.Close()
+
+	if got := roundTrip(t, proxy.Address()); got != "primary" {
+		t.Fatalf("initial route = %q, want primary", got)
+	}
+	oldSession, err := net.Dial("tcp4", proxy.Address())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer oldSession.Close()
+	if err := oldSession.SetDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(oldSession, "request\n"); err != nil {
+		t.Fatal(err)
+	}
+	if response, err := bufio.NewReader(oldSession).ReadString('\n'); err != nil || response != "primary\n" {
+		t.Fatalf("old session was not established through primary: response=%q error=%v", response, err)
+	}
+	if err := RouteTo(ctx, controlSocket, Promoted); err != nil {
+		t.Fatal(err)
+	}
+	if got := roundTrip(t, proxy.Address()); got != "promoted" {
+		t.Fatalf("promoted route = %q, want promoted", got)
+	}
+	if err := oldSession.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := oldSession.Read(make([]byte, 1)); err == nil {
+		t.Fatal("session established before route change remained open")
+	} else if networkError, ok := err.(net.Error); ok && networkError.Timeout() {
+		t.Fatal("session established before route change timed out instead of closing")
+	}
+	route, err := Status(ctx, controlSocket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route != Promoted {
+		t.Fatalf("status = %q, want promoted", route)
+	}
+}
+
+func TestProxyControlSocketIsPrivateAndRemovedOnClose(t *testing.T) {
+	primary := startReplyServer(t, "primary")
+	promoted := startReplyServer(t, "promoted")
+	controlSocket := filepath.Join(t.TempDir(), "route.sock")
+	proxy, err := Start(context.Background(), Config{
+		ListenAddress:  "127.0.0.1:0",
+		ControlSocket:  controlSocket,
+		PrimaryTarget:  primary,
+		PromotedTarget: promoted,
+		InitialRoute:   Primary,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(controlSocket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 || info.Mode()&os.ModeSocket == 0 {
+		t.Fatalf("control socket mode = %v, want private socket", info.Mode())
+	}
+	if err := proxy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(controlSocket); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("control socket remained after close: %v", err)
+	}
+}
+
+func TestProxyRejectsPreexistingControlPathWithoutRemovingIt(t *testing.T) {
+	primary := startReplyServer(t, "primary")
+	promoted := startReplyServer(t, "promoted")
+	controlSocket := filepath.Join(t.TempDir(), "route.sock")
+	if err := os.WriteFile(controlSocket, []byte("owned"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Start(context.Background(), Config{
+		ListenAddress:  "127.0.0.1:0",
+		ControlSocket:  controlSocket,
+		PrimaryTarget:  primary,
+		PromotedTarget: promoted,
+		InitialRoute:   Primary,
+	})
+	if err == nil {
+		t.Fatal("proxy accepted a preexisting control path")
+	}
+	content, readErr := os.ReadFile(controlSocket)
+	if readErr != nil || string(content) != "owned" {
+		t.Fatalf("preexisting control path changed: content=%q error=%v", content, readErr)
+	}
+}
+
+func TestProxyClosePreservesReplacementControlPath(t *testing.T) {
+	primary := startReplyServer(t, "primary")
+	promoted := startReplyServer(t, "promoted")
+	controlSocket := filepath.Join(t.TempDir(), "route.sock")
+	proxy, err := Start(context.Background(), Config{
+		ListenAddress:  "127.0.0.1:0",
+		ControlSocket:  controlSocket,
+		PrimaryTarget:  primary,
+		PromotedTarget: promoted,
+		InitialRoute:   Primary,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(controlSocket); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(controlSocket, []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := proxy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(controlSocket)
+	if err != nil || string(content) != "replacement" {
+		t.Fatalf("replacement control path changed: content=%q error=%v", content, err)
+	}
+}
+
+func TestProxyRejectsMalformedControlWithoutChangingRoute(t *testing.T) {
+	primary := startReplyServer(t, "primary")
+	promoted := startReplyServer(t, "promoted")
+	controlSocket := filepath.Join(t.TempDir(), "route.sock")
+	proxy, err := Start(context.Background(), Config{
+		ListenAddress:  "127.0.0.1:0",
+		ControlSocket:  controlSocket,
+		PrimaryTarget:  primary,
+		PromotedTarget: promoted,
+		InitialRoute:   Primary,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.Close()
+
+	connection, err := net.Dial("unix", controlSocket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(connection, strings.Repeat("x", maxControlCommandBytes+1)+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	response, err := bufio.NewReader(connection).ReadString('\n')
+	_ = connection.Close()
+	if err != nil || response != "error\n" {
+		t.Fatalf("malformed response = %q, error=%v", response, err)
+	}
+	route, err := Status(context.Background(), controlSocket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route != Primary {
+		t.Fatalf("route changed after malformed control request: %q", route)
+	}
+}
+
+func TestProxySurvivesUnavailableTarget(t *testing.T) {
+	promoted := startReplyServer(t, "promoted")
+	unavailable, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unavailableAddress := unavailable.Addr().String()
+	_ = unavailable.Close()
+	controlSocket := filepath.Join(t.TempDir(), "route.sock")
+	proxy, err := Start(context.Background(), Config{
+		ListenAddress:  "127.0.0.1:0",
+		ControlSocket:  controlSocket,
+		PrimaryTarget:  unavailableAddress,
+		PromotedTarget: promoted,
+		InitialRoute:   Primary,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.Close()
+	connection, err := net.Dial("tcp4", proxy.Address())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = connection.SetDeadline(time.Now().Add(time.Second))
+	_, _ = connection.Write([]byte("request\n"))
+	if _, err := connection.Read(make([]byte, 1)); err == nil {
+		t.Fatal("unavailable target produced a response")
+	}
+	_ = connection.Close()
+	if err := RouteTo(context.Background(), controlSocket, Promoted); err != nil {
+		t.Fatal(err)
+	}
+	if got := roundTrip(t, proxy.Address()); got != "promoted" {
+		t.Fatalf("route after unavailable target = %q, want promoted", got)
+	}
+}
+
+func TestProxyConcurrentRouteChangesAndConnections(t *testing.T) {
+	primary := startReplyServer(t, "primary")
+	promoted := startReplyServer(t, "promoted")
+	controlSocket := filepath.Join(t.TempDir(), "route.sock")
+	proxy, err := Start(context.Background(), Config{
+		ListenAddress:  "127.0.0.1:0",
+		ControlSocket:  controlSocket,
+		PrimaryTarget:  primary,
+		PromotedTarget: promoted,
+		InitialRoute:   Primary,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var wait sync.WaitGroup
+	for index := range 40 {
+		wait.Add(2)
+		go func(routeIndex int) {
+			defer wait.Done()
+			route := Primary
+			if routeIndex%2 == 0 {
+				route = Promoted
+			}
+			_ = RouteTo(ctx, controlSocket, route)
+		}(index)
+		go func() {
+			defer wait.Done()
+			connection, dialErr := (&net.Dialer{}).DialContext(ctx, "tcp4", proxy.Address())
+			if dialErr != nil {
+				return
+			}
+			_ = connection.SetDeadline(time.Now().Add(time.Second))
+			_, _ = io.WriteString(connection, "request\n")
+			_, _ = bufio.NewReader(connection).ReadString('\n')
+			_ = connection.Close()
+		}()
+	}
+	wait.Wait()
+	if _, err := Status(ctx, controlSocket); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProxyBoundsActiveTrafficConnections(t *testing.T) {
+	primary := startReplyServer(t, "primary")
+	promoted := startReplyServer(t, "promoted")
+	proxy, err := Start(context.Background(), Config{
+		ListenAddress:  "127.0.0.1:0",
+		ControlSocket:  filepath.Join(t.TempDir(), "route.sock"),
+		PrimaryTarget:  primary,
+		PromotedTarget: promoted,
+		InitialRoute:   Primary,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.Close()
+
+	connections := make([]net.Conn, 0, maxActiveConnections)
+	defer func() {
+		for _, connection := range connections {
+			_ = connection.Close()
+		}
+	}()
+	for range maxActiveConnections {
+		connection, err := net.DialTimeout("tcp4", proxy.Address(), time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := connection.SetDeadline(time.Now().Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.WriteString(connection, "request\n"); err != nil {
+			t.Fatal(err)
+		}
+		if response, err := bufio.NewReader(connection).ReadString('\n'); err != nil || response != "primary\n" {
+			t.Fatalf("bounded session was not established: response=%q error=%v", response, err)
+		}
+		connections = append(connections, connection)
+	}
+	overflow, err := net.DialTimeout("tcp4", proxy.Address(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer overflow.Close()
+	if err := overflow.SetDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.WriteString(overflow, "request\n")
+	if _, err := bufio.NewReader(overflow).ReadString('\n'); err == nil {
+		t.Fatal("proxy accepted traffic above its active connection bound")
+	} else if networkError, ok := err.(net.Error); ok && networkError.Timeout() {
+		t.Fatal("traffic above the active connection bound timed out instead of being rejected")
+	}
+}
+
+func TestStartRejectsUnsafeConfiguration(t *testing.T) {
+	valid := Config{
+		ListenAddress:  "127.0.0.1:0",
+		ControlSocket:  filepath.Join(t.TempDir(), "route.sock"),
+		PrimaryTarget:  "127.0.0.1:55432",
+		PromotedTarget: "127.0.0.1:55433",
+		InitialRoute:   Primary,
+	}
+	tests := []struct {
+		name   string
+		change func(*Config)
+	}{
+		{name: "hostname listener", change: func(config *Config) { config.ListenAddress = "localhost:0" }},
+		{name: "wildcard listener", change: func(config *Config) { config.ListenAddress = "0.0.0.0:0" }},
+		{name: "remote primary", change: func(config *Config) { config.PrimaryTarget = "192.0.2.1:5432" }},
+		{name: "zero target port", change: func(config *Config) { config.PromotedTarget = "127.0.0.1:0" }},
+		{name: "same targets", change: func(config *Config) { config.PromotedTarget = config.PrimaryTarget }},
+		{name: "relative control", change: func(config *Config) { config.ControlSocket = "route.sock" }},
+		{name: "unknown route", change: func(config *Config) { config.InitialRoute = "standby" }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := valid
+			test.change(&config)
+			proxy, err := Start(context.Background(), config)
+			if proxy != nil {
+				_ = proxy.Close()
+			}
+			if err == nil {
+				t.Fatal("unsafe configuration was accepted")
+			}
+		})
+	}
+}
+
+func startReplyServer(t *testing.T, response string) string {
+	t.Helper()
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		for {
+			connection, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			go func() {
+				defer connection.Close()
+				reader := bufio.NewReader(connection)
+				for {
+					if _, readErr := reader.ReadString('\n'); readErr != nil {
+						return
+					}
+					if _, writeErr := io.WriteString(connection, response+"\n"); writeErr != nil {
+						return
+					}
+				}
+			}()
+		}
+	}()
+	return listener.Addr().String()
+}
+
+func roundTrip(t *testing.T, address string) string {
+	t.Helper()
+	connection, err := net.DialTimeout("tcp4", address, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	if err := connection.SetDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(connection, "request\n"); err != nil {
+		t.Fatal(err)
+	}
+	response, err := bufio.NewReader(connection).ReadString('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(response)
+}
