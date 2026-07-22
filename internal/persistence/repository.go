@@ -463,6 +463,9 @@ func (repository *Repository) AcceptCancellation(
 		if invocationValue.State == "cancelled" {
 			return http.StatusOK, invocationValue, nil
 		}
+		if invocationValue.State == "cancelling" {
+			return http.StatusAccepted, invocationValue, nil
+		}
 		if invocationValue.State == "succeeded" || invocationValue.State == "failed" {
 			return 0, nil, &DomainError{Code: "INVOCATION_TERMINAL", Message: "A completed invocation cannot be cancelled."}
 		}
@@ -479,10 +482,11 @@ func (repository *Repository) AcceptCancellation(
 			UPDATE invocation_execution_operations
 			SET command = 'cancel', desired_state = 'cancelled', observed_state = 'cancelling',
 			    generation = generation + 1, due_at = $3,
+			    effect_actor_id = $4, effect_correlation_id = $5,
 			    lease_owner = NULL, lease_expires_at = NULL,
 			    last_transition_at = $3, updated_at = $3
 			WHERE isolation_domain_id = $1 AND invocation_id = $2
-		`, idempotency.IsolationDomainID, input.InvocationID, now)
+		`, idempotency.IsolationDomainID, input.InvocationID, now, input.ActorID, input.CorrelationID)
 		if err != nil {
 			return 0, nil, fmt.Errorf("accept invocation cancellation: %w", err)
 		}
