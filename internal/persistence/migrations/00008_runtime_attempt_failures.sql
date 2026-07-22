@@ -13,6 +13,9 @@ ALTER TABLE invocation_runtime_attempts
 
 -- dataground:down
 
+DELETE FROM invocation_runtime_attempts
+WHERE status = 'failed';
+
 ALTER TABLE invocation_runtime_attempts
     DROP CONSTRAINT invocation_runtime_attempts_status_check,
     DROP CONSTRAINT invocation_runtime_attempts_terminal_check,
