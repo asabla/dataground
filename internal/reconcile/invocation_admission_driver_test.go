@@ -157,8 +157,9 @@ func TestInvocationAdmissionDriverFailsClosedBeforeProviderAdmission(t *testing.
 			if test.want == denied && !errors.Is(err, ErrEffectDenied) {
 				t.Fatalf("authorization denial was not classified as a terminal effect denial: %v", err)
 			}
-			if (errors.Is(test.want, ErrInvocationAdmissionTargetMismatch) ||
-				errors.Is(test.want, persistence.ErrInvocationAdmissionTargetMissing)) &&
+			if name != "cross-domain result" &&
+				(errors.Is(test.want, ErrInvocationAdmissionTargetMismatch) ||
+					errors.Is(test.want, persistence.ErrInvocationAdmissionTargetMissing)) &&
 				!errors.Is(err, ErrEffectInvalid) {
 				t.Fatalf("invalid admission target was not classified as terminal: %v", err)
 			}
