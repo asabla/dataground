@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/asabla/dataground/internal/domain"
 	"github.com/asabla/dataground/internal/identity"
@@ -53,6 +54,41 @@ func (repository *Repository) GetInvocationRuntimeTarget(
 	operationID string,
 ) (InvocationRuntimeTarget, error) {
 	return getInvocationRuntimeTarget(ctx, repository.pool, isolationDomainID, operationID)
+}
+
+// GetClaimedInvocationRuntimeTarget resolves the runtime handoff only for the
+// exact active invocation claim. Cancellation and replacement workers fence
+// stale readers through the invocation row lock and operation lease.
+func (repository *Repository) GetClaimedInvocationRuntimeTarget(
+	ctx context.Context,
+	claim OperationClaim,
+) (InvocationRuntimeTarget, error) {
+	tx, err := repository.pool.Begin(ctx)
+	if err != nil {
+		return InvocationRuntimeTarget{}, fmt.Errorf("begin claimed invocation runtime target: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	invocationID, err := lockInvocationRuntimeClaim(ctx, tx, claim, repository.now())
+	if err != nil {
+		return InvocationRuntimeTarget{}, err
+	}
+	target, err := getInvocationRuntimeTarget(
+		ctx,
+		tx,
+		claim.IsolationDomainID,
+		claim.ID,
+	)
+	if err != nil {
+		return InvocationRuntimeTarget{}, err
+	}
+	if target.InvocationID != invocationID {
+		return InvocationRuntimeTarget{}, ErrInvocationRuntimeTargetMissing
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return InvocationRuntimeTarget{}, fmt.Errorf("commit claimed invocation runtime target: %w", err)
+	}
+	return target, nil
 }
 
 func getInvocationRuntimeTarget(
@@ -143,10 +179,12 @@ func getInvocationRuntimeTarget(
 // idempotency key; the journal allocates its own monotonic public sequence.
 func (repository *Repository) RecordInvocationRuntimeEvent(
 	ctx context.Context,
-	isolationDomainID string,
-	operationID string,
+	claim OperationClaim,
 	event InvocationRuntimeEvent,
 ) (domain.EventEnvelope, error) {
+	if !validInvocationRuntimeClaim(claim) {
+		return domain.EventEnvelope{}, ErrLeaseLost
+	}
 	if event.SourceSequence == 0 ||
 		event.Type == "" ||
 		len(event.Type) > 128 ||
@@ -165,23 +203,17 @@ func (repository *Repository) RecordInvocationRuntimeEvent(
 	}
 	defer tx.Rollback(ctx)
 
-	var invocationID string
-	if err := tx.QueryRow(ctx, `
-		SELECT invocation.id
-		FROM invocations AS invocation
-		JOIN invocation_execution_operations AS operation
-		  ON operation.isolation_domain_id = invocation.isolation_domain_id
-		 AND operation.invocation_id = invocation.id
-		WHERE operation.isolation_domain_id = $1
-		  AND operation.id = $2
-		FOR UPDATE OF invocation
-	`, isolationDomainID, operationID).Scan(&invocationID); errors.Is(err, pgx.ErrNoRows) {
-		return domain.EventEnvelope{}, ErrInvocationRuntimeTargetMissing
-	} else if err != nil {
-		return domain.EventEnvelope{}, fmt.Errorf("lock invocation runtime target: %w", err)
+	invocationID, err := lockInvocationRuntimeClaim(ctx, tx, claim, repository.now())
+	if err != nil {
+		return domain.EventEnvelope{}, err
 	}
 
-	target, err := getInvocationRuntimeTarget(ctx, tx, isolationDomainID, operationID)
+	target, err := getInvocationRuntimeTarget(
+		ctx,
+		tx,
+		claim.IsolationDomainID,
+		claim.ID,
+	)
 	if err != nil {
 		return domain.EventEnvelope{}, err
 	}
@@ -238,27 +270,95 @@ func (repository *Repository) RecordInvocationRuntimeEvent(
 		RevisionID:        target.RevisionID,
 		Payload:           event.Payload,
 	}
-	_, err = tx.Exec(ctx, `
+	result, err := tx.Exec(ctx, `
 		INSERT INTO invocation_events (
 			isolation_domain_id, invocation_id, id, sequence, schema_version,
 			event_type, occurred_at, recorded_at, correlation_id, actor_id,
 			service_id, revision_id, payload, source_kind, source_sequence
-		) VALUES (
-			$1, $2, $3, $4, $5,
-			$6, $7, $8, $9, $10,
-			$11, $12, $13, 'runtime', $14
 		)
+		SELECT $1, $2, $3, $4, $5,
+		       $6, $7, $8, $9, $10,
+		       $11, $12, $13, 'runtime', $14
+		FROM invocation_execution_operations AS operation
+		WHERE operation.isolation_domain_id = $1
+		  AND operation.id = $15
+		  AND operation.command = $16
+		  AND operation.observed_state = $17
+		  AND operation.lease_owner = $18
+		  AND operation.lease_token = $19
+		  AND operation.lease_expires_at > clock_timestamp()
+		  AND operation.deadline_at > clock_timestamp()
 	`, value.IsolationDomainID, value.InvocationID, value.ID, value.Sequence, value.SchemaVersion,
 		value.Type, value.OccurredAt, value.RecordedAt, value.CorrelationID, value.ActorID,
 		value.ServiceID, value.RevisionID, encodedPayload, event.SourceSequence,
+		claim.ID, claim.Command, claim.ObservedState, claim.LeaseOwner, claim.FencingToken,
 	)
 	if err != nil {
 		return domain.EventEnvelope{}, fmt.Errorf("persist invocation runtime event: %w", err)
+	}
+	if result.RowsAffected() != 1 {
+		return domain.EventEnvelope{}, ErrLeaseLost
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.EventEnvelope{}, fmt.Errorf("commit invocation runtime event: %w", err)
 	}
 	return value, nil
+}
+
+func lockInvocationRuntimeClaim(
+	ctx context.Context,
+	tx pgx.Tx,
+	claim OperationClaim,
+	now time.Time,
+) (string, error) {
+	if !validInvocationRuntimeClaim(claim) {
+		return "", ErrLeaseLost
+	}
+	var invocationID string
+	err := tx.QueryRow(ctx, `
+		SELECT invocation.id
+		FROM invocations AS invocation
+		JOIN invocation_execution_operations AS operation
+		  ON operation.isolation_domain_id = invocation.isolation_domain_id
+		 AND operation.invocation_id = invocation.id
+		WHERE operation.isolation_domain_id = $1
+		  AND operation.id = $2
+		  AND operation.command = $3
+		  AND operation.observed_state = $4
+		  AND operation.state_machine_version = $5
+		  AND operation.lease_owner = $6
+		  AND operation.lease_token = $7
+		  AND operation.lease_expires_at > $8
+		  AND operation.deadline_at > $8
+		FOR UPDATE OF invocation
+	`,
+		claim.IsolationDomainID,
+		claim.ID,
+		claim.Command,
+		claim.ObservedState,
+		claim.StateMachineVersion,
+		claim.LeaseOwner,
+		claim.FencingToken,
+		now,
+	).Scan(&invocationID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrLeaseLost
+	}
+	if err != nil {
+		return "", fmt.Errorf("lock invocation runtime claim: %w", err)
+	}
+	return invocationID, nil
+}
+
+func validInvocationRuntimeClaim(claim OperationClaim) bool {
+	return claim.Kind == OperationKindInvocation &&
+		claim.IsolationDomainID != "" &&
+		claim.ID != "" &&
+		(claim.Command == "invoke" || claim.Command == "repair") &&
+		claim.ObservedState == "running" &&
+		claim.StateMachineVersion == invocationlifecycle.StateMachineVersion &&
+		claim.LeaseOwner != "" &&
+		claim.FencingToken > 0
 }
 
 func getInvocationRuntimeEvent(
