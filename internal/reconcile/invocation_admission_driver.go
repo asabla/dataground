@@ -73,7 +73,7 @@ func (driver *InvocationAdmissionDriver) Observe(
 		return nil, false, err
 	}
 	if value.IsolationDomainID != target.IsolationDomainID || value.ID == "" || value.State == "" {
-		return nil, false, ErrInvocationAdmissionTargetMismatch
+		return nil, false, errors.Join(ErrAmbiguousEffect, ErrInvocationAdmissionTargetMismatch)
 	}
 	return invocationAdmissionObservation(value), true, nil
 }
