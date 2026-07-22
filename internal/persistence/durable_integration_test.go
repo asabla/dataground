@@ -199,6 +199,25 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	cancellationTarget, err := repository.GetInvocationCancellationTarget(
+		ctx,
+		domainID,
+		cancelledInvocation.OperationID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancellationTarget.IsolationDomainID != domainID ||
+		cancellationTarget.OperationID != cancelledInvocation.OperationID ||
+		cancellationTarget.InvocationID != cancelledInvocationID ||
+		cancellationTarget.ServiceID != serviceID ||
+		cancellationTarget.RevisionID != revisionID ||
+		cancellationTarget.ActorID != cancellationActorID ||
+		cancellationTarget.CorrelationID != cancellationCorrelationID ||
+		cancellationTarget.StateMachineVersion != invocation.StateMachineVersion ||
+		cancellationTarget.AdmissionPrepared {
+		t.Fatalf("cancellation target = %#v", cancellationTarget)
+	}
 	var cancellationOriginalActorID, cancellationOriginalCorrelationID string
 	var cancellationEffectActorID, cancellationEffectCorrelationID string
 	if err := pool.QueryRow(ctx, `
