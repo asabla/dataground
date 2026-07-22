@@ -176,10 +176,62 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 	if err := json.Unmarshal(cancelAccepted.Body, &cancelledInvocation); err != nil {
 		t.Fatal(err)
 	}
+	cancellationActorID := "cancellation-operator"
+	cancellationCorrelationID := identity.New("cor")
 	if _, err := repository.AcceptCancellation(ctx, testIdempotency(domainID, "cancel"), persistence.AcceptCancellationInput{
-		InvocationID: cancelledInvocationID, ActorID: actorID, CorrelationID: identity.New("cor"),
+		InvocationID: cancelledInvocationID,
+		ActorID: cancellationActorID, CorrelationID: cancellationCorrelationID,
 	}); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := repository.AcceptCancellation(ctx, testIdempotency(domainID, "cancel-again"), persistence.AcceptCancellationInput{
+		InvocationID: cancelledInvocationID,
+		ActorID: "different-cancellation-operator", CorrelationID: identity.New("cor"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var cancellationOriginalActorID, cancellationOriginalCorrelationID string
+	var cancellationEffectActorID, cancellationEffectCorrelationID string
+	if err := pool.QueryRow(ctx, `
+		SELECT actor_id, correlation_id, effect_actor_id, effect_correlation_id
+		FROM invocation_execution_operations
+		WHERE isolation_domain_id = $1 AND id = $2
+	`, domainID, cancelledInvocation.OperationID).Scan(
+		&cancellationOriginalActorID,
+		&cancellationOriginalCorrelationID,
+		&cancellationEffectActorID,
+		&cancellationEffectCorrelationID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if cancellationOriginalActorID != actorID ||
+		cancellationOriginalCorrelationID != cancelledInvocation.CorrelationID ||
+		cancellationEffectActorID != cancellationActorID ||
+		cancellationEffectCorrelationID != cancellationCorrelationID {
+		t.Fatalf(
+			"cancelled invocation principals = original (%q, %q), effect (%q, %q)",
+			cancellationOriginalActorID,
+			cancellationOriginalCorrelationID,
+			cancellationEffectActorID,
+			cancellationEffectCorrelationID,
+		)
+	}
+	cancellationClaim, err := repository.ClaimNext(
+		ctx,
+		persistence.OperationKindInvocation,
+		"cancellation-principal-probe",
+		-time.Second,
+	)
+	if err != nil || cancellationClaim == nil {
+		t.Fatalf("claim cancelled invocation = (%v, %v)", cancellationClaim, err)
+	}
+	if cancellationClaim.ActorID != cancellationActorID ||
+		cancellationClaim.CorrelationID != cancellationCorrelationID {
+		t.Fatalf(
+			"cancelled invocation claim principal = (%q, %q)",
+			cancellationClaim.ActorID,
+			cancellationClaim.CorrelationID,
+		)
 	}
 	runToTerminal(t, ctx, worker, repository, domainID, cancelledInvocation.OperationID, "cancelled")
 	var cancelledEffectPhase, cancelledEffectStatus string
