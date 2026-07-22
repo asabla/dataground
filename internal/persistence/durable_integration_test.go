@@ -12,7 +12,7 @@ import (
 
 	"github.com/asabla/dataground/internal/domain"
 	"github.com/asabla/dataground/internal/identity"
-	"github.com/asabla/dataground/internal/lifecycle/invocation"
+	invocationlifecycle "github.com/asabla/dataground/internal/lifecycle/invocation"
 	"github.com/asabla/dataground/internal/outbox"
 	"github.com/asabla/dataground/internal/persistence"
 	"github.com/asabla/dataground/internal/reconcile"
@@ -215,7 +215,7 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 		cancellationTarget.RevisionID != revisionID ||
 		cancellationTarget.ActorID != cancellationActorID ||
 		cancellationTarget.CorrelationID != cancellationCorrelationID ||
-		cancellationTarget.StateMachineVersion != invocation.StateMachineVersion ||
+		cancellationTarget.StateMachineVersion != invocationlifecycle.StateMachineVersion ||
 		cancellationTarget.AdmissionPrepared {
 		t.Fatalf("cancellation target = %#v", cancellationTarget)
 	}
