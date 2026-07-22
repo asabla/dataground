@@ -21,6 +21,7 @@ var (
 	ErrAmbiguousEffect = errors.New("external effect acknowledgement is ambiguous")
 	ErrEffectDenied    = errors.New("external effect was denied")
 	ErrEffectInvalid   = errors.New("external effect request is invalid")
+	ErrEffectTerminal  = errors.New("external effect completed with a terminal failure")
 )
 
 type Store interface {
@@ -340,6 +341,8 @@ func effectRejection(cause error) (persistence.OperationFailureReason, string, b
 		return persistence.OperationFailureEffectDenied, "EXTERNAL_EFFECT_DENIED", true
 	case errors.Is(cause, ErrEffectInvalid):
 		return persistence.OperationFailureEffectInvalid, "EXTERNAL_EFFECT_INVALID", true
+	case errors.Is(cause, ErrEffectTerminal):
+		return persistence.OperationFailureRuntime, "EXTERNAL_EFFECT_TERMINAL_FAILURE", true
 	default:
 		return "", "", false
 	}
