@@ -379,7 +379,7 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 		testIdempotency(domainID, "invoke-runtime-failed"),
 		persistence.AcceptInvocationInput{
 			ID: runtimeFailedInvocationID, ServiceID: serviceID, Alias: "stable",
-			Input: map[string]any{"message": "fail in runtime"},
+			Input:   map[string]any{"message": "fail in runtime"},
 			ActorID: actorID, CorrelationID: identity.New("cor"),
 			Deadline: time.Now().Add(time.Minute),
 		},
@@ -438,7 +438,7 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 		t.Fatalf("begin runtime-failed attempt: %v", err)
 	}
 	runtimeFailure := map[string]any{
-		"code": "RUNTIME_TURN_FAILED",
+		"code":   "RUNTIME_TURN_FAILED",
 		"status": "failed",
 	}
 	failedRuntimeAttempt, err := repository.FailInvocationRuntimeAttempt(
