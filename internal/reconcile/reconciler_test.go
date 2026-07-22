@@ -250,6 +250,11 @@ func TestReconcilerTerminatesRejectedEffectsWithoutRetry(t *testing.T) {
 			reason: persistence.OperationFailureEffectInvalid,
 			code:   "EXTERNAL_EFFECT_INVALID",
 		},
+		"terminal runtime failure": {
+			driver: &fakeDriver{applyErr: errors.Join(ErrEffectTerminal, errors.New("turn failed"))},
+			reason: persistence.OperationFailureRuntime,
+			code:   "EXTERNAL_EFFECT_TERMINAL_FAILURE",
+		},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
