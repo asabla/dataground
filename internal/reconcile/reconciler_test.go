@@ -119,7 +119,7 @@ func TestVersionTwoCancellationObservesAmbiguousEffectBeforeCompletion(t *testin
 func TestVersionOneCancellationRetainsOriginalEffectlessPath(t *testing.T) {
 	store := newFakeStore(persistence.OperationClaim{
 		Kind: persistence.OperationKindInvocation, IsolationDomainID: "iso_test",
-		ID: "op_test", ResourceID: "inv_test", Command: "cancel", ObservedState: "cancelling",
+		ID: "op_test", ResourceID: "inv_test", Command: "cancel", ObservedState: "queued",
 		StateMachineVersion: 1,
 		DeadlineAt:          time.Now().Add(time.Hour), CorrelationID: "corr_test", ActorID: "actor_test",
 	})
@@ -129,6 +129,9 @@ func TestVersionOneCancellationRetainsOriginalEffectlessPath(t *testing.T) {
 	runUntilState(t, worker, store, "cancelled")
 	if driver.applyCount != 0 || len(store.effects) != 0 {
 		t.Fatalf("version 1 cancellation effects = apply %d, receipts %#v", driver.applyCount, store.effects)
+	}
+	if want := []string{"cancelling", "cancelled"}; !reflect.DeepEqual(store.transitions, want) {
+		t.Fatalf("version 1 cancellation transitions = %v, want %v", store.transitions, want)
 	}
 }
 
