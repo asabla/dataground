@@ -230,6 +230,10 @@ func (driver *InvocationRuntimeDriver) ApplyClaimed(
 	if err := validateInvocationRuntimeRequest(request); err != nil {
 		return nil, errors.Join(ErrEffectInvalid, err)
 	}
+	claim, err = driver.store.RenewLease(runCtx, claim, driver.leaseDuration)
+	if err != nil {
+		return nil, err
+	}
 	if err := driver.authorizer.AuthorizeInvocationRuntime(runCtx, target, request); err != nil {
 		if errors.Is(err, ErrInvocationRuntimeDenied) {
 			return nil, errors.Join(ErrEffectDenied, err)
@@ -365,7 +369,7 @@ func invocationRuntimeEffectMatchesClaim(
 	return effectMatchesClaim(effect, claim) &&
 		effect.Phase == "run-invocation" &&
 		effect.EffectID != "" &&
-		effect.Status == "prepared"
+		(effect.Status == "prepared" || effect.Status == "failed" || effect.Status == "unknown")
 }
 
 func invocationRuntimeTargetMatchesClaim(
