@@ -37,6 +37,13 @@ type EffectDriver interface {
 	Apply(context.Context, persistence.EffectRecord) (map[string]any, error)
 }
 
+// ClaimedEffectDriver is an opt-in effect boundary for drivers whose reads and
+// writes must remain bound to the exact operation lease and fencing token.
+type ClaimedEffectDriver interface {
+	ObserveClaimed(context.Context, persistence.OperationClaim, persistence.EffectRecord) (map[string]any, bool, error)
+	ApplyClaimed(context.Context, persistence.OperationClaim, persistence.EffectRecord) (map[string]any, error)
+}
+
 type Reconciler struct {
 	store         Store
 	driver        EffectDriver
@@ -214,7 +221,7 @@ func (reconciler *Reconciler) applyEffect(
 	if err != nil {
 		return err
 	}
-	result, observed, err := reconciler.driver.Observe(ctx, effect)
+	result, observed, err := observeEffect(ctx, reconciler.driver, claim, effect)
 	if err != nil {
 		if rejected, rejectionErr := reconciler.rejectEffect(ctx, claim, effect, err); rejected {
 			return rejectionErr
@@ -222,7 +229,7 @@ func (reconciler *Reconciler) applyEffect(
 		return reconciler.retry(ctx, claim, err)
 	}
 	if !observed {
-		result, err = reconciler.driver.Apply(ctx, effect)
+		result, err = applyEffect(ctx, reconciler.driver, claim, effect)
 		if err != nil {
 			if rejected, rejectionErr := reconciler.rejectEffect(ctx, claim, effect, err); rejected {
 				return rejectionErr
@@ -277,7 +284,7 @@ func (reconciler *Reconciler) observeEffect(
 	if effect.Status == "succeeded" {
 		return effect.Observation, true, nil
 	}
-	result, observed, err := reconciler.driver.Observe(ctx, effect)
+	result, observed, err := observeEffect(ctx, reconciler.driver, claim, effect)
 	if err != nil || !observed {
 		return result, observed, err
 	}
@@ -285,6 +292,30 @@ func (reconciler *Reconciler) observeEffect(
 		return nil, false, err
 	}
 	return result, true, nil
+}
+
+func observeEffect(
+	ctx context.Context,
+	driver EffectDriver,
+	claim persistence.OperationClaim,
+	effect persistence.EffectRecord,
+) (map[string]any, bool, error) {
+	if claimed, ok := driver.(ClaimedEffectDriver); ok {
+		return claimed.ObserveClaimed(ctx, claim, effect)
+	}
+	return driver.Observe(ctx, effect)
+}
+
+func applyEffect(
+	ctx context.Context,
+	driver EffectDriver,
+	claim persistence.OperationClaim,
+	effect persistence.EffectRecord,
+) (map[string]any, error) {
+	if claimed, ok := driver.(ClaimedEffectDriver); ok {
+		return claimed.ApplyClaimed(ctx, claim, effect)
+	}
+	return driver.Apply(ctx, effect)
 }
 
 func (reconciler *Reconciler) rejectEffect(
