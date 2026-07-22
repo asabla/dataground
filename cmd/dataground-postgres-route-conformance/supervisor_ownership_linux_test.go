@@ -38,6 +38,53 @@ func TestRouteSupervisorOwnershipRejectsContenderAndPermitsTakeover(t *testing.T
 	}
 }
 
+func TestRouteManagerOwnershipRejectsContenderAndPermitsTakeover(t *testing.T) {
+	config := privateSupervisorOwnershipConfig(t)
+	first, err := acquireRouteManagerOwnership(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := acquireRouteManagerOwnership(config); err == nil {
+		t.Fatal("concurrent route manager acquired active ownership")
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := acquireRouteManagerOwnership(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer replacement.Close()
+
+	info, err := os.Lstat(routeManagerOwnershipPath(config.StateFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 ||
+		stat.Nlink != 1 || stat.Uid != uint32(os.Geteuid()) {
+		t.Fatal("route manager ownership file is not private and stable")
+	}
+}
+
+func TestRouteManagerAndSupervisorOwnershipAreIndependent(t *testing.T) {
+	config := privateSupervisorOwnershipConfig(t)
+	manager, err := acquireRouteManagerOwnership(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	supervisor, err := acquireRouteSupervisorOwnership(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer supervisor.Close()
+
+	if routeManagerOwnershipPath(config.StateFile) == routeSupervisorOwnershipPath(config.StateFile) {
+		t.Fatal("route manager and supervisor share an ownership path")
+	}
+}
+
 func TestRouteSupervisorOwnershipRejectsUnsafeFiles(t *testing.T) {
 	for _, test := range []struct {
 		name  string
@@ -93,6 +140,15 @@ func TestRouteSupervisorOwnershipRejectsControlSocketCollision(t *testing.T) {
 	if ownership, err := acquireRouteSupervisorOwnership(config); err == nil {
 		_ = ownership.Close()
 		t.Fatal("route supervisor accepted an ownership and control path collision")
+	}
+}
+
+func TestRouteManagerOwnershipRejectsControlSocketCollision(t *testing.T) {
+	config := privateSupervisorOwnershipConfig(t)
+	config.ControlSocket = routeManagerOwnershipPath(config.StateFile)
+	if ownership, err := acquireRouteManagerOwnership(config); err == nil {
+		_ = ownership.Close()
+		t.Fatal("route manager accepted an ownership and control path collision")
 	}
 }
 

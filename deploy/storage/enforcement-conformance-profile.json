@@ -103,6 +103,9 @@
             "childOwnership": "Linux parent-death SIGKILL plus expected manager PID recheck before singleton acquisition",
             "replacement": "automatic recovery-only supervisor replacement reconfirms exact persisted state before readiness",
             "parentLoss": "SIGKILL manager terminates the owned supervisor and router before controlled manager replacement",
+            "singletonOwnership": "exclusive non-blocking manager-lifetime lock in the private route workspace",
+            "contender": "rejected before state inspection or supervisor launch without disturbing the active hierarchy",
+            "controlledTakeover": "recovery-only replacement acquires released ownership after the former manager and descendants terminate",
             "exhaustion": "manager exits nonzero without serving traffic"
           },
           "productionCertified": false

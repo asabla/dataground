@@ -26,7 +26,17 @@ func manageRouteSupervisor(
 	ctx context.Context,
 	config routeSupervisorConfig,
 	output io.Writer,
-) error {
+) (result error) {
+	ownership, err := acquireRouteManagerOwnership(config)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := ownership.Close(); result == nil && closeErr != nil {
+			result = errors.New("release PostgreSQL route manager ownership")
+		}
+	}()
+
 	executable, err := os.Executable()
 	if err != nil {
 		return errors.New("resolve PostgreSQL route conformance executable")

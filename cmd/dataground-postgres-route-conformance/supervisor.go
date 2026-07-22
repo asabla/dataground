@@ -40,7 +40,7 @@ type routeSupervisorPolicy struct {
 	ShutdownTimeout  time.Duration
 }
 
-type routeSupervisorOwnership interface {
+type routeOwnership interface {
 	Close() error
 }
 
