@@ -83,15 +83,39 @@ func (repository *Repository) BeginInvocationRuntimeAttempt(
 	return attempt, nil
 }
 
-// CompleteInvocationRuntimeAttempt records a bounded terminal result under the
-// same active claim. Exact completion replay is read-only.
+// CompleteInvocationRuntimeAttempt records a bounded successful result under
+// the same active claim. Exact completion replay is read-only.
 func (repository *Repository) CompleteInvocationRuntimeAttempt(
 	ctx context.Context,
 	claim OperationClaim,
 	effect EffectRecord,
 	result map[string]any,
 ) (InvocationRuntimeAttempt, error) {
-	if !validInvocationRuntimeAttempt(claim, effect) || result == nil {
+	return repository.finishInvocationRuntimeAttempt(ctx, claim, effect, "succeeded", result)
+}
+
+// FailInvocationRuntimeAttempt records a bounded terminal runtime failure under
+// the same active claim. A failed native turn is complete and must not be
+// mistaken for an unresolved attempt that another worker may repeat.
+func (repository *Repository) FailInvocationRuntimeAttempt(
+	ctx context.Context,
+	claim OperationClaim,
+	effect EffectRecord,
+	result map[string]any,
+) (InvocationRuntimeAttempt, error) {
+	return repository.finishInvocationRuntimeAttempt(ctx, claim, effect, "failed", result)
+}
+
+func (repository *Repository) finishInvocationRuntimeAttempt(
+	ctx context.Context,
+	claim OperationClaim,
+	effect EffectRecord,
+	status string,
+	result map[string]any,
+) (InvocationRuntimeAttempt, error) {
+	if !validInvocationRuntimeAttempt(claim, effect) ||
+		(status != "succeeded" && status != "failed") ||
+		result == nil {
 		return InvocationRuntimeAttempt{}, ErrInvocationRuntimeAttemptInvalid
 	}
 	encodedResult, err := json.Marshal(result)
@@ -113,7 +137,7 @@ func (repository *Repository) CompleteInvocationRuntimeAttempt(
 	now := repository.now()
 	update, err := tx.Exec(ctx, `
 		UPDATE invocation_runtime_attempts
-		SET status = 'succeeded', result = $6, completed_at = $7, updated_at = $7
+		SET status = $6, result = $7, completed_at = $8, updated_at = $8
 		WHERE isolation_domain_id = $1
 		  AND operation_id = $2
 		  AND effect_id = $3
@@ -121,7 +145,7 @@ func (repository *Repository) CompleteInvocationRuntimeAttempt(
 		  AND fencing_token = $5
 		  AND status = 'reserved'
 	`, effect.IsolationDomainID, effect.OperationID, effect.EffectID,
-		claim.LeaseOwner, claim.FencingToken, encodedResult, now)
+		claim.LeaseOwner, claim.FencingToken, status, encodedResult, now)
 	if err != nil {
 		return InvocationRuntimeAttempt{}, fmt.Errorf("complete invocation runtime attempt: %w", err)
 	}
@@ -135,8 +159,11 @@ func (repository *Repository) CompleteInvocationRuntimeAttempt(
 		return InvocationRuntimeAttempt{}, ErrInvocationRuntimeAttemptConflict
 	}
 	if update.RowsAffected() != 1 {
-		if attempt.Status != "succeeded" {
+		if attempt.Status == "reserved" {
 			return InvocationRuntimeAttempt{}, ErrInvocationRuntimeAttemptAmbiguous
+		}
+		if attempt.Status != status {
+			return InvocationRuntimeAttempt{}, ErrInvocationRuntimeAttemptConflict
 		}
 		persisted, encodeErr := json.Marshal(attempt.Result)
 		if encodeErr != nil {
@@ -201,9 +228,9 @@ func getInvocationRuntimeAttempt(
 		attempt.EffectID == "" ||
 		attempt.LeaseOwner == "" ||
 		attempt.FencingToken <= 0 ||
-		(attempt.Status != "reserved" && attempt.Status != "succeeded") ||
+		(attempt.Status != "reserved" && attempt.Status != "succeeded" && attempt.Status != "failed") ||
 		(attempt.Status == "reserved" && attempt.Result != nil) ||
-		(attempt.Status == "succeeded" && attempt.Result == nil) {
+		((attempt.Status == "succeeded" || attempt.Status == "failed") && attempt.Result == nil) {
 		return InvocationRuntimeAttempt{}, ErrInvocationRuntimeAttemptConflict
 	}
 	return attempt, nil
