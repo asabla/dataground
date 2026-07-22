@@ -455,6 +455,9 @@ func (repository *Repository) AcceptCancellation(
 	idempotency Idempotency,
 	input AcceptCancellationInput,
 ) (CommandResult, error) {
+	if input.ActorID == "" || input.CorrelationID == "" {
+		return CommandResult{}, errors.New("cancellation actor and correlation are required")
+	}
 	return repository.execute(ctx, idempotency, func(tx pgx.Tx, now time.Time) (int, any, error) {
 		invocationValue, err := getInvocationForUpdate(ctx, tx, idempotency.IsolationDomainID, input.InvocationID)
 		if err != nil {
