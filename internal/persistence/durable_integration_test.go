@@ -186,14 +186,16 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 	cancellationActorID := "cancellation-operator"
 	cancellationCorrelationID := identity.New("cor")
 	if _, err := repository.AcceptCancellation(ctx, testIdempotency(domainID, "cancel"), persistence.AcceptCancellationInput{
-		InvocationID: cancelledInvocationID,
-		ActorID: cancellationActorID, CorrelationID: cancellationCorrelationID,
+		InvocationID:  cancelledInvocationID,
+		ActorID:       cancellationActorID,
+		CorrelationID: cancellationCorrelationID,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := repository.AcceptCancellation(ctx, testIdempotency(domainID, "cancel-again"), persistence.AcceptCancellationInput{
-		InvocationID: cancelledInvocationID,
-		ActorID: "different-cancellation-operator", CorrelationID: identity.New("cor"),
+		InvocationID:  cancelledInvocationID,
+		ActorID:       "different-cancellation-operator",
+		CorrelationID: identity.New("cor"),
 	}); err != nil {
 		t.Fatal(err)
 	}
