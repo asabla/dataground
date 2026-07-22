@@ -70,10 +70,10 @@ func TestInvocationRecoversWhenTransitionCommitFailsAfterEffect(t *testing.T) {
 	}
 }
 
-func TestCancellationReachesStableTerminalStateWithoutStartingEffect(t *testing.T) {
+func TestVersionTwoCancellationUsesDurableEffectWithoutStartingRuntime(t *testing.T) {
 	store := newFakeStore(persistence.OperationClaim{
 		Kind: persistence.OperationKindInvocation, IsolationDomainID: "iso_test",
-		ID: "op_test", ResourceID: "inv_test", Command: "cancel", ObservedState: "queued",
+		ID: "op_test", ResourceID: "inv_test", Command: "cancel", ObservedState: "cancelling",
 		StateMachineVersion: 2,
 		DeadlineAt:          time.Now().Add(time.Hour), CorrelationID: "corr_test", ActorID: "actor_test",
 	})
@@ -81,12 +81,54 @@ func TestCancellationReachesStableTerminalStateWithoutStartingEffect(t *testing.
 	worker := New(store, driver, "worker-a")
 
 	runUntilState(t, worker, store, "cancelled")
-	if driver.applyCount != 0 {
-		t.Fatalf("cancellation applied %d start effects, want zero", driver.applyCount)
+	if driver.applyCount != 1 || store.effects["cancel-invocation"].Status != "succeeded" {
+		t.Fatalf("version 2 cancellation effects = apply %d, receipts %#v", driver.applyCount, store.effects)
+	}
+	if _, started := store.effects["start-invocation"]; started {
+		t.Fatalf("cancellation created a start effect: %#v", store.effects)
 	}
 	ran, err := worker.RunOne(context.Background(), persistence.OperationKindInvocation)
 	if err != nil || ran {
 		t.Fatalf("poll after terminal cancellation = (%v, %v), want (false, nil)", ran, err)
+	}
+}
+
+func TestVersionTwoCancellationObservesAmbiguousEffectBeforeCompletion(t *testing.T) {
+	store := newFakeStore(persistence.OperationClaim{
+		Kind: persistence.OperationKindInvocation, IsolationDomainID: "iso_test",
+		ID: "op_test", ResourceID: "inv_test", Command: "cancel", ObservedState: "cancelling",
+		StateMachineVersion: 2,
+		DeadlineAt:          time.Now().Add(time.Hour), CorrelationID: "corr_test", ActorID: "actor_test",
+	})
+	driver := &fakeDriver{ambiguousOnce: true}
+	worker := New(store, driver, "worker-a")
+
+	runUntilState(t, worker, store, "cancelled")
+	if driver.applyCount != 1 || driver.observeCount < 2 {
+		t.Fatalf(
+			"ambiguous cancellation calls = apply %d, observe %d, want one apply and observation before retry",
+			driver.applyCount,
+			driver.observeCount,
+		)
+	}
+	if store.effects["cancel-invocation"].Status != "succeeded" {
+		t.Fatalf("cancellation receipt = %#v, want succeeded", store.effects["cancel-invocation"])
+	}
+}
+
+func TestVersionOneCancellationRetainsOriginalEffectlessPath(t *testing.T) {
+	store := newFakeStore(persistence.OperationClaim{
+		Kind: persistence.OperationKindInvocation, IsolationDomainID: "iso_test",
+		ID: "op_test", ResourceID: "inv_test", Command: "cancel", ObservedState: "cancelling",
+		StateMachineVersion: 1,
+		DeadlineAt:          time.Now().Add(time.Hour), CorrelationID: "corr_test", ActorID: "actor_test",
+	})
+	driver := &fakeDriver{}
+	worker := New(store, driver, "worker-a")
+
+	runUntilState(t, worker, store, "cancelled")
+	if driver.applyCount != 0 || len(store.effects) != 0 {
+		t.Fatalf("version 1 cancellation effects = apply %d, receipts %#v", driver.applyCount, store.effects)
 	}
 }
 
