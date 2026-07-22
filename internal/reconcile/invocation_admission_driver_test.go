@@ -173,6 +173,64 @@ func TestInvocationAdmissionDriverFailsClosedBeforeProviderAdmission(t *testing.
 	}
 }
 
+func TestInvocationAdmissionDriverClassifiesAdmissionFailures(t *testing.T) {
+	permanent := map[string]error{
+		"execution plan mismatch":     execution.ErrExecutionPlanRevisionMismatch,
+		"enforcement bundle mismatch": execution.ErrEnforcementBundleMismatch,
+		"invalid policy":              execution.ErrPolicyInvalid,
+		"provider state conflict":      execution.ErrStateConflict,
+	}
+	for name, cause := range permanent {
+		t.Run(name, func(t *testing.T) {
+			target := admissionTarget()
+			authorizer := &admissionAuthorizerStub{}
+			admitter := &admitterStub{err: cause}
+			driver, err := NewInvocationAdmissionDriver(
+				&admissionTargetStub{target: target},
+				authorizer,
+				admitter,
+				&executionByOperationStub{err: execution.ErrExecutionMissing},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = driver.Apply(context.Background(), admissionEffect(target))
+			if !errors.Is(err, cause) || !errors.Is(err, ErrEffectInvalid) {
+				t.Fatalf("admission error = %v, want permanent %v", err, cause)
+			}
+			if authorizer.calls != 1 || admitter.calls != 1 {
+				t.Fatalf("calls = authorization:%d admission:%d", authorizer.calls, admitter.calls)
+			}
+		})
+	}
+
+	retryable := map[string]error{
+		"missing execution plan":          execution.ErrExecutionPlanMissing,
+		"missing enforcement bundle":      execution.ErrEnforcementBundleMissing,
+		"unavailable enforcement bundle":  execution.ErrEnforcementBundleUnavailable,
+		"unavailable gateway capacity":    execution.ErrNoGateway,
+		"unavailable admission dependency": errors.New("admission dependency unavailable"),
+	}
+	for name, cause := range retryable {
+		t.Run(name, func(t *testing.T) {
+			target := admissionTarget()
+			driver, err := NewInvocationAdmissionDriver(
+				&admissionTargetStub{target: target},
+				&admissionAuthorizerStub{},
+				&admitterStub{err: cause},
+				&executionByOperationStub{err: execution.ErrExecutionMissing},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = driver.Apply(context.Background(), admissionEffect(target))
+			if !errors.Is(err, cause) || errors.Is(err, ErrEffectInvalid) {
+				t.Fatalf("admission error = %v, want retryable %v", err, cause)
+			}
+		})
+	}
+}
+
 func TestRoutedDriverUsesOnlyExactEffectRoute(t *testing.T) {
 	fallback := &recordingEffectDriver{}
 	admission := &recordingEffectDriver{}
