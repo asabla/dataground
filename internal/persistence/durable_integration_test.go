@@ -176,6 +176,13 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 	if err := json.Unmarshal(cancelAccepted.Body, &cancelledInvocation); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := repository.AcceptCancellation(
+		ctx,
+		testIdempotency(domainID, "cancel-invalid-principal"),
+		persistence.AcceptCancellationInput{InvocationID: cancelledInvocationID},
+	); err == nil {
+		t.Fatal("cancellation without an effect principal was accepted")
+	}
 	cancellationActorID := "cancellation-operator"
 	cancellationCorrelationID := identity.New("cor")
 	if _, err := repository.AcceptCancellation(ctx, testIdempotency(domainID, "cancel"), persistence.AcceptCancellationInput{
