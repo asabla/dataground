@@ -325,7 +325,7 @@ func (reconciler *Reconciler) rejectEffect(
 	effect persistence.EffectRecord,
 	cause error,
 ) (bool, error) {
-	reason, code, rejected := effectRejection(cause)
+	reason, code, rejected := effectRejection(effect, cause)
 	if !rejected {
 		return false, nil
 	}
@@ -335,13 +335,18 @@ func (reconciler *Reconciler) rejectEffect(
 	return true, reconciler.store.Fail(ctx, claim, reason)
 }
 
-func effectRejection(cause error) (persistence.OperationFailureReason, string, bool) {
+func effectRejection(
+	effect persistence.EffectRecord,
+	cause error,
+) (persistence.OperationFailureReason, string, bool) {
 	switch {
 	case errors.Is(cause, ErrEffectDenied):
 		return persistence.OperationFailureEffectDenied, "EXTERNAL_EFFECT_DENIED", true
 	case errors.Is(cause, ErrEffectInvalid):
 		return persistence.OperationFailureEffectInvalid, "EXTERNAL_EFFECT_INVALID", true
-	case errors.Is(cause, ErrEffectTerminal):
+	case errors.Is(cause, ErrEffectTerminal) &&
+		effect.OperationKind == persistence.OperationKindInvocation &&
+		effect.Phase == "run-invocation":
 		return persistence.OperationFailureRuntime, "EXTERNAL_EFFECT_TERMINAL_FAILURE", true
 	default:
 		return "", "", false
