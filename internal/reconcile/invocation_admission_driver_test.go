@@ -31,7 +31,7 @@ func TestInvocationAdmissionDriverReauthorizesAndAdmitsDurableTarget(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if admitter.calls != 1 || authorizer.calls != 2 {
+	if admitter.calls != 1 || authorizer.calls != 1 {
 		t.Fatalf("calls = admission:%d authorization:%d", admitter.calls, authorizer.calls)
 	}
 	wantRequest := execution.AdmissionRequest{
@@ -54,9 +54,10 @@ func TestInvocationAdmissionDriverObservesPersistedExecutionWithoutReadmission(t
 	target := admissionTarget()
 	value := admittedExecution(target.IsolationDomainID)
 	admitter := &admitterStub{}
+	authorizer := &admissionAuthorizerStub{err: ErrInvocationAdmissionDenied}
 	driver, err := NewInvocationAdmissionDriver(
 		&admissionTargetStub{target: target},
-		&admissionAuthorizerStub{},
+		authorizer,
 		admitter,
 		&executionByOperationStub{value: value},
 	)
@@ -67,13 +68,18 @@ func TestInvocationAdmissionDriverObservesPersistedExecutionWithoutReadmission(t
 	if err != nil || !found {
 		t.Fatalf("observe persisted execution = (%#v, %t, %v)", result, found, err)
 	}
-	if admitter.calls != 0 || result["executionId"] != value.ID {
-		t.Fatalf("persisted observation = %#v, admission calls = %d", result, admitter.calls)
+	if admitter.calls != 0 || authorizer.calls != 0 || result["executionId"] != value.ID {
+		t.Fatalf(
+			"persisted observation = %#v, admission calls = %d, authorization calls = %d",
+			result,
+			admitter.calls,
+			authorizer.calls,
+		)
 	}
 }
 
 func TestInvocationAdmissionDriverFailsClosedBeforeProviderAdmission(t *testing.T) {
-	denied := errors.New("admission denied")
+	denied := ErrInvocationAdmissionDenied
 	tests := map[string]struct {
 		effect    persistence.EffectRecord
 		target    persistence.InvocationAdmissionTarget
@@ -95,6 +101,11 @@ func TestInvocationAdmissionDriverFailsClosedBeforeProviderAdmission(t *testing.
 			effect:    admissionEffect(admissionTarget()),
 			targetErr: errors.New("target unavailable"),
 			want:      errors.New("target unavailable"),
+		},
+		"durably missing target": {
+			effect:    admissionEffect(admissionTarget()),
+			targetErr: persistence.ErrInvocationAdmissionTargetMissing,
+			want:      persistence.ErrInvocationAdmissionTargetMissing,
 		},
 		"authorization denial": {
 			effect:    admissionEffect(admissionTarget()),
@@ -135,12 +146,21 @@ func TestInvocationAdmissionDriverFailsClosedBeforeProviderAdmission(t *testing.
 				t.Fatal(err)
 			}
 			_, err = driver.Apply(context.Background(), test.effect)
-			if test.want == denied || errors.Is(test.want, ErrInvocationAdmissionTargetMismatch) {
+			if test.want == denied || errors.Is(test.want, ErrInvocationAdmissionTargetMismatch) ||
+				errors.Is(test.want, persistence.ErrInvocationAdmissionTargetMissing) {
 				if !errors.Is(err, test.want) {
 					t.Fatalf("apply error = %v, want %v", err, test.want)
 				}
 			} else if err == nil || err.Error() != test.want.Error() {
 				t.Fatalf("apply error = %v, want %v", err, test.want)
+			}
+			if test.want == denied && !errors.Is(err, ErrEffectDenied) {
+				t.Fatalf("authorization denial was not classified as a terminal effect denial: %v", err)
+			}
+			if (errors.Is(test.want, ErrInvocationAdmissionTargetMismatch) ||
+				errors.Is(test.want, persistence.ErrInvocationAdmissionTargetMissing)) &&
+				!errors.Is(err, ErrEffectInvalid) {
+				t.Fatalf("invalid admission target was not classified as terminal: %v", err)
 			}
 			if admitter.calls != 0 && name != "cross-domain result" {
 				t.Fatalf("provider admission called %d times", admitter.calls)
