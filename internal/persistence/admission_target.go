@@ -1,6 +1,13 @@
 package persistence
 
-import "context"
+import (
+	"context"
+	"errors"
+
+	"github.com/jackc/pgx/v5"
+)
+
+var ErrInvocationAdmissionTargetMissing = errors.New("invocation admission target is missing")
 
 type InvocationAdmissionTarget struct {
 	IsolationDomainID   string
@@ -52,6 +59,9 @@ func (repository *Repository) GetInvocationAdmissionTarget(
 		&target.CorrelationID,
 		&target.StateMachineVersion,
 	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return InvocationAdmissionTarget{}, ErrInvocationAdmissionTargetMissing
+	}
 	if err != nil {
 		return InvocationAdmissionTarget{}, err
 	}
