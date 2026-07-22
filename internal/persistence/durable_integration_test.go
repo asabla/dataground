@@ -164,6 +164,80 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 		t.Fatalf("cross-domain invocation read error = %v, want pgx.ErrNoRows", err)
 	}
 
+	repairActorID := "repair-operator"
+	repairDeduplicationID := "repair-invocation-dedup-1"
+	repairInvocationCorrelationID := identity.New("cor")
+	repairInvocationID := identity.New("inv")
+	repairAccepted, err := repository.AcceptInvocation(ctx, testIdempotency(domainID, "invoke-expired"), persistence.AcceptInvocationInput{
+		ID: repairInvocationID, ServiceID: serviceID, Alias: "stable", Input: map[string]any{"message": "repair"},
+		ActorID: actorID, CorrelationID: repairInvocationCorrelationID, Deadline: time.Now().Add(-time.Second),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var repairInvocation domain.Invocation
+	if err := json.Unmarshal(repairAccepted.Body, &repairInvocation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worker.RunOne(ctx, persistence.OperationKindInvocation); err != nil {
+		t.Fatal(err)
+	}
+	failedInvocationOperation, err := repository.GetOperation(ctx, domainID, repairInvocation.OperationID)
+	if err != nil || failedInvocationOperation.ObservedState != "failed" {
+		t.Fatalf("expired invocation operation = (%q, %v), want failed", failedInvocationOperation.ObservedState, err)
+	}
+	repairInvocationDeadline := time.Now().UTC().Add(time.Minute)
+	if err := repository.RepairOperation(
+		ctx, persistence.OperationKindInvocation, domainID, repairInvocation.OperationID,
+		repairActorID, "provider recovered", repairDeduplicationID, repairInvocationDeadline,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.RepairOperation(
+		ctx, persistence.OperationKindInvocation, domainID, repairInvocation.OperationID,
+		repairActorID, "provider recovered", repairDeduplicationID, repairInvocationDeadline,
+	); err != nil {
+		t.Fatalf("repeat invocation repair: %v", err)
+	}
+	if err := repository.RepairOperation(
+		ctx, persistence.OperationKindInvocation, domainID, repairInvocation.OperationID,
+		"different-repair-operator", "provider recovered", repairDeduplicationID, repairInvocationDeadline,
+	); err == nil {
+		t.Fatal("repair deduplication actor conflict was accepted")
+	}
+	repairTarget, err := repository.GetInvocationAdmissionTarget(ctx, domainID, repairInvocation.OperationID)
+	if err != nil {
+		t.Fatalf("resolve repaired invocation admission target: %v", err)
+	}
+	if repairTarget.ActorID != repairActorID || repairTarget.CorrelationID != repairDeduplicationID {
+		t.Fatalf("repaired invocation admission principal = (%q, %q)", repairTarget.ActorID, repairTarget.CorrelationID)
+	}
+	var originalActorID, originalCorrelationID, effectActorID, effectCorrelationID string
+	if err := pool.QueryRow(ctx, `
+		SELECT actor_id, correlation_id, effect_actor_id, effect_correlation_id
+		FROM invocation_execution_operations
+		WHERE isolation_domain_id = $1 AND id = $2
+	`, domainID, repairInvocation.OperationID).Scan(
+		&originalActorID, &originalCorrelationID, &effectActorID, &effectCorrelationID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if originalActorID != actorID || originalCorrelationID != repairInvocationCorrelationID ||
+		effectActorID != repairActorID || effectCorrelationID != repairDeduplicationID {
+		t.Fatalf(
+			"repaired invocation principals = original (%q, %q), effect (%q, %q)",
+			originalActorID, originalCorrelationID, effectActorID, effectCorrelationID,
+		)
+	}
+	repairClaim, err := repository.ClaimNext(ctx, persistence.OperationKindInvocation, "repair-principal-probe", -time.Second)
+	if err != nil || repairClaim == nil {
+		t.Fatalf("claim repaired invocation = (%v, %v)", repairClaim, err)
+	}
+	if repairClaim.ActorID != repairActorID || repairClaim.CorrelationID != repairDeduplicationID {
+		t.Fatalf("repaired invocation claim principal = (%q, %q)", repairClaim.ActorID, repairClaim.CorrelationID)
+	}
+	runToTerminal(t, ctx, worker, repository, domainID, repairInvocation.OperationID, "succeeded")
+
 	repairRevisionID := identity.New("rev")
 	if _, err := repository.CreateRevision(ctx, testIdempotency(domainID, "create-repair-revision"), persistence.CreateRevisionInput{
 		ID: repairRevisionID, ServiceID: serviceID, RuntimeProfile: "reference/v1",
