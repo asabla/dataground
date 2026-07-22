@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"errors"
+	"reflect"
 
 	"github.com/asabla/dataground/internal/persistence"
 )
@@ -18,7 +19,10 @@ func NewGovernedInvocationDriver(
 	runtime *InvocationRuntimeDriver,
 	cancellation *InvocationCancellationDriver,
 ) (*RoutedDriver, error) {
-	if fallback == nil || admission == nil || runtime == nil || cancellation == nil {
+	if governedInvocationDependencyMissing(fallback) ||
+		governedInvocationDependencyMissing(admission) ||
+		governedInvocationDependencyMissing(runtime) ||
+		governedInvocationDependencyMissing(cancellation) {
 		return nil, ErrGovernedInvocationDriversIncomplete
 	}
 	return NewClaimedRoutedDriver(
@@ -40,4 +44,17 @@ func NewGovernedInvocationDriver(
 			}: runtime,
 		},
 	)
+}
+
+func governedInvocationDependencyMissing(value any) bool {
+	if value == nil {
+		return true
+	}
+	reflected := reflect.ValueOf(value)
+	switch reflected.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return reflected.IsNil()
+	default:
+		return false
+	}
 }
