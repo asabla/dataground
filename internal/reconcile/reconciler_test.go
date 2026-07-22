@@ -189,6 +189,52 @@ func TestReconcilerRejectsEffectOutsideLifecyclePhase(t *testing.T) {
 	}
 }
 
+func TestReconcilerTerminatesRejectedEffectsWithoutRetry(t *testing.T) {
+	tests := map[string]struct {
+		driver *fakeDriver
+		reason persistence.OperationFailureReason
+		code   string
+	}{
+		"denied during apply": {
+			driver: &fakeDriver{applyErr: errors.Join(ErrEffectDenied, errors.New("denied"))},
+			reason: persistence.OperationFailureEffectDenied,
+			code:   "EXTERNAL_EFFECT_DENIED",
+		},
+		"invalid during observation": {
+			driver: &fakeDriver{observeErr: errors.Join(ErrEffectInvalid, errors.New("invalid"))},
+			reason: persistence.OperationFailureEffectInvalid,
+			code:   "EXTERNAL_EFFECT_INVALID",
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			store := newFakeStore(persistence.OperationClaim{
+				Kind: persistence.OperationKindInvocation, IsolationDomainID: "iso_test",
+				ID: "op_test", ResourceID: "inv_test", Command: "invoke", ObservedState: "starting",
+				StateMachineVersion: 2,
+				DeadlineAt:          time.Now().Add(time.Hour), CorrelationID: "corr_test", ActorID: "actor_test",
+			})
+			worker := New(store, test.driver, "worker-a")
+			ran, err := worker.RunOne(context.Background(), persistence.OperationKindInvocation)
+			if err != nil || !ran {
+				t.Fatalf("rejected effect reconciliation = (%t, %v)", ran, err)
+			}
+			if store.claim.ObservedState != "failed" || store.failureReason != test.reason {
+				t.Fatalf("terminal rejection = state %q, reason %q", store.claim.ObservedState, store.failureReason)
+			}
+			if store.retryCount != 0 || store.effects["start-invocation"].Status != "failed" ||
+				store.effectCodes["start-invocation"] != test.code {
+				t.Fatalf(
+					"rejection persistence = retries %d, effect %#v, code %q",
+					store.retryCount,
+					store.effects["start-invocation"],
+					store.effectCodes["start-invocation"],
+				)
+			}
+		})
+	}
+}
+
 func runUntilState(t *testing.T, worker *Reconciler, store *fakeStore, terminal string) {
 	t.Helper()
 	for attempt := 0; attempt < 12 && store.claim.ObservedState != terminal; attempt++ {
@@ -210,13 +256,18 @@ type fakeStore struct {
 	terminal        bool
 	leased          bool
 	effects         map[string]persistence.EffectRecord
+	effectCodes     map[string]string
 	transitions     []string
 	failRecordOnce  bool
 	failAdvanceOnce bool
+	failureReason   persistence.OperationFailureReason
+	retryCount      int
 }
 
 func newFakeStore(claim persistence.OperationClaim) *fakeStore {
-	return &fakeStore{claim: claim, effects: make(map[string]persistence.EffectRecord)}
+	return &fakeStore{
+		claim: claim, effects: make(map[string]persistence.EffectRecord), effectCodes: make(map[string]string),
+	}
 }
 
 func (store *fakeStore) ClaimNext(_ context.Context, kind, worker string, _ time.Duration) (*persistence.OperationClaim, error) {
@@ -247,10 +298,23 @@ func (store *fakeStore) Advance(_ context.Context, claim persistence.OperationCl
 	return nil
 }
 
+func (store *fakeStore) Fail(
+	ctx context.Context,
+	claim persistence.OperationClaim,
+	reason persistence.OperationFailureReason,
+) error {
+	if err := store.Advance(ctx, claim, "failed", nil); err != nil {
+		return err
+	}
+	store.failureReason = reason
+	return nil
+}
+
 func (store *fakeStore) ScheduleRetry(_ context.Context, claim persistence.OperationClaim, _, _ string, _ time.Time) error {
 	if !store.leased || claim.FencingToken != store.claim.FencingToken {
 		return persistence.ErrLeaseLost
 	}
+	store.retryCount++
 	store.leased = false
 	return nil
 }
@@ -271,7 +335,7 @@ func (store *fakeStore) PrepareEffect(_ context.Context, claim persistence.Opera
 	return effect, nil
 }
 
-func (store *fakeStore) RecordEffect(_ context.Context, effect persistence.EffectRecord, status string, observation map[string]any, _ string) error {
+func (store *fakeStore) RecordEffect(_ context.Context, effect persistence.EffectRecord, status string, observation map[string]any, errorCode string) error {
 	if store.failRecordOnce {
 		store.failRecordOnce = false
 		return errors.New("injected effect receipt failure")
@@ -279,6 +343,7 @@ func (store *fakeStore) RecordEffect(_ context.Context, effect persistence.Effec
 	effect.Status = status
 	effect.Observation = observation
 	store.effects[effect.Phase] = effect
+	store.effectCodes[effect.Phase] = errorCode
 	return nil
 }
 
@@ -286,17 +351,25 @@ type fakeDriver struct {
 	applyCount    int
 	observeCount  int
 	ambiguousOnce bool
+	observeErr    error
+	applyErr      error
 	receipts      map[string]map[string]any
 }
 
 func (driver *fakeDriver) Observe(_ context.Context, effect persistence.EffectRecord) (map[string]any, bool, error) {
 	driver.observeCount++
+	if driver.observeErr != nil {
+		return nil, false, driver.observeErr
+	}
 	receipt := driver.receipts[effect.Phase]
 	return receipt, receipt != nil, nil
 }
 
 func (driver *fakeDriver) Apply(_ context.Context, effect persistence.EffectRecord) (map[string]any, error) {
 	driver.applyCount++
+	if driver.applyErr != nil {
+		return nil, driver.applyErr
+	}
 	if driver.receipts == nil {
 		driver.receipts = make(map[string]map[string]any)
 	}
