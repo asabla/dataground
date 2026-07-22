@@ -123,13 +123,45 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 		admissionTarget.StateMachineVersion != 2 {
 		t.Fatalf("invocation admission target = %#v", admissionTarget)
 	}
-	if _, err := repository.GetInvocationAdmissionTarget(ctx, identity.New("iso"), invocation.OperationID); !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("cross-domain admission target lookup = %v, want no rows", err)
+	if _, err := repository.GetInvocationAdmissionTarget(ctx, identity.New("iso"), invocation.OperationID); !errors.Is(err, persistence.ErrInvocationAdmissionTargetMissing) {
+		t.Fatalf("cross-domain admission target lookup = %v, want a missing target", err)
 	}
 	runToTerminal(t, ctx, worker, repository, domainID, invocation.OperationID, "succeeded")
 	observed, err := repository.GetInvocation(ctx, domainID, invocationID)
 	if err != nil || observed.State != "succeeded" {
 		t.Fatalf("invocation state = (%q, %v)", observed.State, err)
+	}
+
+	rejectedInvocationID := identity.New("inv")
+	rejectedAccepted, err := repository.AcceptInvocation(ctx, testIdempotency(domainID, "invoke-rejected"), persistence.AcceptInvocationInput{
+		ID: rejectedInvocationID, ServiceID: serviceID, Alias: "stable", Input: map[string]any{"message": "reject"},
+		ActorID: actorID, CorrelationID: identity.New("cor"), Deadline: time.Now().Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rejectedInvocation domain.Invocation
+	if err := json.Unmarshal(rejectedAccepted.Body, &rejectedInvocation); err != nil {
+		t.Fatal(err)
+	}
+	rejectedClaim, err := repository.ClaimNext(ctx, persistence.OperationKindInvocation, "rejection-worker", time.Minute)
+	if err != nil || rejectedClaim == nil || rejectedClaim.ID != rejectedInvocation.OperationID {
+		t.Fatalf("claim rejected invocation = (%#v, %v)", rejectedClaim, err)
+	}
+	if err := repository.Advance(ctx, *rejectedClaim, "starting", nil); err != nil {
+		t.Fatal(err)
+	}
+	rejectedClaim, err = repository.ClaimNext(ctx, persistence.OperationKindInvocation, "rejection-worker", time.Minute)
+	if err != nil || rejectedClaim == nil || rejectedClaim.ID != rejectedInvocation.OperationID {
+		t.Fatalf("reclaim rejected invocation = (%#v, %v)", rejectedClaim, err)
+	}
+	if err := repository.Fail(ctx, *rejectedClaim, persistence.OperationFailureEffectDenied); err != nil {
+		t.Fatal(err)
+	}
+	rejectedOperation, err := repository.GetOperation(ctx, domainID, rejectedInvocation.OperationID)
+	if err != nil || rejectedOperation.ObservedState != "failed" || rejectedOperation.Error == nil ||
+		rejectedOperation.Error.Code != "OPERATION_EFFECT_DENIED" || rejectedOperation.Error.Retryable {
+		t.Fatalf("rejected invocation operation = (%#v, %v)", rejectedOperation, err)
 	}
 
 	cancelledInvocationID := identity.New("inv")
