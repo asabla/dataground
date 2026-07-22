@@ -208,6 +208,93 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 		t.Fatalf("cross-domain runtime target claim = %v, want a lost lease", err)
 	}
 
+	runtimeEffect, err := repository.PrepareEffect(
+		ctx,
+		renewedRuntimeClaim,
+		"run-invocation",
+		sha256.Sum256([]byte(domainID+":"+invocation.OperationID+":run-invocation")),
+	)
+	if err != nil {
+		t.Fatalf("prepare invocation runtime effect: %v", err)
+	}
+	runtimeAttempt, err := repository.BeginInvocationRuntimeAttempt(
+		ctx,
+		renewedRuntimeClaim,
+		runtimeEffect,
+	)
+	if err != nil ||
+		runtimeAttempt.IsolationDomainID != domainID ||
+		runtimeAttempt.OperationID != invocation.OperationID ||
+		runtimeAttempt.EffectID != runtimeEffect.EffectID ||
+		runtimeAttempt.LeaseOwner != renewedRuntimeClaim.LeaseOwner ||
+		runtimeAttempt.FencingToken != renewedRuntimeClaim.FencingToken ||
+		runtimeAttempt.Status != "reserved" ||
+		runtimeAttempt.Result != nil {
+		t.Fatalf("begin invocation runtime attempt = (%#v, %v)", runtimeAttempt, err)
+	}
+	if _, err := repository.BeginInvocationRuntimeAttempt(
+		ctx,
+		renewedRuntimeClaim,
+		runtimeEffect,
+	); !errors.Is(err, persistence.ErrInvocationRuntimeAttemptAmbiguous) {
+		t.Fatalf("repeated invocation runtime attempt = %v, want ambiguous", err)
+	}
+	if _, err := repository.CompleteInvocationRuntimeAttempt(
+		ctx,
+		staleRuntimeClaim,
+		runtimeEffect,
+		map[string]any{"status": "succeeded"},
+	); !errors.Is(err, persistence.ErrLeaseLost) {
+		t.Fatalf("stale invocation runtime completion = %v, want a lost lease", err)
+	}
+	runtimeResult := map[string]any{"status": "succeeded", "output": "hello"}
+	completedRuntimeAttempt, err := repository.CompleteInvocationRuntimeAttempt(
+		ctx,
+		renewedRuntimeClaim,
+		runtimeEffect,
+		runtimeResult,
+	)
+	if err != nil ||
+		completedRuntimeAttempt.Status != "succeeded" ||
+		completedRuntimeAttempt.Result["status"] != "succeeded" ||
+		completedRuntimeAttempt.Result["output"] != "hello" {
+		t.Fatalf("complete invocation runtime attempt = (%#v, %v)", completedRuntimeAttempt, err)
+	}
+	replayedRuntimeAttempt, err := repository.CompleteInvocationRuntimeAttempt(
+		ctx,
+		renewedRuntimeClaim,
+		runtimeEffect,
+		map[string]any{"output": "hello", "status": "succeeded"},
+	)
+	if err != nil || replayedRuntimeAttempt.Status != "succeeded" {
+		t.Fatalf("replay invocation runtime completion = (%#v, %v)", replayedRuntimeAttempt, err)
+	}
+	if _, err := repository.CompleteInvocationRuntimeAttempt(
+		ctx,
+		renewedRuntimeClaim,
+		runtimeEffect,
+		map[string]any{"status": "succeeded", "output": "conflict"},
+	); !errors.Is(err, persistence.ErrInvocationRuntimeAttemptConflict) {
+		t.Fatalf("conflicting invocation runtime completion = %v, want conflict", err)
+	}
+	persistedRuntimeAttempt, err := repository.GetInvocationRuntimeAttempt(
+		ctx,
+		domainID,
+		invocation.OperationID,
+	)
+	if err != nil ||
+		persistedRuntimeAttempt.Status != "succeeded" ||
+		persistedRuntimeAttempt.Result["output"] != "hello" {
+		t.Fatalf("read invocation runtime attempt = (%#v, %v)", persistedRuntimeAttempt, err)
+	}
+	if _, err := repository.GetInvocationRuntimeAttempt(
+		ctx,
+		identity.New("iso"),
+		invocation.OperationID,
+	); !errors.Is(err, persistence.ErrInvocationRuntimeAttemptMissing) {
+		t.Fatalf("cross-domain invocation runtime attempt = %v, want missing", err)
+	}
+
 	runtimeEvent := persistence.InvocationRuntimeEvent{
 		SourceSequence: 1,
 		Type:           "output.text.delta",
