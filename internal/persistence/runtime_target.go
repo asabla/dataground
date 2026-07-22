@@ -21,7 +21,7 @@ var (
 	ErrInvocationRuntimeTargetMissing = errors.New("invocation runtime target is missing")
 	ErrInvocationRuntimeEventInvalid  = errors.New("invocation runtime event is invalid")
 	ErrInvocationRuntimeEventConflict = errors.New("invocation runtime event conflicts with persisted event")
-	runtimeEventTypePattern            = regexp.MustCompile(`^[a-z][a-z0-9]*(?:\.[a-z0-9]+)+$`)
+	runtimeEventTypePattern           = regexp.MustCompile(`^[a-z][a-z0-9]*(?:\.[a-z0-9]+)+$`)
 )
 
 type InvocationRuntimeTarget struct {
