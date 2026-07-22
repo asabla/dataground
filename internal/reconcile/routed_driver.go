@@ -12,13 +12,13 @@ type EffectRoute struct {
 	Phase         string
 }
 
-// RoutedDriver directs selected durable effects to specialized drivers while
-// preserving one fallback for all unclaimed routes.
 var (
 	ErrEffectClaimRequired = errors.New("effect route requires an active operation claim")
 	ErrEffectClaimMismatch = errors.New("effect route does not match the operation claim")
 )
 
+// RoutedDriver directs selected durable effects to specialized drivers while
+// preserving one fallback for all routes without explicit ownership.
 type RoutedDriver struct {
 	fallback      EffectDriver
 	routes        map[EffectRoute]EffectDriver
@@ -95,7 +95,7 @@ func (driver *RoutedDriver) ObserveClaimed(
 ) (map[string]any, bool, error) {
 	if selected := driver.claimedForEffect(effect); selected != nil {
 		if !effectMatchesClaim(effect, claim) {
-			return nil, false, errors.Join(ErrEffectClaimRequired, ErrEffectClaimMismatch)
+			return nil, false, ErrEffectClaimMismatch
 		}
 		return selected.ObserveClaimed(ctx, claim, effect)
 	}
@@ -109,7 +109,7 @@ func (driver *RoutedDriver) ApplyClaimed(
 ) (map[string]any, error) {
 	if selected := driver.claimedForEffect(effect); selected != nil {
 		if !effectMatchesClaim(effect, claim) {
-			return nil, errors.Join(ErrEffectClaimRequired, ErrEffectClaimMismatch)
+			return nil, ErrEffectClaimMismatch
 		}
 		return selected.ApplyClaimed(ctx, claim, effect)
 	}
