@@ -373,6 +373,133 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 		t.Fatalf("invocation state = (%q, %v)", observed.State, err)
 	}
 
+	runtimeFailedInvocationID := identity.New("inv")
+	runtimeFailedAccepted, err := repository.AcceptInvocation(
+		ctx,
+		testIdempotency(domainID, "invoke-runtime-failed"),
+		persistence.AcceptInvocationInput{
+			ID: runtimeFailedInvocationID, ServiceID: serviceID, Alias: "stable",
+			Input: map[string]any{"message": "fail in runtime"},
+			ActorID: actorID, CorrelationID: identity.New("cor"),
+			Deadline: time.Now().Add(time.Minute),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runtimeFailedInvocation domain.Invocation
+	if err := json.Unmarshal(runtimeFailedAccepted.Body, &runtimeFailedInvocation); err != nil {
+		t.Fatal(err)
+	}
+	for _, wantState := range []string{"starting", "running"} {
+		ran, err := worker.RunOne(ctx, persistence.OperationKindInvocation)
+		if err != nil || !ran {
+			t.Fatalf("advance runtime-failed invocation to %s = (%t, %v)", wantState, ran, err)
+		}
+		operation, err := repository.GetOperation(
+			ctx,
+			domainID,
+			runtimeFailedInvocation.OperationID,
+		)
+		if err != nil || operation.ObservedState != wantState {
+			t.Fatalf(
+				"runtime-failed invocation operation state = (%q, %v), want %q",
+				operation.ObservedState,
+				err,
+				wantState,
+			)
+		}
+	}
+	runtimeFailedClaim, err := repository.ClaimNext(
+		ctx,
+		persistence.OperationKindInvocation,
+		"runtime-failure-worker",
+		time.Minute,
+	)
+	if err != nil ||
+		runtimeFailedClaim == nil ||
+		runtimeFailedClaim.ID != runtimeFailedInvocation.OperationID {
+		t.Fatalf("claim runtime-failed invocation = (%#v, %v)", runtimeFailedClaim, err)
+	}
+	runtimeFailedEffect, err := repository.PrepareEffect(
+		ctx,
+		*runtimeFailedClaim,
+		"run-invocation",
+		sha256.Sum256([]byte(domainID+":"+runtimeFailedInvocation.OperationID+":run-invocation")),
+	)
+	if err != nil {
+		t.Fatalf("prepare runtime-failed effect: %v", err)
+	}
+	if _, err := repository.BeginInvocationRuntimeAttempt(
+		ctx,
+		*runtimeFailedClaim,
+		runtimeFailedEffect,
+	); err != nil {
+		t.Fatalf("begin runtime-failed attempt: %v", err)
+	}
+	runtimeFailure := map[string]any{
+		"code": "RUNTIME_TURN_FAILED",
+		"status": "failed",
+	}
+	failedRuntimeAttempt, err := repository.FailInvocationRuntimeAttempt(
+		ctx,
+		*runtimeFailedClaim,
+		runtimeFailedEffect,
+		runtimeFailure,
+	)
+	if err != nil ||
+		failedRuntimeAttempt.Status != "failed" ||
+		failedRuntimeAttempt.Result["code"] != "RUNTIME_TURN_FAILED" {
+		t.Fatalf("fail invocation runtime attempt = (%#v, %v)", failedRuntimeAttempt, err)
+	}
+	replayedRuntimeFailure, err := repository.FailInvocationRuntimeAttempt(
+		ctx,
+		*runtimeFailedClaim,
+		runtimeFailedEffect,
+		map[string]any{"status": "failed", "code": "RUNTIME_TURN_FAILED"},
+	)
+	if err != nil || replayedRuntimeFailure.Status != "failed" {
+		t.Fatalf("replay failed invocation runtime attempt = (%#v, %v)", replayedRuntimeFailure, err)
+	}
+	if _, err := repository.CompleteInvocationRuntimeAttempt(
+		ctx,
+		*runtimeFailedClaim,
+		runtimeFailedEffect,
+		map[string]any{"status": "succeeded"},
+	); !errors.Is(err, persistence.ErrInvocationRuntimeAttemptConflict) {
+		t.Fatalf("replace failed invocation runtime attempt = %v, want conflict", err)
+	}
+	persistedRuntimeFailure, err := repository.GetInvocationRuntimeAttempt(
+		ctx,
+		domainID,
+		runtimeFailedInvocation.OperationID,
+	)
+	if err != nil ||
+		persistedRuntimeFailure.Status != "failed" ||
+		persistedRuntimeFailure.Result["code"] != "RUNTIME_TURN_FAILED" {
+		t.Fatalf("read failed invocation runtime attempt = (%#v, %v)", persistedRuntimeFailure, err)
+	}
+	if err := repository.RecordEffect(
+		ctx,
+		runtimeFailedEffect,
+		"failed",
+		nil,
+		"EXTERNAL_EFFECT_TERMINAL_FAILURE",
+	); err != nil {
+		t.Fatalf("record terminal runtime effect: %v", err)
+	}
+	if err := repository.Fail(
+		ctx,
+		*runtimeFailedClaim,
+		persistence.OperationFailureRuntime,
+	); err != nil {
+		t.Fatalf("terminate runtime-failed invocation: %v", err)
+	}
+	failedInvocation, err := repository.GetInvocation(ctx, domainID, runtimeFailedInvocationID)
+	if err != nil || failedInvocation.State != "failed" {
+		t.Fatalf("runtime-failed invocation state = (%q, %v)", failedInvocation.State, err)
+	}
+
 	rejectedInvocationID := identity.New("inv")
 	rejectedAccepted, err := repository.AcceptInvocation(ctx, testIdempotency(domainID, "invoke-rejected"), persistence.AcceptInvocationInput{
 		ID: rejectedInvocationID, ServiceID: serviceID, Alias: "stable", Input: map[string]any{"message": "reject"},
