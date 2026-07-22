@@ -70,6 +70,7 @@ func (repository *Repository) ClaimNext(
 			       isolation_domain_id, id, due_at, updated_at
 			FROM %s
 			WHERE observed_state <> ALL($1)
+			  AND (command <> 'repair' OR (effect_actor_id IS NOT NULL AND effect_correlation_id IS NOT NULL))
 			  AND due_at <= $2
 			  AND (lease_expires_at IS NULL OR lease_expires_at <= $2)
 			ORDER BY isolation_domain_id, due_at, updated_at, id
@@ -93,7 +94,8 @@ func (repository *Repository) ClaimNext(
 			          operation.command, operation.observed_state, operation.state_machine_version,
 			          operation.attempt,
 			          operation.lease_token, operation.deadline_at,
-			          operation.correlation_id, operation.actor_id
+			          COALESCE(operation.effect_correlation_id, operation.correlation_id),
+			          COALESCE(operation.effect_actor_id, operation.actor_id)
 		)
 		SELECT * FROM claimed
 	`, table, table, resourceColumn)
@@ -381,8 +383,8 @@ func (repository *Repository) RecordEffect(
 	return nil
 }
 
-// RepairOperation requeues only a failed operation. The deduplication ID makes
-// an operator retry repeatable, while actor and reason remain in the audit trail.
+// RepairOperation requeues only a failed operation. The original request actor
+// remains immutable while the repair actor becomes the principal for later effects.
 func (repository *Repository) RepairOperation(
 	ctx context.Context,
 	kind string,
@@ -410,22 +412,23 @@ func (repository *Repository) RepairOperation(
 	result, err := tx.Exec(ctx, `
 		INSERT INTO inbox_records (
 			isolation_domain_id, source_kind, deduplication_id,
-			payload_digest, processed_at, created_at
-		) VALUES ($1, 'command', $2, $3, $4, $4)
+			payload_digest, actor_id, processed_at, created_at
+		) VALUES ($1, 'command', $2, $3, $4, $5, $5)
 		ON CONFLICT DO NOTHING
-	`, isolationDomainID, deduplicationID, digest[:], now)
+	`, isolationDomainID, deduplicationID, digest[:], actorID, now)
 	if err != nil {
 		return fmt.Errorf("deduplicate repair: %w", err)
 	}
 	if result.RowsAffected() == 0 {
 		var existingDigest []byte
+		var existingActorID *string
 		if err := tx.QueryRow(ctx, `
-			SELECT payload_digest FROM inbox_records
+			SELECT payload_digest, actor_id FROM inbox_records
 			WHERE isolation_domain_id = $1 AND source_kind = 'command' AND deduplication_id = $2
-		`, isolationDomainID, deduplicationID).Scan(&existingDigest); err != nil {
+		`, isolationDomainID, deduplicationID).Scan(&existingDigest, &existingActorID); err != nil {
 			return fmt.Errorf("read repair replay: %w", err)
 		}
-		if !bytes.Equal(existingDigest, digest[:]) {
+		if !bytes.Equal(existingDigest, digest[:]) || existingActorID == nil || *existingActorID != actorID {
 			return &DomainError{Code: "IDEMPOTENCY_KEY_REUSED", Message: "Repair deduplication ID was reused with different content."}
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -437,12 +440,13 @@ func (repository *Repository) RepairOperation(
 		UPDATE %s
 		SET command = 'repair', observed_state = 'queued',
 		    generation = generation + 1, due_at = $3, deadline_at = $4,
+		    effect_actor_id = $5, effect_correlation_id = $6,
 		    error_classification = NULL, error = NULL, terminal_result = NULL,
 		    lease_owner = NULL, lease_expires_at = NULL,
 		    last_transition_at = $3, updated_at = $3
 		WHERE isolation_domain_id = $1 AND id = $2 AND observed_state = 'failed'
 	`, table)
-	result, err = tx.Exec(ctx, query, isolationDomainID, operationID, now, newDeadline)
+	result, err = tx.Exec(ctx, query, isolationDomainID, operationID, now, newDeadline, actorID, deduplicationID)
 	if err != nil {
 		return fmt.Errorf("requeue failed operation: %w", err)
 	}

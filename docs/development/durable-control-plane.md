@@ -54,7 +54,7 @@ DATAGROUND_DATABASE_URL="$DATABASE_URL" go run ./cmd/dataground-repair \
   -deadline 30m
 ```
 
-The new deadline is required because the failed operation's original deadline may already have expired. A repaired invocation does not enter the optional governed admission driver yet: the current repair schema preserves the original operation actor, so admission fails closed until repair records the actual repair principal for consequential-effect reauthorization. The command is repeatable: its deduplication record, operation transition, outbox event, and audit record commit atomically. Reusing the deduplication ID with different content, including a different deadline, is rejected. The reason contributes to the immutable command digest; the audit record carries the actor, operation, outcome, and deduplication correlation without copying free text into telemetry. It does not repair cancelled or successful operations. Until platform authentication exists, access to this executable and its database credential is the authorization boundary; do not expose it through the public API.
+The new deadline is required because the failed operation's original deadline may already have expired. Repair preserves the original request actor and correlation while recording the authenticated repair actor and deduplication correlation as the principal for subsequent effect authorization, transition audit, and invocation admission. The command is repeatable: its actor-bound deduplication record, operation transition, outbox event, and audit record commit atomically. Reusing the deduplication ID with different content, a different actor, or a different deadline is rejected. The reason contributes to the immutable command digest; the audit record carries the actor, operation, outcome, and deduplication correlation without copying free text into telemetry. It does not repair cancelled or successful operations. Until platform authentication exists, access to this executable and its database credential is the authorization boundary; do not expose it through the public API.
 
 ## Safe telemetry
 
@@ -62,7 +62,7 @@ Reconciler spans contain operation kind, stable operation ID, isolation-domain I
 
 ## Known limits
 
-- Public durable mode still uses the deterministic reference driver. The governed invocation start-effect driver is available for explicit composition, but no default worker configures an authorizer, object transport, gateway, or private policy workspace, and repaired invocations remain excluded until their actor semantics are explicit.
+- Public durable mode still uses the deterministic reference driver. The governed invocation start-effect driver is available for explicit composition, including version 2 repairs with a persisted repair principal, but no default worker configures an authorizer, object transport, gateway, or private policy workspace.
 - Outbox rows are written atomically but external webhook delivery is a later bounded state machine.
 - Authentication, Cedar authorization, provider credential brokering, object storage, and artifact content delivery are not implemented.
 - The exact-schema startup rule means rolling mixed-version upgrades are intentionally unavailable until an expand/contract migration is tested.
