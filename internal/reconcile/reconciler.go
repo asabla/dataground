@@ -17,11 +17,16 @@ import (
 
 const defaultLeaseDuration = 30 * time.Second
 
-var ErrAmbiguousEffect = errors.New("external effect acknowledgement is ambiguous")
+var (
+	ErrAmbiguousEffect = errors.New("external effect acknowledgement is ambiguous")
+	ErrEffectDenied    = errors.New("external effect was denied")
+	ErrEffectInvalid   = errors.New("external effect request is invalid")
+)
 
 type Store interface {
 	ClaimNext(context.Context, string, string, time.Duration) (*persistence.OperationClaim, error)
 	Advance(context.Context, persistence.OperationClaim, string, map[string]any) error
+	Fail(context.Context, persistence.OperationClaim, persistence.OperationFailureReason) error
 	ScheduleRetry(context.Context, persistence.OperationClaim, string, string, time.Time) error
 	PrepareEffect(context.Context, persistence.OperationClaim, string, [32]byte) (persistence.EffectRecord, error)
 	RecordEffect(context.Context, persistence.EffectRecord, string, map[string]any, string) error
@@ -71,7 +76,7 @@ func (reconciler *Reconciler) RunOne(ctx context.Context, kind string) (bool, er
 		attribute.Int("dataground.operation.attempt", claim.Attempt),
 	)
 	if !claim.DeadlineAt.After(reconciler.now()) {
-		err = reconciler.store.Advance(ctx, *claim, "failed", nil)
+		err = reconciler.store.Fail(ctx, *claim, persistence.OperationFailureDeadline)
 	} else {
 		err = reconciler.advance(ctx, *claim)
 	}
@@ -205,11 +210,17 @@ func (reconciler *Reconciler) applyEffect(
 	}
 	result, observed, err := reconciler.driver.Observe(ctx, effect)
 	if err != nil {
+		if rejected, rejectionErr := reconciler.rejectEffect(ctx, claim, effect, err); rejected {
+			return rejectionErr
+		}
 		return reconciler.retry(ctx, claim, err)
 	}
 	if !observed {
 		result, err = reconciler.driver.Apply(ctx, effect)
 		if err != nil {
+			if rejected, rejectionErr := reconciler.rejectEffect(ctx, claim, effect, err); rejected {
+				return rejectionErr
+			}
 			status := "failed"
 			if errors.Is(err, ErrAmbiguousEffect) {
 				status = "unknown"
@@ -268,6 +279,33 @@ func (reconciler *Reconciler) observeEffect(
 		return nil, false, err
 	}
 	return result, true, nil
+}
+
+func (reconciler *Reconciler) rejectEffect(
+	ctx context.Context,
+	claim persistence.OperationClaim,
+	effect persistence.EffectRecord,
+	cause error,
+) (bool, error) {
+	reason, code, rejected := effectRejection(cause)
+	if !rejected {
+		return false, nil
+	}
+	if err := reconciler.store.RecordEffect(ctx, effect, "failed", nil, code); err != nil {
+		return true, errors.Join(cause, err)
+	}
+	return true, reconciler.store.Fail(ctx, claim, reason)
+}
+
+func effectRejection(cause error) (persistence.OperationFailureReason, string, bool) {
+	switch {
+	case errors.Is(cause, ErrEffectDenied):
+		return persistence.OperationFailureEffectDenied, "EXTERNAL_EFFECT_DENIED", true
+	case errors.Is(cause, ErrEffectInvalid):
+		return persistence.OperationFailureEffectInvalid, "EXTERNAL_EFFECT_INVALID", true
+	default:
+		return "", "", false
+	}
 }
 
 func (reconciler *Reconciler) retry(ctx context.Context, claim persistence.OperationClaim, cause error) error {
