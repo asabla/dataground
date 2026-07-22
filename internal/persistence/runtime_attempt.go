@@ -247,7 +247,11 @@ func validInvocationRuntimeAttempt(claim OperationClaim, effect EffectRecord) bo
 		effect.OperationID == claim.ID &&
 		effect.Phase == "run-invocation" &&
 		effect.EffectID == expectedEffectID &&
-		effect.Status == "prepared"
+		invocationRuntimeEffectMayStartAttempt(effect.Status)
+}
+
+func invocationRuntimeEffectMayStartAttempt(status string) bool {
+	return status == "prepared" || status == "failed" || status == "unknown"
 }
 
 func verifyInvocationRuntimeEffect(
@@ -266,7 +270,8 @@ func verifyInvocationRuntimeEffect(
 		persisted.OperationID != effect.OperationID ||
 		persisted.Phase != effect.Phase ||
 		persisted.RequestDigest != effect.RequestDigest ||
-		persisted.Status != "prepared" {
+		persisted.Status != effect.Status ||
+		!invocationRuntimeEffectMayStartAttempt(persisted.Status) {
 		return ErrInvocationRuntimeAttemptConflict
 	}
 	return nil
