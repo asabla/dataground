@@ -221,6 +221,17 @@ func TestDurableExecutionPlacementAndProviderRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create durable execution: %v", err)
 	}
+	byOperation, err := executionpostgres.New(pool).GetExecutionByOperation(
+		ctx,
+		domainID,
+		firstOperation,
+	)
+	if err != nil || byOperation != created {
+		t.Fatalf("restore execution by operation: %#v, %v", byOperation, err)
+	}
+	if _, err := store.GetExecutionByOperation(ctx, identity.New("iso"), firstOperation); !errors.Is(err, execution.ErrExecutionMissing) {
+		t.Fatalf("cross-domain operation lookup = %v, want ErrExecutionMissing", err)
+	}
 	ref := execution.ExecutionRef{IsolationDomainID: domainID, ID: created.ID}
 	restartedRunner := &executionRunner{}
 	restartedProvider := openshell.New(openshell.Config{ExpectedVersion: "0.0.86", StateStore: executionpostgres.New(pool)}, restartedRunner)

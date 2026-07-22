@@ -6,7 +6,7 @@ The initial durable slice owns two explicit finite state machines: service publi
 
 There is no generic workflow table or user-authored workflow language. The worker's polling ticker is only a wake-up mechanism; `due_at` remains the durable timer. Every claimed operation is selected fairly from the oldest due operation per isolation domain. A transition can commit only while the worker still owns the matching lease owner and fencing token.
 
-The reference runtime stores provider-side receipts in `reference_runtime_receipts`. This simulates the idempotency and observation boundary that a production adapter must provide. Separately, the OpenShell adapter can persist protected gateway, placement, sandbox-routing, and observed-state records through its PostgreSQL state store. That state store is an internal provider boundary and is not yet connected to the public resource state machines or a real harness certification.
+The reference runtime stores provider-side receipts in `reference_runtime_receipts`. Invocation state-machine version 2 records a distinct `start-invocation` effect before the `run-invocation` effect, so successful sandbox admission cannot be mistaken for completed runtime work. Existing version 1 operations retain their original single-effect reconciliation and can finish without reinterpretation; only newly accepted invocations use version 2. An optional version 2 start-effect driver resolves the invocation's persisted service, revision, principal and correlation scope, requires explicit consequential-effect authorization, observes an existing execution by isolation domain and operation, and only then calls the internal admission boundary. The default worker routes both phases to the deterministic reference driver. Separately, the OpenShell adapter can persist protected gateway, placement, sandbox-routing, and observed-state records through its PostgreSQL state store; it is not a configured public execution path or a real harness certification.
 
 ## Migration policy
 
@@ -54,7 +54,7 @@ DATAGROUND_DATABASE_URL="$DATABASE_URL" go run ./cmd/dataground-repair \
   -deadline 30m
 ```
 
-The new deadline is required because the failed operation's original deadline may already have expired. The command is repeatable: its deduplication record, operation transition, outbox event, and audit record commit atomically. Reusing the deduplication ID with different content, including a different deadline, is rejected. The reason contributes to the immutable command digest; the audit record carries the actor, operation, outcome, and deduplication correlation without copying free text into telemetry. It does not repair cancelled or successful operations. Until platform authentication exists, access to this executable and its database credential is the authorization boundary; do not expose it through the public API.
+The new deadline is required because the failed operation's original deadline may already have expired. A repaired invocation does not enter the optional governed admission driver yet: the current repair schema preserves the original operation actor, so admission fails closed until repair records the actual repair principal for consequential-effect reauthorization. The command is repeatable: its deduplication record, operation transition, outbox event, and audit record commit atomically. Reusing the deduplication ID with different content, including a different deadline, is rejected. The reason contributes to the immutable command digest; the audit record carries the actor, operation, outcome, and deduplication correlation without copying free text into telemetry. It does not repair cancelled or successful operations. Until platform authentication exists, access to this executable and its database credential is the authorization boundary; do not expose it through the public API.
 
 ## Safe telemetry
 
@@ -62,7 +62,7 @@ Reconciler spans contain operation kind, stable operation ID, isolation-domain I
 
 ## Known limits
 
-- Public durable mode still uses the deterministic reference driver; the OpenShell PostgreSQL state store is tested internally but is not an admitted public execution path or a real-harness certification.
+- Public durable mode still uses the deterministic reference driver. The governed invocation start-effect driver is available for explicit composition, but no default worker configures an authorizer, object transport, gateway, or private policy workspace, and repaired invocations remain excluded until their actor semantics are explicit.
 - Outbox rows are written atomically but external webhook delivery is a later bounded state machine.
 - Authentication, Cedar authorization, provider credential brokering, object storage, and artifact content delivery are not implemented.
 - The exact-schema startup rule means rolling mixed-version upgrades are intentionally unavailable until an expand/contract migration is tested.

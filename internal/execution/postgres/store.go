@@ -343,6 +343,31 @@ func (store *Store) GetExecution(ctx context.Context, ref execution.ExecutionRef
 	return record, nil
 }
 
+func (store *Store) GetExecutionByOperation(
+	ctx context.Context,
+	isolationDomainID string,
+	operationID string,
+) (execution.Execution, error) {
+	var value execution.Execution
+	err := store.pool.QueryRow(ctx, `
+		SELECT isolation_domain_id, id, gateway_id, observed_state
+		FROM execution_instances
+		WHERE isolation_domain_id = $1 AND operation_id = $2
+	`, isolationDomainID, operationID).Scan(
+		&value.IsolationDomainID,
+		&value.ID,
+		&value.GatewayID,
+		&value.State,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return execution.Execution{}, execution.ErrExecutionMissing
+	}
+	if err != nil {
+		return execution.Execution{}, fmt.Errorf("read execution by operation: %w", ErrPersistence)
+	}
+	return value, nil
+}
+
 func getExecution(
 	ctx context.Context,
 	querier interface {

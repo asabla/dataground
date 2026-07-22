@@ -109,6 +109,23 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 	if err := json.Unmarshal(accepted.Body, &invocation); err != nil {
 		t.Fatal(err)
 	}
+	admissionTarget, err := repository.GetInvocationAdmissionTarget(ctx, domainID, invocation.OperationID)
+	if err != nil {
+		t.Fatalf("resolve invocation admission target: %v", err)
+	}
+	if admissionTarget.IsolationDomainID != domainID ||
+		admissionTarget.OperationID != invocation.OperationID ||
+		admissionTarget.InvocationID != invocationID ||
+		admissionTarget.ServiceID != serviceID ||
+		admissionTarget.RevisionID != revisionID ||
+		admissionTarget.ActorID != actorID ||
+		admissionTarget.CorrelationID != invocation.CorrelationID ||
+		admissionTarget.StateMachineVersion != 2 {
+		t.Fatalf("invocation admission target = %#v", admissionTarget)
+	}
+	if _, err := repository.GetInvocationAdmissionTarget(ctx, identity.New("iso"), invocation.OperationID); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("cross-domain admission target lookup = %v, want no rows", err)
+	}
 	runToTerminal(t, ctx, worker, repository, domainID, invocation.OperationID, "succeeded")
 	observed, err := repository.GetInvocation(ctx, domainID, invocationID)
 	if err != nil || observed.State != "succeeded" {

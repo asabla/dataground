@@ -48,6 +48,13 @@ func TestMemoryStateStoreScopesIdempotencyAndRejectsTerminalRegression(t *testin
 	}); err != nil {
 		t.Fatal(err)
 	}
+	byOperation, err := store.GetExecutionByOperation(ctx, domainID, operationID)
+	if err != nil || byOperation.ID != executionID || byOperation.IsolationDomainID != domainID {
+		t.Fatalf("execution by operation = %#v, %v", byOperation, err)
+	}
+	if _, err := store.GetExecutionByOperation(ctx, identity.New("iso"), operationID); !errors.Is(err, ErrExecutionMissing) {
+		t.Fatalf("cross-domain operation lookup = %v, want ErrExecutionMissing", err)
+	}
 	if err := store.UpdateExecutionState(ctx, ref, "terminated"); err != nil {
 		t.Fatal(err)
 	}

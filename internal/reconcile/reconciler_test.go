@@ -3,6 +3,7 @@ package reconcile
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -13,20 +14,22 @@ func TestInvocationSurvivesAmbiguousEffectWithoutRepeatingApply(t *testing.T) {
 	store := newFakeStore(persistence.OperationClaim{
 		Kind: persistence.OperationKindInvocation, IsolationDomainID: "iso_test",
 		ID: "op_test", ResourceID: "inv_test", Command: "invoke", ObservedState: "queued",
-		DeadlineAt: time.Now().Add(time.Hour), CorrelationID: "corr_test", ActorID: "actor_test",
+		StateMachineVersion: 2,
+		DeadlineAt:          time.Now().Add(time.Hour), CorrelationID: "corr_test", ActorID: "actor_test",
 	})
 	driver := &fakeDriver{ambiguousOnce: true}
 	worker := New(store, driver, "worker-a")
 
 	runUntilState(t, worker, store, "succeeded")
-	if driver.applyCount != 1 {
-		t.Fatalf("external effect applied %d times, want exactly once", driver.applyCount)
+	if driver.applyCount != 2 {
+		t.Fatalf("external effects applied %d times, want each of two phases exactly once", driver.applyCount)
 	}
 	if driver.observeCount < 2 {
 		t.Fatalf("external effect observed %d times, want observation before retry", driver.observeCount)
 	}
-	if store.effect.Status != "succeeded" {
-		t.Fatalf("effect status = %q, want succeeded", store.effect.Status)
+	if store.effects["start-invocation"].Status != "succeeded" ||
+		store.effects["run-invocation"].Status != "succeeded" {
+		t.Fatalf("effect statuses = %#v, want both succeeded", store.effects)
 	}
 }
 
@@ -34,15 +37,16 @@ func TestInvocationRecoversWhenEffectReceiptPersistenceFails(t *testing.T) {
 	store := newFakeStore(persistence.OperationClaim{
 		Kind: persistence.OperationKindInvocation, IsolationDomainID: "iso_test",
 		ID: "op_test", ResourceID: "inv_test", Command: "invoke", ObservedState: "starting",
-		DeadlineAt: time.Now().Add(time.Hour), CorrelationID: "corr_test", ActorID: "actor_test",
+		StateMachineVersion: 2,
+		DeadlineAt:          time.Now().Add(time.Hour), CorrelationID: "corr_test", ActorID: "actor_test",
 	})
 	store.failRecordOnce = true
 	driver := &fakeDriver{}
 	worker := New(store, driver, "worker-a")
 
 	runUntilState(t, worker, store, "succeeded")
-	if driver.applyCount != 1 {
-		t.Fatalf("external effect applied %d times after receipt failure, want once", driver.applyCount)
+	if driver.applyCount != 2 {
+		t.Fatalf("external effects applied %d times after receipt failure, want each phase once", driver.applyCount)
 	}
 }
 
@@ -50,7 +54,8 @@ func TestInvocationRecoversWhenTransitionCommitFailsAfterEffect(t *testing.T) {
 	store := newFakeStore(persistence.OperationClaim{
 		Kind: persistence.OperationKindInvocation, IsolationDomainID: "iso_test",
 		ID: "op_test", ResourceID: "inv_test", Command: "invoke", ObservedState: "starting",
-		DeadlineAt: time.Now().Add(time.Hour), CorrelationID: "corr_test", ActorID: "actor_test",
+		StateMachineVersion: 2,
+		DeadlineAt:          time.Now().Add(time.Hour), CorrelationID: "corr_test", ActorID: "actor_test",
 	})
 	store.failAdvanceOnce = true
 	driver := &fakeDriver{}
@@ -60,8 +65,8 @@ func TestInvocationRecoversWhenTransitionCommitFailsAfterEffect(t *testing.T) {
 		t.Fatal("first transition unexpectedly succeeded")
 	}
 	runUntilState(t, worker, store, "succeeded")
-	if driver.applyCount != 1 {
-		t.Fatalf("external effect applied %d times after transition failure, want once", driver.applyCount)
+	if driver.applyCount != 2 {
+		t.Fatalf("external effects applied %d times after transition failure, want each phase once", driver.applyCount)
 	}
 }
 
@@ -69,7 +74,8 @@ func TestCancellationReachesStableTerminalStateWithoutStartingEffect(t *testing.
 	store := newFakeStore(persistence.OperationClaim{
 		Kind: persistence.OperationKindInvocation, IsolationDomainID: "iso_test",
 		ID: "op_test", ResourceID: "inv_test", Command: "cancel", ObservedState: "queued",
-		DeadlineAt: time.Now().Add(time.Hour), CorrelationID: "corr_test", ActorID: "actor_test",
+		StateMachineVersion: 2,
+		DeadlineAt:          time.Now().Add(time.Hour), CorrelationID: "corr_test", ActorID: "actor_test",
 	})
 	driver := &fakeDriver{}
 	worker := New(store, driver, "worker-a")
@@ -104,6 +110,47 @@ func TestPublicationUsesExplicitFiniteStates(t *testing.T) {
 	}
 }
 
+func TestInvocationSeparatesAdmissionFromRuntimeExecution(t *testing.T) {
+	store := newFakeStore(persistence.OperationClaim{
+		Kind: persistence.OperationKindInvocation, IsolationDomainID: "iso_test",
+		ID: "op_test", ResourceID: "inv_test", Command: "invoke", ObservedState: "queued",
+		StateMachineVersion: 2,
+		DeadlineAt:          time.Now().Add(time.Hour), CorrelationID: "corr_test", ActorID: "actor_test",
+	})
+	worker := New(store, &fakeDriver{}, "worker-a")
+
+	runUntilState(t, worker, store, "succeeded")
+	want := []string{"starting", "running", "observing", "succeeded"}
+	if len(store.transitions) != len(want) {
+		t.Fatalf("transitions = %v, want %v", store.transitions, want)
+	}
+	for index := range want {
+		if store.transitions[index] != want[index] {
+			t.Fatalf("transitions = %v, want %v", store.transitions, want)
+		}
+	}
+}
+
+func TestVersionOneInvocationCompletesThroughItsOriginalSingleEffect(t *testing.T) {
+	store := newFakeStore(persistence.OperationClaim{
+		Kind: persistence.OperationKindInvocation, IsolationDomainID: "iso_test",
+		ID: "op_test", ResourceID: "inv_test", Command: "invoke", ObservedState: "queued",
+		StateMachineVersion: 1,
+		DeadlineAt:          time.Now().Add(time.Hour), CorrelationID: "corr_test", ActorID: "actor_test",
+	})
+	driver := &fakeDriver{}
+	worker := New(store, driver, "worker-a")
+
+	runUntilState(t, worker, store, "succeeded")
+	want := []string{"starting", "observing", "succeeded"}
+	if !reflect.DeepEqual(store.transitions, want) {
+		t.Fatalf("version 1 transitions = %v, want %v", store.transitions, want)
+	}
+	if driver.applyCount != 1 || store.effects["start-invocation"].Status != "succeeded" {
+		t.Fatalf("version 1 effects = apply %d, receipts %#v", driver.applyCount, store.effects)
+	}
+}
+
 func TestStaleLeaseCannotAdvance(t *testing.T) {
 	store := newFakeStore(persistence.OperationClaim{
 		Kind: persistence.OperationKindPublication, IsolationDomainID: "iso_test",
@@ -117,6 +164,28 @@ func TestStaleLeaseCannotAdvance(t *testing.T) {
 	store.claim.FencingToken++
 	if err := store.Advance(context.Background(), *claim, "validating", nil); !errors.Is(err, persistence.ErrLeaseLost) {
 		t.Fatalf("stale advance error = %v, want ErrLeaseLost", err)
+	}
+}
+
+func TestReconcilerRejectsEffectOutsideLifecyclePhase(t *testing.T) {
+	claim := persistence.OperationClaim{
+		Kind:                persistence.OperationKindInvocation,
+		Command:             "invoke",
+		ObservedState:       "starting",
+		StateMachineVersion: 2,
+	}
+	driver := &fakeDriver{}
+	worker := New(newFakeStore(claim), driver, "worker-a")
+	if err := worker.applyEffect(
+		context.Background(),
+		claim,
+		"run-invocation",
+		"observing",
+	); err == nil {
+		t.Fatal("runtime effect was accepted before admission completed")
+	}
+	if driver.applyCount != 0 || driver.observeCount != 0 {
+		t.Fatalf("rejected effect reached driver: apply %d, observe %d", driver.applyCount, driver.observeCount)
 	}
 }
 
@@ -140,13 +209,15 @@ type fakeStore struct {
 	claim           persistence.OperationClaim
 	terminal        bool
 	leased          bool
-	effect          persistence.EffectRecord
+	effects         map[string]persistence.EffectRecord
 	transitions     []string
 	failRecordOnce  bool
 	failAdvanceOnce bool
 }
 
-func newFakeStore(claim persistence.OperationClaim) *fakeStore { return &fakeStore{claim: claim} }
+func newFakeStore(claim persistence.OperationClaim) *fakeStore {
+	return &fakeStore{claim: claim, effects: make(map[string]persistence.EffectRecord)}
+}
 
 func (store *fakeStore) ClaimNext(_ context.Context, kind, worker string, _ time.Duration) (*persistence.OperationClaim, error) {
 	if store.terminal || kind != store.claim.Kind || store.leased {
@@ -185,26 +256,29 @@ func (store *fakeStore) ScheduleRetry(_ context.Context, claim persistence.Opera
 }
 
 func (store *fakeStore) PrepareEffect(_ context.Context, claim persistence.OperationClaim, phase string, _ [32]byte) (persistence.EffectRecord, error) {
-	if store.effect.EffectID == "" {
-		store.effect = persistence.EffectRecord{
+	effect := store.effects[phase]
+	if effect.EffectID == "" {
+		effect = persistence.EffectRecord{
 			IsolationDomainID: claim.IsolationDomainID,
-			EffectID:          "eff_test",
+			EffectID:          "eff_" + phase,
 			OperationKind:     claim.Kind,
 			OperationID:       claim.ID,
 			Phase:             phase,
 			Status:            "prepared",
 		}
+		store.effects[phase] = effect
 	}
-	return store.effect, nil
+	return effect, nil
 }
 
-func (store *fakeStore) RecordEffect(_ context.Context, _ persistence.EffectRecord, status string, observation map[string]any, _ string) error {
+func (store *fakeStore) RecordEffect(_ context.Context, effect persistence.EffectRecord, status string, observation map[string]any, _ string) error {
 	if store.failRecordOnce {
 		store.failRecordOnce = false
 		return errors.New("injected effect receipt failure")
 	}
-	store.effect.Status = status
-	store.effect.Observation = observation
+	effect.Status = status
+	effect.Observation = observation
+	store.effects[effect.Phase] = effect
 	return nil
 }
 
@@ -212,20 +286,25 @@ type fakeDriver struct {
 	applyCount    int
 	observeCount  int
 	ambiguousOnce bool
-	receipt       map[string]any
+	receipts      map[string]map[string]any
 }
 
-func (driver *fakeDriver) Observe(_ context.Context, _ persistence.EffectRecord) (map[string]any, bool, error) {
+func (driver *fakeDriver) Observe(_ context.Context, effect persistence.EffectRecord) (map[string]any, bool, error) {
 	driver.observeCount++
-	return driver.receipt, driver.receipt != nil, nil
+	receipt := driver.receipts[effect.Phase]
+	return receipt, receipt != nil, nil
 }
 
 func (driver *fakeDriver) Apply(_ context.Context, effect persistence.EffectRecord) (map[string]any, error) {
 	driver.applyCount++
-	driver.receipt = map[string]any{"effectId": effect.EffectID, "status": "succeeded"}
+	if driver.receipts == nil {
+		driver.receipts = make(map[string]map[string]any)
+	}
+	receipt := map[string]any{"effectId": effect.EffectID, "status": "succeeded"}
+	driver.receipts[effect.Phase] = receipt
 	if driver.ambiguousOnce {
 		driver.ambiguousOnce = false
 		return nil, ErrAmbiguousEffect
 	}
-	return driver.receipt, nil
+	return receipt, nil
 }

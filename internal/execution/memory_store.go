@@ -201,6 +201,21 @@ func (store *MemoryStateStore) GetExecution(_ context.Context, ref ExecutionRef)
 	return record, nil
 }
 
+func (store *MemoryStateStore) GetExecutionByOperation(
+	_ context.Context,
+	isolationDomainID string,
+	operationID string,
+) (Execution, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	for _, record := range store.executions {
+		if record.Execution.IsolationDomainID == isolationDomainID && record.OperationID == operationID {
+			return record.Execution, nil
+		}
+	}
+	return Execution{}, ErrExecutionMissing
+}
+
 func (store *MemoryStateStore) UpdateExecutionState(_ context.Context, ref ExecutionRef, state string) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
