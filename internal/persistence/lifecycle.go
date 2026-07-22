@@ -23,6 +23,14 @@ const (
 
 var ErrLeaseLost = errors.New("operation lease was lost or fenced")
 
+type OperationFailureReason string
+
+const (
+	OperationFailureDeadline      OperationFailureReason = "deadline-exceeded"
+	OperationFailureEffectDenied  OperationFailureReason = "effect-denied"
+	OperationFailureEffectInvalid OperationFailureReason = "effect-invalid"
+)
+
 type OperationClaim struct {
 	Kind                string
 	IsolationDomainID   string
@@ -132,8 +140,38 @@ func (repository *Repository) Advance(
 	nextState string,
 	terminalResult map[string]any,
 ) error {
+	if nextState == "failed" {
+		return repository.Fail(ctx, claim, OperationFailureDeadline)
+	}
+	return repository.advance(ctx, claim, nextState, terminalResult, nil)
+}
+
+// Fail terminates a leased operation with one of the bounded, safe failure
+// reasons understood by the durable control plane.
+func (repository *Repository) Fail(
+	ctx context.Context,
+	claim OperationClaim,
+	reason OperationFailureReason,
+) error {
+	failure, err := operationFailure(reason, claim.CorrelationID)
+	if err != nil {
+		return err
+	}
+	return repository.advance(ctx, claim, "failed", nil, &failure)
+}
+
+func (repository *Repository) advance(
+	ctx context.Context,
+	claim OperationClaim,
+	nextState string,
+	terminalResult map[string]any,
+	failure *domain.APIError,
+) error {
 	if err := validateTransition(claim.Kind, claim.ObservedState, nextState); err != nil {
 		return err
+	}
+	if (nextState == "failed") != (failure != nil) {
+		return errors.New("failed transitions require exactly one bounded failure reason")
 	}
 	table, _, _, err := operationTable(claim.Kind)
 	if err != nil {
@@ -145,11 +183,8 @@ func (repository *Repository) Advance(
 		return fmt.Errorf("encode terminal result: %w", err)
 	}
 	var encodedError []byte
-	if nextState == "failed" {
-		encodedError, err = json.Marshal(domain.APIError{
-			Code: "OPERATION_DEADLINE_EXCEEDED", Message: "The durable operation deadline was exceeded.",
-			CorrelationID: claim.CorrelationID, Retryable: false,
-		})
+	if failure != nil {
+		encodedError, err = json.Marshal(failure)
 		if err != nil {
 			return fmt.Errorf("encode terminal error: %w", err)
 		}
@@ -205,6 +240,26 @@ func (repository *Repository) Advance(
 		return fmt.Errorf("commit operation transition: %w", err)
 	}
 	return nil
+}
+
+func operationFailure(reason OperationFailureReason, correlationID string) (domain.APIError, error) {
+	var code, message string
+	switch reason {
+	case OperationFailureDeadline:
+		code = "OPERATION_DEADLINE_EXCEEDED"
+		message = "The durable operation deadline was exceeded."
+	case OperationFailureEffectDenied:
+		code = "OPERATION_EFFECT_DENIED"
+		message = "The operation was denied before its external effect could be applied."
+	case OperationFailureEffectInvalid:
+		code = "OPERATION_EFFECT_INVALID"
+		message = "The operation could not safely apply its external effect."
+	default:
+		return domain.APIError{}, fmt.Errorf("operation failure reason %q is invalid", reason)
+	}
+	return domain.APIError{
+		Code: code, Message: message, CorrelationID: correlationID, Retryable: false,
+	}, nil
 }
 
 // ScheduleRetry releases a valid lease and persists the next durable due time.
