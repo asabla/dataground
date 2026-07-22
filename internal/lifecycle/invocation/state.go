@@ -2,7 +2,7 @@ package invocation
 
 import "fmt"
 
-const StateMachineVersion = 1
+const StateMachineVersion = 2
 
 type State string
 
@@ -101,5 +101,9 @@ func AllowsEffect(command Command, state State, phase string) bool {
 	if command == CommandCancel || state == StateCancelling {
 		return phase == "cancel-invocation"
 	}
-	return (command == CommandInvoke || command == CommandRepair) && state == StateStarting && phase == "start-invocation"
+	if command != CommandInvoke && command != CommandRepair {
+		return false
+	}
+	return state == StateStarting && phase == "start-invocation" ||
+		state == StateRunning && phase == "run-invocation"
 }

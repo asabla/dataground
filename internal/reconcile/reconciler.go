@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/asabla/dataground/internal/lifecycle/invocation"
+	"github.com/asabla/dataground/internal/lifecycle/publication"
 	"github.com/asabla/dataground/internal/persistence"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -124,6 +126,20 @@ func (reconciler *Reconciler) advanceInvocation(ctx context.Context, claim persi
 		}
 		return reconciler.store.Advance(ctx, claim, "cancelled", nil)
 	}
+	switch claim.StateMachineVersion {
+	case 1:
+		return reconciler.advanceInvocationV1(ctx, claim)
+	case invocation.StateMachineVersion:
+		return reconciler.advanceInvocationV2(ctx, claim)
+	default:
+		return fmt.Errorf("invocation state machine version %d is unsupported", claim.StateMachineVersion)
+	}
+}
+
+func (reconciler *Reconciler) advanceInvocationV1(
+	ctx context.Context,
+	claim persistence.OperationClaim,
+) error {
 	switch claim.ObservedState {
 	case "queued":
 		return reconciler.store.Advance(ctx, claim, "starting", nil)
@@ -139,7 +155,32 @@ func (reconciler *Reconciler) advanceInvocation(ctx context.Context, claim persi
 		}
 		return reconciler.store.Advance(ctx, claim, "succeeded", result)
 	default:
-		return fmt.Errorf("invocation state %q is not reconcilable", claim.ObservedState)
+		return fmt.Errorf("version 1 invocation state %q is not reconcilable", claim.ObservedState)
+	}
+}
+
+func (reconciler *Reconciler) advanceInvocationV2(
+	ctx context.Context,
+	claim persistence.OperationClaim,
+) error {
+	switch claim.ObservedState {
+	case "queued":
+		return reconciler.store.Advance(ctx, claim, "starting", nil)
+	case "starting":
+		return reconciler.applyEffect(ctx, claim, "start-invocation", "running")
+	case "running":
+		return reconciler.applyEffect(ctx, claim, "run-invocation", "observing")
+	case "observing":
+		result, ready, err := reconciler.observeEffect(ctx, claim, "run-invocation")
+		if err != nil {
+			return reconciler.retry(ctx, claim, err)
+		}
+		if !ready {
+			return reconciler.retry(ctx, claim, ErrAmbiguousEffect)
+		}
+		return reconciler.store.Advance(ctx, claim, "succeeded", result)
+	default:
+		return fmt.Errorf("version 2 invocation state %q is not reconcilable", claim.ObservedState)
 	}
 }
 
@@ -149,6 +190,14 @@ func (reconciler *Reconciler) applyEffect(
 	phase string,
 	nextState string,
 ) error {
+	if !effectAllowed(claim, phase) {
+		return fmt.Errorf(
+			"operation %q in state %q does not allow effect %q",
+			claim.Kind,
+			claim.ObservedState,
+			phase,
+		)
+	}
 	digest := sha256.Sum256([]byte(claim.IsolationDomainID + ":" + claim.ID + ":" + phase))
 	effect, err := reconciler.store.PrepareEffect(ctx, claim, phase, digest)
 	if err != nil {
@@ -177,6 +226,25 @@ func (reconciler *Reconciler) applyEffect(
 		return reconciler.retry(ctx, claim, ErrAmbiguousEffect)
 	}
 	return reconciler.store.Advance(ctx, claim, nextState, nil)
+}
+
+func effectAllowed(claim persistence.OperationClaim, phase string) bool {
+	switch claim.Kind {
+	case persistence.OperationKindPublication:
+		return publication.AllowsEffect(
+			publication.Command(claim.Command),
+			publication.State(claim.ObservedState),
+			phase,
+		)
+	case persistence.OperationKindInvocation:
+		return invocation.AllowsEffect(
+			invocation.Command(claim.Command),
+			invocation.State(claim.ObservedState),
+			phase,
+		)
+	default:
+		return false
+	}
 }
 
 func (reconciler *Reconciler) observeEffect(

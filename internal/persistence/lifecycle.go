@@ -24,18 +24,19 @@ const (
 var ErrLeaseLost = errors.New("operation lease was lost or fenced")
 
 type OperationClaim struct {
-	Kind              string
-	IsolationDomainID string
-	ID                string
-	ResourceID        string
-	Command           string
-	ObservedState     string
-	Attempt           int
-	LeaseOwner        string
-	FencingToken      int64
-	DeadlineAt        time.Time
-	CorrelationID     string
-	ActorID           string
+	Kind                string
+	IsolationDomainID   string
+	ID                  string
+	ResourceID          string
+	Command             string
+	ObservedState       string
+	StateMachineVersion int
+	Attempt             int
+	LeaseOwner          string
+	FencingToken        int64
+	DeadlineAt          time.Time
+	CorrelationID       string
+	ActorID             string
 }
 
 type EffectRecord struct {
@@ -89,7 +90,8 @@ func (repository *Repository) ClaimNext(
 			  AND operation.id = candidate.id
 			  AND (operation.lease_expires_at IS NULL OR operation.lease_expires_at <= $2)
 			RETURNING operation.isolation_domain_id, operation.id, operation.%s,
-			          operation.command, operation.observed_state, operation.attempt,
+			          operation.command, operation.observed_state, operation.state_machine_version,
+			          operation.attempt,
 			          operation.lease_token, operation.deadline_at,
 			          operation.correlation_id, operation.actor_id
 		)
@@ -104,6 +106,7 @@ func (repository *Repository) ClaimNext(
 		&claim.ResourceID,
 		&claim.Command,
 		&claim.ObservedState,
+		&claim.StateMachineVersion,
 		&claim.Attempt,
 		&claim.FencingToken,
 		&claim.DeadlineAt,

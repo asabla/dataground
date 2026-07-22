@@ -8,6 +8,9 @@ import (
 
 func TestInvocationTransitions(t *testing.T) {
 	t.Parallel()
+	if invocation.StateMachineVersion != 2 {
+		t.Fatalf("state machine version = %d, want 2", invocation.StateMachineVersion)
+	}
 
 	valid := [][2]invocation.State{
 		{invocation.StateQueued, invocation.StateStarting},
@@ -33,6 +36,21 @@ func TestInvocationTransitions(t *testing.T) {
 		if err := invocation.ValidateTransition(transition[0], transition[1]); err == nil {
 			t.Errorf("expected transition %q -> %q to fail", transition[0], transition[1])
 		}
+	}
+}
+
+func TestInvocationEffectsRemainBoundToTheirLifecyclePhase(t *testing.T) {
+	t.Parallel()
+
+	if !invocation.AllowsEffect(invocation.CommandInvoke, invocation.StateStarting, "start-invocation") {
+		t.Fatal("admission effect should be allowed while starting")
+	}
+	if !invocation.AllowsEffect(invocation.CommandInvoke, invocation.StateRunning, "run-invocation") {
+		t.Fatal("runtime effect should be allowed while running")
+	}
+	if invocation.AllowsEffect(invocation.CommandInvoke, invocation.StateStarting, "run-invocation") ||
+		invocation.AllowsEffect(invocation.CommandInvoke, invocation.StateRunning, "start-invocation") {
+		t.Fatal("invocation effect phases must not cross lifecycle states")
 	}
 }
 
