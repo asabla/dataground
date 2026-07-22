@@ -192,6 +192,13 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 	); !errors.Is(err, persistence.ErrLeaseLost) {
 		t.Fatalf("stale runtime target claim = %v, want a lost lease", err)
 	}
+	if _, err := repository.RenewLease(
+		ctx,
+		staleRuntimeClaim,
+		time.Second,
+	); !errors.Is(err, persistence.ErrLeaseLost) {
+		t.Fatalf("stale runtime lease renewal = %v, want a lost lease", err)
+	}
 	foreignRuntimeClaim := renewedRuntimeClaim
 	foreignRuntimeClaim.IsolationDomainID = identity.New("iso")
 	if _, err := repository.GetClaimedInvocationRuntimeTarget(
