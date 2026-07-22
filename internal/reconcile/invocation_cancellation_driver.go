@@ -10,8 +10,8 @@ import (
 )
 
 var (
-	ErrInvocationCancellationDenied          = errors.New("invocation cancellation denied")
-	ErrInvocationCancellationTargetMismatch  = errors.New("invocation cancellation target does not match durable effect")
+	ErrInvocationCancellationDenied           = errors.New("invocation cancellation denied")
+	ErrInvocationCancellationTargetMismatch   = errors.New("invocation cancellation target does not match durable effect")
 	ErrInvocationCancellationExecutionUnknown = errors.New("invocation cancellation cannot prove execution absence")
 )
 
