@@ -83,3 +83,4 @@ func cloneCodexInvocationOutputSchema(value map[string]any) (map[string]any, err
 }
 
 var _ InvocationRuntimeRequestBuilder = CodexInvocationRuntimeRequestBuilder{}
+
