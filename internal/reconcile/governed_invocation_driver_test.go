@@ -83,6 +83,7 @@ func TestGovernedInvocationDriverRejectsIncompleteComposition(t *testing.T) {
 	admission := &InvocationAdmissionDriver{}
 	runtime := &InvocationRuntimeDriver{}
 	cancellation := &InvocationCancellationDriver{}
+	var typedNilFallback *compositionFallbackDriver
 	tests := []struct {
 		name         string
 		fallback     EffectDriver
@@ -92,6 +93,13 @@ func TestGovernedInvocationDriverRejectsIncompleteComposition(t *testing.T) {
 	}{
 		{
 			name:         "fallback",
+			admission:    admission,
+			runtime:      runtime,
+			cancellation: cancellation,
+		},
+		{
+			name:         "typed nil fallback",
+			fallback:     typedNilFallback,
 			admission:    admission,
 			runtime:      runtime,
 			cancellation: cancellation,
