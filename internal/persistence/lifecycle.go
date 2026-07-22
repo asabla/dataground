@@ -43,6 +43,7 @@ type OperationClaim struct {
 	LeaseOwner          string
 	FencingToken        int64
 	DeadlineAt          time.Time
+	LeaseExpiresAt      time.Time
 	CorrelationID       string
 	ActorID             string
 }
@@ -91,7 +92,10 @@ func (repository *Repository) ClaimNext(
 			UPDATE %s AS operation
 			SET lease_owner = $3,
 			    lease_token = operation.lease_token + 1,
-			    lease_expires_at = $4,
+			    lease_expires_at = CASE
+			      WHEN operation.deadline_at > $2 THEN LEAST($4, operation.deadline_at)
+			      ELSE $4
+			    END,
 			    attempt = operation.attempt + 1,
 			    updated_at = $2
 			FROM candidate
@@ -101,7 +105,7 @@ func (repository *Repository) ClaimNext(
 			RETURNING operation.isolation_domain_id, operation.id, operation.%s,
 			          operation.command, operation.observed_state, operation.state_machine_version,
 			          operation.attempt,
-			          operation.lease_token, operation.deadline_at,
+			          operation.lease_token, operation.lease_expires_at, operation.deadline_at,
 			          COALESCE(operation.effect_correlation_id, operation.correlation_id),
 			          COALESCE(operation.effect_actor_id, operation.actor_id)
 		)
@@ -119,6 +123,7 @@ func (repository *Repository) ClaimNext(
 		&claim.StateMachineVersion,
 		&claim.Attempt,
 		&claim.FencingToken,
+		&claim.LeaseExpiresAt,
 		&claim.DeadlineAt,
 		&claim.CorrelationID,
 		&claim.ActorID,
@@ -130,6 +135,66 @@ func (repository *Repository) ClaimNext(
 		return nil, fmt.Errorf("claim %s operation: %w", kind, err)
 	}
 	return &claim, nil
+}
+
+// RenewLease extends one active claim without changing its fencing token. The
+// lease never crosses the durable operation deadline, and an expired, replaced,
+// terminal, or otherwise changed claim cannot be revived.
+func (repository *Repository) RenewLease(
+	ctx context.Context,
+	claim OperationClaim,
+	leaseDuration time.Duration,
+) (OperationClaim, error) {
+	if claim.IsolationDomainID == "" ||
+		claim.ID == "" ||
+		claim.Command == "" ||
+		claim.ObservedState == "" ||
+		claim.LeaseOwner == "" ||
+		claim.FencingToken <= 0 ||
+		leaseDuration <= 0 {
+		return OperationClaim{}, errors.New("complete operation claim and positive lease duration are required")
+	}
+	table, _, _, err := operationTable(claim.Kind)
+	if err != nil {
+		return OperationClaim{}, err
+	}
+	now := repository.now()
+	if !claim.DeadlineAt.After(now) {
+		return OperationClaim{}, ErrLeaseLost
+	}
+	expiresAt := now.Add(leaseDuration)
+	if expiresAt.After(claim.DeadlineAt) {
+		expiresAt = claim.DeadlineAt
+	}
+	query := fmt.Sprintf(`
+		UPDATE %s
+		SET lease_expires_at = LEAST(deadline_at, GREATEST(lease_expires_at, $8)),
+		    updated_at = $7
+		WHERE isolation_domain_id = $1 AND id = $2
+		  AND command = $3 AND observed_state = $4
+		  AND lease_owner = $5 AND lease_token = $6
+		  AND lease_expires_at > $7 AND deadline_at > $7
+		RETURNING lease_expires_at
+	`, table)
+	err = repository.pool.QueryRow(
+		ctx,
+		query,
+		claim.IsolationDomainID,
+		claim.ID,
+		claim.Command,
+		claim.ObservedState,
+		claim.LeaseOwner,
+		claim.FencingToken,
+		now,
+		expiresAt,
+	).Scan(&claim.LeaseExpiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return OperationClaim{}, ErrLeaseLost
+	}
+	if err != nil {
+		return OperationClaim{}, fmt.Errorf("renew %s operation lease: %w", claim.Kind, err)
+	}
+	return claim, nil
 }
 
 // Advance performs a fenced state transition and writes its outbox and audit
