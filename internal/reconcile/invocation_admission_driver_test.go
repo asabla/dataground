@@ -205,11 +205,11 @@ func TestInvocationAdmissionDriverClassifiesAdmissionFailures(t *testing.T) {
 	}
 
 	retryable := map[string]error{
-		"missing execution plan":          execution.ErrExecutionPlanMissing,
-		"missing enforcement bundle":      execution.ErrEnforcementBundleMissing,
-		"unavailable enforcement bundle":  execution.ErrEnforcementBundleUnavailable,
-		"unavailable gateway capacity":    execution.ErrNoGateway,
-		"unavailable admission dependency":errors.New("admission dependency unavailable"),
+		"missing execution plan":           execution.ErrExecutionPlanMissing,
+		"missing enforcement bundle":       execution.ErrEnforcementBundleMissing,
+		"unavailable enforcement bundle":   execution.ErrEnforcementBundleUnavailable,
+		"unavailable gateway capacity":     execution.ErrNoGateway,
+		"unavailable admission dependency": errors.New("admission dependency unavailable"),
 	}
 	for name, cause := range retryable {
 		t.Run(name, func(t *testing.T) {
