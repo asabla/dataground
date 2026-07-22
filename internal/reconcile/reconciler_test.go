@@ -250,11 +250,6 @@ func TestReconcilerTerminatesRejectedEffectsWithoutRetry(t *testing.T) {
 			reason: persistence.OperationFailureEffectInvalid,
 			code:   "EXTERNAL_EFFECT_INVALID",
 		},
-		"terminal runtime failure": {
-			driver: &fakeDriver{applyErr: errors.Join(ErrEffectTerminal, errors.New("turn failed"))},
-			reason: persistence.OperationFailureRuntime,
-			code:   "EXTERNAL_EFFECT_TERMINAL_FAILURE",
-		},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -284,6 +279,44 @@ func TestReconcilerTerminatesRejectedEffectsWithoutRetry(t *testing.T) {
 		})
 	}
 }
+
+
+func TestReconcilerTerminatesCompletedRuntimeFailureWithoutRetry(t *testing.T) {
+	store := newFakeStore(persistence.OperationClaim{
+		Kind: persistence.OperationKindInvocation, IsolationDomainID: "iso_test",
+		ID: "op_test", ResourceID: "inv_test", Command: "invoke", ObservedState: "running",
+		StateMachineVersion: 2,
+		DeadlineAt:          time.Now().Add(time.Hour), CorrelationID: "corr_test", ActorID: "actor_test",
+	})
+	driver := &fakeDriver{
+		applyErr: errors.Join(ErrEffectTerminal, errors.New("turn failed")),
+	}
+	worker := New(store, driver, "worker-a")
+
+	ran, err := worker.RunOne(context.Background(), persistence.OperationKindInvocation)
+	if err != nil || !ran {
+		t.Fatalf("terminal runtime reconciliation = (%t, %v)", ran, err)
+	}
+	if store.claim.ObservedState != "failed" ||
+		store.failureReason != persistence.OperationFailureRuntime {
+		t.Fatalf(
+			"terminal runtime failure = state %q, reason %q",
+			store.claim.ObservedState,
+			store.failureReason,
+		)
+	}
+	if store.retryCount != 0 ||
+		store.effects["run-invocation"].Status != "failed" ||
+		store.effectCodes["run-invocation"] != "EXTERNAL_EFFECT_TERMINAL_FAILURE" {
+		t.Fatalf(
+			"terminal runtime persistence = retries %d, effect %#v, code %q",
+			store.retryCount,
+			store.effects["run-invocation"],
+			store.effectCodes["run-invocation"],
+		)
+	}
+}
+
 
 func runUntilState(t *testing.T, worker *Reconciler, store *fakeStore, terminal string) {
 	t.Helper()
