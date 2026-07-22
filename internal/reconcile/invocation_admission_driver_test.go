@@ -163,6 +163,9 @@ func TestInvocationAdmissionDriverFailsClosedBeforeProviderAdmission(t *testing.
 				!errors.Is(err, ErrEffectInvalid) {
 				t.Fatalf("invalid admission target was not classified as terminal: %v", err)
 			}
+			if name == "cross-domain result" && !errors.Is(err, ErrAmbiguousEffect) {
+				t.Fatalf("invalid provider result was not classified as ambiguous: %v", err)
+			}
 			if admitter.calls != 0 && name != "cross-domain result" {
 				t.Fatalf("provider admission called %d times", admitter.calls)
 			}
