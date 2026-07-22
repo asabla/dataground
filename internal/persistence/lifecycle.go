@@ -29,6 +29,7 @@ const (
 	OperationFailureDeadline      OperationFailureReason = "deadline-exceeded"
 	OperationFailureEffectDenied  OperationFailureReason = "effect-denied"
 	OperationFailureEffectInvalid OperationFailureReason = "effect-invalid"
+	OperationFailureRuntime       OperationFailureReason = "runtime-failed"
 )
 
 type OperationClaim struct {
@@ -319,6 +320,9 @@ func operationFailure(reason OperationFailureReason, correlationID string) (doma
 	case OperationFailureEffectInvalid:
 		code = "OPERATION_EFFECT_INVALID"
 		message = "The operation could not safely apply its external effect."
+	case OperationFailureRuntime:
+		code = "OPERATION_RUNTIME_FAILED"
+		message = "The runtime completed with a terminal failure."
 	default:
 		return domain.APIError{}, fmt.Errorf("operation failure reason %q is invalid", reason)
 	}
