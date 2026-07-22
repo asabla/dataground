@@ -594,6 +594,7 @@ jobs:
             || [ "$(stat --format '%a' "$workspace")" != "700" ] \
             || [ "$(stat --format '%a' "$state")" != "600" ] \
             || [ "$(stat --format '%a' "$state.lock")" != "600" ] \
+            || [ "$(stat --format '%a' "$state.manager.lock")" != "600" ] \
             || [ "$(stat --format '%a' "$state.supervisor.lock")" != "600" ] \
             || [ "$(stat --format '%a' "$control")" != "600" ]; then
             echo "stable database endpoint did not recover its exact private state"
@@ -648,6 +649,58 @@ jobs:
               "PostgreSQL route supervision failed" ] \
             || [ "$(stat --format '%a' "$ownership")" != "600" ]; then
             echo "route supervisor contender disturbed the active ownership boundary"
+            exit 1
+          fi
+
+      - name: Reject concurrent route manager contender
+        env:
+          DATAGROUND_ROUTER_HEALTH_DATABASE_URL: postgres://dataground_health:dataground-health@127.0.0.1:55431/dataground_conformance?sslmode=disable
+        run: |
+          router="$RUNNER_TEMP/dataground-postgres-route-conformance"
+          workspace="$RUNNER_TEMP/dataground-postgres-route"
+          control="$workspace/control.sock"
+          state="$workspace/state.json"
+          expected="promoted $(cat "$RUNNER_TEMP/postgres-promoted-generation")"
+          state_before=$(cat "$state")
+          manager_pid=$(cat "$RUNNER_TEMP/postgres-route-manager.pid")
+          supervisor_pid=$(pgrep --parent "$manager_pid" || true)
+          child_pid=$(pgrep --parent "$supervisor_pid" || true)
+          if [[ ! "$supervisor_pid" =~ ^[1-9][0-9]*$ ]] \
+            || [[ ! "$child_pid" =~ ^[1-9][0-9]*$ ]]; then
+            echo "active route manager hierarchy was incomplete before manager contention"
+            exit 1
+          fi
+          set +e
+          timeout --signal=KILL 5s "$router" \
+            --mode manage \
+            --listen-address 127.0.0.1:55431 \
+            --control-socket "$control" \
+            --state-file "$state" \
+            --primary-target 127.0.0.1:55432 \
+            --promoted-target 127.0.0.1:55433 \
+            >"$RUNNER_TEMP/postgres-route-manager-contender.stdout" \
+            2>"$RUNNER_TEMP/postgres-route-manager-contender.stderr"
+          contender_status=$?
+          set -e
+          active_supervisor=$(pgrep --parent "$manager_pid" || true)
+          active_child=$(pgrep --parent "$supervisor_pid" || true)
+          observed=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
+          role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+            "$router" --mode role 2>/dev/null || true)
+          if [ "$contender_status" -ne 1 ] \
+            || ! kill -0 "$manager_pid" 2>/dev/null \
+            || [ "$active_supervisor" != "$supervisor_pid" ] \
+            || [ "$active_child" != "$child_pid" ] \
+            || [ "$(cat "$state")" != "$state_before" ] \
+            || [ "$observed" != "$expected" ] \
+            || [ "$role" != "writable-primary" ] \
+            || [ "$(cat "$RUNNER_TEMP/postgres-route-manager.stdout")" != "supervisor-ready" ] \
+            || [ -s "$RUNNER_TEMP/postgres-route-manager-contender.stdout" ] \
+            || [ "$(cat "$RUNNER_TEMP/postgres-route-manager-contender.stderr")" != \
+              "PostgreSQL route manager failed" ] \
+            || [ "$(stat --format '%a' "$state.manager.lock")" != "600" ] \
+            || [ "$(stat --format '%a' "$state.supervisor.lock")" != "600" ]; then
+            echo "route manager contender disturbed the active ownership boundary"
             exit 1
           fi
 
@@ -815,6 +868,7 @@ jobs:
             || [ "$(stat --format '%a' "$workspace")" != "700" ] \
             || [ "$(stat --format '%a' "$state")" != "600" ] \
             || [ "$(stat --format '%a' "$state.lock")" != "600" ] \
+            || [ "$(stat --format '%a' "$state.manager.lock")" != "600" ] \
             || [ "$(stat --format '%a' "$state.supervisor.lock")" != "600" ] \
             || [ "$(stat --format '%a' "$control")" != "600" ]; then
             echo "replacement manager did not recover the exact ownership boundary"

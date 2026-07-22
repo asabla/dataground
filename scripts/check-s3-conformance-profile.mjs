@@ -82,7 +82,7 @@ const routeChildOwnershipLinux = await readFile(
   resolve(root, "cmd/dataground-postgres-route-conformance/child_ownership_linux.go"),
   "utf8",
 );
-const routeSupervisorOwnershipLinux = await readFile(
+const routeOwnershipLinux = await readFile(
   resolve(root, "cmd/dataground-postgres-route-conformance/supervisor_ownership_linux.go"),
   "utf8",
 );
@@ -337,6 +337,15 @@ if (
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.manager
     ?.parentLoss !==
     "SIGKILL manager terminates the owned supervisor and router before controlled manager replacement" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.manager
+    ?.singletonOwnership !==
+    "exclusive non-blocking manager-lifetime lock in the private route workspace" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.manager
+    ?.contender !==
+    "rejected before state inspection or supervisor launch without disturbing the active hierarchy" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.manager
+    ?.controlledTakeover !==
+    "recovery-only replacement acquires released ownership after the former manager and descendants terminate" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.manager
     ?.exhaustion !== "manager exits nonzero without serving traffic" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision
@@ -770,6 +779,8 @@ if (
   ) ||
   !routeManager.includes("ReadinessTimeout: 12 * time.Second") ||
   !routeManager.includes("ShutdownTimeout:  5 * time.Second") ||
+  !routeManager.includes("acquireRouteManagerOwnership(config)") ||
+  !routeManager.includes('errors.New("release PostgreSQL route manager ownership")') ||
   !routeManager.includes("command := exec.Command(executable, arguments...)") ||
   !routeManager.includes("command.Stdout = io.Discard") ||
   !routeManager.includes("command.Stderr = io.Discard") ||
@@ -787,14 +798,17 @@ if (
   fail("the PostgreSQL route manager has drifted from its bounded replacement contract");
 }
 if (
-  !routeSupervisorOwnershipLinux.includes("syscall.O_NOFOLLOW") ||
-  !routeSupervisorOwnershipLinux.includes("syscall.O_CLOEXEC") ||
-  !routeSupervisorOwnershipLinux.includes("syscall.LOCK_EX|syscall.LOCK_NB") ||
-  !routeSupervisorOwnershipLinux.includes("info.Mode().Perm() != 0o600") ||
-  !routeSupervisorOwnershipLinux.includes("stat.Nlink != 1") ||
-  !routeSupervisorOwnershipLinux.includes("stat.Uid != uint32(os.Geteuid())")
+  !routeOwnershipLinux.includes("syscall.O_NOFOLLOW") ||
+  !routeOwnershipLinux.includes("syscall.O_CLOEXEC") ||
+  !routeOwnershipLinux.includes("syscall.LOCK_EX|syscall.LOCK_NB") ||
+  !routeOwnershipLinux.includes('routeManagerOwnershipSuffix = ".manager.lock"') ||
+  !routeOwnershipLinux.includes("acquireRouteManagerOwnership(") ||
+  !routeOwnershipLinux.includes("routeManagerOwnershipPath(config.StateFile)") ||
+  !routeOwnershipLinux.includes("info.Mode().Perm() != 0o600") ||
+  !routeOwnershipLinux.includes("stat.Nlink != 1") ||
+  !routeOwnershipLinux.includes("stat.Uid != uint32(os.Geteuid())")
 ) {
-  fail("the PostgreSQL route supervisor singleton boundary has drifted");
+  fail("the PostgreSQL route ownership boundaries have drifted");
 }
 if (
   !routeCommand.includes('flags.Int("supervisor-pid"') ||
@@ -847,6 +861,11 @@ if (
   !workflow.includes("concurrent route supervisor acquired active ownership") ||
   !workflow.includes("route supervisor contender disturbed the active ownership boundary") ||
   !workflow.includes("state.supervisor.lock") ||
+  !workflow.includes("Reject concurrent route manager contender") ||
+  !workflow.includes("route manager contender disturbed the active ownership boundary") ||
+  !workflow.includes("state.manager.lock") ||
+  !workflow.includes('timeout --signal=KILL 5s "$router"') ||
+  !workflow.includes('"PostgreSQL route manager failed"') ||
   !workflow.includes("stable database endpoint accepted a stale promotion generation") ||
   !workflow.includes("stale promotion generation changed the stable database route") ||
   !workflow.includes("stable database endpoint accepted a stale in-flight promotion generation") ||
