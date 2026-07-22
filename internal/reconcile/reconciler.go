@@ -221,7 +221,7 @@ func (reconciler *Reconciler) applyEffect(
 	if err != nil {
 		return err
 	}
-	result, observed, err := observeEffect(ctx, reconciler.driver, claim, effect)
+	result, observed, err := observeWithClaim(ctx, reconciler.driver, claim, effect)
 	if err != nil {
 		if rejected, rejectionErr := reconciler.rejectEffect(ctx, claim, effect, err); rejected {
 			return rejectionErr
@@ -229,7 +229,7 @@ func (reconciler *Reconciler) applyEffect(
 		return reconciler.retry(ctx, claim, err)
 	}
 	if !observed {
-		result, err = applyEffect(ctx, reconciler.driver, claim, effect)
+		result, err = applyWithClaim(ctx, reconciler.driver, claim, effect)
 		if err != nil {
 			if rejected, rejectionErr := reconciler.rejectEffect(ctx, claim, effect, err); rejected {
 				return rejectionErr
@@ -284,7 +284,7 @@ func (reconciler *Reconciler) observeEffect(
 	if effect.Status == "succeeded" {
 		return effect.Observation, true, nil
 	}
-	result, observed, err := observeEffect(ctx, reconciler.driver, claim, effect)
+	result, observed, err := observeWithClaim(ctx, reconciler.driver, claim, effect)
 	if err != nil || !observed {
 		return result, observed, err
 	}
@@ -294,7 +294,7 @@ func (reconciler *Reconciler) observeEffect(
 	return result, true, nil
 }
 
-func observeEffect(
+func observeWithClaim(
 	ctx context.Context,
 	driver EffectDriver,
 	claim persistence.OperationClaim,
@@ -306,7 +306,7 @@ func observeEffect(
 	return driver.Observe(ctx, effect)
 }
 
-func applyEffect(
+func applyWithClaim(
 	ctx context.Context,
 	driver EffectDriver,
 	claim persistence.OperationClaim,
