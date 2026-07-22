@@ -9,7 +9,10 @@ import (
 	"github.com/asabla/dataground/internal/persistence"
 )
 
-var ErrInvocationAdmissionTargetMismatch = errors.New("invocation admission target does not match durable effect")
+var (
+	ErrInvocationAdmissionDenied         = errors.New("invocation admission denied")
+	ErrInvocationAdmissionTargetMismatch = errors.New("invocation admission target does not match durable effect")
+)
 
 type InvocationAdmissionTargetStore interface {
 	GetInvocationAdmissionTarget(context.Context, string, string) (persistence.InvocationAdmissionTarget, error)
@@ -54,7 +57,7 @@ func (driver *InvocationAdmissionDriver) Observe(
 	ctx context.Context,
 	effect persistence.EffectRecord,
 ) (map[string]any, bool, error) {
-	target, err := driver.authorizedTarget(ctx, effect)
+	target, err := driver.target(ctx, effect)
 	if err != nil {
 		return nil, false, err
 	}
@@ -79,8 +82,14 @@ func (driver *InvocationAdmissionDriver) Apply(
 	ctx context.Context,
 	effect persistence.EffectRecord,
 ) (map[string]any, error) {
-	target, err := driver.authorizedTarget(ctx, effect)
+	target, err := driver.target(ctx, effect)
 	if err != nil {
+		return nil, err
+	}
+	if err := driver.authorizer.AuthorizeInvocationAdmission(ctx, target); err != nil {
+		if errors.Is(err, ErrInvocationAdmissionDenied) {
+			return nil, errors.Join(ErrEffectDenied, err)
+		}
 		return nil, err
 	}
 	value, err := driver.admission.Admit(ctx, execution.AdmissionRequest{
@@ -92,12 +101,12 @@ func (driver *InvocationAdmissionDriver) Apply(
 		return nil, err
 	}
 	if value.IsolationDomainID != target.IsolationDomainID || value.ID == "" || value.State == "" {
-		return nil, ErrInvocationAdmissionTargetMismatch
+		return nil, errors.Join(ErrAmbiguousEffect, ErrInvocationAdmissionTargetMismatch)
 	}
 	return invocationAdmissionObservation(value), nil
 }
 
-func (driver *InvocationAdmissionDriver) authorizedTarget(
+func (driver *InvocationAdmissionDriver) target(
 	ctx context.Context,
 	effect persistence.EffectRecord,
 ) (persistence.InvocationAdmissionTarget, error) {
@@ -105,13 +114,19 @@ func (driver *InvocationAdmissionDriver) authorizedTarget(
 		effect.Phase != "start-invocation" ||
 		effect.IsolationDomainID == "" ||
 		effect.OperationID == "" {
-		return persistence.InvocationAdmissionTarget{}, ErrInvocationAdmissionTargetMismatch
+		return persistence.InvocationAdmissionTarget{}, errors.Join(
+			ErrEffectInvalid,
+			ErrInvocationAdmissionTargetMismatch,
+		)
 	}
 	target, err := driver.targets.GetInvocationAdmissionTarget(
 		ctx,
 		effect.IsolationDomainID,
 		effect.OperationID,
 	)
+	if errors.Is(err, persistence.ErrInvocationAdmissionTargetMissing) {
+		return persistence.InvocationAdmissionTarget{}, errors.Join(ErrEffectInvalid, err)
+	}
 	if err != nil {
 		return persistence.InvocationAdmissionTarget{}, err
 	}
@@ -123,10 +138,10 @@ func (driver *InvocationAdmissionDriver) authorizedTarget(
 		target.ActorID == "" ||
 		target.CorrelationID == "" ||
 		target.StateMachineVersion != invocation.StateMachineVersion {
-		return persistence.InvocationAdmissionTarget{}, ErrInvocationAdmissionTargetMismatch
-	}
-	if err := driver.authorizer.AuthorizeInvocationAdmission(ctx, target); err != nil {
-		return persistence.InvocationAdmissionTarget{}, err
+		return persistence.InvocationAdmissionTarget{}, errors.Join(
+			ErrEffectInvalid,
+			ErrInvocationAdmissionTargetMismatch,
+		)
 	}
 	return target, nil
 }
