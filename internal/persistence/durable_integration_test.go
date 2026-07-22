@@ -127,7 +127,86 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 	if _, err := repository.GetInvocationAdmissionTarget(ctx, identity.New("iso"), invocation.OperationID); !errors.Is(err, persistence.ErrInvocationAdmissionTargetMissing) {
 		t.Fatalf("cross-domain admission target lookup = %v, want a missing target", err)
 	}
+	if _, err := repository.GetInvocationRuntimeTarget(ctx, domainID, invocation.OperationID); !errors.Is(err, persistence.ErrInvocationRuntimeTargetMissing) {
+		t.Fatalf("runtime target before admission = %v, want a missing target", err)
+	}
+	for _, wantState := range []string{"starting", "running"} {
+		ran, err := worker.RunOne(ctx, persistence.OperationKindInvocation)
+		if err != nil || !ran {
+			t.Fatalf("advance invocation to %s = (%t, %v)", wantState, ran, err)
+		}
+		operation, err := repository.GetOperation(ctx, domainID, invocation.OperationID)
+		if err != nil || operation.ObservedState != wantState {
+			t.Fatalf("invocation operation state = (%q, %v), want %q", operation.ObservedState, err, wantState)
+		}
+	}
+	runtimeTarget, err := repository.GetInvocationRuntimeTarget(ctx, domainID, invocation.OperationID)
+	if err != nil {
+		t.Fatalf("resolve invocation runtime target: %v", err)
+	}
+	if runtimeTarget.IsolationDomainID != domainID ||
+		runtimeTarget.OperationID != invocation.OperationID ||
+		runtimeTarget.InvocationID != invocationID ||
+		runtimeTarget.ServiceID != serviceID ||
+		runtimeTarget.RevisionID != revisionID ||
+		runtimeTarget.ActorID != actorID ||
+		runtimeTarget.CorrelationID != invocation.CorrelationID ||
+		runtimeTarget.StateMachineVersion != invocationlifecycle.StateMachineVersion ||
+		runtimeTarget.RuntimeProfile != "reference/v1" ||
+		runtimeTarget.Input["message"] != "hello" ||
+		runtimeTarget.OutputSchema != nil {
+		t.Fatalf("invocation runtime target = %#v", runtimeTarget)
+	}
+	if _, err := repository.GetInvocationRuntimeTarget(ctx, identity.New("iso"), invocation.OperationID); !errors.Is(err, persistence.ErrInvocationRuntimeTargetMissing) {
+		t.Fatalf("cross-domain runtime target lookup = %v, want a missing target", err)
+	}
+
+	runtimeEvent := persistence.InvocationRuntimeEvent{
+		SourceSequence: 1,
+		Type:           "output.text.delta",
+		Payload:        map[string]any{"text": "hello"},
+	}
+	persistedRuntimeEvent, err := repository.RecordInvocationRuntimeEvent(
+		ctx, domainID, invocation.OperationID, runtimeEvent,
+	)
+	if err != nil {
+		t.Fatalf("record invocation runtime event: %v", err)
+	}
+	replayedRuntimeEvent, err := repository.RecordInvocationRuntimeEvent(
+		ctx, domainID, invocation.OperationID, runtimeEvent,
+	)
+	if err != nil || replayedRuntimeEvent.ID != persistedRuntimeEvent.ID ||
+		replayedRuntimeEvent.Sequence != persistedRuntimeEvent.Sequence {
+		t.Fatalf("replay invocation runtime event = (%#v, %v)", replayedRuntimeEvent, err)
+	}
+	conflictingRuntimeEvent := runtimeEvent
+	conflictingRuntimeEvent.Payload = map[string]any{"text": "conflict"}
+	if _, err := repository.RecordInvocationRuntimeEvent(
+		ctx, domainID, invocation.OperationID, conflictingRuntimeEvent,
+	); !errors.Is(err, persistence.ErrInvocationRuntimeEventConflict) {
+		t.Fatalf("conflicting invocation runtime event = %v, want conflict", err)
+	}
+	if _, err := repository.RecordInvocationRuntimeEvent(
+		ctx, identity.New("iso"), invocation.OperationID, runtimeEvent,
+	); !errors.Is(err, persistence.ErrInvocationRuntimeTargetMissing) {
+		t.Fatalf("cross-domain invocation runtime event = %v, want a missing target", err)
+	}
+	if _, err := repository.RecordInvocationRuntimeEvent(
+		ctx, domainID, invocation.OperationID,
+		persistence.InvocationRuntimeEvent{Type: "output.text.delta", Payload: map[string]any{"text": "invalid"}},
+	); !errors.Is(err, persistence.ErrInvocationRuntimeEventInvalid) {
+		t.Fatalf("invalid invocation runtime event = %v, want invalid", err)
+	}
+	events, err := repository.ListEvents(ctx, domainID, invocationID, persistedRuntimeEvent.Sequence-1)
+	if err != nil || len(events) != 1 || events[0].ID != persistedRuntimeEvent.ID ||
+		events[0].ActorID != actorID || events[0].CorrelationID != invocation.CorrelationID {
+		t.Fatalf("persisted invocation runtime events = (%#v, %v)", events, err)
+	}
+
 	runToTerminal(t, ctx, worker, repository, domainID, invocation.OperationID, "succeeded")
+	if _, err := repository.GetInvocationRuntimeTarget(ctx, domainID, invocation.OperationID); !errors.Is(err, persistence.ErrInvocationRuntimeTargetMissing) {
+		t.Fatalf("runtime target after completion = %v, want a missing target", err)
+	}
 	observed, err := repository.GetInvocation(ctx, domainID, invocationID)
 	if err != nil || observed.State != "succeeded" {
 		t.Fatalf("invocation state = (%q, %v)", observed.State, err)
