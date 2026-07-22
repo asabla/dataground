@@ -280,7 +280,6 @@ func TestReconcilerTerminatesRejectedEffectsWithoutRetry(t *testing.T) {
 	}
 }
 
-
 func TestReconcilerTerminatesCompletedRuntimeFailureWithoutRetry(t *testing.T) {
 	store := newFakeStore(persistence.OperationClaim{
 		Kind: persistence.OperationKindInvocation, IsolationDomainID: "iso_test",
@@ -316,7 +315,6 @@ func TestReconcilerTerminatesCompletedRuntimeFailureWithoutRetry(t *testing.T) {
 		)
 	}
 }
-
 
 func runUntilState(t *testing.T, worker *Reconciler, store *fakeStore, terminal string) {
 	t.Helper()
