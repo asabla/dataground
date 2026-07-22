@@ -182,15 +182,22 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 		t.Fatal(err)
 	}
 	runToTerminal(t, ctx, worker, repository, domainID, cancelledInvocation.OperationID, "cancelled")
-	var cancelledEffects int
+	var cancelledEffectPhase, cancelledEffectStatus string
 	if err := pool.QueryRow(ctx, `
-		SELECT count(*) FROM external_effects
+		SELECT phase, status FROM external_effects
 		WHERE isolation_domain_id = $1 AND operation_id = $2
-	`, domainID, cancelledInvocation.OperationID).Scan(&cancelledEffects); err != nil {
+	`, domainID, cancelledInvocation.OperationID).Scan(
+		&cancelledEffectPhase,
+		&cancelledEffectStatus,
+	); err != nil {
 		t.Fatal(err)
 	}
-	if cancelledEffects != 0 {
-		t.Fatalf("cancelled queued invocation created %d external effects, want zero", cancelledEffects)
+	if cancelledEffectPhase != "cancel-invocation" || cancelledEffectStatus != "succeeded" {
+		t.Fatalf(
+			"cancelled invocation effect = (%q, %q), want (cancel-invocation, succeeded)",
+			cancelledEffectPhase,
+			cancelledEffectStatus,
+		)
 	}
 	if _, err := repository.GetInvocation(ctx, identity.New("iso"), invocationID); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("cross-domain invocation read error = %v, want pgx.ErrNoRows", err)
