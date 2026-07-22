@@ -178,7 +178,7 @@ func TestInvocationAdmissionDriverClassifiesAdmissionFailures(t *testing.T) {
 		"execution plan mismatch":     execution.ErrExecutionPlanRevisionMismatch,
 		"enforcement bundle mismatch": execution.ErrEnforcementBundleMismatch,
 		"invalid policy":              execution.ErrPolicyInvalid,
-		"provider state conflict":      execution.ErrStateConflict,
+		"provider state conflict":     execution.ErrStateConflict,
 	}
 	for name, cause := range permanent {
 		t.Run(name, func(t *testing.T) {
@@ -209,7 +209,7 @@ func TestInvocationAdmissionDriverClassifiesAdmissionFailures(t *testing.T) {
 		"missing enforcement bundle":      execution.ErrEnforcementBundleMissing,
 		"unavailable enforcement bundle":  execution.ErrEnforcementBundleUnavailable,
 		"unavailable gateway capacity":    execution.ErrNoGateway,
-		"unavailable admission dependency": errors.New("admission dependency unavailable"),
+		"unavailable admission dependency":errors.New("admission dependency unavailable"),
 	}
 	for name, cause := range retryable {
 		t.Run(name, func(t *testing.T) {
