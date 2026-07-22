@@ -347,7 +347,11 @@ if (
     ?.controlledTakeover !==
     "recovery-only replacement acquires released ownership after the former manager and descendants terminate" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.manager
-    ?.exhaustion !== "manager exits nonzero without serving traffic" ||
+    ?.exhaustion !==
+    "fourth consecutive supervisor loss exhausts the manager budget, terminates the hierarchy and leaves both service surfaces unavailable" ||
+  profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision?.manager
+    ?.exhaustionRecovery !==
+    "explicit recovery-only manager reacquires both ownership layers and reconfirms unchanged state before readiness" ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.supervision
     ?.productionCertified !== false ||
   profile.recoveryConformance?.clusteredFailover?.stableClientEndpoint?.longLivedPool
@@ -906,6 +910,18 @@ if (
   !workflow.includes("manager process loss left route readiness available") ||
   !workflow.includes("manager process loss left the stable database endpoint available") ||
   !workflow.includes("replacement manager did not recover the exact ownership boundary") ||
+  !workflow.includes("Exhaust route manager restart budget and recover") ||
+  !workflow.includes(
+    "expected_exhausted_states=$'supervisor-ready\\nsupervisor-restart-scheduled\\nsupervisor-ready\\nsupervisor-restart-scheduled\\nsupervisor-ready\\nsupervisor-restart-scheduled\\nsupervisor-ready'",
+  ) ||
+  !workflow.includes("route manager did not enter the expected restart backoff") ||
+  !workflow.includes("exhausted route manager left a managed route process") ||
+  !workflow.includes("exhausted route manager left route readiness available") ||
+  !workflow.includes("exhausted route manager left the stable database endpoint available") ||
+  !workflow.includes("exhausted route manager emitted unexpected lifecycle output") ||
+  !workflow.includes("state_ownership_before=$(stat --format '%d:%i' \"$state.lock\")") ||
+  !workflow.includes("postgres-route-manager-exhaustion-recovery.stdout") ||
+  !workflow.includes("recovered manager did not restore the exact exhaustion boundary") ||
   !workflow.includes("replacement database endpoint manager emitted unexpected output") ||
   !workflow.includes("stable database endpoint did not recover its exact private state") ||
   !workflow.includes("stat --format '%a' \"$state.lock\"") ||

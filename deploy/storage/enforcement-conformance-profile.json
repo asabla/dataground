@@ -106,7 +106,8 @@
             "singletonOwnership": "exclusive non-blocking manager-lifetime lock in the private route workspace",
             "contender": "rejected before state inspection or supervisor launch without disturbing the active hierarchy",
             "controlledTakeover": "recovery-only replacement acquires released ownership after the former manager and descendants terminate",
-            "exhaustion": "manager exits nonzero without serving traffic"
+            "exhaustion": "fourth consecutive supervisor loss exhausts the manager budget, terminates the hierarchy and leaves both service surfaces unavailable",
+            "exhaustionRecovery": "explicit recovery-only manager reacquires both ownership layers and reconfirms unchanged state before readiness"
           },
           "productionCertified": false
         },
@@ -238,4 +239,3 @@
     "the complete platform-object and lakehouse S3 contract is broader than this enforcement subset"
   ]
 }
-
