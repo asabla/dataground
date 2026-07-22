@@ -140,9 +140,22 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 			t.Fatalf("invocation operation state = (%q, %v), want %q", operation.ObservedState, err, wantState)
 		}
 	}
-	runtimeTarget, err := repository.GetInvocationRuntimeTarget(ctx, domainID, invocation.OperationID)
+	runtimeClaim, err := repository.ClaimNext(
+		ctx,
+		persistence.OperationKindInvocation,
+		"runtime-handoff-probe",
+		time.Second,
+	)
+	if err != nil ||
+		runtimeClaim == nil ||
+		runtimeClaim.ID != invocation.OperationID ||
+		runtimeClaim.ObservedState != "running" ||
+		runtimeClaim.LeaseExpiresAt.IsZero() {
+		t.Fatalf("claim invocation runtime handoff = (%#v, %v)", runtimeClaim, err)
+	}
+	runtimeTarget, err := repository.GetClaimedInvocationRuntimeTarget(ctx, *runtimeClaim)
 	if err != nil {
-		t.Fatalf("resolve invocation runtime target: %v", err)
+		t.Fatalf("resolve claimed invocation runtime target: %v", err)
 	}
 	if runtimeTarget.IsolationDomainID != domainID ||
 		runtimeTarget.OperationID != invocation.OperationID ||
@@ -160,6 +173,33 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 	if _, err := repository.GetInvocationRuntimeTarget(ctx, identity.New("iso"), invocation.OperationID); !errors.Is(err, persistence.ErrInvocationRuntimeTargetMissing) {
 		t.Fatalf("cross-domain runtime target lookup = %v, want a missing target", err)
 	}
+	renewedRuntimeClaim, err := repository.RenewLease(ctx, *runtimeClaim, 15*time.Second)
+	if err != nil ||
+		!renewedRuntimeClaim.LeaseExpiresAt.After(runtimeClaim.LeaseExpiresAt) ||
+		renewedRuntimeClaim.LeaseExpiresAt.After(runtimeClaim.DeadlineAt) {
+		t.Fatalf(
+			"renew invocation runtime claim = (%s, %s, %v)",
+			runtimeClaim.LeaseExpiresAt,
+			renewedRuntimeClaim.LeaseExpiresAt,
+			err,
+		)
+	}
+	staleRuntimeClaim := renewedRuntimeClaim
+	staleRuntimeClaim.FencingToken--
+	if _, err := repository.GetClaimedInvocationRuntimeTarget(
+		ctx,
+		staleRuntimeClaim,
+	); !errors.Is(err, persistence.ErrLeaseLost) {
+		t.Fatalf("stale runtime target claim = %v, want a lost lease", err)
+	}
+	foreignRuntimeClaim := renewedRuntimeClaim
+	foreignRuntimeClaim.IsolationDomainID = identity.New("iso")
+	if _, err := repository.GetClaimedInvocationRuntimeTarget(
+		ctx,
+		foreignRuntimeClaim,
+	); !errors.Is(err, persistence.ErrLeaseLost) {
+		t.Fatalf("cross-domain runtime target claim = %v, want a lost lease", err)
+	}
 
 	runtimeEvent := persistence.InvocationRuntimeEvent{
 		SourceSequence: 1,
@@ -167,13 +207,13 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 		Payload:        map[string]any{"text": "hello"},
 	}
 	persistedRuntimeEvent, err := repository.RecordInvocationRuntimeEvent(
-		ctx, domainID, invocation.OperationID, runtimeEvent,
+		ctx, renewedRuntimeClaim, runtimeEvent,
 	)
 	if err != nil {
 		t.Fatalf("record invocation runtime event: %v", err)
 	}
 	replayedRuntimeEvent, err := repository.RecordInvocationRuntimeEvent(
-		ctx, domainID, invocation.OperationID, runtimeEvent,
+		ctx, renewedRuntimeClaim, runtimeEvent,
 	)
 	if err != nil || replayedRuntimeEvent.ID != persistedRuntimeEvent.ID ||
 		replayedRuntimeEvent.Sequence != persistedRuntimeEvent.Sequence {
@@ -182,17 +222,35 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 	conflictingRuntimeEvent := runtimeEvent
 	conflictingRuntimeEvent.Payload = map[string]any{"text": "conflict"}
 	if _, err := repository.RecordInvocationRuntimeEvent(
-		ctx, domainID, invocation.OperationID, conflictingRuntimeEvent,
+		ctx, renewedRuntimeClaim, conflictingRuntimeEvent,
 	); !errors.Is(err, persistence.ErrInvocationRuntimeEventConflict) {
 		t.Fatalf("conflicting invocation runtime event = %v, want conflict", err)
 	}
 	if _, err := repository.RecordInvocationRuntimeEvent(
-		ctx, identity.New("iso"), invocation.OperationID, runtimeEvent,
-	); !errors.Is(err, persistence.ErrInvocationRuntimeTargetMissing) {
-		t.Fatalf("cross-domain invocation runtime event = %v, want a missing target", err)
+		ctx,
+		staleRuntimeClaim,
+		persistence.InvocationRuntimeEvent{
+			SourceSequence: 2,
+			Type:           "output.text.delta",
+			Payload:        map[string]any{"text": "stale"},
+		},
+	); !errors.Is(err, persistence.ErrLeaseLost) {
+		t.Fatalf("stale invocation runtime event = %v, want a lost lease", err)
 	}
 	if _, err := repository.RecordInvocationRuntimeEvent(
-		ctx, domainID, invocation.OperationID,
+		ctx,
+		foreignRuntimeClaim,
+		persistence.InvocationRuntimeEvent{
+			SourceSequence: 2,
+			Type:           "output.text.delta",
+			Payload:        map[string]any{"text": "foreign"},
+		},
+	); !errors.Is(err, persistence.ErrLeaseLost) {
+		t.Fatalf("cross-domain invocation runtime event = %v, want a lost lease", err)
+	}
+	if _, err := repository.RecordInvocationRuntimeEvent(
+		ctx,
+		renewedRuntimeClaim,
 		persistence.InvocationRuntimeEvent{Type: "output.text.delta", Payload: map[string]any{"text": "invalid"}},
 	); !errors.Is(err, persistence.ErrInvocationRuntimeEventInvalid) {
 		t.Fatalf("invalid invocation runtime event = %v, want invalid", err)
@@ -201,6 +259,15 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 	if err != nil || len(events) != 1 || events[0].ID != persistedRuntimeEvent.ID ||
 		events[0].ActorID != actorID || events[0].CorrelationID != invocation.CorrelationID {
 		t.Fatalf("persisted invocation runtime events = (%#v, %v)", events, err)
+	}
+	if err := repository.ScheduleRetry(
+		ctx,
+		renewedRuntimeClaim,
+		"retryable",
+		"RUNTIME_HANDOFF_TEST_RELEASE",
+		time.Now().UTC(),
+	); err != nil {
+		t.Fatalf("release invocation runtime test claim: %v", err)
 	}
 
 	runToTerminal(t, ctx, worker, repository, domainID, invocation.OperationID, "succeeded")
