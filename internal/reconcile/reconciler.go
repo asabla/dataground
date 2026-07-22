@@ -128,6 +128,9 @@ func (reconciler *Reconciler) advanceInvocation(ctx context.Context, claim persi
 	switch claim.StateMachineVersion {
 	case 1:
 		if claim.Command == "cancel" {
+			if claim.ObservedState != "cancelling" {
+				return reconciler.store.Advance(ctx, claim, "cancelling", nil)
+			}
 			return reconciler.store.Advance(ctx, claim, "cancelled", nil)
 		}
 		return reconciler.advanceInvocationV1(ctx, claim)
