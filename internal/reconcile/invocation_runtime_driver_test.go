@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"io"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/asabla/dataground/internal/domain"
 	"github.com/asabla/dataground/internal/execution"
+	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/persistence"
 	dgruntime "github.com/asabla/dataground/internal/runtime"
 )
@@ -51,7 +53,7 @@ func TestInvocationRuntimeDriverRunsOneFencedTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result["status"] != "succeeded" || store.beginCalls != 1 || store.completeCalls != 1 ||
+	if result["status"] != "succeeded" || store.renewCalls != 1 || store.beginCalls != 1 || store.completeCalls != 1 ||
 		store.failCalls != 0 {
 		t.Fatalf("runtime completion = result %#v, store %#v", result, store)
 	}
@@ -69,6 +71,9 @@ func TestInvocationRuntimeDriverRunsOneFencedTurn(t *testing.T) {
 	}
 	if adapter.request.Prompt != "persisted prompt" || adapter.request.ApprovalMode != dgruntime.ApprovalLocked {
 		t.Fatalf("runtime request = %#v", adapter.request)
+	}
+	if !reflect.DeepEqual(authorizer.request, adapter.request) {
+		t.Fatalf("authorized request = %#v, adapter request = %#v", authorizer.request, adapter.request)
 	}
 }
 
@@ -267,9 +272,12 @@ func runtimeDriverFixture() (
 		IsolationDomainID: claim.IsolationDomainID,
 		OperationKind:     claim.Kind,
 		OperationID:       claim.ID,
-		EffectID:          "eff_runtime",
-		Phase:             "run-invocation",
-		Status:            "prepared",
+		EffectID: identity.Derived(
+			"eff",
+			claim.IsolationDomainID+":"+claim.Kind+":"+claim.ID+":run-invocation",
+		),
+		Phase:  "run-invocation",
+		Status: "prepared",
 	}
 	target := persistence.InvocationRuntimeTarget{
 		IsolationDomainID:   claim.IsolationDomainID,
@@ -379,16 +387,18 @@ func (stub *runtimeStoreStub) RenewLease(
 }
 
 type runtimeAuthorizerStub struct {
-	calls int
-	err   error
+	calls   int
+	err     error
+	request dgruntime.StartRequest
 }
 
 func (stub *runtimeAuthorizerStub) AuthorizeInvocationRuntime(
 	_ context.Context,
 	_ persistence.InvocationRuntimeTarget,
-	_ dgruntime.StartRequest,
+	request dgruntime.StartRequest,
 ) error {
 	stub.calls++
+	stub.request = request
 	return stub.err
 }
 
