@@ -125,16 +125,19 @@ func (reconciler *Reconciler) advancePublication(ctx context.Context, claim pers
 }
 
 func (reconciler *Reconciler) advanceInvocation(ctx context.Context, claim persistence.OperationClaim) error {
-	if claim.Command == "cancel" {
-		if claim.ObservedState != "cancelling" {
-			return reconciler.store.Advance(ctx, claim, "cancelling", nil)
-		}
-		return reconciler.store.Advance(ctx, claim, "cancelled", nil)
-	}
 	switch claim.StateMachineVersion {
 	case 1:
+		if claim.Command == "cancel" {
+			return reconciler.store.Advance(ctx, claim, "cancelled", nil)
+		}
 		return reconciler.advanceInvocationV1(ctx, claim)
 	case invocation.StateMachineVersion:
+		if claim.Command == "cancel" {
+			if claim.ObservedState != "cancelling" {
+				return reconciler.store.Advance(ctx, claim, "cancelling", nil)
+			}
+			return reconciler.applyEffect(ctx, claim, "cancel-invocation", "cancelled")
+		}
 		return reconciler.advanceInvocationV2(ctx, claim)
 	default:
 		return fmt.Errorf("invocation state machine version %d is unsupported", claim.StateMachineVersion)
