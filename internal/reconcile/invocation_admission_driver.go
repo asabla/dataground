@@ -98,6 +98,9 @@ func (driver *InvocationAdmissionDriver) Apply(
 		OperationID:       target.OperationID,
 	})
 	if err != nil {
+		if invalidInvocationAdmission(err) {
+			return nil, errors.Join(ErrEffectInvalid, err)
+		}
 		return nil, err
 	}
 	if value.IsolationDomainID != target.IsolationDomainID || value.ID == "" || value.State == "" {
@@ -144,6 +147,13 @@ func (driver *InvocationAdmissionDriver) target(
 		)
 	}
 	return target, nil
+}
+
+func invalidInvocationAdmission(cause error) bool {
+	return errors.Is(cause, execution.ErrExecutionPlanRevisionMismatch) ||
+		errors.Is(cause, execution.ErrEnforcementBundleMismatch) ||
+		errors.Is(cause, execution.ErrPolicyInvalid) ||
+		errors.Is(cause, execution.ErrStateConflict)
 }
 
 func invocationAdmissionObservation(value execution.Execution) map[string]any {
