@@ -1,11 +1,11 @@
 package persistence
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"regexp"
 	"strconv"
 
@@ -77,6 +77,7 @@ func getInvocationRuntimeTarget(
 		JOIN service_revisions AS revision
 		  ON revision.isolation_domain_id = invocation.isolation_domain_id
 		 AND revision.id = invocation.revision_id
+		 AND revision.service_id = invocation.service_id
 		JOIN external_effects AS admission_effect
 		  ON admission_effect.isolation_domain_id = operation.isolation_domain_id
 		 AND admission_effect.operation_kind = 'invocation-execution'
@@ -121,6 +122,18 @@ func getInvocationRuntimeTarget(
 		if err := json.Unmarshal(encodedOutputSchema, &target.OutputSchema); err != nil {
 			return InvocationRuntimeTarget{}, fmt.Errorf("decode invocation runtime output schema: %w", err)
 		}
+	}
+	if target.IsolationDomainID != isolationDomainID ||
+		target.OperationID != operationID ||
+		target.InvocationID == "" ||
+		target.ServiceID == "" ||
+		target.RevisionID == "" ||
+		target.ActorID == "" ||
+		target.CorrelationID == "" ||
+		target.StateMachineVersion != invocationlifecycle.StateMachineVersion ||
+		target.RuntimeProfile == "" ||
+		target.Input == nil {
+		return InvocationRuntimeTarget{}, ErrInvocationRuntimeTargetMissing
 	}
 	return target, nil
 }
@@ -187,7 +200,11 @@ func (repository *Repository) RecordInvocationRuntimeEvent(
 		return domain.EventEnvelope{}, err
 	}
 	if found {
-		if existing.Type != event.Type || !reflect.DeepEqual(existing.Payload, event.Payload) {
+		encodedExisting, encodeErr := json.Marshal(existing.Payload)
+		if encodeErr != nil {
+			return domain.EventEnvelope{}, fmt.Errorf("encode persisted invocation runtime event: %w", encodeErr)
+		}
+		if existing.Type != event.Type || !bytes.Equal(encodedExisting, encodedPayload) {
 			return domain.EventEnvelope{}, ErrInvocationRuntimeEventConflict
 		}
 		if err := tx.Commit(ctx); err != nil {
