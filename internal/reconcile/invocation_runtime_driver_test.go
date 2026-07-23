@@ -28,7 +28,7 @@ func TestInvocationRuntimeDriverRunsOneFencedTurn(t *testing.T) {
 	}
 	turn := &runtimeTurnStub{
 		events: runtimeEvents(
-			dgruntime.Event{Sequence: 1, Type: "lifecycle.started", Payload: map[string]any{"message": "started"}},
+			dgruntime.Event{Sequence: 1, Type: "output.text.delta", Payload: map[string]any{"text": "persisted output"}},
 			dgruntime.Event{Sequence: 2, Type: "lifecycle.succeeded", Payload: map[string]any{"message": "finished"}},
 		),
 	}
@@ -53,7 +53,9 @@ func TestInvocationRuntimeDriverRunsOneFencedTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result["status"] != "succeeded" || store.renewCalls != 1 || store.beginCalls != 1 || store.completeCalls != 1 ||
+	output, ok := result["output"].(map[string]any)
+	if result["status"] != "succeeded" || !ok || output["text"] != "persisted output" ||
+		store.renewCalls != 1 || store.beginCalls != 1 || store.completeCalls != 1 ||
 		store.failCalls != 0 {
 		t.Fatalf("runtime completion = result %#v, store %#v", result, store)
 	}
@@ -112,6 +114,50 @@ func TestInvocationRuntimeDriverPersistsDeterministicTurnFailure(t *testing.T) {
 	if store.failCalls != 1 || store.completeCalls != 0 ||
 		store.attempt.Result["code"] != "RUNTIME_TURN_FAILED" {
 		t.Fatalf("failed attempt = %#v", store.attempt)
+	}
+}
+
+func TestInvocationRuntimeDriverRejectsInvalidDeclaredOutput(t *testing.T) {
+	claim, effect, target := runtimeDriverFixture()
+	target.OutputSchema = map[string]any{"type": "object"}
+	store := &runtimeStoreStub{target: target}
+	turn := &runtimeTurnStub{events: runtimeEvents(
+		dgruntime.Event{
+			Sequence: 1,
+			Type:     "output.text.delta",
+			Payload:  map[string]any{"text": "not-json"},
+		},
+		dgruntime.Event{
+			Sequence: 2,
+			Type:     "lifecycle.succeeded",
+			Payload:  map[string]any{"message": "finished"},
+		},
+	)}
+	driver := newRuntimeDriverForTest(
+		t,
+		store,
+		&runtimeAuthorizerStub{},
+		&runtimeExecutionSourceStub{value: execution.Execution{
+			IsolationDomainID: target.IsolationDomainID,
+			ID:                "exe_runtime",
+			State:             "ready",
+		}},
+		&runtimeProviderStub{observation: execution.Observation{
+			IsolationDomainID: target.IsolationDomainID,
+			ExecutionID:       "exe_runtime",
+			State:             "ready",
+		}},
+		&runtimeAdapterFactoryStub{adapter: &runtimeAdapterStub{turn: turn}},
+	)
+
+	_, err := driver.ApplyClaimed(context.Background(), claim, effect)
+	if !errors.Is(err, ErrEffectTerminal) ||
+		!errors.Is(err, ErrInvocationRuntimeOutputInvalid) {
+		t.Fatalf("invalid declared output = %v", err)
+	}
+	if store.failCalls != 1 || store.completeCalls != 0 ||
+		store.attempt.Result["code"] != "RUNTIME_OUTPUT_INVALID" {
+		t.Fatalf("invalid output attempt = %#v", store.attempt)
 	}
 }
 
@@ -229,10 +275,11 @@ func newRuntimeDriverForTest(
 		store,
 		authorizer,
 		InvocationRuntimeRequestBuilderFunc(func(
-			persistence.InvocationRuntimeTarget,
+			target persistence.InvocationRuntimeTarget,
 		) (dgruntime.StartRequest, error) {
 			return dgruntime.StartRequest{
 				Prompt:       "persisted prompt",
+				OutputSchema: target.OutputSchema,
 				ApprovalMode: dgruntime.ApprovalLocked,
 				SandboxMode:  dgruntime.SandboxReadOnly,
 			}, nil
