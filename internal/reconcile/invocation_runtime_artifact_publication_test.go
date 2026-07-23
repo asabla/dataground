@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asabla/dataground/internal/artifact"
 	"github.com/asabla/dataground/internal/execution"
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/persistence"
@@ -178,4 +177,3 @@ func TestInvocationRuntimeDriverRejectsTypedNilArtifactFinalizer(t *testing.T) {
 }
 
 var _ InvocationRuntimeArtifactFinalizer = (*runtimeArtifactFinalizerStub)(nil)
-var _ = artifact.InvocationArtifactSchemaV1
