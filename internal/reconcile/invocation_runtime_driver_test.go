@@ -119,13 +119,19 @@ func TestInvocationRuntimeDriverPersistsDeterministicTurnFailure(t *testing.T) {
 
 func TestInvocationRuntimeDriverRejectsInvalidDeclaredOutput(t *testing.T) {
 	claim, effect, target := runtimeDriverFixture()
-	target.OutputSchema = map[string]any{"type": "object"}
+	target.OutputSchema = map[string]any{
+		"type":     "object",
+		"required": []any{"answer"},
+		"properties": map[string]any{
+			"answer": map[string]any{"type": "string"},
+		},
+	}
 	store := &runtimeStoreStub{target: target}
 	turn := &runtimeTurnStub{events: runtimeEvents(
 		dgruntime.Event{
 			Sequence: 1,
 			Type:     "output.text.delta",
-			Payload:  map[string]any{"text": "not-json"},
+			Payload:  map[string]any{"text": "{\"answer\":42}"},
 		},
 		dgruntime.Event{
 			Sequence: 2,
@@ -197,6 +203,7 @@ func TestInvocationRuntimeDriverChecksPreconditionsBeforeReservation(t *testing.
 		authorize   error
 		observation execution.Observation
 		buildErr    error
+		outputSchema map[string]any
 		want        error
 	}{
 		"authorization denial": {
@@ -225,6 +232,15 @@ func TestInvocationRuntimeDriverChecksPreconditionsBeforeReservation(t *testing.
 			buildErr: errors.New("runtime profile mapping is invalid"),
 			want:     ErrEffectInvalid,
 		},
+		"invalid output schema": {
+			observation: execution.Observation{
+				IsolationDomainID: target.IsolationDomainID,
+				ExecutionID:       "exe_runtime",
+				State:             "ready",
+			},
+			outputSchema: map[string]any{"type": "not-a-json-schema-type"},
+			want:         ErrEffectInvalid,
+		},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -233,7 +249,10 @@ func TestInvocationRuntimeDriverChecksPreconditionsBeforeReservation(t *testing.
 			builder := InvocationRuntimeRequestBuilderFunc(func(
 				persistence.InvocationRuntimeTarget,
 			) (dgruntime.StartRequest, error) {
-				return dgruntime.StartRequest{Prompt: "persisted prompt"}, test.buildErr
+				return dgruntime.StartRequest{
+					Prompt:       "persisted prompt",
+					OutputSchema: test.outputSchema,
+				}, test.buildErr
 			})
 			driver, err := NewInvocationRuntimeDriver(
 				store,
