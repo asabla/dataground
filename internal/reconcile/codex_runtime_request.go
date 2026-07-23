@@ -19,8 +19,7 @@ const (
 
 var (
 	ErrInvocationRuntimeProfileUnsupported  = errors.New("invocation runtime profile is unsupported")
-	ErrInvocationRuntimeInputInvalid        = errors.New("invocation runtime input is invalid")
-	ErrInvocationRuntimeOutputSchemaInvalid = errors.New("invocation runtime output schema is invalid")
+	ErrInvocationRuntimeInputInvalid       = errors.New("invocation runtime input is invalid")
 )
 
 // CodexInvocationRuntimeRequestBuilder maps the first pinned Codex profile from
