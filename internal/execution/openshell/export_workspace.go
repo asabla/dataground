@@ -11,30 +11,30 @@ import (
 )
 
 const (
-	exportFilePrefix = "dataground-export-"
-	exportFileSuffix = ".artifact"
+	exportFilePrefix    = "dataground-export-"
+	exportFileSuffix    = ".artifact"
 	exportWorkspaceLock = ".dataground-export-workspace.lock"
 )
 
 var (
 	ErrExportWorkspaceUnavailable = errors.New("OpenShell export workspace is unavailable")
-	ErrExportWorkspaceBusy = errors.New("OpenShell export workspace is already in use")
-	ErrExportWorkspaceUnsafe = errors.New("OpenShell export workspace is unsafe")
-	ErrExportWorkspaceFailure = errors.New("OpenShell export workspace operation failed")
-	ErrExportTooLarge = errors.New("OpenShell export exceeds the configured limit")
+	ErrExportWorkspaceBusy        = errors.New("OpenShell export workspace is already in use")
+	ErrExportWorkspaceUnsafe      = errors.New("OpenShell export workspace is unsafe")
+	ErrExportWorkspaceFailure     = errors.New("OpenShell export workspace operation failed")
+	ErrExportTooLarge             = errors.New("OpenShell export exceeds the configured limit")
 )
 
 // ExportWorkspace owns the short-lived host destinations required by the
 // pinned OpenShell CLI. It never exposes those destinations outside the
 // provider and returns content only after verified cleanup.
 type ExportWorkspace struct {
-	mu sync.Mutex
-	root string
-	directory *os.File
-	lock *os.File
+	mu           sync.Mutex
+	root         string
+	directory    *os.File
+	lock         *os.File
 	maximumBytes int64
-	active int
-	closed bool
+	active       int
+	closed       bool
 }
 
 func OpenExportWorkspace(root string, maximumBytes int64) (*ExportWorkspace, error) {
