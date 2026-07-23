@@ -200,11 +200,11 @@ func TestInvocationRuntimeDriverNeverRepeatsReservedAttempt(t *testing.T) {
 func TestInvocationRuntimeDriverChecksPreconditionsBeforeReservation(t *testing.T) {
 	claim, effect, target := runtimeDriverFixture()
 	tests := map[string]struct {
-		authorize   error
-		observation execution.Observation
-		buildErr    error
+		authorize    error
+		observation  execution.Observation
+		buildErr     error
 		outputSchema map[string]any
-		want        error
+		want         error
 	}{
 		"authorization denial": {
 			authorize: ErrInvocationRuntimeDenied,
