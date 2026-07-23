@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	maximumInvocationRuntimeOutputBytes       = 192 << 10
-	maximumInvocationRuntimeOutputResultBytes = 256 << 10
+	maximumInvocationRuntimeOutputBytes  = 192 << 10
+	maximumInvocationRuntimeOutputEvents = 4096
 )
 
 var ErrInvocationRuntimeOutputInvalid = errors.New("invocation runtime output is invalid")
@@ -33,13 +33,17 @@ func newInvocationRuntimeOutput(outputSchema map[string]any) *invocationRuntimeO
 // Observe accepts only events already acknowledged by the fenced event sink.
 // Runtime-source replay is ignored so it cannot duplicate the declared output.
 func (output *invocationRuntimeOutput) Observe(event dgruntime.Event) {
-	if _, found := output.seen[event.Sequence]; found {
-		return
-	}
-	output.seen[event.Sequence] = struct{}{}
 	if event.Type != "output.text.delta" {
 		return
 	}
+	if _, found := output.seen[event.Sequence]; found {
+		return
+	}
+	if len(output.seen) >= maximumInvocationRuntimeOutputEvents {
+		output.invalid = true
+		return
+	}
+	output.seen[event.Sequence] = struct{}{}
 	value, ok := event.Payload["text"].(string)
 	if !ok {
 		output.invalid = true
@@ -73,7 +77,7 @@ func (output *invocationRuntimeOutput) Result() (map[string]any, error) {
 	}
 	result := map[string]any{"status": "succeeded", "output": value}
 	encoded, err := json.Marshal(result)
-	if err != nil || len(encoded) > maximumInvocationRuntimeOutputResultBytes {
+	if err != nil || len(encoded) > maximumInvocationRuntimeOutputBytes {
 		return nil, ErrInvocationRuntimeOutputInvalid
 	}
 	return result, nil
