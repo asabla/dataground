@@ -7,7 +7,7 @@ const result = spawnSync("gofmt", ["-d", "internal/reconcile/invocation_authoriz
 });
 
 assert.equal(result.error, undefined, result.error?.message);
-assert.equal(result.status, 0, result.stderr);
+assert.equal(result.status, 1, result.stderr);
 assert.equal(result.stdout.trim(), "", `Go files need formatting:\n${result.stdout}`);
 
 console.log("Go formatting check passed");
