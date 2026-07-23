@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"io"
 	"mime"
 	"net/http"
@@ -22,11 +23,23 @@ var invocationArtifactObjectKeyPattern = regexp.MustCompile(
 	"^invocation-artifacts/v1/iso_[0-9a-z]{20,32}/inv_[0-9a-z]{20,32}/art_[0-9a-z]{20,32}/[0-9a-f]{64}$",
 )
 
-func (store *Store) OpenInvocationArtifactObject(
+type ArtifactStore struct {
+	store        *Store
+	maximumBytes int64
+}
+
+func NewArtifactStore(store *Store, maximumBytes int64) (*ArtifactStore, error) {
+	if store == nil || maximumBytes <= 0 || maximumBytes == int64(^uint64(0)>>1) {
+		return nil, errors.New("S3 invocation-artifact store and bounded maximum are required")
+	}
+	return &ArtifactStore{store: store, maximumBytes: maximumBytes}, nil
+}
+
+func (store *ArtifactStore) OpenInvocationArtifactObject(
 	ctx context.Context,
 	key string,
 ) (io.ReadCloser, error) {
-	objectURL, err := store.objectURL(key, invocationArtifactKeyPrefix)
+	objectURL, err := store.store.objectURL(key, invocationArtifactKeyPrefix)
 	if err != nil || !invocationArtifactObjectKeyPattern.MatchString(key) {
 		return nil, artifact.ErrInvocationArtifactObjectConflict
 	}
@@ -36,7 +49,7 @@ func (store *Store) OpenInvocationArtifactObject(
 	}
 	request.Header.Set("Accept-Encoding", "identity")
 
-	response, err := store.client.Do(request)
+	response, err := store.store.client.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -45,7 +58,7 @@ func (store *Store) OpenInvocationArtifactObject(
 	}
 	if response.StatusCode == http.StatusOK {
 		if response.Header.Get("Content-Encoding") != "" ||
-			response.ContentLength > artifact.MaximumInvocationArtifactBytes {
+			response.ContentLength > store.maximumBytes {
 			closeResponse(response)
 			return nil, artifact.ErrInvocationArtifactUnavailable
 		}
@@ -58,7 +71,7 @@ func (store *Store) OpenInvocationArtifactObject(
 	return nil, artifact.ErrInvocationArtifactUnavailable
 }
 
-func (store *Store) PutInvocationArtifactObjectIfAbsent(
+func (store *ArtifactStore) PutInvocationArtifactObjectIfAbsent(
 	ctx context.Context,
 	key string,
 	content io.Reader,
@@ -69,10 +82,10 @@ func (store *Store) PutInvocationArtifactObjectIfAbsent(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	objectURL, err := store.objectURL(key, invocationArtifactKeyPrefix)
+	objectURL, err := store.store.objectURL(key, invocationArtifactKeyPrefix)
 	if err != nil || !invocationArtifactObjectKeyPattern.MatchString(key) ||
 		content == nil || size < 0 ||
-		size > artifact.MaximumInvocationArtifactBytes ||
+		size > store.maximumBytes ||
 		!validArtifactMediaType(mediaType) {
 		return artifact.ErrInvocationArtifactObjectConflict
 	}
@@ -94,7 +107,7 @@ func (store *Store) PutInvocationArtifactObjectIfAbsent(
 	checksum := sha256.Sum256(owned)
 	request.Header.Set("x-amz-checksum-sha256", base64.StdEncoding.EncodeToString(checksum[:]))
 
-	response, err := store.client.Do(request)
+	response, err := store.store.client.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -126,5 +139,5 @@ func artifactDigest(content []byte) string {
 	return "sha256:" + hex.EncodeToString(digest[:])
 }
 
-var _ artifact.ObjectReader = (*Store)(nil)
-var _ artifact.ObjectWriter = (*Store)(nil)
+var _ artifact.ObjectReader = (*ArtifactStore)(nil)
+var _ artifact.ObjectWriter = (*ArtifactStore)(nil)
