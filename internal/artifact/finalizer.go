@@ -17,7 +17,6 @@ import (
 const (
 	InvocationArtifactSchemaV1     = "dataground.invocation-artifact/v1"
 	InvocationArtifactStateMachine = 2
-	MaximumInvocationArtifactBytes = 32 << 20
 	invocationArtifactKeyPrefix    = "invocation-artifacts/v1"
 )
 
@@ -91,16 +90,37 @@ type Finalization struct {
 // Finalizer writes immutable content, verifies it after every write outcome,
 // then binds relational metadata. It deliberately has no delete authority.
 type Finalizer struct {
-	catalog Catalog
-	reader  ObjectReader
-	writer  ObjectWriter
+	catalog      Catalog
+	reader       ObjectReader
+	writer       ObjectWriter
+	maximumBytes int64
 }
 
-func NewFinalizer(catalog Catalog, reader ObjectReader, writer ObjectWriter) (*Finalizer, error) {
-	if dependencyMissing(catalog) || dependencyMissing(reader) || dependencyMissing(writer) {
-		return nil, errors.New("invocation artifact finalizer dependencies are required")
+type FinalizerConfig struct {
+	MaximumBytes int64
+}
+
+func NewFinalizer(
+	catalog Catalog,
+	reader ObjectReader,
+	writer ObjectWriter,
+	config FinalizerConfig,
+) (*Finalizer, error) {
+	if dependencyMissing(catalog) ||
+		dependencyMissing(reader) ||
+		dependencyMissing(writer) ||
+		config.MaximumBytes <= 0 ||
+		config.MaximumBytes == int64(^uint64(0)>>1) {
+		return nil, errors.New(
+			"invocation artifact finalizer dependencies and bounded maximum are required",
+		)
 	}
-	return &Finalizer{catalog: catalog, reader: reader, writer: writer}, nil
+	return &Finalizer{
+		catalog:      catalog,
+		reader:       reader,
+		writer:       writer,
+		maximumBytes: config.MaximumBytes,
+	}, nil
 }
 
 func (finalizer *Finalizer) Finalize(
@@ -110,6 +130,10 @@ func (finalizer *Finalizer) Finalize(
 	binding, err := NormalizeBinding(finalization.Binding)
 	if err != nil {
 		return Record{}, err
+	}
+	if binding.Record.SizeBytes > finalizer.maximumBytes ||
+		int64(len(finalization.Content)) > finalizer.maximumBytes {
+		return Record{}, ErrInvocationArtifactInvalid
 	}
 	content := bytes.Clone(finalization.Content)
 	if int64(len(content)) != binding.Record.SizeBytes ||
@@ -133,7 +157,12 @@ func (finalizer *Finalizer) Finalize(
 	if ctx.Err() != nil {
 		return Record{}, ctx.Err()
 	}
-	persisted, readErr := readObject(ctx, finalizer.reader, binding.Record)
+	persisted, readErr := readObject(
+		ctx,
+		finalizer.reader,
+		binding.Record,
+		finalizer.maximumBytes,
+	)
 	if readErr != nil {
 		if ctx.Err() != nil {
 			return Record{}, ctx.Err()
@@ -188,7 +217,7 @@ func (finalizer *Finalizer) preflight(
 	if err != nil || !EqualRecords(existing, record) {
 		return Record{}, false, ErrInvocationArtifactConflict
 	}
-	persisted, err := readObject(ctx, finalizer.reader, existing)
+	persisted, err := readObject(ctx, finalizer.reader, existing, finalizer.maximumBytes)
 	if err != nil {
 		return Record{}, false, err
 	}
@@ -225,7 +254,6 @@ func NormalizeRecord(record Record) (Record, error) {
 		!validPortableValue(record.MediaType, 255) ||
 		!validKind(record.Kind) ||
 		record.SizeBytes < 0 ||
-		record.SizeBytes > MaximumInvocationArtifactBytes ||
 		!digestPattern.MatchString(record.Digest) {
 		return Record{}, ErrInvocationArtifactInvalid
 	}
@@ -251,7 +279,12 @@ func EqualRecords(left, right Record) bool {
 	return left == right
 }
 
-func readObject(ctx context.Context, reader ObjectReader, record Record) ([]byte, error) {
+func readObject(
+	ctx context.Context,
+	reader ObjectReader,
+	record Record,
+	maximumBytes int64,
+) ([]byte, error) {
 	object, err := reader.OpenInvocationArtifactObject(ctx, record.ObjectKey)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -259,7 +292,7 @@ func readObject(ctx context.Context, reader ObjectReader, record Record) ([]byte
 		}
 		return nil, ErrInvocationArtifactUnavailable
 	}
-	content, readErr := io.ReadAll(io.LimitReader(object, MaximumInvocationArtifactBytes+1))
+	content, readErr := io.ReadAll(io.LimitReader(object, maximumBytes+1))
 	closeErr := object.Close()
 	if readErr != nil || closeErr != nil {
 		if ctx.Err() != nil {
@@ -267,14 +300,16 @@ func readObject(ctx context.Context, reader ObjectReader, record Record) ([]byte
 		}
 		return nil, ErrInvocationArtifactUnavailable
 	}
-	if int64(len(content)) != record.SizeBytes || verifyContent(content, record.Digest) != nil {
+	if int64(len(content)) > maximumBytes ||
+		int64(len(content)) != record.SizeBytes ||
+		verifyContent(content, record.Digest) != nil {
 		return nil, ErrInvocationArtifactConflict
 	}
 	return content, nil
 }
 
 func verifyContent(content []byte, digest string) error {
-	if len(content) > MaximumInvocationArtifactBytes || !digestPattern.MatchString(digest) {
+	if !digestPattern.MatchString(digest) {
 		return ErrInvocationArtifactInvalid
 	}
 	actual := sha256.Sum256(content)
