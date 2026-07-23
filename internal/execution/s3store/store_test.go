@@ -211,7 +211,7 @@ func TestStoreValidatesEndpointAndAddressing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new virtual-hosted store: %v", err)
 	}
-	objectURL, err := store.objectURL(objectKey)
+	objectURL, err := store.objectURL(objectKey, "enforcement-bundles/v1/")
 	if err != nil {
 		t.Fatalf("object URL: %v", err)
 	}
