@@ -20,14 +20,22 @@ type invocationRuntimeOutput struct {
 	structured bool
 	text       bytes.Buffer
 	seen       map[uint64]struct{}
+	validator  *invocationRuntimeOutputSchema
 	invalid    bool
 }
 
-func newInvocationRuntimeOutput(outputSchema map[string]any) *invocationRuntimeOutput {
+func newInvocationRuntimeOutput(
+	outputSchema map[string]any,
+) (*invocationRuntimeOutput, error) {
+	validator, err := compileInvocationRuntimeOutputSchema(outputSchema)
+	if err != nil {
+		return nil, err
+	}
 	return &invocationRuntimeOutput{
 		structured: outputSchema != nil,
 		seen:       make(map[uint64]struct{}),
-	}
+		validator:  validator,
+	}, nil
 }
 
 // Observe accepts only events already acknowledged by the fenced event sink.
@@ -73,6 +81,9 @@ func (output *invocationRuntimeOutput) Result() (map[string]any, error) {
 		var trailing any
 		if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 			return nil, ErrInvocationRuntimeOutputInvalid
+		}
+		if err := output.validator.Validate(value); err != nil {
+			return nil, errors.Join(ErrInvocationRuntimeOutputInvalid, err)
 		}
 	}
 	result := map[string]any{"status": "succeeded", "output": value}
