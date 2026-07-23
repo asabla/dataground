@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/asabla/dataground/internal/artifact"
 	"github.com/asabla/dataground/internal/domain"
 	"github.com/asabla/dataground/internal/execution"
 	"github.com/asabla/dataground/internal/identity"
@@ -265,6 +266,7 @@ func TestInvocationRuntimeDriverChecksPreconditionsBeforeReservation(t *testing.
 				}},
 				provider,
 				&runtimeAdapterFactoryStub{},
+				&runtimeArtifactFinalizerStub{},
 				InvocationRuntimeDriverConfig{LeaseDuration: time.Minute, RenewInterval: time.Second},
 			)
 			if err != nil {
@@ -306,6 +308,7 @@ func newRuntimeDriverForTest(
 		executions,
 		provider,
 		adapters,
+		&runtimeArtifactFinalizerStub{},
 		InvocationRuntimeDriverConfig{LeaseDuration: time.Minute, RenewInterval: time.Second},
 	)
 	if err != nil {
@@ -503,6 +506,25 @@ func (stub *runtimeProviderStub) StartRuntime(
 ) (execution.RuntimeSession, error) {
 	stub.startCalls++
 	return runtimeSessionStub{}, stub.startErr
+}
+
+func (stub *runtimeProviderStub) Export(
+	_ context.Context,
+	request execution.ExportRequest,
+) (execution.ExportResult, error) {
+	return execution.ExportResult{
+		IsolationDomainID: request.IsolationDomainID,
+		ExecutionID:       request.ExecutionID,
+	}, nil
+}
+
+type runtimeArtifactFinalizerStub struct{}
+
+func (*runtimeArtifactFinalizerStub) Finalize(
+	_ context.Context,
+	finalization artifact.Finalization,
+) (artifact.Record, error) {
+	return finalization.Binding.Record, nil
 }
 
 type runtimeAdapterFactoryStub struct {
