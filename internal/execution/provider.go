@@ -113,13 +113,12 @@ type ExportRequest struct {
 	IsolationDomainID string
 	ExecutionID       string
 	SandboxPath       string
-	Destination       string
 }
 
 type ExportResult struct {
 	IsolationDomainID string `json:"isolationDomainId"`
 	ExecutionID       string `json:"executionId"`
-	Destination       string `json:"-"`
+	Content           []byte `json:"-"`
 }
 
 type Orphan struct {
