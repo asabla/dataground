@@ -18,7 +18,7 @@ const (
 )
 
 var (
-	ErrInvocationRuntimeProfileUnsupported  = errors.New("invocation runtime profile is unsupported")
+	ErrInvocationRuntimeProfileUnsupported = errors.New("invocation runtime profile is unsupported")
 	ErrInvocationRuntimeInputInvalid       = errors.New("invocation runtime input is invalid")
 )
 
