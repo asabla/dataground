@@ -4,14 +4,38 @@ import (
 	"context"
 	"errors"
 	"path"
+	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/asabla/dataground/internal/domain"
 	"github.com/asabla/dataground/internal/execution"
 	"github.com/asabla/dataground/internal/persistence"
 	dgruntime "github.com/asabla/dataground/internal/runtime"
 	"github.com/asabla/dataground/internal/runtime/codex"
+)
+
+const maximumInvocationRuntimeArtifacts = 32
+
+var invocationRuntimeArtifactIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}package reconcile
+
+import (
+	"context"
+	"errors"
+	"path"
+	"regexp"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/asabla/dataground/internal/domain"
+	"github.com/asabla/dataground/internal/execution"
+	"github.com/asabla/dataground/internal/persistence"
+	dgruntime "github.com/asabla/dataground/internal/runtime"
+	"github.com/asabla/dataground/internal/runtime/codex"
+)
+
 )
 
 var (
@@ -435,7 +459,58 @@ func validateInvocationRuntimeRequest(request dgruntime.StartRequest) error {
 	if strings.ContainsRune(request.Model, '\x00') {
 		return errors.New("invocation runtime model is invalid")
 	}
+	if err := validateInvocationRuntimeArtifacts(request.Artifacts); err != nil {
+		return err
+	}
+	if len(request.Artifacts) > 0 && request.SandboxMode != dgruntime.SandboxWorkspaceWrite {
+		return errors.New("invocation runtime artifacts require workspace-write sandboxing")
+	}
 	return nil
+}
+
+func validateInvocationRuntimeArtifacts(artifacts []dgruntime.ArtifactDeclaration) error {
+	if len(artifacts) > maximumInvocationRuntimeArtifacts {
+		return errors.New("invocation runtime artifact declarations exceed the limit")
+	}
+	seenIDs := make(map[string]struct{}, len(artifacts))
+	seenPaths := make(map[string]struct{}, len(artifacts))
+	for _, artifact := range artifacts {
+		if !invocationRuntimeArtifactIDPattern.MatchString(artifact.ID) ||
+			!validInvocationRuntimeArtifactText(artifact.Name, 255) ||
+			!validInvocationRuntimeArtifactText(artifact.MediaType, 255) ||
+			!validInvocationRuntimeArtifactKind(artifact.Kind) ||
+			!path.IsAbs(artifact.SandboxPath) ||
+			path.Clean(artifact.SandboxPath) != artifact.SandboxPath ||
+			strings.ContainsRune(artifact.SandboxPath, '\x00') {
+			return errors.New("invocation runtime artifact declaration is invalid")
+		}
+		if _, found := seenIDs[artifact.ID]; found {
+			return errors.New("invocation runtime artifact identifiers must be unique")
+		}
+		if _, found := seenPaths[artifact.SandboxPath]; found {
+			return errors.New("invocation runtime artifact paths must be unique")
+		}
+		seenIDs[artifact.ID] = struct{}{}
+		seenPaths[artifact.SandboxPath] = struct{}{}
+	}
+	return nil
+}
+
+func validInvocationRuntimeArtifactText(value string, maximumBytes int) bool {
+	return value != "" &&
+		len(value) <= maximumBytes &&
+		utf8.ValidString(value) &&
+		strings.TrimSpace(value) == value &&
+		!strings.ContainsAny(value, "\x00\r\n")
+}
+
+func validInvocationRuntimeArtifactKind(kind string) bool {
+	switch kind {
+	case "file", "structured-output", "event-payload", "log", "other":
+		return true
+	default:
+		return false
+	}
 }
 
 var _ EffectDriver = (*InvocationRuntimeDriver)(nil)
