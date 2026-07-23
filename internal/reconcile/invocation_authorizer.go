@@ -180,6 +180,7 @@ func cloneInvocationAuthorizationRuntime(request dgruntime.StartRequest) (dgrunt
 	if err != nil {
 		return dgruntime.StartRequest{}, ErrInvocationAuthorizationInvalid
 	}
+	cloned.OutputSchema = nil
 	if err := json.Unmarshal(encoded, &cloned.OutputSchema); err != nil {
 		return dgruntime.StartRequest{}, ErrInvocationAuthorizationInvalid
 	}
