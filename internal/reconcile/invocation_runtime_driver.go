@@ -422,7 +422,7 @@ func (driver *InvocationRuntimeDriver) publishInvocationArtifacts(
 		record := artifact.Record{
 			SchemaVersion:     artifact.InvocationArtifactSchemaV1,
 			IsolationDomainID: target.IsolationDomainID,
-			ID:                identity.Derived(
+			ID: identity.Derived(
 				"art",
 				target.IsolationDomainID+":"+target.InvocationID+":"+declaration.ID,
 			),
