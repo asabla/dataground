@@ -85,7 +85,7 @@ func New(config Config) (*Store, error) {
 }
 
 func (store *Store) OpenEnforcementObject(ctx context.Context, key string) (io.ReadCloser, error) {
-	objectURL, err := store.objectURL(key)
+	objectURL, err := store.objectURL(key, "enforcement-bundles/v1/")
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +127,7 @@ func (store *Store) PutEnforcementObjectIfAbsent(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	objectURL, err := store.objectURL(key)
+	objectURL, err := store.objectURL(key, "enforcement-bundles/v1/")
 	if err != nil {
 		return err
 	}
@@ -170,9 +170,9 @@ func (store *Store) PutEnforcementObjectIfAbsent(
 	return errUnavailable
 }
 
-func (store *Store) objectURL(key string) (string, error) {
-	if !validKey(key) {
-		return "", errors.New("invalid S3 enforcement-object key")
+func (store *Store) objectURL(key string, allowedPrefix string) (string, error) {
+	if !validKey(key, allowedPrefix) {
+		return "", errors.New("invalid S3 platform-object key")
 	}
 	object := *store.endpoint
 	if store.style == VirtualHostedStyle {
@@ -215,7 +215,7 @@ func validBucket(bucket string) bool {
 	return bucketPattern.MatchString(bucket) && !strings.Contains(bucket, "..") && net.ParseIP(bucket) == nil
 }
 
-func validKey(key string) bool {
+func validKey(key string, allowedPrefix string) bool {
 	if len(key) > 1024 || !keyPattern.MatchString(key) || strings.Contains(key, "//") ||
 		strings.Contains(key, `\`) {
 		return false
@@ -225,7 +225,7 @@ func validKey(key string) bool {
 			return false
 		}
 	}
-	return strings.HasPrefix(key, "enforcement-bundles/v1/")
+	return allowedPrefix != "" && strings.HasPrefix(key, allowedPrefix)
 }
 
 func isLoopbackHost(host string) bool {
