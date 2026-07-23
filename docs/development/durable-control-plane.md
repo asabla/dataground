@@ -64,5 +64,5 @@ Reconciler spans contain operation kind, stable operation ID, isolation-domain I
 
 - Public durable mode still uses the deterministic reference driver. Governed invocation start and cancellation drivers plus the durable runtime target, single-use attempt guard, and event sink are available for explicit composition, including version 2 repairs and cancellations with persisted effect principals, but no default worker configures an authorizer, object transport, gateway, private policy workspace, live runtime session, or termination route.
 - Outbox rows are written atomically but external webhook delivery is a later bounded state machine.
-- Authentication, Cedar authorization, provider credential brokering, object storage, and artifact content delivery are not implemented.
+- Authentication, Cedar authorization, provider credential brokering, object storage, and artifact content delivery are not implemented. The governed phases can share one opt-in provider-independent authorization decision contract that validates durable scope and clones normalized runtime inputs; no Cedar evaluator or default policy is configured.
 - The exact-schema startup rule means rolling mixed-version upgrades are intentionally unavailable until an expand/contract migration is tested.
