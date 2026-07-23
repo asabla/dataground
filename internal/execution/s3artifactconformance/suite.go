@@ -134,7 +134,7 @@ func requireConcurrentWinner(
 ) error {
 	left := conformanceObject(domainID, invocationID, artifactID, []byte("left"))
 	right := conformanceObject(domainID, invocationID, artifactID, []byte("right"))
-	right.key = left.key[:len(left.key)-64] + right.key[len(right.key)-64:]
+	right.key = left.key
 
 	start := make(chan struct{})
 	results := make(chan error, 2)
