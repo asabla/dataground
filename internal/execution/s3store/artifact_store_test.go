@@ -307,3 +307,4 @@ func newTestArtifactStore(t *testing.T, server *httptest.Server) *ArtifactStore 
 	}
 	return store
 }
+
