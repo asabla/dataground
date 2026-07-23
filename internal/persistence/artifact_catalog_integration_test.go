@@ -5,11 +5,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"net/http"
+	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/asabla/dataground/internal/artifact"
+	"github.com/asabla/dataground/internal/execution/s3store"
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/persistence"
 )
@@ -173,6 +177,124 @@ func TestInvocationArtifactCatalogIsFencedAtomicAuditedAndReplayable(t *testing.
 		t.Fatalf("public invocation artifact = (%#v, %v)", public, err)
 	}
 
+	if endpoint, bucket := os.Getenv("DATAGROUND_TEST_S3_ENDPOINT"), os.Getenv("DATAGROUND_TEST_S3_BUCKET"); endpoint != "" || bucket != "" {
+		if endpoint == "" || bucket == "" {
+			t.Fatal("invocation artifact S3 conformance configuration is incomplete")
+		}
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.Proxy = nil
+		defer transport.CloseIdleConnections()
+		store, err := s3store.New(s3store.Config{
+			Endpoint:             endpoint,
+			Bucket:               bucket,
+			AddressingStyle:      s3store.PathStyle,
+			AllowHTTPForLoopback: true,
+			HTTPClient:           &http.Client{Transport: transport, Timeout: 10 * time.Second},
+		})
+		if err != nil {
+			t.Fatalf("construct invocation artifact S3 store: %v", err)
+		}
+		objects, err := s3store.NewArtifactStore(store, 1024*1024)
+		if err != nil {
+			t.Fatalf("construct bounded invocation artifact store: %v", err)
+		}
+		finalizer, err := artifact.NewFinalizer(
+			repository,
+			objects,
+			objects,
+			artifact.FinalizerConfig{MaximumBytes: 1024 * 1024},
+		)
+		if err != nil {
+			t.Fatalf("construct invocation artifact finalizer: %v", err)
+		}
+		liveContent := []byte("composed invocation artifact recovery")
+		liveDigest := sha256.Sum256(liveContent)
+		liveRecord := record
+		liveRecord.ID = identity.New("art")
+		liveRecord.Name = "composed-recovery.txt"
+		liveRecord.SizeBytes = int64(len(liveContent))
+		liveRecord.Digest = "sha256:" + hex.EncodeToString(liveDigest[:])
+		liveRecord.ObjectKey = artifact.ObjectKey(liveRecord)
+		liveBinding := binding
+		liveBinding.Record = liveRecord
+		ambiguous := &acknowledgementLossCatalog{Catalog: repository}
+		uncertain, err := artifact.NewFinalizer(
+			ambiguous,
+			objects,
+			objects,
+			artifact.FinalizerConfig{MaximumBytes: 1024 * 1024},
+		)
+		if err != nil {
+			t.Fatalf("construct acknowledgement-loss finalizer: %v", err)
+		}
+		if _, err := uncertain.Finalize(ctx, artifact.Finalization{
+			Binding: liveBinding,
+			Content: liveContent,
+		}); !errors.Is(err, artifact.ErrInvocationArtifactUnavailable) {
+			t.Fatalf("lost catalog acknowledgement = %v, want unavailable", err)
+		}
+		if !ambiguous.lost {
+			t.Fatal("catalog acknowledgement was not lost after a durable bind")
+		}
+		const concurrentReplays = 8
+		results := make(chan error, concurrentReplays)
+		var group sync.WaitGroup
+		for range concurrentReplays {
+			group.Add(1)
+			go func() {
+				defer group.Done()
+				observed, err := finalizer.Finalize(ctx, artifact.Finalization{
+					Binding: liveBinding,
+					Content: liveContent,
+				})
+				if err == nil && !artifact.EqualRecords(observed, liveRecord) {
+					err = artifact.ErrInvocationArtifactConflict
+				}
+				results <- err
+			}()
+		}
+		group.Wait()
+		close(results)
+		for err := range results {
+			if err != nil {
+				t.Fatalf("concurrent artifact recovery: %v", err)
+			}
+		}
+		conflictingFinalization := artifact.Finalization{
+			Binding: liveBinding,
+			Content: []byte("different"),
+		}
+		if _, err := finalizer.Finalize(ctx, conflictingFinalization); !errors.Is(
+			err,
+			artifact.ErrInvocationArtifactInvalid,
+		) {
+			t.Fatalf("conflicting artifact recovery = %v, want invalid", err)
+		}
+		var liveObjects, liveDescriptors, liveAudits int
+		if err := pool.QueryRow(ctx, `
+			SELECT
+				(SELECT count(*) FROM invocation_artifact_objects
+				 WHERE isolation_domain_id = $1 AND id = $2),
+				(SELECT count(*) FROM artifacts
+				 WHERE isolation_domain_id = $1 AND id = $2),
+				(SELECT count(*) FROM audit_records
+				 WHERE isolation_domain_id = $1
+				   AND resource_type = 'invocation-artifact'
+				   AND resource_id = $2
+				   AND action = 'invocation-artifact.bind')
+		`, domainID, liveRecord.ID).Scan(&liveObjects, &liveDescriptors, &liveAudits); err != nil {
+			t.Fatalf("inspect composed invocation artifact recovery: %v", err)
+		}
+		if liveObjects != 1 || liveDescriptors != 1 || liveAudits != 1 {
+			t.Fatalf(
+				"composed invocation artifact recovery = objects %d, descriptors %d, audits %d",
+				liveObjects,
+				liveDescriptors,
+				liveAudits,
+			)
+		}
+	}
+
 	if _, err := pool.Exec(ctx, `
 		UPDATE invocation_execution_operations
 		SET lease_expires_at = $3
@@ -255,4 +377,24 @@ func TestInvocationArtifactCatalogIsFencedAtomicAuditedAndReplayable(t *testing.
 	); !errors.Is(err, artifact.ErrInvocationArtifactMissing) {
 		t.Fatalf("artifact after invocation deletion = %v, want missing", err)
 	}
+}
+
+type acknowledgementLossCatalog struct {
+	artifact.Catalog
+	lost bool
+}
+
+func (catalog *acknowledgementLossCatalog) BindInvocationArtifact(
+	ctx context.Context,
+	binding artifact.Binding,
+) (artifact.Record, error) {
+	bound, err := catalog.Catalog.BindInvocationArtifact(ctx, binding)
+	if err != nil {
+		return artifact.Record{}, err
+	}
+	if !catalog.lost {
+		catalog.lost = true
+		return artifact.Record{}, errors.New("catalog acknowledgement lost")
+	}
+	return bound, nil
 }
