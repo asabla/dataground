@@ -18,25 +18,7 @@ import (
 
 const maximumInvocationRuntimeArtifacts = 32
 
-var invocationRuntimeArtifactIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}package reconcile
-
-import (
-	"context"
-	"errors"
-	"path"
-	"regexp"
-	"strings"
-	"time"
-	"unicode/utf8"
-
-	"github.com/asabla/dataground/internal/domain"
-	"github.com/asabla/dataground/internal/execution"
-	"github.com/asabla/dataground/internal/persistence"
-	dgruntime "github.com/asabla/dataground/internal/runtime"
-	"github.com/asabla/dataground/internal/runtime/codex"
-)
-
-)
+var invocationRuntimeArtifactIDPattern = regexp.MustCompile("^[a-z][a-z0-9-]{0,62}$")
 
 var (
 	ErrInvocationRuntimeDenied              = errors.New("invocation runtime denied")
