@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"path"
 	"slices"
 	"sort"
 	"strings"
@@ -46,6 +47,7 @@ type Config struct {
 	Binary          string
 	ExpectedVersion string
 	PolicyWorkspace *PolicyWorkspace
+	ExportWorkspace *ExportWorkspace
 	Now             func() time.Time
 	StateStore      execution.StateStore
 }
@@ -57,6 +59,7 @@ type Provider struct {
 	binary    string
 	expected  string
 	workspace *PolicyWorkspace
+	exports   *ExportWorkspace
 	now       func() time.Time
 	store     execution.StateStore
 }
@@ -78,7 +81,7 @@ func New(config Config, runner Runner) *Provider {
 		store = execution.NewMemoryStateStore()
 	}
 	return &Provider{
-		runner: runner, binary: binary, expected: config.ExpectedVersion, workspace: config.PolicyWorkspace,
+		runner: runner, binary: binary, expected: config.ExpectedVersion, workspace: config.PolicyWorkspace, exports: config.ExportWorkspace,
 		now: now, store: store,
 	}
 }
@@ -299,19 +302,48 @@ func (provider *Provider) Logs(ctx context.Context, request execution.LogRequest
 }
 
 func (provider *Provider) Export(ctx context.Context, request execution.ExportRequest) (execution.ExportResult, error) {
+	if provider.exports == nil {
+		return execution.ExportResult{}, ErrExportWorkspaceUnavailable
+	}
+	if request.SandboxPath == "" || !path.IsAbs(request.SandboxPath) ||
+		path.Clean(request.SandboxPath) != request.SandboxPath ||
+		strings.ContainsRune(request.SandboxPath, '\x00') {
+		return execution.ExportResult{}, errors.New("sandbox export path must be clean and absolute")
+	}
 	ref := execution.ExecutionRef{IsolationDomainID: request.IsolationDomainID, ID: request.ExecutionID}
 	entry, gateway, err := provider.lookupExecution(ctx, ref)
 	if err != nil {
 		return execution.ExportResult{}, err
 	}
-	if request.SandboxPath == "" || request.Destination == "" {
-		return execution.ExportResult{}, errors.New("sandbox path and destination are required")
+	destination, cleanup, err := provider.exports.destination()
+	if err != nil {
+		return execution.ExportResult{}, err
 	}
-	result, err := provider.runner.Run(ctx, provider.binary, provider.gatewayArgs(gateway.Endpoint, "sandbox", "download", entry.SandboxName, request.SandboxPath, request.Destination)...)
-	if err != nil || result.ExitCode != 0 {
-		return execution.ExportResult{}, ErrProviderFailure
+	result, runErr := provider.runner.Run(
+		ctx,
+		provider.binary,
+		provider.gatewayArgs(
+			gateway.Endpoint,
+			"sandbox",
+			"download",
+			entry.SandboxName,
+			request.SandboxPath,
+			destination,
+		)...,
+	)
+	if runErr != nil || result.ExitCode != 0 {
+		return execution.ExportResult{}, errors.Join(ErrProviderFailure, cleanup())
 	}
-	return execution.ExportResult{IsolationDomainID: request.IsolationDomainID, ExecutionID: request.ExecutionID, Destination: request.Destination}, nil
+	content, consumeErr := provider.exports.consume(destination)
+	cleanupErr := cleanup()
+	if consumeErr != nil || cleanupErr != nil {
+		return execution.ExportResult{}, errors.Join(consumeErr, cleanupErr)
+	}
+	return execution.ExportResult{
+		IsolationDomainID: request.IsolationDomainID,
+		ExecutionID:       request.ExecutionID,
+		Content:           content,
+	}, nil
 }
 
 func (provider *Provider) Terminate(ctx context.Context, ref execution.ExecutionRef) error {
