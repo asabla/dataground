@@ -49,7 +49,7 @@ func TestInvocationAuthorizerMapsGovernedPhases(t *testing.T) {
 		t.Fatalf("authorize admission: %v", err)
 	}
 	runtimeRequest := dgruntime.StartRequest{
-		Prompt: "produce the result",
+		Prompt:       "produce the result",
 		OutputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{"result": map[string]any{"type": "string"}},
