@@ -110,6 +110,1361 @@ jobs:
           DATAGROUND_DATABASE_URL: ${{ env.DATAGROUND_TEST_DATABASE_URL }}
         run: go run ./cmd/dataground-migrate up
 
+      - name: Run composed invocation-artifact recovery
+        env:
+          DATAGROUND_TEST_S3_BUCKET: dataground-conformance
+          DATAGROUND_TEST_S3_ENDPOINT: http://127.0.0.1:8333
+        run: >-
+          go test ./internal/persistence
+          -run '^TestInvocationArtifactCatalogIsFencedAtomicAuditedAndReplayable
+        run: >-
+          go run ./cmd/dataground-enforcement-recovery-conformance
+          --phase prepare
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id fedcba9876543210fedcba9876543210
+          --allow-loopback-http
+
+      - name: Exercise object-store outage
+        run: |
+          docker compose -f deploy/storage/seaweedfs-conformance.yml stop seaweedfs
+          go run ./cmd/dataground-enforcement-recovery-conformance \
+            --phase outage \
+            --endpoint http://127.0.0.1:8333 \
+            --bucket dataground-conformance \
+            --addressing-style path \
+            --run-id fedcba9876543210fedcba9876543210 \
+            --allow-loopback-http
+
+      - name: Recreate storage and restart database boundaries
+        run: |
+          docker compose -f deploy/storage/seaweedfs-conformance.yml rm --force seaweedfs
+          docker compose -f deploy/storage/seaweedfs-conformance.yml up --detach seaweedfs
+          docker compose -f deploy/storage/seaweedfs-conformance.yml restart postgres
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8333/ >/dev/null \
+              && docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+                pg_isready --username dataground --dbname dataground_conformance >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker compose -f deploy/storage/seaweedfs-conformance.yml logs
+          exit 1
+
+      - name: Recover PostgreSQL catalog binding concurrently
+        run: >-
+          go run ./cmd/dataground-enforcement-recovery-conformance
+          --phase recover
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id fedcba9876543210fedcba9876543210
+          --allow-loopback-http
+
+      - name: Prepare ambiguous catalog commit
+        run: >-
+          go run ./cmd/dataground-enforcement-recovery-conformance
+          --phase prepare
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id 00112233445566778899aabbccddeeff
+          --allow-loopback-http
+
+      - name: Terminate after committed catalog transaction
+        run: |
+          runner="$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          stdout="$RUNNER_TEMP/catalog-commit-loss.stdout"
+          stderr="$RUNNER_TEMP/catalog-commit-loss.stderr"
+          go build -o "$runner" ./cmd/dataground-enforcement-recovery-conformance
+          set +e
+          "$runner" \
+            --phase commit-loss \
+            --endpoint http://127.0.0.1:8333 \
+            --bucket dataground-conformance \
+            --addressing-style path \
+            --run-id 00112233445566778899aabbccddeeff \
+            --allow-loopback-http >"$stdout" 2>"$stderr"
+          status=$?
+          set -e
+          if [ "$status" -ne 86 ] || [ -s "$stdout" ] || [ -s "$stderr" ]; then
+            echo "catalog commit-loss injection failed"
+            exit 1
+          fi
+
+      - name: Recover ambiguous catalog commit
+        run: >-
+          "$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          --phase committed-recover
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id 00112233445566778899aabbccddeeff
+          --allow-loopback-http
+
+      - name: Prepare commit-connection-loss scope
+        run: >-
+          "$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          --phase prepare
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id aabbccddeeff00112233445566778899
+          --allow-loopback-http
+
+      - name: Lose PostgreSQL commit acknowledgement
+        run: >-
+          "$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          --phase commit-connection-loss
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id aabbccddeeff00112233445566778899
+          --allow-loopback-http
+
+      - name: Observe and recover ambiguous commit
+        run: >-
+          "$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          --phase connection-loss-recover
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id aabbccddeeff00112233445566778899
+          --allow-loopback-http
+
+      - name: Prepare pre-durability connection-loss scope
+        run: >-
+          "$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          --phase prepare
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id 11223344556677889900aabbccddeeff
+          --allow-loopback-http
+
+      - name: Lose PostgreSQL connection before commit durability
+        run: >-
+          "$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          --phase pre-commit-connection-loss
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id 11223344556677889900aabbccddeeff
+          --allow-loopback-http
+
+      - name: Observe rollback and adopt retained object
+        run: >-
+          "$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          --phase rolled-back-recover
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id 11223344556677889900aabbccddeeff
+          --allow-loopback-http
+
+      - name: Stop disposable conformance backends
+        if: always()
+        run: docker compose -f deploy/storage/seaweedfs-conformance.yml down --volumes
+
+  postgres-failover-conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATAGROUND_ROUTED_DATABASE_URL: postgres://dataground:dataground@127.0.0.1:55431/dataground_conformance?sslmode=disable
+      DATAGROUND_REJOINED_DATABASE_URL: postgres://dataground:dataground@127.0.0.1:55432/dataground_conformance?sslmode=disable
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: .go-version
+
+      - name: Start disposable streaming-replication pair
+        run: >-
+          docker compose -f deploy/storage/seaweedfs-conformance.yml
+          --profile postgres-failover up --detach
+
+      - name: Wait for primary and physical standby
+        run: |
+          for attempt in {1..30}; do
+            primary_ready=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+              psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+              --command 'SELECT NOT pg_is_in_recovery()' 2>/dev/null || true)
+            standby_ready=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+              psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+              --command 'SELECT pg_is_in_recovery()' 2>/dev/null || true)
+            if curl --fail --silent http://127.0.0.1:8333/ >/dev/null \
+              && [ "$primary_ready" = "t" ] && [ "$standby_ready" = "t" ]; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker compose -f deploy/storage/seaweedfs-conformance.yml logs
+          exit 1
+
+      - name: Capture initial PostgreSQL promotion generation
+        run: |
+          generation=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+            psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+            --command "SELECT (pg_split_walfile_name(pg_walfile_name(pg_current_wal_lsn()))).timeline_id")
+          if [[ ! "$generation" =~ ^[1-9][0-9]*$ ]]; then
+            echo "could not establish the initial PostgreSQL promotion generation"
+            exit 1
+          fi
+          printf '%s\n' "$generation" >"$RUNNER_TEMP/postgres-primary-generation"
+
+      - name: Start stable loopback database endpoint
+        env:
+          DATAGROUND_ROUTER_HEALTH_DATABASE_URL: postgres://dataground_health:dataground-health@127.0.0.1:55431/dataground_conformance?sslmode=disable
+        run: |
+          router="$RUNNER_TEMP/dataground-postgres-route-conformance"
+          workspace="$RUNNER_TEMP/dataground-postgres-route"
+          control="$workspace/control.sock"
+          state="$workspace/state.json"
+          install -d -m 700 "$workspace"
+          go build -o "$router" ./cmd/dataground-postgres-route-conformance
+          "$router" \
+            --mode manage \
+            --listen-address 127.0.0.1:55431 \
+            --control-socket "$control" \
+            --state-file "$state" \
+            --primary-target 127.0.0.1:55432 \
+            --promoted-target 127.0.0.1:55433 \
+            --route primary \
+            --promotion-generation "$(cat "$RUNNER_TEMP/postgres-primary-generation")" \
+            >"$RUNNER_TEMP/postgres-route-manager.stdout" \
+            2>"$RUNNER_TEMP/postgres-route-manager.stderr" &
+          printf '%s\n' "$!" >"$RUNNER_TEMP/postgres-route-manager.pid"
+          for attempt in {1..30}; do
+            state_status=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
+            manager_state=$(cat "$RUNNER_TEMP/postgres-route-manager.stdout")
+            if [ "$state_status" = "primary $(cat "$RUNNER_TEMP/postgres-primary-generation")" ] \
+              && [ "$manager_state" = "supervisor-ready" ]; then
+              exit 0
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-route-manager.pid")" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          echo "stable database endpoint did not become ready"
+          exit 1
+
+      - name: Migrate primary database
+        env:
+          DATAGROUND_DATABASE_URL: ${{ env.DATAGROUND_ROUTED_DATABASE_URL }}
+        run: go run ./cmd/dataground-migrate up
+
+      - name: Prepare failover recovery scope on primary
+        env:
+          DATAGROUND_TEST_DATABASE_URL: ${{ env.DATAGROUND_ROUTED_DATABASE_URL }}
+        run: >-
+          go run ./cmd/dataground-enforcement-recovery-conformance
+          --phase prepare
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id 223344556677889900aabbccddeeff11
+          --allow-loopback-http
+
+      - name: Require standby replay through prepared state
+        run: |
+          target_lsn=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+            psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+            --command 'SELECT pg_current_wal_lsn()')
+          if [[ ! "$target_lsn" =~ ^[0-9A-F]+/[0-9A-F]+$ ]]; then
+            echo "could not establish the primary WAL boundary"
+            exit 1
+          fi
+          for attempt in {1..30}; do
+            replayed=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+              psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+              --command "SELECT pg_last_wal_replay_lsn() >= '$target_lsn'::pg_lsn" 2>/dev/null || true)
+            if [ "$replayed" = "t" ]; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "standby did not replay the prepared primary state"
+          exit 1
+
+      - name: Start long-lived pool through stable endpoint
+        env:
+          DATAGROUND_TEST_DATABASE_URL: ${{ env.DATAGROUND_ROUTED_DATABASE_URL }}
+        run: |
+          pool_stdout="$RUNNER_TEMP/postgres-pool.stdout"
+          pool_stderr="$RUNNER_TEMP/postgres-pool.stderr"
+          "$RUNNER_TEMP/dataground-postgres-route-conformance" \
+            --mode pool >"$pool_stdout" 2>"$pool_stderr" &
+          printf '%s\n' "$!" >"$RUNNER_TEMP/postgres-pool.pid"
+          for attempt in {1..45}; do
+            if grep --fixed-strings --line-regexp --quiet \
+              'pool-primary-ready' "$pool_stdout"; then
+              exit 0
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-pool.pid")" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          echo "long-lived database pool did not establish primary sessions"
+          exit 1
+
+      - name: Stop primary and promote standby
+        run: |
+          docker compose -f deploy/storage/seaweedfs-conformance.yml stop postgres
+          if docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+            pg_isready --host postgres --port 5432 --username dataground >/dev/null 2>&1; then
+            echo "stopped primary remained reachable"
+            exit 1
+          fi
+          if DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+            "$RUNNER_TEMP/dataground-postgres-route-conformance" --mode role \
+              >/dev/null 2>&1; then
+            echo "stable database endpoint remained usable before route change"
+            exit 1
+          fi
+          for attempt in {1..45}; do
+            if grep --fixed-strings --line-regexp --quiet \
+              'pool-failure-observed' "$RUNNER_TEMP/postgres-pool.stdout"; then
+              break
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-pool.pid")" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if ! grep --fixed-strings --line-regexp --quiet \
+            'pool-failure-observed' "$RUNNER_TEMP/postgres-pool.stdout"; then
+            echo "long-lived database pool did not observe primary loss"
+            exit 1
+          fi
+          if "$RUNNER_TEMP/dataground-postgres-route-conformance" \
+            --mode select \
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route/control.sock" \
+            --promotion-generation "$(cat "$RUNNER_TEMP/postgres-primary-generation")" \
+            >/dev/null 2>&1; then
+            echo "stable database endpoint selected a target before promotion"
+            exit 1
+          fi
+          route=$("$RUNNER_TEMP/dataground-postgres-route-conformance" \
+            --mode status \
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route/control.sock")
+          if [ "$route" != "primary" ]; then
+            echo "failed health selection changed the stable database route"
+            exit 1
+          fi
+          docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+            pg_ctl promote --pgdata /var/lib/postgresql/data/pgdata --wait
+          promoted=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+            psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+            --command 'SELECT NOT pg_is_in_recovery()')
+          if [ "$promoted" != "t" ]; then
+            echo "standby promotion was not observed"
+            exit 1
+          fi
+          initial_generation=$(cat "$RUNNER_TEMP/postgres-primary-generation")
+          promoted_generation=$(docker compose -f deploy/storage/seaweedfs-conformance.yml \
+            exec -T postgres-standby psql --username dataground \
+            --dbname dataground_conformance --tuples-only --no-align \
+            --command "SELECT (pg_split_walfile_name(pg_walfile_name(pg_current_wal_lsn()))).timeline_id")
+          if [[ ! "$promoted_generation" =~ ^[1-9][0-9]*$ ]] \
+            || (( promoted_generation <= initial_generation )); then
+            echo "promoted standby did not advance the PostgreSQL promotion generation"
+            exit 1
+          fi
+          if "$RUNNER_TEMP/dataground-postgres-route-conformance" \
+            --mode select \
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route/control.sock" \
+            --promotion-generation "$initial_generation" \
+            >/dev/null 2>&1; then
+            echo "stable database endpoint accepted a stale promotion generation"
+            exit 1
+          fi
+          route=$("$RUNNER_TEMP/dataground-postgres-route-conformance" \
+            --mode status \
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route/control.sock")
+          if [ "$route" != "primary" ]; then
+            echo "stale promotion generation changed the stable database route"
+            exit 1
+          fi
+          printf '%s\n' "$promoted_generation" \
+            >"$RUNNER_TEMP/postgres-promoted-generation"
+
+      - name: Confirm promoted standby generation and health
+        run: |
+          router="$RUNNER_TEMP/dataground-postgres-route-conformance"
+          control="$RUNNER_TEMP/dataground-postgres-route/control.sock"
+          selected=$("$router" \
+            --mode select \
+            --control-socket "$control" \
+            --promotion-generation "$(cat "$RUNNER_TEMP/postgres-promoted-generation")")
+          route=$("$router" --mode status --control-socket "$control")
+          role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+            "$router" --mode role)
+          if [ "$selected" != "promoted" ] || [ "$route" != "promoted" ] \
+            || [ "$role" != "writable-primary" ]; then
+            echo "stable database endpoint did not select the promoted node"
+            exit 1
+          fi
+          for attempt in {1..45}; do
+            if grep --fixed-strings --line-regexp --quiet \
+              'pool-promoted-ready' "$RUNNER_TEMP/postgres-pool.stdout"; then
+              break
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-pool.pid")" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          expected_pool_states=$'pool-primary-ready\npool-failure-observed\npool-promoted-ready'
+          observed_pool_states=$(cat "$RUNNER_TEMP/postgres-pool.stdout")
+          if [ "$observed_pool_states" != "$expected_pool_states" ] \
+            || [ -s "$RUNNER_TEMP/postgres-pool.stderr" ]; then
+            echo "long-lived database pool did not reconnect through the stable endpoint"
+            exit 1
+          fi
+
+      - name: Supervise stable endpoint after router process loss
+        env:
+          DATAGROUND_ROUTER_HEALTH_DATABASE_URL: postgres://dataground_health:dataground-health@127.0.0.1:55431/dataground_conformance?sslmode=disable
+        run: |
+          router="$RUNNER_TEMP/dataground-postgres-route-conformance"
+          workspace="$RUNNER_TEMP/dataground-postgres-route"
+          control="$workspace/control.sock"
+          state="$workspace/state.json"
+          expected="promoted $(cat "$RUNNER_TEMP/postgres-promoted-generation")"
+          state_before=$(cat "$state")
+          observed=$("$router" --mode state --control-socket "$control")
+          if [ "$observed" != "$expected" ]; then
+            echo "stable database endpoint did not persist the promoted state"
+            exit 1
+          fi
+          manager_pid=$(cat "$RUNNER_TEMP/postgres-route-manager.pid")
+          supervisor_pid=$(pgrep --parent "$manager_pid" || true)
+          child_pid=$(pgrep --parent "$supervisor_pid" || true)
+          if [[ ! "$supervisor_pid" =~ ^[1-9][0-9]*$ ]] \
+            || [[ ! "$child_pid" =~ ^[1-9][0-9]*$ ]]; then
+            echo "route manager did not own exactly one supervisor and router child"
+            exit 1
+          fi
+          kill -KILL "$child_pid"
+          for attempt in {1..30}; do
+            if ! kill -0 "$child_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if kill -0 "$child_pid" 2>/dev/null \
+            || ! kill -0 "$manager_pid" 2>/dev/null \
+            || ! kill -0 "$supervisor_pid" 2>/dev/null \
+            || [ ! -S "$control" ]; then
+            echo "router process loss did not leave the expected recoverable boundary"
+            exit 1
+          fi
+          if "$router" --mode state --control-socket "$control" >/dev/null 2>&1; then
+            echo "route manager reported readiness before router recovery"
+            exit 1
+          fi
+          if DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+            "$router" --mode role >/dev/null 2>&1; then
+            echo "stable database endpoint remained usable after router process loss"
+            exit 1
+          fi
+          for attempt in {1..30}; do
+            recovered=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
+            role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+              "$router" --mode role 2>/dev/null || true)
+            replacement_child=$(pgrep --parent "$supervisor_pid" || true)
+            if [ "$recovered" = "$expected" ] && [ "$role" = "writable-primary" ] \
+              && [[ "$replacement_child" =~ ^[1-9][0-9]*$ ]] \
+              && [ "$replacement_child" != "$child_pid" ]; then
+              break
+            fi
+            if ! kill -0 "$manager_pid" 2>/dev/null \
+              || ! kill -0 "$supervisor_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if [ "$recovered" != "$expected" ] || [ "$role" != "writable-primary" ] \
+            || [[ ! "$replacement_child" =~ ^[1-9][0-9]*$ ]] \
+            || [ "$replacement_child" = "$child_pid" ] \
+            || [ "$(cat "$state")" != "$state_before" ] \
+            || [ "$(cat "$RUNNER_TEMP/postgres-route-manager.stdout")" != "supervisor-ready" ] \
+            || [ -s "$RUNNER_TEMP/postgres-route-manager.stderr" ] \
+            || [ "$(stat --format '%a' "$workspace")" != "700" ] \
+            || [ "$(stat --format '%a' "$state")" != "600" ] \
+            || [ "$(stat --format '%a' "$state.lock")" != "600" ] \
+            || [ "$(stat --format '%a' "$state.manager.lock")" != "600" ] \
+            || [ "$(stat --format '%a' "$state.supervisor.lock")" != "600" ] \
+            || [ "$(stat --format '%a' "$control")" != "600" ]; then
+            echo "stable database endpoint did not recover its exact private state"
+            exit 1
+          fi
+
+      - name: Reject concurrent route supervisor contender
+        env:
+          DATAGROUND_ROUTER_HEALTH_DATABASE_URL: postgres://dataground_health:dataground-health@127.0.0.1:55431/dataground_conformance?sslmode=disable
+        run: |
+          router="$RUNNER_TEMP/dataground-postgres-route-conformance"
+          workspace="$RUNNER_TEMP/dataground-postgres-route"
+          control="$workspace/control.sock"
+          state="$workspace/state.json"
+          ownership="$state.supervisor.lock"
+          expected="promoted $(cat "$RUNNER_TEMP/postgres-promoted-generation")"
+          state_before=$(cat "$state")
+          manager_pid=$(cat "$RUNNER_TEMP/postgres-route-manager.pid")
+          supervisor_pid=$(pgrep --parent "$manager_pid" || true)
+          child_pid=$(pgrep --parent "$supervisor_pid" || true)
+          if [[ ! "$supervisor_pid" =~ ^[1-9][0-9]*$ ]] \
+            || [[ ! "$child_pid" =~ ^[1-9][0-9]*$ ]]; then
+            echo "active route manager hierarchy was incomplete"
+            exit 1
+          fi
+          if "$router" \
+            --mode supervise \
+            --listen-address 127.0.0.1:55431 \
+            --control-socket "$control" \
+            --state-file "$state" \
+            --primary-target 127.0.0.1:55432 \
+            --promoted-target 127.0.0.1:55433 \
+            >"$RUNNER_TEMP/postgres-route-contender.stdout" \
+            2>"$RUNNER_TEMP/postgres-route-contender.stderr"; then
+            echo "concurrent route supervisor acquired active ownership"
+            exit 1
+          fi
+          active_supervisor=$(pgrep --parent "$manager_pid" || true)
+          active_child=$(pgrep --parent "$supervisor_pid" || true)
+          observed=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
+          role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+            "$router" --mode role 2>/dev/null || true)
+          if ! kill -0 "$manager_pid" 2>/dev/null \
+            || [ "$active_supervisor" != "$supervisor_pid" ] \
+            || [ "$active_child" != "$child_pid" ] \
+            || [ "$(cat "$state")" != "$state_before" ] \
+            || [ "$observed" != "$expected" ] \
+            || [ "$role" != "writable-primary" ] \
+            || [ "$(cat "$RUNNER_TEMP/postgres-route-manager.stdout")" != "supervisor-ready" ] \
+            || [ -s "$RUNNER_TEMP/postgres-route-contender.stdout" ] \
+            || [ "$(cat "$RUNNER_TEMP/postgres-route-contender.stderr")" != \
+              "PostgreSQL route supervision failed" ] \
+            || [ "$(stat --format '%a' "$ownership")" != "600" ]; then
+            echo "route supervisor contender disturbed the active ownership boundary"
+            exit 1
+          fi
+
+      - name: Reject concurrent route manager contender
+        env:
+          DATAGROUND_ROUTER_HEALTH_DATABASE_URL: postgres://dataground_health:dataground-health@127.0.0.1:55431/dataground_conformance?sslmode=disable
+        run: |
+          router="$RUNNER_TEMP/dataground-postgres-route-conformance"
+          workspace="$RUNNER_TEMP/dataground-postgres-route"
+          control="$workspace/control.sock"
+          state="$workspace/state.json"
+          expected="promoted $(cat "$RUNNER_TEMP/postgres-promoted-generation")"
+          state_before=$(cat "$state")
+          manager_pid=$(cat "$RUNNER_TEMP/postgres-route-manager.pid")
+          supervisor_pid=$(pgrep --parent "$manager_pid" || true)
+          child_pid=$(pgrep --parent "$supervisor_pid" || true)
+          if [[ ! "$supervisor_pid" =~ ^[1-9][0-9]*$ ]] \
+            || [[ ! "$child_pid" =~ ^[1-9][0-9]*$ ]]; then
+            echo "active route manager hierarchy was incomplete before manager contention"
+            exit 1
+          fi
+          set +e
+          timeout --signal=KILL 5s "$router" \
+            --mode manage \
+            --listen-address 127.0.0.1:55431 \
+            --control-socket "$control" \
+            --state-file "$state" \
+            --primary-target 127.0.0.1:55432 \
+            --promoted-target 127.0.0.1:55433 \
+            >"$RUNNER_TEMP/postgres-route-manager-contender.stdout" \
+            2>"$RUNNER_TEMP/postgres-route-manager-contender.stderr"
+          contender_status=$?
+          set -e
+          active_supervisor=$(pgrep --parent "$manager_pid" || true)
+          active_child=$(pgrep --parent "$supervisor_pid" || true)
+          observed=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
+          role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+            "$router" --mode role 2>/dev/null || true)
+          if [ "$contender_status" -ne 1 ] \
+            || ! kill -0 "$manager_pid" 2>/dev/null \
+            || [ "$active_supervisor" != "$supervisor_pid" ] \
+            || [ "$active_child" != "$child_pid" ] \
+            || [ "$(cat "$state")" != "$state_before" ] \
+            || [ "$observed" != "$expected" ] \
+            || [ "$role" != "writable-primary" ] \
+            || [ "$(cat "$RUNNER_TEMP/postgres-route-manager.stdout")" != "supervisor-ready" ] \
+            || [ -s "$RUNNER_TEMP/postgres-route-manager-contender.stdout" ] \
+            || [ "$(cat "$RUNNER_TEMP/postgres-route-manager-contender.stderr")" != \
+              "PostgreSQL route manager failed" ] \
+            || [ "$(stat --format '%a' "$state.manager.lock")" != "600" ] \
+            || [ "$(stat --format '%a' "$state.supervisor.lock")" != "600" ]; then
+            echo "route manager contender disturbed the active ownership boundary"
+            exit 1
+          fi
+
+      - name: Automatically replace supervisor after process loss
+        env:
+          DATAGROUND_ROUTER_HEALTH_DATABASE_URL: postgres://dataground_health:dataground-health@127.0.0.1:55431/dataground_conformance?sslmode=disable
+        run: |
+          router="$RUNNER_TEMP/dataground-postgres-route-conformance"
+          workspace="$RUNNER_TEMP/dataground-postgres-route"
+          control="$workspace/control.sock"
+          state="$workspace/state.json"
+          expected="promoted $(cat "$RUNNER_TEMP/postgres-promoted-generation")"
+          expected_manager_states=$'supervisor-ready\nsupervisor-restart-scheduled\nsupervisor-ready'
+          state_before=$(cat "$state")
+          process_alive() {
+            local process_state
+            process_state=$(ps --no-headers --format stat --pid "$1" 2>/dev/null | tr -d '[:space:]')
+            [ -n "$process_state" ] && [[ "$process_state" != Z* ]]
+          }
+          manager_pid=$(cat "$RUNNER_TEMP/postgres-route-manager.pid")
+          supervisor_pid=$(pgrep --parent "$manager_pid" || true)
+          child_pid=$(pgrep --parent "$supervisor_pid" || true)
+          if [[ ! "$supervisor_pid" =~ ^[1-9][0-9]*$ ]] \
+            || [[ ! "$child_pid" =~ ^[1-9][0-9]*$ ]]; then
+            echo "route manager did not own the expected process hierarchy"
+            exit 1
+          fi
+          kill -KILL "$supervisor_pid"
+          for attempt in {1..30}; do
+            manager_states=$(cat "$RUNNER_TEMP/postgres-route-manager.stdout")
+            if ! process_alive "$supervisor_pid" && ! process_alive "$child_pid" \
+              && [ "$manager_states" = $'supervisor-ready\nsupervisor-restart-scheduled' ]; then
+              break
+            fi
+            sleep 0.1
+          done
+          if process_alive "$supervisor_pid" || process_alive "$child_pid" \
+            || ! process_alive "$manager_pid" \
+            || [ "$manager_states" != $'supervisor-ready\nsupervisor-restart-scheduled' ]; then
+            echo "supervisor process loss did not enter bounded replacement backoff"
+            exit 1
+          fi
+          if "$router" --mode state --control-socket "$control" >/dev/null 2>&1; then
+            echo "route manager reported readiness before supervisor replacement"
+            exit 1
+          fi
+          if DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+            "$router" --mode role >/dev/null 2>&1; then
+            echo "supervisor process loss left the stable database endpoint available"
+            exit 1
+          fi
+          for attempt in {1..30}; do
+            replacement_supervisor=$(pgrep --parent "$manager_pid" || true)
+            replacement_child=$(pgrep --parent "$replacement_supervisor" || true)
+            recovered=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
+            role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+              "$router" --mode role 2>/dev/null || true)
+            manager_states=$(cat "$RUNNER_TEMP/postgres-route-manager.stdout")
+            if [[ "$replacement_supervisor" =~ ^[1-9][0-9]*$ ]] \
+              && [ "$replacement_supervisor" != "$supervisor_pid" ] \
+              && [[ "$replacement_child" =~ ^[1-9][0-9]*$ ]] \
+              && [ "$recovered" = "$expected" ] && [ "$role" = "writable-primary" ] \
+              && [ "$manager_states" = "$expected_manager_states" ]; then
+              break
+            fi
+            if ! process_alive "$manager_pid"; then
+              break
+            fi
+            sleep 1
+          done
+          if [[ ! "$replacement_supervisor" =~ ^[1-9][0-9]*$ ]] \
+            || [ "$replacement_supervisor" = "$supervisor_pid" ] \
+            || [[ ! "$replacement_child" =~ ^[1-9][0-9]*$ ]] \
+            || [ "$recovered" != "$expected" ] || [ "$role" != "writable-primary" ] \
+            || [ "$(cat "$state")" != "$state_before" ] \
+            || [ "$manager_states" != "$expected_manager_states" ] \
+            || [ -s "$RUNNER_TEMP/postgres-route-manager.stderr" ]; then
+            echo "route manager did not restore the exact persisted supervisor boundary"
+            exit 1
+          fi
+
+      - name: Replace manager after parent process loss
+        env:
+          DATAGROUND_ROUTER_HEALTH_DATABASE_URL: postgres://dataground_health:dataground-health@127.0.0.1:55431/dataground_conformance?sslmode=disable
+        run: |
+          router="$RUNNER_TEMP/dataground-postgres-route-conformance"
+          workspace="$RUNNER_TEMP/dataground-postgres-route"
+          control="$workspace/control.sock"
+          state="$workspace/state.json"
+          expected="promoted $(cat "$RUNNER_TEMP/postgres-promoted-generation")"
+          state_before=$(cat "$state")
+          process_alive() {
+            local process_state
+            process_state=$(ps --no-headers --format stat --pid "$1" 2>/dev/null | tr -d '[:space:]')
+            [ -n "$process_state" ] && [[ "$process_state" != Z* ]]
+          }
+          manager_pid=$(cat "$RUNNER_TEMP/postgres-route-manager.pid")
+          supervisor_pid=$(pgrep --parent "$manager_pid" || true)
+          child_pid=$(pgrep --parent "$supervisor_pid" || true)
+          if [[ ! "$supervisor_pid" =~ ^[1-9][0-9]*$ ]] \
+            || [[ ! "$child_pid" =~ ^[1-9][0-9]*$ ]]; then
+            echo "route manager did not own the expected hierarchy before parent loss"
+            exit 1
+          fi
+          kill -KILL "$manager_pid"
+          wait "$manager_pid" 2>/dev/null || true
+          rm --force "$RUNNER_TEMP/postgres-route-manager.pid"
+          for attempt in {1..30}; do
+            if ! process_alive "$manager_pid" && ! process_alive "$supervisor_pid" \
+              && ! process_alive "$child_pid"; then
+              break
+            fi
+            sleep 1
+          done
+          if process_alive "$manager_pid" || process_alive "$supervisor_pid" \
+            || process_alive "$child_pid"; then
+            echo "managed route processes outlived the manager ownership boundary"
+            exit 1
+          fi
+          if "$router" --mode state --control-socket "$control" >/dev/null 2>&1; then
+            echo "manager process loss left route readiness available"
+            exit 1
+          fi
+          if DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+            "$router" --mode role >/dev/null 2>&1; then
+            echo "manager process loss left the stable database endpoint available"
+            exit 1
+          fi
+          "$router" \
+            --mode manage \
+            --listen-address 127.0.0.1:55431 \
+            --control-socket "$control" \
+            --state-file "$state" \
+            --primary-target 127.0.0.1:55432 \
+            --promoted-target 127.0.0.1:55433 \
+            >"$RUNNER_TEMP/postgres-route-manager-replacement.stdout" \
+            2>"$RUNNER_TEMP/postgres-route-manager-replacement.stderr" &
+          replacement_manager=$!
+          printf '%s\n' "$replacement_manager" >"$RUNNER_TEMP/postgres-route-manager.pid"
+          for attempt in {1..30}; do
+            recovered=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
+            role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+              "$router" --mode role 2>/dev/null || true)
+            replacement_supervisor=$(pgrep --parent "$replacement_manager" || true)
+            replacement_child=$(pgrep --parent "$replacement_supervisor" || true)
+            if [ "$recovered" = "$expected" ] && [ "$role" = "writable-primary" ] \
+              && [[ "$replacement_supervisor" =~ ^[1-9][0-9]*$ ]] \
+              && [[ "$replacement_child" =~ ^[1-9][0-9]*$ ]] \
+              && [ "$(cat "$RUNNER_TEMP/postgres-route-manager-replacement.stdout")" = \
+                "supervisor-ready" ]; then
+              break
+            fi
+            if ! kill -0 "$replacement_manager" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if [ "$recovered" != "$expected" ] || [ "$role" != "writable-primary" ] \
+            || [[ ! "$replacement_supervisor" =~ ^[1-9][0-9]*$ ]] \
+            || [[ ! "$replacement_child" =~ ^[1-9][0-9]*$ ]] \
+            || [ "$(cat "$state")" != "$state_before" ] \
+            || [ "$(cat "$RUNNER_TEMP/postgres-route-manager-replacement.stdout")" != \
+              "supervisor-ready" ] \
+            || [ -s "$RUNNER_TEMP/postgres-route-manager-replacement.stderr" ] \
+            || [ "$(stat --format '%a' "$workspace")" != "700" ] \
+            || [ "$(stat --format '%a' "$state")" != "600" ] \
+            || [ "$(stat --format '%a' "$state.lock")" != "600" ] \
+            || [ "$(stat --format '%a' "$state.manager.lock")" != "600" ] \
+            || [ "$(stat --format '%a' "$state.supervisor.lock")" != "600" ] \
+            || [ "$(stat --format '%a' "$control")" != "600" ]; then
+            echo "replacement manager did not recover the exact ownership boundary"
+            exit 1
+          fi
+
+      - name: Exhaust route manager restart budget and recover
+        env:
+          DATAGROUND_ROUTER_HEALTH_DATABASE_URL: postgres://dataground_health:dataground-health@127.0.0.1:55431/dataground_conformance?sslmode=disable
+        run: |
+          router="$RUNNER_TEMP/dataground-postgres-route-conformance"
+          workspace="$RUNNER_TEMP/dataground-postgres-route"
+          control="$workspace/control.sock"
+          state="$workspace/state.json"
+          expected="promoted $(cat "$RUNNER_TEMP/postgres-promoted-generation")"
+          expected_exhausted_states=$'supervisor-ready\nsupervisor-restart-scheduled\nsupervisor-ready\nsupervisor-restart-scheduled\nsupervisor-ready\nsupervisor-restart-scheduled\nsupervisor-ready'
+          state_before=$(cat "$state")
+          state_ownership_before=$(stat --format '%d:%i' "$state.lock")
+          manager_ownership_before=$(stat --format '%d:%i' "$state.manager.lock")
+          supervisor_ownership_before=$(stat --format '%d:%i' "$state.supervisor.lock")
+          process_alive() {
+            local process_state
+            process_state=$(ps --no-headers --format stat --pid "$1" 2>/dev/null | tr -d '[:space:]')
+            [ -n "$process_state" ] && [[ "$process_state" != Z* ]]
+          }
+          manager_pid=$(cat "$RUNNER_TEMP/postgres-route-manager.pid")
+          for loss in 1 2 3 4; do
+            supervisor_pid=$(pgrep --parent "$manager_pid" || true)
+            child_pid=$(pgrep --parent "$supervisor_pid" || true)
+            if [[ ! "$supervisor_pid" =~ ^[1-9][0-9]*$ ]] \
+              || [[ ! "$child_pid" =~ ^[1-9][0-9]*$ ]]; then
+              echo "route manager hierarchy was incomplete before restart exhaustion"
+              exit 1
+            fi
+            kill -KILL "$supervisor_pid"
+            for attempt in {1..50}; do
+              ready_count=$(grep --count '^supervisor-ready$' \
+                "$RUNNER_TEMP/postgres-route-manager-replacement.stdout" || true)
+              restart_count=$(grep --count '^supervisor-restart-scheduled$' \
+                "$RUNNER_TEMP/postgres-route-manager-replacement.stdout" || true)
+              if ! process_alive "$supervisor_pid" && ! process_alive "$child_pid"; then
+                if [ "$loss" -lt 4 ] && process_alive "$manager_pid" \
+                  && [ "$ready_count" -eq "$loss" ] && [ "$restart_count" -eq "$loss" ]; then
+                  break
+                fi
+                if [ "$loss" -eq 4 ] && ! process_alive "$manager_pid" \
+                  && [ "$ready_count" -eq 4 ] && [ "$restart_count" -eq 3 ]; then
+                  break
+                fi
+              fi
+              sleep 0.1
+            done
+            if process_alive "$supervisor_pid" || process_alive "$child_pid"; then
+              echo "supervisor loss escaped the manager ownership boundary"
+              exit 1
+            fi
+            if [ "$loss" -eq 4 ]; then
+              break
+            fi
+            if ! process_alive "$manager_pid" || [ "$ready_count" -ne "$loss" ] \
+              || [ "$restart_count" -ne "$loss" ]; then
+              echo "route manager did not enter the expected restart backoff"
+              exit 1
+            fi
+            if "$router" --mode state --control-socket "$control" >/dev/null 2>&1; then
+              echo "route manager reported readiness during restart exhaustion"
+              exit 1
+            fi
+            if DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+              "$router" --mode role >/dev/null 2>&1; then
+              echo "stable database endpoint remained usable during restart exhaustion"
+              exit 1
+            fi
+            for attempt in {1..30}; do
+              replacement_supervisor=$(pgrep --parent "$manager_pid" || true)
+              replacement_child=$(pgrep --parent "$replacement_supervisor" || true)
+              recovered=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
+              role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+                "$router" --mode role 2>/dev/null || true)
+              ready_count=$(grep --count '^supervisor-ready$' \
+                "$RUNNER_TEMP/postgres-route-manager-replacement.stdout" || true)
+              restart_count=$(grep --count '^supervisor-restart-scheduled$' \
+                "$RUNNER_TEMP/postgres-route-manager-replacement.stdout" || true)
+              if [[ "$replacement_supervisor" =~ ^[1-9][0-9]*$ ]] \
+                && [ "$replacement_supervisor" != "$supervisor_pid" ] \
+                && [[ "$replacement_child" =~ ^[1-9][0-9]*$ ]] \
+                && [ "$replacement_child" != "$child_pid" ] \
+                && [ "$recovered" = "$expected" ] && [ "$role" = "writable-primary" ] \
+                && [ "$ready_count" -eq "$((loss + 1))" ] \
+                && [ "$restart_count" -eq "$loss" ]; then
+                break
+              fi
+              if ! process_alive "$manager_pid"; then
+                break
+              fi
+              sleep 1
+            done
+            if [[ ! "$replacement_supervisor" =~ ^[1-9][0-9]*$ ]] \
+              || [ "$replacement_supervisor" = "$supervisor_pid" ] \
+              || [[ ! "$replacement_child" =~ ^[1-9][0-9]*$ ]] \
+              || [ "$replacement_child" = "$child_pid" ] \
+              || [ "$recovered" != "$expected" ] || [ "$role" != "writable-primary" ] \
+              || [ "$ready_count" -ne "$((loss + 1))" ] \
+              || [ "$restart_count" -ne "$loss" ] \
+              || [ "$(cat "$state")" != "$state_before" ]; then
+              echo "route manager did not recover within its bounded restart budget"
+              exit 1
+            fi
+          done
+          if process_alive "$manager_pid" || process_alive "$supervisor_pid" \
+            || process_alive "$child_pid" \
+            || [ -n "$(pgrep --parent "$manager_pid" || true)" ]; then
+            echo "exhausted route manager left a managed route process"
+            exit 1
+          fi
+          if "$router" --mode state --control-socket "$control" >/dev/null 2>&1; then
+            echo "exhausted route manager left route readiness available"
+            exit 1
+          fi
+          if DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+            "$router" --mode role >/dev/null 2>&1; then
+            echo "exhausted route manager left the stable database endpoint available"
+            exit 1
+          fi
+          if [ "$(cat "$RUNNER_TEMP/postgres-route-manager-replacement.stdout")" != \
+              "$expected_exhausted_states" ] \
+            || [ "$(cat "$RUNNER_TEMP/postgres-route-manager-replacement.stderr")" != \
+              "PostgreSQL route manager failed" ] \
+            || [ "$(cat "$state")" != "$state_before" ] \
+            || [ "$(stat --format '%d:%i' "$state.lock")" != \
+              "$state_ownership_before" ] \
+            || [ "$(stat --format '%d:%i' "$state.manager.lock")" != \
+              "$manager_ownership_before" ] \
+            || [ "$(stat --format '%d:%i' "$state.supervisor.lock")" != \
+              "$supervisor_ownership_before" ]; then
+            echo "exhausted route manager emitted unexpected lifecycle output"
+            exit 1
+          fi
+          rm --force "$RUNNER_TEMP/postgres-route-manager.pid"
+          "$router" \
+            --mode manage \
+            --listen-address 127.0.0.1:55431 \
+            --control-socket "$control" \
+            --state-file "$state" \
+            --primary-target 127.0.0.1:55432 \
+            --promoted-target 127.0.0.1:55433 \
+            >"$RUNNER_TEMP/postgres-route-manager-exhaustion-recovery.stdout" \
+            2>"$RUNNER_TEMP/postgres-route-manager-exhaustion-recovery.stderr" &
+          recovered_manager=$!
+          printf '%s\n' "$recovered_manager" >"$RUNNER_TEMP/postgres-route-manager.pid"
+          for attempt in {1..30}; do
+            recovered=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
+            role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+              "$router" --mode role 2>/dev/null || true)
+            recovered_supervisor=$(pgrep --parent "$recovered_manager" || true)
+            recovered_child=$(pgrep --parent "$recovered_supervisor" || true)
+            if [ "$recovered" = "$expected" ] && [ "$role" = "writable-primary" ] \
+              && [[ "$recovered_supervisor" =~ ^[1-9][0-9]*$ ]] \
+              && [[ "$recovered_child" =~ ^[1-9][0-9]*$ ]] \
+              && [ "$(cat "$RUNNER_TEMP/postgres-route-manager-exhaustion-recovery.stdout")" = \
+                "supervisor-ready" ]; then
+              break
+            fi
+            if ! process_alive "$recovered_manager"; then
+              break
+            fi
+            sleep 1
+          done
+          if [ "$recovered" != "$expected" ] || [ "$role" != "writable-primary" ] \
+            || [[ ! "$recovered_supervisor" =~ ^[1-9][0-9]*$ ]] \
+            || [[ ! "$recovered_child" =~ ^[1-9][0-9]*$ ]] \
+            || [ "$(cat "$state")" != "$state_before" ] \
+            || [ "$(cat "$RUNNER_TEMP/postgres-route-manager-exhaustion-recovery.stdout")" != \
+              "supervisor-ready" ] \
+            || [ -s "$RUNNER_TEMP/postgres-route-manager-exhaustion-recovery.stderr" ] \
+            || [ "$(stat --format '%d:%i' "$state.lock")" != \
+              "$state_ownership_before" ] \
+            || [ "$(stat --format '%d:%i' "$state.manager.lock")" != \
+              "$manager_ownership_before" ] \
+            || [ "$(stat --format '%d:%i' "$state.supervisor.lock")" != \
+              "$supervisor_ownership_before" ] \
+            || [ "$(stat --format '%a' "$state.manager.lock")" != "600" ] \
+            || [ "$(stat --format '%a' "$state.supervisor.lock")" != "600" ] \
+            || [ "$(stat --format '%a' "$state.lock")" != "600" ] \
+            || [ "$(stat --format '%a' "$state")" != "600" ] \
+            || [ "$(stat --format '%a' "$workspace")" != "700" ] \
+            || [ "$(stat --format '%a' "$control")" != "600" ]; then
+            echo "recovered manager did not restore the exact exhaustion boundary"
+            exit 1
+          fi
+
+      - name: Recover through promoted standby
+        env:
+          DATAGROUND_TEST_DATABASE_URL: ${{ env.DATAGROUND_ROUTED_DATABASE_URL }}
+        run: >-
+          go run ./cmd/dataground-enforcement-recovery-conformance
+          --phase failover-recover
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id 223344556677889900aabbccddeeff11
+          --allow-loopback-http
+
+      - name: Fence stale former primary
+        run: |
+          target_lsn=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+            psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+            --command 'SELECT pg_current_wal_flush_lsn()')
+          if [[ ! "$target_lsn" =~ ^[0-9A-F]+/[0-9A-F]+$ ]]; then
+            echo "could not establish the post-promotion WAL boundary"
+            exit 1
+          fi
+          printf '%s\n' "$target_lsn" >"$RUNNER_TEMP/rejoin-target-lsn"
+          docker compose -f deploy/storage/seaweedfs-conformance.yml \
+            --profile postgres-failover-admin run --rm --no-deps postgres-fence
+
+      - name: Refuse stale primary restart
+        run: |
+          docker compose -f deploy/storage/seaweedfs-conformance.yml \
+            --profile postgres-failover start postgres
+          primary_id=$(docker compose -f deploy/storage/seaweedfs-conformance.yml ps --all --quiet postgres)
+          if [ -z "$primary_id" ]; then
+            echo "fenced primary container was not found"
+            exit 1
+          fi
+          for attempt in {1..10}; do
+            running=$(docker inspect --format '{{.State.Running}}' "$primary_id")
+            if [ "$running" = "false" ]; then
+              break
+            fi
+            sleep 1
+          done
+          exit_code=$(docker inspect --format '{{.State.ExitCode}}' "$primary_id")
+          if [ "$running" != "false" ] || [ "$exit_code" -ne 78 ] \
+            || docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+              pg_isready --username dataground >/dev/null 2>&1; then
+            echo "fenced stale primary accepted a restart"
+            exit 1
+          fi
+
+      - name: Rewind and rejoin former primary
+        run: |
+          docker compose -f deploy/storage/seaweedfs-conformance.yml \
+            --profile postgres-failover-admin run --rm --no-deps postgres-rejoin
+          docker compose -f deploy/storage/seaweedfs-conformance.yml \
+            --profile postgres-failover start postgres
+          target_lsn=$(cat "$RUNNER_TEMP/rejoin-target-lsn")
+          for attempt in {1..30}; do
+            rejoined=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+              psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+              --command "SELECT pg_is_in_recovery()
+                AND current_setting('transaction_read_only') = 'on'
+                AND pg_last_wal_replay_lsn() >= '$target_lsn'::pg_lsn" 2>/dev/null || true)
+            if [ "$rejoined" = "t" ]; then
+              break
+            fi
+            sleep 1
+          done
+          promoted=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+            psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+            --command "SELECT NOT pg_is_in_recovery()
+              AND current_setting('transaction_read_only') = 'off'")
+          if [ "$rejoined" != "t" ] || [ "$promoted" != "t" ]; then
+            target_state=$(docker inspect --format '{{.State.Status}}' \
+              "$(docker compose -f deploy/storage/seaweedfs-conformance.yml ps --all --quiet postgres)")
+            replication_connections=$(docker compose -f deploy/storage/seaweedfs-conformance.yml \
+              exec -T postgres-standby psql --username dataground --dbname dataground_conformance \
+              --tuples-only --no-align --command \
+              "SELECT count(*) FROM pg_stat_replication
+                WHERE application_name = 'dataground-rejoined-primary'")
+            sender_state=$(docker compose -f deploy/storage/seaweedfs-conformance.yml \
+              exec -T postgres-standby psql --username dataground --dbname dataground_conformance \
+              --tuples-only --no-align --command \
+              "SELECT coalesce(max(state), 'none') FROM pg_stat_replication
+                WHERE application_name = 'dataground-rejoined-primary'")
+            target_probe=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+              psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+              --command "SELECT concat(
+                'in-recovery=', pg_is_in_recovery(),
+                ' read-only=', current_setting('transaction_read_only') = 'on',
+                ' boundary-replayed=', coalesce(pg_last_wal_replay_lsn() >= '$target_lsn'::pg_lsn, false),
+                ' replay-paused=', pg_is_wal_replay_paused()
+              )" 2>/dev/null || printf '%s' 'unreachable')
+            echo "rejoin check failed: target-state=$target_state replication-connections=$replication_connections sender-state=$sender_state target=$target_probe"
+            exit 1
+          fi
+          if docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+            psql --username dataground --dbname dataground_conformance \
+            --command 'CREATE TEMPORARY TABLE dataground_stale_write_probe (id integer)' \
+            >/dev/null 2>&1; then
+            echo "rejoined former primary accepted a write"
+            exit 1
+          fi
+          docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+            psql --username dataground --dbname dataground_conformance \
+            --command 'CREATE TEMPORARY TABLE dataground_promoted_write_probe (id integer)' \
+            >/dev/null
+
+      - name: Observe catalog through rejoined standby
+        env:
+          DATAGROUND_TEST_DATABASE_URL: ${{ env.DATAGROUND_REJOINED_DATABASE_URL }}
+        run: >-
+          go run ./cmd/dataground-enforcement-recovery-conformance
+          --phase failover-rejoin-observe
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id 223344556677889900aabbccddeeff11
+          --allow-loopback-http
+
+      - name: Recreate streaming pair for in-flight commit loss
+        env:
+          DATAGROUND_ROUTER_HEALTH_DATABASE_URL: postgres://dataground_health:dataground-health@127.0.0.1:55431/dataground_conformance?sslmode=disable
+        run: |
+          router="$RUNNER_TEMP/dataground-postgres-route-conformance"
+          workspace="$RUNNER_TEMP/dataground-postgres-route"
+          control="$workspace/control.sock"
+          state="$workspace/state.json"
+          kill "$(cat "$RUNNER_TEMP/postgres-route-manager.pid")"
+          for attempt in {1..30}; do
+            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-route-manager.pid")" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if kill -0 "$(cat "$RUNNER_TEMP/postgres-route-manager.pid")" 2>/dev/null \
+            || [ -e "$control" ]; then
+            echo "stable database endpoint did not stop cleanly before cluster recreation"
+            exit 1
+          fi
+          docker compose -f deploy/storage/seaweedfs-conformance.yml \
+            --profile postgres-failover down --volumes
+          rm "$state"
+          docker compose -f deploy/storage/seaweedfs-conformance.yml \
+            --profile postgres-failover up --detach
+          generation=""
+          for attempt in {1..30}; do
+            primary_ready=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+              psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+              --command 'SELECT NOT pg_is_in_recovery()' 2>/dev/null || true)
+            standby_ready=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+              psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+              --command 'SELECT pg_is_in_recovery()' 2>/dev/null || true)
+            if curl --fail --silent http://127.0.0.1:8333/ >/dev/null \
+              && [ "$primary_ready" = "t" ] && [ "$standby_ready" = "t" ]; then
+              generation=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+                psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+                --command "SELECT (pg_split_walfile_name(pg_walfile_name(pg_current_wal_lsn()))).timeline_id")
+              if [[ ! "$generation" =~ ^[1-9][0-9]*$ ]]; then
+                echo "could not establish the recreated PostgreSQL promotion generation"
+                exit 1
+              fi
+              printf '%s\n' "$generation" >"$RUNNER_TEMP/postgres-primary-generation"
+              break
+            fi
+            sleep 1
+          done
+          if [[ ! "$generation" =~ ^[1-9][0-9]*$ ]]; then
+            echo "recreated failover pair did not become ready"
+            exit 1
+          fi
+          "$router" \
+            --mode manage \
+            --listen-address 127.0.0.1:55431 \
+            --control-socket "$control" \
+            --state-file "$state" \
+            --primary-target 127.0.0.1:55432 \
+            --promoted-target 127.0.0.1:55433 \
+            --route primary \
+            --promotion-generation "$generation" \
+            >"$RUNNER_TEMP/postgres-route-manager.stdout" \
+            2>"$RUNNER_TEMP/postgres-route-manager.stderr" &
+          printf '%s\n' "$!" >"$RUNNER_TEMP/postgres-route-manager.pid"
+          for attempt in {1..30}; do
+            state_status=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
+            routed_primary=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+              "$router" --mode role 2>/dev/null || true)
+            manager_state=$(cat "$RUNNER_TEMP/postgres-route-manager.stdout")
+            if [ "$state_status" = "primary $generation" ] \
+              && [ "$routed_primary" = "writable-primary" ] \
+              && [ "$manager_state" = "supervisor-ready" ]; then
+              exit 0
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-route-manager.pid")" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          echo "recreated stable database endpoint did not become ready"
+          exit 1
+
+      - name: Prepare in-flight failover scope on primary
+        env:
+          DATAGROUND_DATABASE_URL: ${{ env.DATAGROUND_ROUTED_DATABASE_URL }}
+          DATAGROUND_TEST_DATABASE_URL: ${{ env.DATAGROUND_ROUTED_DATABASE_URL }}
+        run: |
+          go run ./cmd/dataground-migrate up
+          go run ./cmd/dataground-enforcement-recovery-conformance \
+            --phase prepare \
+            --endpoint http://127.0.0.1:8333 \
+            --bucket dataground-conformance \
+            --addressing-style path \
+            --run-id 3344556677889900aabbccddeeff1122 \
+            --allow-loopback-http
+
+      - name: Require standby replay through in-flight fixture
+        run: |
+          target_lsn=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+            psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+            --command 'SELECT pg_current_wal_lsn()')
+          if [[ ! "$target_lsn" =~ ^[0-9A-F]+/[0-9A-F]+$ ]]; then
+            echo "could not establish the in-flight fixture WAL boundary"
+            exit 1
+          fi
+          for attempt in {1..30}; do
+            replayed=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+              psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+              --command "SELECT pg_last_wal_replay_lsn() >= '$target_lsn'::pg_lsn" 2>/dev/null || true)
+            if [ "$replayed" = "t" ]; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "standby did not replay the in-flight fixture"
+          exit 1
+
+      - name: Lose primary while catalog commit is in flight
+        env:
+          DATAGROUND_TEST_DATABASE_URL: ${{ env.DATAGROUND_ROUTED_DATABASE_URL }}
+        run: |
+          runner="$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          signal="$RUNNER_TEMP/in-flight-commit.signal"
+          report="$RUNNER_TEMP/in-flight-commit.json"
+          stderr="$RUNNER_TEMP/in-flight-commit.stderr"
+          go build -o "$runner" ./cmd/dataground-enforcement-recovery-conformance
+          mkfifo "$signal"
+          "$runner" \
+            --phase failover-commit-loss \
+            --primary-loss-signal-fd 3 \
+            --endpoint http://127.0.0.1:8333 \
+            --bucket dataground-conformance \
+            --addressing-style path \
+            --run-id 3344556677889900aabbccddeeff1122 \
+            --allow-loopback-http >"$report" 2>"$stderr" 3>"$signal" &
+          runner_pid=$!
+          trap 'kill "$runner_pid" 2>/dev/null || true; rm -f "$signal"' EXIT
+          state=""
+          if ! IFS= read -r -t 30 state <"$signal" || [ "$state" != "commit-forwarded" ]; then
+            kill "$runner_pid" 2>/dev/null || true
+            wait "$runner_pid" 2>/dev/null || true
+            echo "in-flight commit boundary was not reached"
+            exit 1
+          fi
+          docker compose -f deploy/storage/seaweedfs-conformance.yml stop postgres
+          set +e
+          wait "$runner_pid"
+          status=$?
+          set -e
+          trap - EXIT
+          rm -f "$signal"
+          if [ "$status" -ne 0 ] || [ -s "$stderr" ] \
+            || ! grep --quiet '"phase": "failover-commit-loss"' "$report" \
+            || ! grep --quiet '"status": "passed"' "$report"; then
+            echo "in-flight primary-loss injection failed"
+            exit 1
+          fi
+
+      - name: Promote standby after in-flight commit loss
+        run: |
+          if docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+            pg_isready --host postgres --port 5432 --username dataground >/dev/null 2>&1; then
+            echo "stopped primary remained reachable"
+            exit 1
+          fi
+          docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+            pg_ctl promote --pgdata /var/lib/postgresql/data/pgdata --wait
+          promoted=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
+            psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
+            --command 'SELECT NOT pg_is_in_recovery()')
+          if [ "$promoted" != "t" ]; then
+            echo "standby promotion after in-flight loss was not observed"
+            exit 1
+          fi
+          initial_generation=$(cat "$RUNNER_TEMP/postgres-primary-generation")
+          promoted_generation=$(docker compose -f deploy/storage/seaweedfs-conformance.yml \
+            exec -T postgres-standby psql --username dataground \
+            --dbname dataground_conformance --tuples-only --no-align \
+            --command "SELECT (pg_split_walfile_name(pg_walfile_name(pg_current_wal_lsn()))).timeline_id")
+          if [[ ! "$promoted_generation" =~ ^[1-9][0-9]*$ ]] \
+            || (( promoted_generation <= initial_generation )); then
+            echo "in-flight promotion did not advance the PostgreSQL promotion generation"
+            exit 1
+          fi
+          if "$RUNNER_TEMP/dataground-postgres-route-conformance" \
+            --mode select \
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route/control.sock" \
+            --promotion-generation "$initial_generation" \
+            >/dev/null 2>&1; then
+            echo "stable database endpoint accepted a stale in-flight promotion generation"
+            exit 1
+          fi
+          route=$("$RUNNER_TEMP/dataground-postgres-route-conformance" \
+            --mode status \
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route/control.sock")
+          if [ "$route" != "primary" ]; then
+            echo "stale in-flight promotion generation changed the stable database route"
+            exit 1
+          fi
+          selected=$("$RUNNER_TEMP/dataground-postgres-route-conformance" \
+            --mode select \
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route/control.sock" \
+            --promotion-generation "$promoted_generation")
+          route=$("$RUNNER_TEMP/dataground-postgres-route-conformance" \
+            --mode status \
+            --control-socket "$RUNNER_TEMP/dataground-postgres-route/control.sock")
+          routed_promoted=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
+            "$RUNNER_TEMP/dataground-postgres-route-conformance" --mode role \
+            2>/dev/null || true)
+          if [ "$selected" != "promoted" ] || [ "$route" != "promoted" ] \
+            || [ "$routed_promoted" != "writable-primary" ]; then
+            echo "stable database endpoint did not select the promoted node after in-flight loss"
+            exit 1
+          fi
+
+      - name: Recover ambiguous commit through promoted standby
+        env:
+          DATAGROUND_TEST_DATABASE_URL: ${{ env.DATAGROUND_ROUTED_DATABASE_URL }}
+        run: >-
+          "$RUNNER_TEMP/dataground-enforcement-recovery-conformance"
+          --phase failover-commit-recover
+          --endpoint http://127.0.0.1:8333
+          --bucket dataground-conformance
+          --addressing-style path
+          --run-id 3344556677889900aabbccddeeff1122
+          --allow-loopback-http
+
+      - name: Stop disposable failover backends
+        if: always()
+        run: |
+          cleanup_status=0
+          if [ -f "$RUNNER_TEMP/postgres-pool.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/postgres-pool.pid")" 2>/dev/null || true
+            wait "$(cat "$RUNNER_TEMP/postgres-pool.pid")" 2>/dev/null || true
+          fi
+          if [ -s "$RUNNER_TEMP/postgres-pool.stderr" ]; then
+            echo "long-lived database pool emitted unexpected error output"
+            cleanup_status=1
+          fi
+          if [ -f "$RUNNER_TEMP/postgres-route-manager.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/postgres-route-manager.pid")" 2>/dev/null || true
+            wait "$(cat "$RUNNER_TEMP/postgres-route-manager.pid")" 2>/dev/null || true
+          fi
+          if [ -s "$RUNNER_TEMP/postgres-route-manager.stderr" ] \
+            || grep --invert-match --extended-regexp --quiet \
+              '^(supervisor-ready|supervisor-restart-scheduled)$' \
+              "$RUNNER_TEMP/postgres-route-manager.stdout"; then
+            echo "stable database endpoint manager emitted unexpected output"
+            cleanup_status=1
+          fi
+          expected_exhausted_states=$'supervisor-ready\nsupervisor-restart-scheduled\nsupervisor-ready\nsupervisor-restart-scheduled\nsupervisor-ready\nsupervisor-restart-scheduled\nsupervisor-ready'
+          if [ -s "$RUNNER_TEMP/postgres-route-manager-replacement.stderr" ]; then
+            if [ "$(cat "$RUNNER_TEMP/postgres-route-manager-replacement.stderr")" != \
+                "PostgreSQL route manager failed" ] \
+              || [ "$(cat "$RUNNER_TEMP/postgres-route-manager-replacement.stdout")" != \
+                "$expected_exhausted_states" ]; then
+              echo "replacement database endpoint manager emitted unexpected output"
+              cleanup_status=1
+            fi
+          elif { [ -f "$RUNNER_TEMP/postgres-route-manager-replacement.stdout" ] \
+            && grep --invert-match --extended-regexp --quiet \
+              '^(supervisor-ready|supervisor-restart-scheduled)$' \
+              "$RUNNER_TEMP/postgres-route-manager-replacement.stdout"; }; then
+            echo "replacement database endpoint manager emitted unexpected output"
+            cleanup_status=1
+          fi
+          if [ -s "$RUNNER_TEMP/postgres-route-manager-exhaustion-recovery.stderr" ] \
+            || { [ -f "$RUNNER_TEMP/postgres-route-manager-exhaustion-recovery.stdout" ] \
+              && grep --invert-match --extended-regexp --quiet \
+                '^(supervisor-ready|supervisor-restart-scheduled)$' \
+                "$RUNNER_TEMP/postgres-route-manager-exhaustion-recovery.stdout"; }; then
+            echo "exhaustion recovery manager emitted unexpected output"
+            cleanup_status=1
+          fi
+          docker compose -f deploy/storage/seaweedfs-conformance.yml \
+            --profile postgres-failover down --volumes || cleanup_status=1
+          exit "$cleanup_status"
+
+
+          -count=1
+
       - name: Prepare retained enforcement object
         run: >-
           go run ./cmd/dataground-enforcement-recovery-conformance
