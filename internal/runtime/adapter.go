@@ -41,11 +41,20 @@ const (
 
 // StartRequest contains only normalized inputs. Runtime-native thread and turn
 // identifiers remain private to the adapter.
+type ArtifactDeclaration struct {
+	ID          string
+	Name        string
+	SandboxPath string
+	MediaType   string
+	Kind        string
+}
+
 type StartRequest struct {
 	Prompt       string
 	WorkingDir   string
 	Model        string
 	OutputSchema map[string]any
+	Artifacts    []ArtifactDeclaration
 	ApprovalMode ApprovalMode
 	SandboxMode  SandboxMode
 }
