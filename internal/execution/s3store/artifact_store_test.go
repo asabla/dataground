@@ -16,6 +16,8 @@ import (
 	"github.com/asabla/dataground/internal/artifact"
 )
 
+const artifactTestMaximumBytes int64 = 32 << 20
+
 const invocationArtifactObjectKey = "invocation-artifacts/v1/iso_aaaaaaaaaaaaaaaaaaaa/" +
 	"inv_bbbbbbbbbbbbbbbbbbbb/art_cccccccccccccccccccc/" +
 	"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
@@ -41,7 +43,7 @@ func TestStoreUsesBoundedConditionalInvocationArtifactRequests(t *testing.T) {
 	}))
 	defer server.Close()
 
-	store := newTestStore(t, server, PathStyle)
+	store := newTestArtifactStore(t, server)
 	if err := store.PutInvocationArtifactObjectIfAbsent(
 		context.Background(),
 		invocationArtifactObjectKey,
@@ -106,7 +108,7 @@ func TestStoreMapsOnlyStableInvocationArtifactOutcomes(t *testing.T) {
 				_, _ = response.Write([]byte("sensitive upstream detail"))
 			}))
 			defer server.Close()
-			store := newTestStore(t, server, PathStyle)
+			store := newTestArtifactStore(t, server)
 			var err error
 			if test.method == http.MethodGet {
 				_, err = store.OpenInvocationArtifactObject(
@@ -136,17 +138,17 @@ func TestStoreSeparatesPlatformObjectKeyspaces(t *testing.T) {
 		requests.Add(1)
 	}))
 	defer server.Close()
-	store := newTestStore(t, server, PathStyle)
+	store := newTestArtifactStore(t, server)
 	content := []byte("artifact")
 	digest := artifactDigest(content)
 
-	if _, err := store.OpenEnforcementObject(
+	if _, err := store.store.OpenEnforcementObject(
 		context.Background(),
 		invocationArtifactObjectKey,
 	); err == nil {
 		t.Fatal("enforcement reader accepted invocation-artifact key")
 	}
-	if err := store.PutEnforcementObjectIfAbsent(
+	if err := store.store.PutEnforcementObjectIfAbsent(
 		context.Background(),
 		invocationArtifactObjectKey,
 		bytes.NewReader(content),
@@ -182,7 +184,7 @@ func TestStoreRejectsInvalidInvocationArtifactWriteBeforeRequest(t *testing.T) {
 		requests.Add(1)
 	}))
 	defer server.Close()
-	store := newTestStore(t, server, PathStyle)
+	store := newTestArtifactStore(t, server)
 	content := []byte("artifact")
 	digest := artifactDigest(content)
 	tests := map[string]struct {
@@ -199,7 +201,7 @@ func TestStoreRejectsInvalidInvocationArtifactWriteBeforeRequest(t *testing.T) {
 		"short content": {key: invocationArtifactObjectKey, content: bytes.NewReader(content[:2]), size: int64(len(content)), digest: digest, mediaType: "text/plain"},
 		"extra content": {key: invocationArtifactObjectKey, content: bytes.NewReader(append(bytes.Clone(content), 'x')), size: int64(len(content)), digest: digest, mediaType: "text/plain"},
 		"wrong digest": {key: invocationArtifactObjectKey, content: bytes.NewReader(content), size: int64(len(content)), digest: "sha256:" + strings.Repeat("0", 64), mediaType: "text/plain"},
-		"oversized": {key: invocationArtifactObjectKey, content: bytes.NewReader(content), size: artifact.MaximumInvocationArtifactBytes + 1, digest: digest, mediaType: "text/plain"},
+		"oversized": {key: invocationArtifactObjectKey, content: bytes.NewReader(content), size: artifactTestMaximumBytes + 1, digest: digest, mediaType: "text/plain"},
 		"invalid media type": {key: invocationArtifactObjectKey, content: bytes.NewReader(content), size: int64(len(content)), digest: digest, mediaType: "text/plain\r\nx-secret: value"},
 	}
 	for name, test := range tests {
@@ -242,7 +244,7 @@ func TestStoreFailsClosedOnEncodedOrDeclaredOversizedArtifactReads(t *testing.T)
 				respond(response)
 			}))
 			defer server.Close()
-			store := newTestStore(t, server, PathStyle)
+			store := newTestArtifactStore(t, server)
 			_, err := store.OpenInvocationArtifactObject(
 				context.Background(),
 				invocationArtifactObjectKey,
@@ -260,7 +262,7 @@ func TestStorePreservesInvocationArtifactCancellation(t *testing.T) {
 		response.WriteHeader(http.StatusGatewayTimeout)
 	}))
 	defer server.Close()
-	store := newTestStore(t, server, PathStyle)
+	store := newTestArtifactStore(t, server)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := store.OpenInvocationArtifactObject(
@@ -279,4 +281,29 @@ func TestStorePreservesInvocationArtifactCancellation(t *testing.T) {
 	); !errors.Is(err, context.Canceled) {
 		t.Fatalf("write error = %v", err)
 	}
+}
+
+func TestNewArtifactStoreRequiresBoundedConfiguration(t *testing.T) {
+	baseStore := newTestStore(t, httptest.NewTLSServer(http.NotFoundHandler()), PathStyle)
+	if _, err := NewArtifactStore(nil, artifactTestMaximumBytes); err == nil {
+		t.Fatal("nil S3 store accepted")
+	}
+	if _, err := NewArtifactStore(baseStore, 0); err == nil {
+		t.Fatal("unbounded artifact store accepted")
+	}
+	if _, err := NewArtifactStore(baseStore, int64(^uint64(0)>>1)); err == nil {
+		t.Fatal("overflow-prone artifact bound accepted")
+	}
+}
+
+func newTestArtifactStore(t *testing.T, server *httptest.Server) *ArtifactStore {
+	t.Helper()
+	store, err := NewArtifactStore(
+		newTestStore(t, server, PathStyle),
+		artifactTestMaximumBytes,
+	)
+	if err != nil {
+		t.Fatalf("new invocation-artifact store: %v", err)
+	}
+	return store
 }
