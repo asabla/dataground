@@ -357,7 +357,7 @@ func (driver *InvocationRuntimeDriver) runTurn(
 				}
 				return nil, errors.Join(ErrEffectTerminal, resultErr)
 			}
-			claim, err = driver.publishInvocationArtifacts(
+			renewedClaim, publishErr := driver.publishInvocationArtifacts(
 				runCtx,
 				claim,
 				effect,
@@ -365,9 +365,10 @@ func (driver *InvocationRuntimeDriver) runTurn(
 				ref,
 				declarations,
 			)
-			if err != nil {
-				return nil, errors.Join(ErrAmbiguousEffect, err)
+			if publishErr != nil {
+				return nil, errors.Join(ErrAmbiguousEffect, publishErr)
 			}
+			claim = renewedClaim
 			if _, err := driver.store.CompleteInvocationRuntimeAttempt(
 				runCtx,
 				claim,
