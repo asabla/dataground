@@ -43,19 +43,19 @@ func TestInvocationAuthorizerMapsGovernedPhases(t *testing.T) {
 	}
 	admission := persistence.InvocationAdmissionTarget{
 		IsolationDomainID: "iso_1", OperationID: "op_1", InvocationID: "inv_1",
-		ServiceID:         "svc_1", RevisionID: "rev_1", ActorID: "actor_1", CorrelationID: "corr_1",
+		ServiceID: "svc_1", RevisionID: "rev_1", ActorID: "actor_1", CorrelationID: "corr_1",
 	}
 	if err := authorizer.AuthorizeInvocationAdmission(context.Background(), admission); err != nil {
 		t.Fatalf("authorize admission: %v", err)
 	}
 	runtimeRequest := dgruntime.StartRequest{
-		Prompt:       "produce the result",
+		Prompt: "produce the result",
 		OutputSchema: map[string]any{
 			"type":       "object",
 			"properties": map[string]any{"result": map[string]any{"type": "string"}},
 		},
 		Artifacts: []dgruntime.ArtifactDeclaration{{
-			ID:        "report", Name: "report.txt", SandboxPath: "/workspace/report.txt",
+			ID: "report", Name: "report.txt", SandboxPath: "/workspace/report.txt",
 			MediaType: "text/plain", Kind: "file",
 		}},
 		ApprovalMode: dgruntime.ApprovalLocked,
@@ -63,14 +63,14 @@ func TestInvocationAuthorizerMapsGovernedPhases(t *testing.T) {
 	}
 	runtimeTarget := persistence.InvocationRuntimeTarget{
 		IsolationDomainID: "iso_1", OperationID: "op_1", InvocationID: "inv_1",
-		ServiceID:         "svc_1", RevisionID: "rev_1", ActorID: "actor_1", CorrelationID: "corr_1",
+		ServiceID: "svc_1", RevisionID: "rev_1", ActorID: "actor_1", CorrelationID: "corr_1",
 	}
 	if err := authorizer.AuthorizeInvocationRuntime(context.Background(), runtimeTarget, runtimeRequest); err != nil {
 		t.Fatalf("authorize runtime: %v", err)
 	}
 	cancellation := persistence.InvocationCancellationTarget{
 		IsolationDomainID: "iso_1", OperationID: "op_1", InvocationID: "inv_1",
-		ServiceID:         "svc_1", RevisionID: "rev_1", ActorID: "actor_2", CorrelationID: "corr_2",
+		ServiceID: "svc_1", RevisionID: "rev_1", ActorID: "actor_2", CorrelationID: "corr_2",
 	}
 	if err := authorizer.AuthorizeInvocationCancellation(context.Background(), cancellation); err != nil {
 		t.Fatalf("authorize cancellation: %v", err)
@@ -116,7 +116,7 @@ func TestInvocationAuthorizerMapsStableDenials(t *testing.T) {
 	}
 	admission := persistence.InvocationAdmissionTarget{
 		IsolationDomainID: "iso_1", OperationID: "op_1", InvocationID: "inv_1",
-		ServiceID:         "svc_1", RevisionID: "rev_1", ActorID: "actor_1", CorrelationID: "corr_1",
+		ServiceID: "svc_1", RevisionID: "rev_1", ActorID: "actor_1", CorrelationID: "corr_1",
 	}
 	if err := authorizer.AuthorizeInvocationAdmission(context.Background(), admission); !errors.Is(
 		err,
@@ -126,7 +126,7 @@ func TestInvocationAuthorizerMapsStableDenials(t *testing.T) {
 	}
 	runtimeTarget := persistence.InvocationRuntimeTarget{
 		IsolationDomainID: "iso_1", OperationID: "op_1", InvocationID: "inv_1",
-		ServiceID:         "svc_1", RevisionID: "rev_1", ActorID: "actor_1", CorrelationID: "corr_1",
+		ServiceID: "svc_1", RevisionID: "rev_1", ActorID: "actor_1", CorrelationID: "corr_1",
 	}
 	if err := authorizer.AuthorizeInvocationRuntime(
 		context.Background(),
@@ -137,7 +137,7 @@ func TestInvocationAuthorizerMapsStableDenials(t *testing.T) {
 	}
 	cancellation := persistence.InvocationCancellationTarget{
 		IsolationDomainID: "iso_1", OperationID: "op_1", InvocationID: "inv_1",
-		ServiceID:         "svc_1", RevisionID: "rev_1", ActorID: "actor_1", CorrelationID: "corr_1",
+		ServiceID: "svc_1", RevisionID: "rev_1", ActorID: "actor_1", CorrelationID: "corr_1",
 	}
 	if err := authorizer.AuthorizeInvocationCancellation(
 		context.Background(),
