@@ -19,25 +19,7 @@ import (
 const invocationArtifactKeyPrefix = "invocation-artifacts/v1/"
 
 var invocationArtifactObjectKeyPattern = regexp.MustCompile(
-	`^invocation-artifacts/v1/iso_[0-9a-z]{20,32}/inv_[0-9a-z]{20,32}/art_[0-9a-z]{20,32}/[0-9a-f]{64}package s3store
-
-import (
-	"bytes"
-	"context"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
-	"io"
-	"mime"
-	"net/http"
-	"regexp"
-	"strings"
-	"unicode/utf8"
-
-	"github.com/asabla/dataground/internal/artifact"
-)
-
-,
+	"^invocation-artifacts/v1/iso_[0-9a-z]{20,32}/inv_[0-9a-z]{20,32}/art_[0-9a-z]{20,32}/[0-9a-f]{64}$",
 )
 
 func (store *Store) OpenInvocationArtifactObject(
