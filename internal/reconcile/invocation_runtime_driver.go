@@ -2,6 +2,8 @@ package reconcile
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"path"
 	"regexp"
@@ -9,8 +11,10 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/asabla/dataground/internal/artifact"
 	"github.com/asabla/dataground/internal/domain"
 	"github.com/asabla/dataground/internal/execution"
+	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/persistence"
 	dgruntime "github.com/asabla/dataground/internal/runtime"
 	"github.com/asabla/dataground/internal/runtime/codex"
@@ -61,6 +65,11 @@ func (builder InvocationRuntimeRequestBuilderFunc) BuildInvocationRuntimeRequest
 type invocationRuntimeProvider interface {
 	Observe(context.Context, execution.ExecutionRef) (execution.Observation, error)
 	StartRuntime(context.Context, execution.ExecutionRef) (execution.RuntimeSession, error)
+	Export(context.Context, execution.ExportRequest) (execution.ExportResult, error)
+}
+
+type InvocationRuntimeArtifactFinalizer interface {
+	Finalize(context.Context, artifact.Finalization) (artifact.Record, error)
 }
 
 type InvocationRuntimeAdapter interface {
@@ -95,6 +104,7 @@ type InvocationRuntimeDriver struct {
 	executions    executionByOperationSource
 	provider      invocationRuntimeProvider
 	adapters      InvocationRuntimeAdapterFactory
+	artifacts     InvocationRuntimeArtifactFinalizer
 	leaseDuration time.Duration
 	renewInterval time.Duration
 }
@@ -106,10 +116,11 @@ func NewInvocationRuntimeDriver(
 	executions executionByOperationSource,
 	provider invocationRuntimeProvider,
 	adapters InvocationRuntimeAdapterFactory,
+	artifacts InvocationRuntimeArtifactFinalizer,
 	config InvocationRuntimeDriverConfig,
 ) (*InvocationRuntimeDriver, error) {
 	if store == nil || authorizer == nil || requests == nil || executions == nil ||
-		provider == nil || adapters == nil {
+		provider == nil || adapters == nil || artifacts == nil {
 		return nil, errors.New("invocation runtime driver dependencies are required")
 	}
 	if config.LeaseDuration <= 0 ||
@@ -119,7 +130,7 @@ func NewInvocationRuntimeDriver(
 	}
 	return &InvocationRuntimeDriver{
 		store: store, authorizer: authorizer, requests: requests, executions: executions,
-		provider: provider, adapters: adapters, leaseDuration: config.LeaseDuration,
+		provider: provider, adapters: adapters, artifacts: artifacts, leaseDuration: config.LeaseDuration,
 		renewInterval: config.RenewInterval,
 	}, nil
 }
@@ -274,6 +285,9 @@ func (driver *InvocationRuntimeDriver) ApplyClaimed(
 		effect,
 		turn,
 		output,
+		target,
+		ref,
+		request.Artifacts,
 	)
 }
 
@@ -283,6 +297,9 @@ func (driver *InvocationRuntimeDriver) runTurn(
 	effect persistence.EffectRecord,
 	turn dgruntime.Turn,
 	output *invocationRuntimeOutput,
+	target persistence.InvocationRuntimeTarget,
+	ref execution.ExecutionRef,
+	declarations []dgruntime.ArtifactDeclaration,
 ) (map[string]any, error) {
 	runCtx, cancel := context.WithDeadline(ctx, claim.DeadlineAt)
 	defer cancel()
@@ -335,6 +352,17 @@ func (driver *InvocationRuntimeDriver) runTurn(
 				}
 				return nil, errors.Join(ErrEffectTerminal, resultErr)
 			}
+			claim, err = driver.publishInvocationArtifacts(
+				runCtx,
+				claim,
+				effect,
+				target,
+				ref,
+				declarations,
+			)
+			if err != nil {
+				return nil, errors.Join(ErrAmbiguousEffect, err)
+			}
 			if _, err := driver.store.CompleteInvocationRuntimeAttempt(
 				runCtx,
 				claim,
@@ -356,6 +384,69 @@ func (driver *InvocationRuntimeDriver) runTurn(
 			return nil, errors.Join(ErrAmbiguousEffect, runCtx.Err())
 		}
 	}
+}
+
+
+func (driver *InvocationRuntimeDriver) publishInvocationArtifacts(
+	ctx context.Context,
+	claim persistence.OperationClaim,
+	effect persistence.EffectRecord,
+	target persistence.InvocationRuntimeTarget,
+	ref execution.ExecutionRef,
+	declarations []dgruntime.ArtifactDeclaration,
+) (persistence.OperationClaim, error) {
+	for _, declaration := range declarations {
+		renewed, err := driver.store.RenewLease(ctx, claim, driver.leaseDuration)
+		if err != nil {
+			return claim, err
+		}
+		claim = renewed
+		exported, err := driver.provider.Export(ctx, execution.ExportRequest{
+			IsolationDomainID: ref.IsolationDomainID,
+			ExecutionID:       ref.ID,
+			SandboxPath:       declaration.SandboxPath,
+		})
+		if err != nil {
+			return claim, err
+		}
+		if exported.IsolationDomainID != ref.IsolationDomainID ||
+			exported.ExecutionID != ref.ID {
+			return claim, ErrInvocationRuntimeTargetMismatch
+		}
+		content := exported.Content
+		digest := sha256.Sum256(content)
+		record := artifact.Record{
+			SchemaVersion:     artifact.InvocationArtifactSchemaV1,
+			IsolationDomainID: target.IsolationDomainID,
+			ID: identity.Derived(
+				"art",
+				target.IsolationDomainID+":"+target.InvocationID+":"+declaration.ID,
+			),
+			InvocationID: target.InvocationID,
+			OperationID:  target.OperationID,
+			EffectID:     effect.EffectID,
+			Name:         declaration.Name,
+			Kind:         declaration.Kind,
+			MediaType:    declaration.MediaType,
+			SizeBytes:    int64(len(content)),
+			Digest:       "sha256:" + hex.EncodeToString(digest[:]),
+			Sensitive:    true,
+		}
+		if _, err := driver.artifacts.Finalize(ctx, artifact.Finalization{
+			Binding: artifact.Binding{
+				Record:              record,
+				ActorID:             claim.ActorID,
+				CorrelationID:       claim.CorrelationID,
+				LeaseOwner:          claim.LeaseOwner,
+				FencingToken:        claim.FencingToken,
+				StateMachineVersion: claim.StateMachineVersion,
+			},
+			Content: content,
+		}); err != nil {
+			return claim, err
+		}
+	}
+	return claim, nil
 }
 
 func (driver *InvocationRuntimeDriver) drainRuntimeEvents(
