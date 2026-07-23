@@ -485,14 +485,14 @@ func (stub *runtimeExecutionSourceStub) GetExecutionByOperation(
 }
 
 type runtimeProviderStub struct {
-	observation  execution.Observation
-	observeErr   error
-	startErr     error
-	observeCalls int
-	startCalls   int
-	exports      []execution.ExportRequest
+	observation   execution.Observation
+	observeErr    error
+	startErr      error
+	observeCalls  int
+	startCalls    int
+	exports       []execution.ExportRequest
 	exportResults []execution.ExportResult
-	exportErr    error
+	exportErr     error
 }
 
 func (stub *runtimeProviderStub) Observe(
