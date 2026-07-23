@@ -157,12 +157,18 @@ func (workspace *ExportWorkspace) consume(path string) ([]byte, error) {
 	if !securePolicyWorkspaceFile(info) {
 		return nil, ErrExportWorkspaceUnsafe
 	}
-	if info.Size() > workspace.maximumBytes {
-		return nil, ErrExportTooLarge
-	}
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, ErrExportWorkspaceFailure
+	}
+	opened, err := file.Stat()
+	if err != nil || !os.SameFile(info, opened) || !securePolicyWorkspaceFile(opened) {
+		_ = file.Close()
+		return nil, ErrExportWorkspaceUnsafe
+	}
+	if opened.Size() > workspace.maximumBytes {
+		_ = file.Close()
+		return nil, ErrExportTooLarge
 	}
 	content, readErr := io.ReadAll(io.LimitReader(file, workspace.maximumBytes+1))
 	closeErr := file.Close()
