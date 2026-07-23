@@ -258,7 +258,13 @@ func (driver *InvocationRuntimeDriver) ApplyClaimed(
 		return nil, errors.Join(ErrAmbiguousEffect, err)
 	}
 	defer turn.Close()
-	return driver.runTurn(runCtx, claim, effect, turn)
+	return driver.runTurn(
+		runCtx,
+		claim,
+		effect,
+		turn,
+		newInvocationRuntimeOutput(request.OutputSchema),
+	)
 }
 
 func (driver *InvocationRuntimeDriver) runTurn(
@@ -266,6 +272,7 @@ func (driver *InvocationRuntimeDriver) runTurn(
 	claim persistence.OperationClaim,
 	effect persistence.EffectRecord,
 	turn dgruntime.Turn,
+	output *invocationRuntimeOutput,
 ) (map[string]any, error) {
 	runCtx, cancel := context.WithDeadline(ctx, claim.DeadlineAt)
 	defer cancel()
@@ -285,8 +292,9 @@ func (driver *InvocationRuntimeDriver) runTurn(
 				_ = turn.Interrupt(context.Background())
 				return nil, errors.Join(ErrAmbiguousEffect, err)
 			}
+			output.Observe(event)
 		case waitErr := <-waited:
-			if err := driver.drainRuntimeEvents(runCtx, claim, events); err != nil {
+			if err := driver.drainRuntimeEvents(runCtx, claim, events, output); err != nil {
 				return nil, errors.Join(ErrAmbiguousEffect, err)
 			}
 			if waitErr != nil {
@@ -304,7 +312,19 @@ func (driver *InvocationRuntimeDriver) runTurn(
 				}
 				return nil, errors.Join(ErrAmbiguousEffect, waitErr)
 			}
-			result := map[string]any{"status": "succeeded"}
+			result, resultErr := output.Result()
+			if resultErr != nil {
+				failure := map[string]any{"code": "RUNTIME_OUTPUT_INVALID", "status": "failed"}
+				if _, err := driver.store.FailInvocationRuntimeAttempt(
+					runCtx,
+					claim,
+					effect,
+					failure,
+				); err != nil {
+					return nil, errors.Join(ErrAmbiguousEffect, resultErr, err)
+				}
+				return nil, errors.Join(ErrEffectTerminal, resultErr)
+			}
 			if _, err := driver.store.CompleteInvocationRuntimeAttempt(
 				runCtx,
 				claim,
@@ -332,6 +352,7 @@ func (driver *InvocationRuntimeDriver) drainRuntimeEvents(
 	ctx context.Context,
 	claim persistence.OperationClaim,
 	events <-chan dgruntime.Event,
+	output *invocationRuntimeOutput,
 ) error {
 	for events != nil {
 		select {
@@ -342,6 +363,7 @@ func (driver *InvocationRuntimeDriver) drainRuntimeEvents(
 			if err := driver.recordRuntimeEvent(ctx, claim, event); err != nil {
 				return err
 			}
+			output.Observe(event)
 		default:
 			return nil
 		}
