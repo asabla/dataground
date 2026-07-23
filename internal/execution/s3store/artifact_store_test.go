@@ -193,6 +193,7 @@ func TestStoreRejectsInvalidInvocationArtifactWriteBeforeRequest(t *testing.T) {
 		mediaType string
 	}{
 		"path traversal": {key: "invocation-artifacts/v1/../secret", content: bytes.NewReader(content), size: int64(len(content)), digest: digest, mediaType: "text/plain"},
+		"malformed scoped key": {key: "invocation-artifacts/v1/not-a-domain/object", content: bytes.NewReader(content), size: int64(len(content)), digest: digest, mediaType: "text/plain"},
 		"oversized key": {key: "invocation-artifacts/v1/" + strings.Repeat("a", 1024), content: bytes.NewReader(content), size: int64(len(content)), digest: digest, mediaType: "text/plain"},
 		"nil content": {key: invocationArtifactObjectKey, size: int64(len(content)), digest: digest, mediaType: "text/plain"},
 		"short content": {key: invocationArtifactObjectKey, content: bytes.NewReader(content[:2]), size: int64(len(content)), digest: digest, mediaType: "text/plain"},
