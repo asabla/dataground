@@ -230,6 +230,10 @@ func (driver *InvocationRuntimeDriver) ApplyClaimed(
 	if err := validateInvocationRuntimeRequest(request); err != nil {
 		return nil, errors.Join(ErrEffectInvalid, err)
 	}
+	output, err := newInvocationRuntimeOutput(request.OutputSchema)
+	if err != nil {
+		return nil, errors.Join(ErrEffectInvalid, err)
+	}
 	claim, err = driver.store.RenewLease(runCtx, claim, driver.leaseDuration)
 	if err != nil {
 		return nil, err
@@ -263,7 +267,7 @@ func (driver *InvocationRuntimeDriver) ApplyClaimed(
 		claim,
 		effect,
 		turn,
-		newInvocationRuntimeOutput(request.OutputSchema),
+		output,
 	)
 }
 
