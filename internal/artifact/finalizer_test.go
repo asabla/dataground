@@ -12,7 +12,7 @@ import (
 
 func TestFinalizerPersistsBeforeBindingAndReplaysReadOnly(t *testing.T) {
 	store := newMemoryStore()
-	finalizer, err := NewFinalizer(store, store, store)
+	finalizer, err := newTestFinalizer(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestFinalizerPersistsBeforeBindingAndReplaysReadOnly(t *testing.T) {
 func TestFinalizerRecoversLostWriteAcknowledgement(t *testing.T) {
 	store := newMemoryStore()
 	store.writeErr = ErrInvocationArtifactUnavailable
-	finalizer, err := NewFinalizer(store, store, store)
+	finalizer, err := newTestFinalizer(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestFinalizerRejectsConflictingContent(t *testing.T) {
 	value := artifactFinalization([]byte("expected"))
 	store.objects[value.Binding.Record.ObjectKey] = []byte("different")
 	store.records[value.Binding.Record.ID] = value.Binding.Record
-	finalizer, err := NewFinalizer(store, store, store)
+	finalizer, err := newTestFinalizer(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestFinalizerRejectsInvalidInputsBeforeStorage(t *testing.T) {
 			value.Binding.LeaseOwner = ""
 		},
 		"oversized metadata": func(value *Finalization) {
-			value.Binding.Record.SizeBytes = MaximumInvocationArtifactBytes + 1
+			value.Binding.Record.SizeBytes = testMaximumArtifactBytes + 1
 		},
 		"wrong state machine": func(value *Finalization) {
 			value.Binding.StateMachineVersion = 1
@@ -93,7 +93,7 @@ func TestFinalizerRejectsInvalidInputsBeforeStorage(t *testing.T) {
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
 			store := newMemoryStore()
-			finalizer, err := NewFinalizer(store, store, store)
+			finalizer, err := newTestFinalizer(store)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -114,9 +114,37 @@ func TestFinalizerRejectsInvalidInputsBeforeStorage(t *testing.T) {
 
 func TestFinalizerRejectsTypedNilDependencies(t *testing.T) {
 	var store *memoryStore
-	if finalizer, err := NewFinalizer(store, store, store); finalizer != nil || err == nil {
+	if finalizer, err := NewFinalizer(
+		store,
+		store,
+		store,
+		FinalizerConfig{MaximumBytes: testMaximumArtifactBytes},
+	); finalizer != nil || err == nil {
 		t.Fatalf("typed nil dependencies = (%#v, %v)", finalizer, err)
 	}
+}
+
+func TestFinalizerRequiresBoundedConfiguration(t *testing.T) {
+	store := newMemoryStore()
+	if finalizer, err := NewFinalizer(
+		store,
+		store,
+		store,
+		FinalizerConfig{},
+	); finalizer != nil || err == nil {
+		t.Fatalf("unbounded finalizer = (%#v, %v)", finalizer, err)
+	}
+}
+
+const testMaximumArtifactBytes = 1 << 20
+
+func newTestFinalizer(store *memoryStore) (*Finalizer, error) {
+	return NewFinalizer(
+		store,
+		store,
+		store,
+		FinalizerConfig{MaximumBytes: testMaximumArtifactBytes},
+	)
 }
 
 func artifactFinalization(content []byte) Finalization {
