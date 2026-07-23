@@ -11,7 +11,7 @@ import (
 )
 
 func TestInvocationRuntimeOutputMaterializesText(t *testing.T) {
-	output := newInvocationRuntimeOutput(nil)
+	output := mustNewInvocationRuntimeOutput(t, nil)
 	first := dgruntime.Event{
 		Sequence: 1,
 		Type:     "output.text.delta",
@@ -44,7 +44,7 @@ func TestInvocationRuntimeOutputMaterializesText(t *testing.T) {
 }
 
 func TestInvocationRuntimeOutputMaterializesStructuredValue(t *testing.T) {
-	output := newInvocationRuntimeOutput(map[string]any{"type": "object"})
+	output := mustNewInvocationRuntimeOutput(t, map[string]any{"type": "object"})
 	output.Observe(dgruntime.Event{
 		Sequence: 1,
 		Type:     "output.text.delta",
@@ -98,7 +98,7 @@ func TestInvocationRuntimeOutputRejectsInvalidContent(t *testing.T) {
 	}
 	for name, prepare := range tests {
 		t.Run(name, func(t *testing.T) {
-			output := newInvocationRuntimeOutput(map[string]any{"type": "object"})
+			output := mustNewInvocationRuntimeOutput(t, map[string]any{"type": "object"})
 			prepare(output)
 			if result, err := output.Result(); result != nil ||
 				!errors.Is(err, ErrInvocationRuntimeOutputInvalid) {
@@ -106,4 +106,60 @@ func TestInvocationRuntimeOutputRejectsInvalidContent(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestInvocationRuntimeOutputValidatesPersistedSchema(t *testing.T) {
+	schema := map[string]any{
+		"$defs": map[string]any{
+			"answer": map[string]any{"type": "string"},
+		},
+		"type":     "object",
+		"required": []any{"answer"},
+		"properties": map[string]any{
+			"answer": map[string]any{"$ref": "#/$defs/answer"},
+		},
+		"additionalProperties": false,
+	}
+	output := mustNewInvocationRuntimeOutput(t, schema)
+	output.Observe(dgruntime.Event{
+		Sequence: 1,
+		Type:     "output.text.delta",
+		Payload:  map[string]any{"text": "{\"answer\":42}"},
+	})
+	if result, err := output.Result(); result != nil ||
+		!errors.Is(err, ErrInvocationRuntimeOutputInvalid) {
+		t.Fatalf("schema-mismatched runtime output = (%#v, %v)", result, err)
+	}
+}
+
+func TestInvocationRuntimeOutputRejectsUnsafeSchemas(t *testing.T) {
+	tests := map[string]map[string]any{
+		"invalid type": {
+			"type": "not-a-json-schema-type",
+		},
+		"external reference": {
+			"$ref": "https://schemas.example.invalid/output.json",
+		},
+	}
+	for name, schema := range tests {
+		t.Run(name, func(t *testing.T) {
+			output, err := newInvocationRuntimeOutput(schema)
+			if output != nil ||
+				!errors.Is(err, ErrInvocationRuntimeOutputSchemaInvalid) {
+				t.Fatalf("invalid runtime output schema = (%#v, %v)", output, err)
+			}
+		})
+	}
+}
+
+func mustNewInvocationRuntimeOutput(
+	t *testing.T,
+	schema map[string]any,
+) *invocationRuntimeOutput {
+	t.Helper()
+	output, err := newInvocationRuntimeOutput(schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return output
 }
