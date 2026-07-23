@@ -592,4 +592,3 @@ func validInvocationRuntimeArtifactKind(kind string) bool {
 
 var _ EffectDriver = (*InvocationRuntimeDriver)(nil)
 var _ ClaimedEffectDriver = (*InvocationRuntimeDriver)(nil)
-
