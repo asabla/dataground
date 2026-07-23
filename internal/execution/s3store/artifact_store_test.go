@@ -284,7 +284,7 @@ func TestStorePreservesInvocationArtifactCancellation(t *testing.T) {
 }
 
 func TestNewArtifactStoreRequiresBoundedConfiguration(t *testing.T) {
-	baseStore := newTestStore(t, httptest.NewTLSServer(http.NotFoundHandler()), PathStyle)
+	baseStore := &Store{}
 	if _, err := NewArtifactStore(nil, artifactTestMaximumBytes); err == nil {
 		t.Fatal("nil S3 store accepted")
 	}
