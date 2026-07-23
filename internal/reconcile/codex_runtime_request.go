@@ -75,6 +75,9 @@ func (CodexInvocationRuntimeRequestBuilder) BuildInvocationRuntimeRequest(
 func mapCodexInvocationArtifacts(input map[string]any) ([]dgruntime.ArtifactDeclaration, error) {
 	value, found := input["artifacts"]
 	if !found {
+		if len(input) != 1 {
+			return nil, ErrInvocationRuntimeInputInvalid
+		}
 		return nil, nil
 	}
 	items, ok := value.([]any)
