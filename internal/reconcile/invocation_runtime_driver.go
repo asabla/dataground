@@ -119,8 +119,13 @@ func NewInvocationRuntimeDriver(
 	artifacts InvocationRuntimeArtifactFinalizer,
 	config InvocationRuntimeDriverConfig,
 ) (*InvocationRuntimeDriver, error) {
-	if store == nil || authorizer == nil || requests == nil || executions == nil ||
-		provider == nil || adapters == nil || artifacts == nil {
+	if governedInvocationDependencyMissing(store) ||
+		governedInvocationDependencyMissing(authorizer) ||
+		governedInvocationDependencyMissing(requests) ||
+		governedInvocationDependencyMissing(executions) ||
+		governedInvocationDependencyMissing(provider) ||
+		governedInvocationDependencyMissing(adapters) ||
+		governedInvocationDependencyMissing(artifacts) {
 		return nil, errors.New("invocation runtime driver dependencies are required")
 	}
 	if config.LeaseDuration <= 0 ||
