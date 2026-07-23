@@ -9,7 +9,10 @@ import (
 	dgruntime "github.com/asabla/dataground/internal/runtime"
 )
 
-const maximumInvocationRuntimeOutputBytes = 192 << 10
+const (
+	maximumInvocationRuntimeOutputBytes       = 192 << 10
+	maximumInvocationRuntimeOutputResultBytes = 256 << 10
+)
 
 var ErrInvocationRuntimeOutputInvalid = errors.New("invocation runtime output is invalid")
 
@@ -68,5 +71,10 @@ func (output *invocationRuntimeOutput) Result() (map[string]any, error) {
 			return nil, ErrInvocationRuntimeOutputInvalid
 		}
 	}
-	return map[string]any{"status": "succeeded", "output": value}, nil
+	result := map[string]any{"status": "succeeded", "output": value}
+	encoded, err := json.Marshal(result)
+	if err != nil || len(encoded) > maximumInvocationRuntimeOutputResultBytes {
+		return nil, ErrInvocationRuntimeOutputInvalid
+	}
+	return result, nil
 }
