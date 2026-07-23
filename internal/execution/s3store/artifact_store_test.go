@@ -194,15 +194,15 @@ func TestStoreRejectsInvalidInvocationArtifactWriteBeforeRequest(t *testing.T) {
 		digest    string
 		mediaType string
 	}{
-		"path traversal": {key: "invocation-artifacts/v1/../secret", content: bytes.NewReader(content), size: int64(len(content)), digest: digest, mediaType: "text/plain"},
+		"path traversal":       {key: "invocation-artifacts/v1/../secret", content: bytes.NewReader(content), size: int64(len(content)), digest: digest, mediaType: "text/plain"},
 		"malformed scoped key": {key: "invocation-artifacts/v1/not-a-domain/object", content: bytes.NewReader(content), size: int64(len(content)), digest: digest, mediaType: "text/plain"},
-		"oversized key": {key: "invocation-artifacts/v1/" + strings.Repeat("a", 1024), content: bytes.NewReader(content), size: int64(len(content)), digest: digest, mediaType: "text/plain"},
-		"nil content": {key: invocationArtifactObjectKey, size: int64(len(content)), digest: digest, mediaType: "text/plain"},
-		"short content": {key: invocationArtifactObjectKey, content: bytes.NewReader(content[:2]), size: int64(len(content)), digest: digest, mediaType: "text/plain"},
-		"extra content": {key: invocationArtifactObjectKey, content: bytes.NewReader(append(bytes.Clone(content), 'x')), size: int64(len(content)), digest: digest, mediaType: "text/plain"},
-		"wrong digest": {key: invocationArtifactObjectKey, content: bytes.NewReader(content), size: int64(len(content)), digest: "sha256:" + strings.Repeat("0", 64), mediaType: "text/plain"},
-		"oversized": {key: invocationArtifactObjectKey, content: bytes.NewReader(content), size: artifactTestMaximumBytes + 1, digest: digest, mediaType: "text/plain"},
-		"invalid media type": {key: invocationArtifactObjectKey, content: bytes.NewReader(content), size: int64(len(content)), digest: digest, mediaType: "text/plain\r\nx-secret: value"},
+		"oversized key":        {key: "invocation-artifacts/v1/" + strings.Repeat("a", 1024), content: bytes.NewReader(content), size: int64(len(content)), digest: digest, mediaType: "text/plain"},
+		"nil content":          {key: invocationArtifactObjectKey, size: int64(len(content)), digest: digest, mediaType: "text/plain"},
+		"short content":        {key: invocationArtifactObjectKey, content: bytes.NewReader(content[:2]), size: int64(len(content)), digest: digest, mediaType: "text/plain"},
+		"extra content":        {key: invocationArtifactObjectKey, content: bytes.NewReader(append(bytes.Clone(content), 'x')), size: int64(len(content)), digest: digest, mediaType: "text/plain"},
+		"wrong digest":         {key: invocationArtifactObjectKey, content: bytes.NewReader(content), size: int64(len(content)), digest: "sha256:" + strings.Repeat("0", 64), mediaType: "text/plain"},
+		"oversized":            {key: invocationArtifactObjectKey, content: bytes.NewReader(content), size: artifactTestMaximumBytes + 1, digest: digest, mediaType: "text/plain"},
+		"invalid media type":   {key: invocationArtifactObjectKey, content: bytes.NewReader(content), size: int64(len(content)), digest: digest, mediaType: "text/plain\r\nx-secret: value"},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -307,4 +307,3 @@ func newTestArtifactStore(t *testing.T, server *httptest.Server) *ArtifactStore 
 	}
 	return store
 }
-
