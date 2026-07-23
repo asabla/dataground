@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -17,12 +18,34 @@ import (
 
 const invocationArtifactKeyPrefix = "invocation-artifacts/v1/"
 
+var invocationArtifactObjectKeyPattern = regexp.MustCompile(
+	`^invocation-artifacts/v1/iso_[0-9a-z]{20,32}/inv_[0-9a-z]{20,32}/art_[0-9a-z]{20,32}/[0-9a-f]{64}package s3store
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"io"
+	"mime"
+	"net/http"
+	"regexp"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/asabla/dataground/internal/artifact"
+)
+
+,
+)
+
 func (store *Store) OpenInvocationArtifactObject(
 	ctx context.Context,
 	key string,
 ) (io.ReadCloser, error) {
 	objectURL, err := store.objectURL(key, invocationArtifactKeyPrefix)
-	if err != nil {
+	if err != nil || !invocationArtifactObjectKeyPattern.MatchString(key) {
 		return nil, artifact.ErrInvocationArtifactObjectConflict
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, objectURL, nil)
@@ -65,7 +88,8 @@ func (store *Store) PutInvocationArtifactObjectIfAbsent(
 		return err
 	}
 	objectURL, err := store.objectURL(key, invocationArtifactKeyPrefix)
-	if err != nil || content == nil || size < 0 ||
+	if err != nil || !invocationArtifactObjectKeyPattern.MatchString(key) ||
+		content == nil || size < 0 ||
 		size > artifact.MaximumInvocationArtifactBytes ||
 		!validArtifactMediaType(mediaType) {
 		return artifact.ErrInvocationArtifactObjectConflict
