@@ -46,7 +46,7 @@ pnpm verify
 
 The verification command runs Biome formatting and lint checks, `gofmt`, `go vet`, OpenAPI and JSON Schema fixture and compatibility checks, generated contract and token drift checks, TypeScript type checking, Go and Node tests, Playwright-backed Storybook interaction and accessibility tests, the Storybook production build, and production builds for the API and workbench.
 
-It also verifies that the blocked OpenShell and S3 development profiles remain immutable and internally consistent. The ordinary baseline does not start either dependency. GitHub CI separately exercises the enforcement-object and invocation-artifact transport subsets against the pinned disposable S3 candidate; neither check is a production certification.
+It also verifies that the blocked OpenShell and S3 development profiles remain immutable and internally consistent. The ordinary baseline does not start either dependency. GitHub CI separately exercises the enforcement-object transport, invocation-artifact transport, and composed invocation-artifact finalizer/catalog acknowledgement-recovery subsets against the pinned disposable S3 and PostgreSQL candidates; none is a production certification.
 
 Regenerate the typed workbench contract after an accepted OpenAPI change:
 
