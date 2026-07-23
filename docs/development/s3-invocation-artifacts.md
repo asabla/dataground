@@ -17,4 +17,6 @@ go run ./cmd/dataground-s3-conformance \
 docker compose -f deploy/storage/seaweedfs-conformance.yml down --volumes
 ```
 
-This evidence certifies only the narrow anonymous loopback development transport against the pinned disposable candidate. It does not certify the PostgreSQL catalog and object adapter as one failure-recovery unit, runtime export, workload authentication, encryption or KMS, retention, replication, backup and restore, upgrades, multi-gateway behavior, partitions, production topology, or backend selection.
+The CI profile additionally composes the real bounded artifact adapter, immutable finalizer, and PostgreSQL catalog under an exact reserved version-2 runtime claim. It deliberately loses the catalogue acknowledgement only after a durable bind, then requires concurrent identical retries to converge through read-only replay on one private object record, one public descriptor, and one audit record; conflicting bytes remain rejected.
+
+This evidence certifies only the anonymous loopback development boundary against the pinned disposable candidates. It does not certify runtime export, workload authentication, encryption or KMS, retention, replication, backup and restore, upgrades, multi-gateway behavior, partitions, production topology, or backend selection.
