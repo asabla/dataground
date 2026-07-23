@@ -607,3 +607,4 @@ func (runtimeSessionStub) Output() io.ReadCloser { return nil }
 func (runtimeSessionStub) Errors() io.ReadCloser { return nil }
 func (runtimeSessionStub) Wait() error           { return nil }
 func (runtimeSessionStub) Close() error          { return nil }
+
