@@ -40,8 +40,10 @@ CREATE TABLE invocation_artifact_objects (
     CHECK (length(media_type) BETWEEN 1 AND 255),
     CHECK (artifact_digest ~ '^sha256:[0-9a-f]{64}$'),
     CHECK (
-        object_key ~
-        '^invocation-artifacts/v1/iso_[0-9a-z]{20,32}/inv_[0-9a-z]{20,32}/art_[0-9a-z]{20,32}/[0-9a-f]{64}$'
+        object_key =
+        'invocation-artifacts/v1/' || isolation_domain_id || '/' ||
+        invocation_id || '/' || id || '/' ||
+        substring(artifact_digest FROM 8)
     ),
     CHECK (length(lease_owner) BETWEEN 1 AND 256),
     CHECK (length(bound_by) BETWEEN 1 AND 256),
