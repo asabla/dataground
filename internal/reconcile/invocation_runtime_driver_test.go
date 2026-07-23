@@ -490,6 +490,9 @@ type runtimeProviderStub struct {
 	startErr     error
 	observeCalls int
 	startCalls   int
+	exports      []execution.ExportRequest
+	exportResults []execution.ExportResult
+	exportErr    error
 }
 
 func (stub *runtimeProviderStub) Observe(
@@ -512,18 +515,34 @@ func (stub *runtimeProviderStub) Export(
 	_ context.Context,
 	request execution.ExportRequest,
 ) (execution.ExportResult, error) {
+	stub.exports = append(stub.exports, request)
+	if stub.exportErr != nil {
+		return execution.ExportResult{}, stub.exportErr
+	}
+	if len(stub.exportResults) > 0 {
+		result := stub.exportResults[0]
+		stub.exportResults = stub.exportResults[1:]
+		return result, nil
+	}
 	return execution.ExportResult{
 		IsolationDomainID: request.IsolationDomainID,
 		ExecutionID:       request.ExecutionID,
 	}, nil
 }
 
-type runtimeArtifactFinalizerStub struct{}
+type runtimeArtifactFinalizerStub struct {
+	values []artifact.Finalization
+	err    error
+}
 
-func (*runtimeArtifactFinalizerStub) Finalize(
+func (stub *runtimeArtifactFinalizerStub) Finalize(
 	_ context.Context,
 	finalization artifact.Finalization,
 ) (artifact.Record, error) {
+	stub.values = append(stub.values, finalization)
+	if stub.err != nil {
+		return artifact.Record{}, stub.err
+	}
 	return finalization.Binding.Record, nil
 }
 
