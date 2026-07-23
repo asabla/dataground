@@ -8,6 +8,10 @@ import (
 
 const invocationRuntimeOutputSchemaURL = "urn:dataground:invocation-runtime-output"
 
+var ErrInvocationRuntimeOutputSchemaInvalid = errors.New(
+	"invocation runtime output schema is invalid",
+)
+
 type invocationRuntimeOutputSchema struct {
 	compiled *jsonschema.Schema
 }
