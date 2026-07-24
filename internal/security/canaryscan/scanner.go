@@ -23,10 +23,10 @@ var (
 
 // Result contains only non-sensitive scan metadata.
 type Result struct {
-	InspectedBytes int64
+	InspectedBytes  int64
 	InspectedSHA256 [sha256.Size]byte
-	Candidates     int64
-	Matches        int64
+	Candidates      int64
+	Matches         int64
 }
 
 // Scan searches a bounded stream for structured canaries matching commitment.
