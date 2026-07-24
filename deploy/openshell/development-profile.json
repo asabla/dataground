@@ -70,7 +70,18 @@
           "sandbox-logs": 268435456,
           "runtime-errors": 16777216
         },
-        "status": "commitment-only scanner verified; live harness required"
+        "status": "commitment-only scanner verified; live harness required",
+        "runIDFormat": "32-character lowercase hexadecimal nonce",
+        "resourceNameFormat": "portable lowercase identifier",
+        "surfaceResourceKinds": {
+          "sandbox-process": "sandbox",
+          "sandbox-environment": "sandbox",
+          "sandbox-filesystem": "sandbox",
+          "provider-arguments": "provider",
+          "gateway-logs": "gateway",
+          "sandbox-logs": "sandbox",
+          "runtime-errors": "runtime"
+        }
       },
       "status": "contract verified; live evidence required"
     }
