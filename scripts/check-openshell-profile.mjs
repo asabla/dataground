@@ -58,16 +58,35 @@ if (actualFixtureDigest !== profile.enforcement.sha256) {
 if (profile.runtime?.nativeInterface !== "app-server JSONL over stdio") {
   fail("the first Codex integration must use the native app-server stdio interface");
 }
+const credentialEvidenceContract = profile.providerProfileEvidence?.contract;
 if (
-  profile.providerProfileEvidence?.contract?.schema !==
+  credentialEvidenceContract?.schema !==
     "deploy/openshell/credential-non-exposure-evidence.schema.json" ||
-  profile.providerProfileEvidence?.contract?.schemaVersion !==
+  credentialEvidenceContract?.schemaVersion !==
     "dataground.dev.openshell-credential-non-exposure-evidence/v1" ||
-  profile.providerProfileEvidence?.contract?.status !== "contract verified; live evidence required"
+  credentialEvidenceContract?.verifier !==
+    "pnpm openshell:credential-evidence:check <evidence.json>" ||
+  credentialEvidenceContract?.verifierIdentity?.name !== "dataground-openshell-canary" ||
+  credentialEvidenceContract?.verifierIdentity?.version !== "1.0.0" ||
+  credentialEvidenceContract?.status !== "contract verified; live evidence required"
 ) {
   fail("the credential non-exposure evidence contract is missing or unblocked");
 }
-const canaryScanner = profile.providerProfileEvidence?.contract?.scanner;
+const credentialEvidenceSchema = JSON.parse(
+  await readFile(resolve(root, credentialEvidenceContract?.schema ?? ""), "utf8"),
+);
+const evidenceRunProperties = credentialEvidenceSchema?.properties?.run?.properties;
+if (
+  evidenceRunProperties?.startedAt?.pattern !== "Z$" ||
+  evidenceRunProperties?.finishedAt?.pattern !== "Z$" ||
+  evidenceRunProperties?.verifier?.properties?.name?.const !==
+    credentialEvidenceContract?.verifierIdentity?.name ||
+  evidenceRunProperties?.verifier?.properties?.version?.const !==
+    credentialEvidenceContract?.verifierIdentity?.version
+) {
+  fail("the credential evidence schema does not match the verifier identity contract");
+}
+const canaryScanner = credentialEvidenceContract?.scanner;
 if (
   canaryScanner?.command !== "go run ./cmd/dataground-openshell-canary-scan" ||
   canaryScanner?.schema !== "deploy/openshell/credential-canary-scan.schema.json" ||
