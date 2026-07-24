@@ -65,6 +65,10 @@ function verifyEvidence(evidence) {
     failures.push("evidence must contain every inspection surface exactly once");
   }
 
+  if (evidence.checks.some((check) => check.canaryCommitment !== evidence.run.canaryCommitment)) {
+    failures.push("every inspection surface must bind to the run canary commitment");
+  }
+
   const startedAt = Date.parse(evidence.run.startedAt);
   const finishedAt = Date.parse(evidence.run.finishedAt);
   if (!Number.isFinite(startedAt) || !Number.isFinite(finishedAt) || finishedAt < startedAt) {
@@ -86,6 +90,7 @@ function representativeEvidence() {
     },
     checks: requiredSurfaces.map((surface) => ({
       surface,
+      canaryCommitment: `sha256:${"a".repeat(64)}`,
       status: "clear",
       matches: 0,
       complete: true,
@@ -110,6 +115,16 @@ function runSelfTest() {
         ...valid,
         checks: valid.checks.map((check, index) =>
           index === 1 ? { ...check, surface: valid.checks[0].surface } : check,
+        ),
+      },
+      false,
+    ],
+    [
+      "mixed canary commitment",
+      {
+        ...valid,
+        checks: valid.checks.map((check, index) =>
+          index === 0 ? { ...check, canaryCommitment: `sha256:${"b".repeat(64)}` } : check,
         ),
       },
       false,
@@ -156,6 +171,7 @@ function runSelfTest() {
   const clearScan = {
     schemaVersion: "dataground.dev.openshell-canary-scan/v1",
     surface: "sandbox-process",
+    canaryCommitment: `sha256:${"a".repeat(64)}`,
     status: "clear",
     matches: 0,
     complete: true,
@@ -167,6 +183,9 @@ function runSelfTest() {
   }
   if (validateScanSchema({ ...clearScan, matches: 1 })) {
     failures.push("self-test failed: inconsistent clear canary scan report");
+  }
+  if (validateScanSchema({ ...clearScan, canaryCommitment: undefined })) {
+    failures.push("self-test failed: unbound canary scan report");
   }
 
   if (failures.length > 0) {
