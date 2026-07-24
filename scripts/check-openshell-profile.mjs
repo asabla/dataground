@@ -117,14 +117,20 @@ if (
   fail("the credential evidence schema does not match the verifier identity contract");
 }
 const canaryScanner = credentialEvidenceContract?.scanner;
-const canaryScannerSource = await readFile(
+const canaryScannerCommandSource = await readFile(
   resolve(root, "cmd/dataground-openshell-canary-scan/main.go"),
+  "utf8",
+);
+const canaryScannerReportSource = await readFile(
+  resolve(root, "internal/security/canaryscan/report.go"),
   "utf8",
 );
 if (
   canaryScanner?.command !== "go run ./cmd/dataground-openshell-canary-scan" ||
   canaryScanner?.schema !== "deploy/openshell/credential-canary-scan.schema.json" ||
   canaryScanner?.schemaVersion !== "dataground.dev.openshell-canary-scan/v1" ||
+  canaryScanner?.reportAssembly !== "internal/security/canaryscan.ScanReport" ||
+  !canaryScannerCommandSource.includes("canaryscan.ScanReport(") ||
   canaryScanner?.canaryFormat !==
     "dataground-canary-v1:<43-character unpadded base64url entropy>" ||
   canaryScanner?.observationWindow !==
@@ -132,7 +138,7 @@ if (
   canaryScanner?.inputCommitment !==
     "sha256 of four-byte big-endian length-prefixed UTF-8 domain, run ID, surface, resource kind, resource name, then the 32-byte input sha256" ||
   canaryScanner?.inputCommitmentDomain !== "dataground.openshell-canary-input/v1" ||
-  !canaryScannerSource.includes('"dataground.openshell-canary-input/v1"') ||
+  !canaryScannerReportSource.includes('"dataground.openshell-canary-input/v1"') ||
   canaryScanner?.runIDFormat !== "32-character lowercase hexadecimal nonce" ||
   canaryScanner?.resourceNameFormat !== "portable lowercase identifier" ||
   JSON.stringify(canaryScanner?.surfaceResourceKinds) !==
