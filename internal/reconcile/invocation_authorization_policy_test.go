@@ -2,7 +2,9 @@ package reconcile
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -99,7 +101,7 @@ func TestPolicyBoundInvocationAuthorizationDecisionBindsAndOwnsPolicy(t *testing
 	if sourceCalls != 1 || evaluatorCalls != 1 {
 		t.Fatalf("calls = source %d, evaluator %d", sourceCalls, evaluatorCalls)
 	}
-	if string(policy.Schema) != "{"type":"object"}" || string(policy.Policies) != "permit(principal, action, resource);" {
+	if string(policy.Schema) != `{"type":"object"}` || string(policy.Policies) != "permit(principal, action, resource);" {
 		t.Fatal("evaluation mutated source-owned policy bytes")
 	}
 }
@@ -122,6 +124,12 @@ func TestPolicyBoundInvocationAuthorizationDecisionRejectsPolicyDrift(t *testing
 		},
 		"policy set": func(policy *InvocationAuthorizationPolicy) {
 			policy.PolicySetID = ""
+		},
+		"unsafe policy set": func(policy *InvocationAuthorizationPolicy) {
+			policy.PolicySetID = "../policy"
+		},
+		"oversized policy set": func(policy *InvocationAuthorizationPolicy) {
+			policy.PolicySetID = strings.Repeat("a", maxInvocationAuthorizationPolicyIDBytes+1)
 		},
 		"digest": func(policy *InvocationAuthorizationPolicy) {
 			policy.Policies = append(policy.Policies, ' ')
@@ -231,6 +239,20 @@ func TestPolicyBoundInvocationAuthorizationDecisionMapsStableOutcomes(t *testing
 	}
 }
 
+func TestInvocationAuthorizationPolicyExcludesContentFromSerialization(t *testing.T) {
+	t.Parallel()
+
+	policy := testInvocationAuthorizationPolicy()
+	encoded, err := json.Marshal(policy)
+	if err != nil {
+		t.Fatalf("marshal policy metadata: %v", err)
+	}
+	if strings.Contains(string(encoded), string(policy.Schema)) ||
+		strings.Contains(string(encoded), string(policy.Policies)) {
+		t.Fatalf("serialized policy exposed content: %s", encoded)
+	}
+}
+
 func TestPolicyBoundInvocationAuthorizationDecisionFailsClosedAtConstruction(t *testing.T) {
 	t.Parallel()
 
@@ -280,7 +302,7 @@ func testInvocationAuthorizationPolicy() InvocationAuthorizationPolicy {
 		ServiceID:         "svc_1",
 		RevisionID:        "rev_1",
 		PolicySetID:       "policy_1",
-		Schema:            []byte("{"type":"object"}"),
+		Schema:            []byte(`{"type":"object"}`),
 		Policies:          []byte("permit(principal, action, resource);"),
 	}
 	policy.Digest = invocationAuthorizationPolicyDigest(policy.Schema, policy.Policies)
