@@ -39,6 +39,65 @@ type InvocationAuthorizationPolicy struct {
 	Policies          []byte `json:"-"`
 }
 
+type invocationAuthorizationPolicyKey struct {
+	IsolationDomainID string
+	ServiceID         string
+	RevisionID        string
+}
+
+type StaticInvocationAuthorizationPolicySource struct {
+	policies map[invocationAuthorizationPolicyKey]InvocationAuthorizationPolicy
+}
+
+func NewStaticInvocationAuthorizationPolicySource(
+	policies []InvocationAuthorizationPolicy,
+) (*StaticInvocationAuthorizationPolicySource, error) {
+	if len(policies) == 0 {
+		return nil, errors.New("at least one invocation authorization policy is required")
+	}
+	source := &StaticInvocationAuthorizationPolicySource{
+		policies: make(map[invocationAuthorizationPolicyKey]InvocationAuthorizationPolicy, len(policies)),
+	}
+	for _, policy := range policies {
+		scope := InvocationAuthorizationPolicyScope{
+			IsolationDomainID: policy.IsolationDomainID,
+			ServiceID:         policy.ServiceID,
+			RevisionID:        policy.RevisionID,
+		}
+		if !validInvocationAuthorizationPolicyScope(scope) ||
+			!validInvocationAuthorizationPolicy(policy, scope) {
+			return nil, ErrInvocationAuthorizationPolicyInvalid
+		}
+		key := invocationAuthorizationPolicyKey(scope)
+		if _, exists := source.policies[key]; exists {
+			return nil, errors.New("duplicate invocation authorization policy scope")
+		}
+		source.policies[key] = cloneInvocationAuthorizationPolicy(policy)
+	}
+	return source, nil
+}
+
+func (source *StaticInvocationAuthorizationPolicySource) ResolveInvocationAuthorizationPolicy(
+	ctx context.Context,
+	scope InvocationAuthorizationPolicyScope,
+) (InvocationAuthorizationPolicy, error) {
+	if err := ctx.Err(); err != nil {
+		return InvocationAuthorizationPolicy{}, err
+	}
+	if source == nil || !validInvocationAuthorizationPolicyScope(scope) {
+		return InvocationAuthorizationPolicy{}, ErrInvocationAuthorizationPolicyUnavailable
+	}
+	policy, ok := source.policies[invocationAuthorizationPolicyKey(scope)]
+	if !ok {
+		return InvocationAuthorizationPolicy{}, ErrInvocationAuthorizationPolicyUnavailable
+	}
+	return cloneInvocationAuthorizationPolicy(policy), nil
+}
+
+func validInvocationAuthorizationPolicyScope(scope InvocationAuthorizationPolicyScope) bool {
+	return scope.IsolationDomainID != "" && scope.ServiceID != "" && scope.RevisionID != ""
+}
+
 type InvocationAuthorizationPolicySource interface {
 	ResolveInvocationAuthorizationPolicy(
 		context.Context,
@@ -113,7 +172,8 @@ func validInvocationAuthorizationPolicy(
 	policy InvocationAuthorizationPolicy,
 	scope InvocationAuthorizationPolicyScope,
 ) bool {
-	if policy.Contract != InvocationAuthorizationPolicyContract ||
+	if !validInvocationAuthorizationPolicyScope(scope) ||
+		policy.Contract != InvocationAuthorizationPolicyContract ||
 		policy.IsolationDomainID != scope.IsolationDomainID ||
 		policy.ServiceID != scope.ServiceID ||
 		policy.RevisionID != scope.RevisionID ||
@@ -160,5 +220,7 @@ func stableInvocationAuthorizationDependencyError(ctx context.Context, err error
 	}
 	return ErrInvocationAuthorizationPolicyUnavailable
 }
+
+var _ InvocationAuthorizationPolicySource = (*StaticInvocationAuthorizationPolicySource)(nil)
 
 var _ InvocationAuthorizationDecision = (*PolicyBoundInvocationAuthorizationDecision)(nil)
