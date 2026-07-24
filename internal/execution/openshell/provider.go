@@ -50,6 +50,7 @@ type Config struct {
 	ExportWorkspace *ExportWorkspace
 	Now             func() time.Time
 	StateStore      execution.StateStore
+	ProviderProfiles *execution.ProviderProfileRegistry
 }
 
 // Provider is the development OpenShell adapter. Gateway and sandbox
@@ -62,6 +63,7 @@ type Provider struct {
 	exports   *ExportWorkspace
 	now       func() time.Time
 	store     execution.StateStore
+	profiles  *execution.ProviderProfileRegistry
 }
 
 func New(config Config, runner Runner) *Provider {
@@ -82,7 +84,7 @@ func New(config Config, runner Runner) *Provider {
 	}
 	return &Provider{
 		runner: runner, binary: binary, expected: config.ExpectedVersion, workspace: config.PolicyWorkspace, exports: config.ExportWorkspace,
-		now: now, store: store,
+		now: now, store: store, profiles: config.ProviderProfiles,
 	}
 }
 
@@ -140,17 +142,13 @@ func (provider *Provider) Create(ctx context.Context, request execution.CreateRe
 		return execution.Execution{}, err
 	}
 	policy := slices.Clone(request.Policy)
-	providerProfiles := slices.Clone(request.ProviderProfiles)
 	if err := execution.VerifyEnforcementPolicy(policy, request.PolicyDigest); err != nil {
 		return execution.Execution{}, err
 	}
-	for _, profile := range providerProfiles {
-		if profile == "" || strings.ContainsAny(profile, "=\x00\n\r") {
-			return execution.Execution{}, errors.New("provider profile name is invalid")
-		}
+	providerProfiles, err := provider.profiles.Resolve(request.ProviderProfiles)
+	if err != nil {
+		return execution.Execution{}, err
 	}
-	sort.Strings(providerProfiles)
-	providerProfiles = slices.Compact(providerProfiles)
 	createFingerprint := fingerprintCreate(request, providerProfiles)
 	gateway, err := provider.executionContext(ctx, request.IsolationDomainID, request.Placement.GatewayID)
 	if err != nil {
