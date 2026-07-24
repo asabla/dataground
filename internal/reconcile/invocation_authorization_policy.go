@@ -8,12 +8,13 @@ import (
 	"regexp"
 )
 
-const (
-	InvocationAuthorizationPolicyContract = "dataground.invocation-authorization-policy/v1"
-	maxInvocationAuthorizationPolicyIDBytes = 128
-	maxInvocationAuthorizationSchemaBytes   = 1 << 20
-	maxInvocationAuthorizationPolicyBytes   = 1 << 20
-)
+const InvocationAuthorizationPolicyContract = "dataground.invocation-authorization-policy/v1"
+
+const maxInvocationAuthorizationPolicyIDBytes = 128
+
+const maxInvocationAuthorizationSchemaBytes = 1 << 20
+
+const maxInvocationAuthorizationPolicyBytes = 1 << 20
 
 var (
 	ErrInvocationAuthorizationPolicyInvalid     = errors.New("invocation authorization policy is invalid")
