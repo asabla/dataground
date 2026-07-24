@@ -11,7 +11,10 @@ import (
 	"time"
 )
 
-const commandTestCanary = "dataground-canary-v1:0123456789abcdefghijklmnopqrstuvwxyz_A-B-CD"
+const (
+	commandTestCanary = "dataground-canary-v1:0123456789abcdefghijklmnopqrstuvwxyz_A-B-CD"
+	commandTestRunID  = "0123456789abcdef0123456789abcdef"
+)
 
 func TestRunReportsClearBoundedScan(t *testing.T) {
 	t.Parallel()
@@ -21,7 +24,7 @@ func TestRunReportsClearBoundedScan(t *testing.T) {
 	var stderr bytes.Buffer
 	exitCode := run(
 		context.Background(),
-		[]string{"--surface", "sandbox-environment", "--commitment", commandCommitment(commandTestCanary), "--max-bytes", "1024"},
+		commandArgs("sandbox-environment", "sandbox-credential-check", "1024"),
 		input,
 		&stdout,
 		&stderr,
@@ -34,7 +37,7 @@ func TestRunReportsClearBoundedScan(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
-	if output.Status != "clear" || !output.Complete || output.Matches != 0 || output.Surface != "sandbox-environment" || output.Commitment != commandCommitment(commandTestCanary) || output.InputLimitBytes != 1024 || output.InspectedBytes != int64(len("safe material")) || output.StartedAt != "2026-07-24T12:00:00Z" || output.FinishedAt != "2026-07-24T12:00:01Z" {
+	if output.Status != "clear" || !output.Complete || output.Matches != 0 || output.Surface != "sandbox-environment" || output.RunID != commandTestRunID || output.Resource != (resourceBinding{Kind: "sandbox", Name: "sandbox-credential-check"}) || output.Commitment != commandCommitment(commandTestCanary) || output.InputLimitBytes != 1024 || output.InspectedBytes != int64(len("safe material")) || output.StartedAt != "2026-07-24T12:00:00Z" || output.FinishedAt != "2026-07-24T12:00:01Z" {
 		t.Fatalf("run() report = %+v", output)
 	}
 }
@@ -46,7 +49,7 @@ func TestRunReportsMatchWithoutEchoingCanary(t *testing.T) {
 	var stderr bytes.Buffer
 	exitCode := run(
 		context.Background(),
-		[]string{"--surface", "gateway-logs", "--commitment", commandCommitment(commandTestCanary), "--max-bytes", "1024"},
+		commandArgs("gateway-logs", "dataground-gateway", "1024"),
 		strings.NewReader(commandTestCanary),
 		&stdout,
 		&stderr,
@@ -74,7 +77,7 @@ func TestRunFailsClosedForTruncatedInput(t *testing.T) {
 	var stderr bytes.Buffer
 	exitCode := run(
 		context.Background(),
-		[]string{"--surface", "runtime-errors", "--commitment", commandCommitment(commandTestCanary), "--max-bytes", "3"},
+		commandArgs("runtime-errors", "runtime-invocation", "3"),
 		strings.NewReader("four"),
 		&stdout,
 		&stderr,
@@ -99,7 +102,7 @@ func TestRunFailsClosedForReversedObservationWindow(t *testing.T) {
 	var stderr bytes.Buffer
 	exitCode := run(
 		context.Background(),
-		[]string{"--surface", "sandbox-process", "--commitment", commandCommitment(commandTestCanary), "--max-bytes", "1024"},
+		commandArgs("sandbox-process", "sandbox-credential-check", "1024"),
 		strings.NewReader("safe material"),
 		&stdout,
 		&stderr,
@@ -127,7 +130,7 @@ func TestRunRejectsUnboundedInputLimit(t *testing.T) {
 	var stderr bytes.Buffer
 	exitCode := run(
 		context.Background(),
-		[]string{"--surface", "sandbox-filesystem", "--commitment", commandCommitment(commandTestCanary), "--max-bytes", "268435457"},
+		commandArgs("sandbox-filesystem", "sandbox-credential-check", "268435457"),
 		strings.NewReader(""),
 		&stdout,
 		&stderr,
@@ -145,7 +148,7 @@ func TestRunRejectsUnknownSurface(t *testing.T) {
 	var stderr bytes.Buffer
 	exitCode := run(
 		context.Background(),
-		[]string{"--surface", "host-environment", "--commitment", commandCommitment(commandTestCanary)},
+		commandArgs("host-environment", "sandbox-credential-check", "268435456"),
 		strings.NewReader(""),
 		&stdout,
 		&stderr,
@@ -153,6 +156,16 @@ func TestRunRejectsUnknownSurface(t *testing.T) {
 	)
 	if exitCode != 2 || stdout.Len() != 0 {
 		t.Fatalf("run() exit = %d, stdout = %q", exitCode, stdout.String())
+	}
+}
+
+func commandArgs(surface string, resourceName string, maxBytes string) []string {
+	return []string{
+		"--surface", surface,
+		"--run-id", commandTestRunID,
+		"--resource-name", resourceName,
+		"--commitment", commandCommitment(commandTestCanary),
+		"--max-bytes", maxBytes,
 	}
 }
 
