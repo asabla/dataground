@@ -21,9 +21,8 @@ var (
 	ErrInputLimit        = errors.New("canary scan input limit exceeded")
 )
 
-// Result contains bounded scan metrics. Its inspected-input digest remains
-// private and is consumed only by scanner-owned report assembly.
-type Result struct {
+// result contains bounded scan metrics and its private inspected-input digest.
+type result struct {
 	InspectedBytes  int64
 	inspectedSHA256 [sha256.Size]byte
 	Candidates      int64
@@ -31,52 +30,52 @@ type Result struct {
 }
 
 
-// Scan searches a bounded stream for structured canaries matching commitment.
+// scan searches a bounded stream for structured canaries matching commitment.
 // Candidate plaintext is kept only in the rolling buffer and is never returned.
-func Scan(ctx context.Context, input io.Reader, maxBytes int64, commitment string) (result Result, err error) {
+func scan(ctx context.Context, input io.Reader, maxBytes int64, commitment string) (value result, err error) {
 	target, err := parseCommitment(commitment)
 	if err != nil {
-		return Result{}, err
+		return result{}, err
 	}
 	if input == nil || maxBytes <= 0 {
-		return Result{}, ErrInputLimit
+		return result{}, ErrInputLimit
 	}
 
 	limited := &io.LimitedReader{R: input, N: maxBytes + 1}
 	inputHash := sha256.New()
 	defer func() {
-		copy(result.inspectedSHA256[:], inputHash.Sum(nil))
+		copy(value.inspectedSHA256[:], inputHash.Sum(nil))
 	}()
 	chunk := make([]byte, 64*1024)
 	window := make([]byte, 0, len(chunk)+PlaintextLength-1)
 
 	for {
 		if err := ctx.Err(); err != nil {
-			return result, err
+			return value, err
 		}
 		read, readErr := limited.Read(chunk)
 		if read > 0 {
 			_, _ = inputHash.Write(chunk[:read])
-			result.InspectedBytes += int64(read)
-			if result.InspectedBytes > maxBytes {
-				return result, ErrInputLimit
+			value.InspectedBytes += int64(read)
+			if value.InspectedBytes > maxBytes {
+				return value, ErrInputLimit
 			}
 			window = append(window, chunk[:read]...)
-			window = inspectCompleteCandidates(window, target, &result)
+			window = inspectCompleteCandidates(window, target, &value)
 		}
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {
-				return result, nil
+				return value, nil
 			}
-			return result, readErr
+			return value, readErr
 		}
 		if read == 0 {
-			return result, io.ErrNoProgress
+			return value, io.ErrNoProgress
 		}
 	}
 }
 
-func inspectCompleteCandidates(window []byte, target [sha256.Size]byte, result *Result) []byte {
+func inspectCompleteCandidates(window []byte, target [sha256.Size]byte, value *result) []byte {
 	completeStarts := len(window) - PlaintextLength + 1
 	if completeStarts <= 0 {
 		return window
@@ -94,9 +93,9 @@ func inspectCompleteCandidates(window []byte, target [sha256.Size]byte, result *
 		}
 		candidate := window[start : start+PlaintextLength]
 		if validEntropyText(candidate[len(Prefix):]) {
-			result.Candidates++
+			value.Candidates++
 			if sha256.Sum256(candidate) == target {
-				result.Matches++
+				value.Matches++
 			}
 		}
 		searchAt = start + 1
