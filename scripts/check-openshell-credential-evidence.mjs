@@ -272,6 +272,16 @@ function runSelfTest() {
       false,
     ],
     [
+      "malformed input commitment",
+      {
+        ...valid,
+        checks: valid.checks.map((check, index) =>
+          index === 0 ? { ...check, inputCommitment: `sha256:${"C".repeat(64)}` } : check,
+        ),
+      },
+      false,
+    ],
+    [
       "positive match",
       {
         ...valid,
@@ -428,6 +438,9 @@ function runSelfTest() {
   }
   if (validateScanSchema({ ...clearScan, inputCommitment: undefined })) {
     failures.push("self-test failed: unbound canary scan input");
+  }
+  if (validateScanSchema({ ...clearScan, inputCommitment: `sha256:${"C".repeat(64)}` })) {
+    failures.push("self-test failed: malformed canary scan input commitment");
   }
   if (validateScanSchema({ ...clearScan, inputLimitBytes: undefined })) {
     failures.push("self-test failed: unbounded canary scan report");
