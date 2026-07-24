@@ -39,6 +39,7 @@ const expectedProfile = {
   driver: profile.topology.driver,
 };
 const expectedScanLimits = profile.providerProfileEvidence.contract.scanner.surfaceMaxBytes;
+const expectedVerifierIdentity = profile.providerProfileEvidence.contract.verifierIdentity;
 
 function verifyEvidence(evidence) {
   const failures = [];
@@ -68,6 +69,14 @@ function verifyEvidence(evidence) {
 
   if (evidence.checks.some((check) => check.canaryCommitment !== evidence.run.canaryCommitment)) {
     failures.push("every inspection surface must bind to the run canary commitment");
+  }
+
+  if (
+    Object.entries(expectedVerifierIdentity).some(
+      ([field, expected]) => evidence.run.verifier[field] !== expected,
+    )
+  ) {
+    failures.push("evidence does not use the checked-in verifier identity");
   }
 
   const runStartedAt = Date.parse(evidence.run.startedAt);
@@ -114,7 +123,7 @@ function representativeEvidence() {
     run: {
       startedAt: "2026-07-24T12:00:00.000Z",
       finishedAt: "2026-07-24T12:01:00.000Z",
-      verifier: { name: "dataground-openshell-canary", version: "1.0.0" },
+      verifier: structuredClone(expectedVerifierIdentity),
       canaryCommitment: `sha256:${"a".repeat(64)}`,
     },
     checks: requiredSurfaces.map((surface) => ({
@@ -144,6 +153,14 @@ function runSelfTest() {
   const cases = [
     ["representative evidence", valid, true],
     ["profile drift", { ...valid, profile: { ...valid.profile, runtimeVersion: "0.0.0" } }, false],
+    [
+      "verifier identity drift",
+      {
+        ...valid,
+        run: { ...valid.run, verifier: { ...valid.run.verifier, version: "1.0.1" } },
+      },
+      false,
+    ],
     [
       "duplicate surface",
       {
@@ -241,6 +258,14 @@ function runSelfTest() {
       false,
     ],
     ["uncertain cleanup", { ...valid, cleanup: { ...valid.cleanup, sandbox: "unknown" } }, false],
+    [
+      "non-canonical run timestamp",
+      {
+        ...valid,
+        run: { ...valid.run, startedAt: "2026-07-24T12:00:00+00:00" },
+      },
+      false,
+    ],
     [
       "reversed timestamps",
       {
