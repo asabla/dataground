@@ -7,6 +7,7 @@ import addFormats from "ajv-formats";
 const root = resolve(import.meta.dirname, "..");
 const profilePath = resolve(root, "deploy/openshell/development-profile.json");
 const schemaPath = resolve(root, "deploy/openshell/credential-non-exposure-evidence.schema.json");
+const scanSchemaPath = resolve(root, "deploy/openshell/credential-canary-scan.schema.json");
 const requiredSurfaces = [
   "sandbox-process",
   "sandbox-environment",
@@ -17,10 +18,15 @@ const requiredSurfaces = [
   "runtime-errors",
 ];
 
-const [profile, schema] = await Promise.all([readJSON(profilePath), readJSON(schemaPath)]);
+const [profile, schema, scanSchema] = await Promise.all([
+  readJSON(profilePath),
+  readJSON(schemaPath),
+  readJSON(scanSchemaPath),
+]);
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormats(ajv);
 const validateSchema = ajv.compile(schema);
+const validateScanSchema = ajv.compile(scanSchema);
 
 const expectedProfile = {
   openshellCommit: profile.source.openshell.commit,
