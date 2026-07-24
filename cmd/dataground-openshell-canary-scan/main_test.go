@@ -90,7 +90,7 @@ func TestRunFailsClosedForTruncatedInput(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
-	if output.Status != "incomplete" || output.Complete || output.Commitment != commandCommitment(commandTestCanary) || output.InputLimitBytes != 3 || output.InspectedBytes != 4 {
+	if output.Status != "incomplete" || output.Complete || output.RunID != commandTestRunID || output.Resource != (resourceBinding{Kind: "runtime", Name: "runtime-invocation"}) || output.Commitment != commandCommitment(commandTestCanary) || output.InputLimitBytes != 3 || output.InspectedBytes != 4 {
 		t.Fatalf("run() report = %+v", output)
 	}
 }
@@ -120,6 +120,96 @@ func TestRunFailsClosedForReversedObservationWindow(t *testing.T) {
 	}
 	if output.Status != "incomplete" || output.Complete {
 		t.Fatalf("run() report = %+v", output)
+	}
+}
+
+func TestRunDerivesResourceKindForEverySurface(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"sandbox-process":     "sandbox",
+		"sandbox-environment": "sandbox",
+		"sandbox-filesystem":  "sandbox",
+		"provider-arguments":  "provider",
+		"gateway-logs":        "gateway",
+		"sandbox-logs":        "sandbox",
+		"runtime-errors":      "runtime",
+	}
+	for surface, kind := range tests {
+		surface, kind := surface, kind
+		t.Run(surface, func(t *testing.T) {
+			t.Parallel()
+
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			exitCode := run(
+				context.Background(),
+				commandArgs(surface, "checked-resource", "1024"),
+				strings.NewReader(""),
+				&stdout,
+				&stderr,
+				commandTestClock(),
+			)
+			if exitCode != 0 || stderr.Len() != 0 {
+				t.Fatalf("run() exit = %d, stderr = %q", exitCode, stderr.String())
+			}
+			var output report
+			if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
+				t.Fatalf("decode report: %v", err)
+			}
+			if output.Resource != (resourceBinding{Kind: kind, Name: "checked-resource"}) {
+				t.Fatalf("run() resource = %+v", output.Resource)
+			}
+		})
+	}
+}
+
+func TestRunRejectsInvalidResourceBindingConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string][]string{
+		"missing run id": {
+			"--surface", "sandbox-process",
+			"--resource-name", "checked-resource",
+			"--commitment", commandCommitment(commandTestCanary),
+		},
+		"uppercase run id": {
+			"--surface", "sandbox-process",
+			"--run-id", "0123456789ABCDEF0123456789ABCDEF",
+			"--resource-name", "checked-resource",
+			"--commitment", commandCommitment(commandTestCanary),
+		},
+		"missing resource name": {
+			"--surface", "sandbox-process",
+			"--run-id", commandTestRunID,
+			"--commitment", commandCommitment(commandTestCanary),
+		},
+		"non-portable resource name": {
+			"--surface", "sandbox-process",
+			"--run-id", commandTestRunID,
+			"--resource-name", "Checked Resource",
+			"--commitment", commandCommitment(commandTestCanary),
+		},
+	}
+	for name, args := range tests {
+		name, args := name, args
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			exitCode := run(
+				context.Background(),
+				args,
+				strings.NewReader(""),
+				&stdout,
+				&stderr,
+				commandTestClock(),
+			)
+			if exitCode != 2 || stdout.Len() != 0 {
+				t.Fatalf("run() exit = %d, stdout = %q", exitCode, stdout.String())
+			}
+		})
 	}
 }
 
