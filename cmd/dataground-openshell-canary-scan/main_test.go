@@ -166,6 +166,61 @@ func TestRunDerivesResourceKindForEverySurface(t *testing.T) {
 	}
 }
 
+func TestBindInputSeparatesScanContexts(t *testing.T) {
+	t.Parallel()
+
+	inputSHA256 := sha256.Sum256([]byte("safe material"))
+	base := bindInput(
+		commandTestRunID,
+		"sandbox-process",
+		"sandbox",
+		"sandbox-credential-check",
+		inputSHA256,
+	)
+	otherInputSHA256 := sha256.Sum256([]byte("different material"))
+	for name, commitment := range map[string]string{
+		"run": bindInput(
+			"fedcba9876543210fedcba9876543210",
+			"sandbox-process",
+			"sandbox",
+			"sandbox-credential-check",
+			inputSHA256,
+		),
+		"surface": bindInput(
+			commandTestRunID,
+			"sandbox-environment",
+			"sandbox",
+			"sandbox-credential-check",
+			inputSHA256,
+		),
+		"resource kind": bindInput(
+			commandTestRunID,
+			"sandbox-process",
+			"runtime",
+			"sandbox-credential-check",
+			inputSHA256,
+		),
+		"resource name": bindInput(
+			commandTestRunID,
+			"sandbox-process",
+			"sandbox",
+			"other-sandbox",
+			inputSHA256,
+		),
+		"input": bindInput(
+			commandTestRunID,
+			"sandbox-process",
+			"sandbox",
+			"sandbox-credential-check",
+			otherInputSHA256,
+		),
+	} {
+		if commitment == base {
+			t.Fatalf("%s did not separate input commitment contexts", name)
+		}
+	}
+}
+
 func TestRunRejectsInvalidResourceBindingConfiguration(t *testing.T) {
 	t.Parallel()
 
