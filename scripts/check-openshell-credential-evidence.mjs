@@ -38,6 +38,7 @@ const expectedProfile = {
   gatewayEndpoint: profile.topology.gatewayEndpoint,
   driver: profile.topology.driver,
 };
+const expectedScanLimits = profile.providerProfileEvidence.contract.scanner.surfaceMaxBytes;
 
 function verifyEvidence(evidence) {
   const failures = [];
@@ -69,6 +70,19 @@ function verifyEvidence(evidence) {
     failures.push("every inspection surface must bind to the run canary commitment");
   }
 
+  for (const check of evidence.checks) {
+    if (!validateScanSchema(check)) {
+      failures.push(`${check.surface} is not a complete canary scanner report`);
+      continue;
+    }
+    if (check.inputLimitBytes !== expectedScanLimits[check.surface]) {
+      failures.push(`${check.surface} does not use the checked-in input limit`);
+    }
+    if (check.inspectedBytes > check.inputLimitBytes) {
+      failures.push(`${check.surface} claims more inspected bytes than its input limit`);
+    }
+  }
+
   const startedAt = Date.parse(evidence.run.startedAt);
   const finishedAt = Date.parse(evidence.run.finishedAt);
   if (!Number.isFinite(startedAt) || !Number.isFinite(finishedAt) || finishedAt < startedAt) {
@@ -89,11 +103,15 @@ function representativeEvidence() {
       canaryCommitment: `sha256:${"a".repeat(64)}`,
     },
     checks: requiredSurfaces.map((surface) => ({
+      schemaVersion: "dataground.dev.openshell-canary-scan/v1",
       surface,
       canaryCommitment: `sha256:${"a".repeat(64)}`,
       status: "clear",
       matches: 0,
       complete: true,
+      inputLimitBytes: expectedScanLimits[surface],
+      inspectedBytes: 128,
+      candidates: 0,
     })),
     cleanup: {
       sandbox: "removed",
@@ -149,6 +167,36 @@ function runSelfTest() {
       },
       false,
     ],
+    [
+      "missing scan metric",
+      {
+        ...valid,
+        checks: valid.checks.map((check, index) =>
+          index === 0 ? { ...check, inspectedBytes: undefined } : check,
+        ),
+      },
+      false,
+    ],
+    [
+      "profile limit drift",
+      {
+        ...valid,
+        checks: valid.checks.map((check, index) =>
+          index === 0 ? { ...check, inputLimitBytes: check.inputLimitBytes - 1 } : check,
+        ),
+      },
+      false,
+    ],
+    [
+      "impossible inspected size",
+      {
+        ...valid,
+        checks: valid.checks.map((check, index) =>
+          index === 0 ? { ...check, inspectedBytes: check.inputLimitBytes + 1 } : check,
+        ),
+      },
+      false,
+    ],
     ["uncertain cleanup", { ...valid, cleanup: { ...valid.cleanup, sandbox: "unknown" } }, false],
     [
       "reversed timestamps",
@@ -175,6 +223,7 @@ function runSelfTest() {
     status: "clear",
     matches: 0,
     complete: true,
+    inputLimitBytes: 1024,
     inspectedBytes: 128,
     candidates: 0,
   };
@@ -186,6 +235,9 @@ function runSelfTest() {
   }
   if (validateScanSchema({ ...clearScan, canaryCommitment: undefined })) {
     failures.push("self-test failed: unbound canary scan report");
+  }
+  if (validateScanSchema({ ...clearScan, inputLimitBytes: undefined })) {
+    failures.push("self-test failed: unbounded canary scan report");
   }
 
   if (failures.length > 0) {
