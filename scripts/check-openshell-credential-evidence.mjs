@@ -243,7 +243,9 @@ function runSelfTest() {
       {
         ...valid,
         checks: valid.checks.map((check, index) =>
-          index === 0 ? { ...check, resource: { ...check.resource, name: "other-sandbox" } } : check,
+          index === 0
+            ? { ...check, resource: { ...check.resource, name: "other-sandbox" } }
+            : check,
         ),
       },
       false,
