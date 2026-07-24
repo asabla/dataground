@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -14,17 +15,39 @@ import (
 
 const reportTestRunID = "0123456789abcdef0123456789abcdef"
 
+func TestScanReportUsesPackageClock(t *testing.T) {
+	t.Parallel()
+
+	report, err := ScanReport(
+		context.Background(),
+		strings.NewReader("safe"),
+		reportConfig("sandbox-process", "sandbox-credential-check", 1024),
+	)
+	if err != nil {
+		t.Fatalf("ScanReport() error = %v", err)
+	}
+	startedAt, startErr := time.Parse(time.RFC3339Nano, report.startedAt)
+	finishedAt, finishErr := time.Parse(time.RFC3339Nano, report.finishedAt)
+	if startErr != nil ||
+		finishErr != nil ||
+		!strings.HasSuffix(report.startedAt, "Z") ||
+		!strings.HasSuffix(report.finishedAt, "Z") ||
+		finishedAt.Before(startedAt) {
+		t.Fatalf("ScanReport() observation window = %q..%q", report.startedAt, report.finishedAt)
+	}
+}
+
 func TestScanReportOwnsCompleteEvidenceShape(t *testing.T) {
 	t.Parallel()
 
 	input := []byte("safe material")
-	report, err := ScanReport(context.Background(), bytes.NewReader(input), reportConfig(
+	report, err := scanTestReport(context.Background(), bytes.NewReader(input), reportConfig(
 		"sandbox-environment",
 		"sandbox-credential-check",
 		int64(len(input)),
 	))
 	if err != nil {
-		t.Fatalf("ScanReport() error = %v", err)
+		t.Fatalf("scanTestReport() error = %v", err)
 	}
 	if report.schemaVersion != SchemaVersion ||
 		report.surface != "sandbox-environment" ||
@@ -44,38 +67,38 @@ func TestScanReportOwnsCompleteEvidenceShape(t *testing.T) {
 		report.candidates != 0 ||
 		report.startedAt != "2026-07-24T12:00:00Z" ||
 		report.finishedAt != "2026-07-24T12:00:01Z" {
-		t.Fatalf("ScanReport() report = %+v", report)
+		t.Fatalf("scanTestReport() report = %+v", report)
 	}
 }
 
 func TestScanReportOwnsMatchedAndIncompleteStatus(t *testing.T) {
 	t.Parallel()
 
-	matched, err := ScanReport(
+	matched, err := scanTestReport(
 		context.Background(),
 		strings.NewReader(testCanary),
 		reportConfig("gateway-logs", "dataground-gateway", 1024),
 	)
 	if err != nil {
-		t.Fatalf("ScanReport() matched error = %v", err)
+		t.Fatalf("scanTestReport() matched error = %v", err)
 	}
 	if matched.status != "matched" || !matched.complete || matched.matches != 1 {
-		t.Fatalf("ScanReport() matched report = %+v", matched)
+		t.Fatalf("scanTestReport() matched report = %+v", matched)
 	}
 
-	truncated, err := ScanReport(
+	truncated, err := scanTestReport(
 		context.Background(),
 		strings.NewReader("four"),
 		reportConfig("runtime-errors", "runtime-invocation", 3),
 	)
 	if !errors.Is(err, ErrInputLimit) {
-		t.Fatalf("ScanReport() truncated error = %v, want ErrInputLimit", err)
+		t.Fatalf("scanTestReport() truncated error = %v, want ErrInputLimit", err)
 	}
 	if truncated.status != "incomplete" ||
 		truncated.complete ||
 		truncated.resource.Kind != "runtime" ||
 		truncated.inspectedBytes != 4 {
-		t.Fatalf("ScanReport() truncated report = %+v", truncated)
+		t.Fatalf("scanTestReport() truncated report = %+v", truncated)
 	}
 }
 
@@ -85,13 +108,13 @@ func TestScanReportRetainsOnlyBoundPartialInput(t *testing.T) {
 	input := []byte("partial source")
 	readErr := errors.New("source read failed")
 	config := reportConfig("sandbox-filesystem", "sandbox-credential-check", 1024)
-	report, err := ScanReport(
+	report, err := scanTestReport(
 		context.Background(),
 		&partialErrorReader{content: input, err: readErr},
 		config,
 	)
 	if !errors.Is(err, readErr) {
-		t.Fatalf("ScanReport() error = %v, want %v", err, readErr)
+		t.Fatalf("scanTestReport() error = %v, want %v", err, readErr)
 	}
 	inputSHA256 := sha256.Sum256(input)
 	expectedCommitment := bindInput(config, "sandbox", inputSHA256)
@@ -99,7 +122,7 @@ func TestScanReportRetainsOnlyBoundPartialInput(t *testing.T) {
 		report.complete ||
 		report.inspectedBytes != int64(len(input)) ||
 		report.inputCommitment != expectedCommitment {
-		t.Fatalf("ScanReport() report = %+v", report)
+		t.Fatalf("scanTestReport() report = %+v", report)
 	}
 	encoded, err := json.Marshal(report)
 	if err != nil {
@@ -116,16 +139,20 @@ func TestScanReportRejectsClockRegression(t *testing.T) {
 	t.Parallel()
 
 	config := reportConfig("sandbox-process", "sandbox-credential-check", 1024)
-	config.Now = reportClock(
-		time.Date(2026, 7, 24, 12, 0, 1, 0, time.UTC),
-		time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC),
+	report, err := scanReport(
+		context.Background(),
+		strings.NewReader("safe"),
+		config,
+		reportClock(
+			time.Date(2026, 7, 24, 12, 0, 1, 0, time.UTC),
+			time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC),
+		),
 	)
-	report, err := ScanReport(context.Background(), strings.NewReader("safe"), config)
 	if err == nil {
-		t.Fatal("ScanReport() accepted clock regression")
+		t.Fatal("scanTestReport() accepted clock regression")
 	}
 	if report.status != "incomplete" || report.complete {
-		t.Fatalf("ScanReport() report = %+v", report)
+		t.Fatalf("scanTestReport() report = %+v", report)
 	}
 }
 
@@ -145,16 +172,16 @@ func TestScanReportDerivesEveryResourceKind(t *testing.T) {
 		t.Run(surface, func(t *testing.T) {
 			t.Parallel()
 
-			report, err := ScanReport(
+			report, err := scanTestReport(
 				context.Background(),
 				strings.NewReader(""),
 				reportConfig(surface, "checked-resource", 1024),
 			)
 			if err != nil {
-				t.Fatalf("ScanReport() error = %v", err)
+				t.Fatalf("scanTestReport() error = %v", err)
 			}
 			if report.resource != (resourceBinding{Kind: kind, Name: "checked-resource"}) {
-				t.Fatalf("ScanReport() resource = %+v", report.resource)
+				t.Fatalf("scanTestReport() resource = %+v", report.resource)
 			}
 		})
 	}
@@ -185,9 +212,6 @@ func TestScanReportRejectsInvalidConfigurationBeforeReading(t *testing.T) {
 		"oversized limit": func(config *ReportConfig) {
 			config.MaxBytes = MaxInputBytes + 1
 		},
-		"missing clock": func(config *ReportConfig) {
-			config.Now = nil
-		},
 	} {
 		name, mutate := name, mutate
 		t.Run(name, func(t *testing.T) {
@@ -196,12 +220,12 @@ func TestScanReportRejectsInvalidConfigurationBeforeReading(t *testing.T) {
 			input := &countingReader{}
 			config := reportConfig("sandbox-process", "checked-resource", 1024)
 			mutate(&config)
-			report, err := ScanReport(context.Background(), input, config)
+			report, err := scanTestReport(context.Background(), input, config)
 			if !errors.Is(err, ErrInvalidConfiguration) {
-				t.Fatalf("ScanReport() error = %v, want ErrInvalidConfiguration", err)
+				t.Fatalf("scanTestReport() error = %v, want ErrInvalidConfiguration", err)
 			}
 			if report != (Report{}) || input.reads != 0 {
-				t.Fatalf("ScanReport() read invalid input or emitted report: %+v, reads=%d", report, input.reads)
+				t.Fatalf("scanTestReport() read invalid input or emitted report: %+v, reads=%d", report, input.reads)
 			}
 		})
 	}
@@ -239,6 +263,18 @@ func TestBindInputSeparatesEveryContext(t *testing.T) {
 	}
 }
 
+func scanTestReport(ctx context.Context, input io.Reader, config ReportConfig) (Report, error) {
+	return scanReport(
+		ctx,
+		input,
+		config,
+		reportClock(
+			time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC),
+			time.Date(2026, 7, 24, 12, 0, 1, 0, time.UTC),
+		),
+	)
+}
+
 func reportConfig(surface, resourceName string, maxBytes int64) ReportConfig {
 	return ReportConfig{
 		Surface:          surface,
@@ -246,10 +282,6 @@ func reportConfig(surface, resourceName string, maxBytes int64) ReportConfig {
 		ResourceName:     resourceName,
 		CanaryCommitment: commitment(testCanary),
 		MaxBytes:         maxBytes,
-		Now: reportClock(
-			time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC),
-			time.Date(2026, 7, 24, 12, 0, 1, 0, time.UTC),
-		),
 	}
 }
 
