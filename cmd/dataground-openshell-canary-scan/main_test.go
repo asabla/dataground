@@ -32,7 +32,7 @@ func TestRunReportsClearBoundedScan(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
-	if output.Status != "clear" || !output.Complete || output.Matches != 0 || output.Surface != "sandbox-environment" {
+	if output.Status != "clear" || !output.Complete || output.Matches != 0 || output.Surface != "sandbox-environment" || output.Commitment != commandCommitment(commandTestCanary) {
 		t.Fatalf("run() report = %+v", output)
 	}
 }
@@ -83,7 +83,7 @@ func TestRunFailsClosedForTruncatedInput(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
-	if output.Status != "incomplete" || output.Complete {
+	if output.Status != "incomplete" || output.Complete || output.Commitment != commandCommitment(commandTestCanary) {
 		t.Fatalf("run() report = %+v", output)
 	}
 }
