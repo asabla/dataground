@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -74,6 +76,39 @@ func TestScanReportOwnsMatchedAndIncompleteStatus(t *testing.T) {
 		truncated.resource.Kind != "runtime" ||
 		truncated.inspectedBytes != 4 {
 		t.Fatalf("ScanReport() truncated report = %+v", truncated)
+	}
+}
+
+func TestScanReportRetainsOnlyBoundPartialInput(t *testing.T) {
+	t.Parallel()
+
+	input := []byte("partial source")
+	readErr := errors.New("source read failed")
+	config := reportConfig("sandbox-filesystem", "sandbox-credential-check", 1024)
+	report, err := ScanReport(
+		context.Background(),
+		&partialErrorReader{content: input, err: readErr},
+		config,
+	)
+	if !errors.Is(err, readErr) {
+		t.Fatalf("ScanReport() error = %v, want %v", err, readErr)
+	}
+	inputSHA256 := sha256.Sum256(input)
+	expectedCommitment := bindInput(config, "sandbox", inputSHA256)
+	if report.status != "incomplete" ||
+		report.complete ||
+		report.inspectedBytes != int64(len(input)) ||
+		report.inputCommitment != expectedCommitment {
+		t.Fatalf("ScanReport() report = %+v", report)
+	}
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	if bytes.Contains(encoded, input) ||
+		bytes.Contains(encoded, []byte(hex.EncodeToString(inputSHA256[:]))) ||
+		!bytes.Contains(encoded, []byte(expectedCommitment)) {
+		t.Fatalf("report retained source content or raw digest: %s", encoded)
 	}
 }
 
