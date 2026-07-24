@@ -92,7 +92,6 @@ func TestRunFailsClosedForTruncatedInput(t *testing.T) {
 	}
 }
 
-
 func TestRunFailsClosedForReversedObservationWindow(t *testing.T) {
 	t.Parallel()
 
