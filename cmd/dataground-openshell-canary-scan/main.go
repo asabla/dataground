@@ -74,7 +74,7 @@ func run(
 		}
 		return 1
 	}
-	if output.Matches > 0 {
+	if output.HasMatches() {
 		return 1
 	}
 	return 0
