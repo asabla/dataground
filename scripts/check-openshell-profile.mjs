@@ -50,6 +50,16 @@ if (profile.runtime?.nativeInterface !== "app-server JSONL over stdio") {
   fail("the first Codex integration must use the native app-server stdio interface");
 }
 if (
+  profile.providerProfileEvidence?.contract?.schema !==
+    "deploy/openshell/credential-non-exposure-evidence.schema.json" ||
+  profile.providerProfileEvidence?.contract?.schemaVersion !==
+    "dataground.dev.openshell-credential-non-exposure-evidence/v1" ||
+  profile.providerProfileEvidence?.contract?.status !==
+    "contract verified; live evidence required"
+) {
+  fail("the credential non-exposure evidence contract is missing or unblocked");
+}
+if (
   profile.runtime?.schemaEvidence?.file !== "codex_app_server_protocol.v2.schemas.json" ||
   !/^[a-f0-9]{64}$/.test(profile.runtime?.schemaEvidence?.canonicalSHA256 ?? "") ||
   !profile.runtime?.schemaEvidence?.canonicalization
