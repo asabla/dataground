@@ -21,8 +21,8 @@ var (
 	ErrInputLimit        = errors.New("canary scan input limit exceeded")
 )
 
-// Result contains bounded scan metrics. The raw inspected-input digest remains
-// private so callers cannot serialize it in place of a domain-separated binding.
+// Result contains bounded scan metrics. Its inspected-input digest remains
+// private and is consumed only by scanner-owned report assembly.
 type Result struct {
 	InspectedBytes  int64
 	inspectedSHA256 [sha256.Size]byte
@@ -30,11 +30,6 @@ type Result struct {
 	Matches         int64
 }
 
-// InspectedSHA256 returns the raw digest for constructing a context-bound
-// commitment. It must not be retained directly as credential evidence.
-func (result Result) InspectedSHA256() [sha256.Size]byte {
-	return result.inspectedSHA256
-}
 
 // Scan searches a bounded stream for structured canaries matching commitment.
 // Candidate plaintext is kept only in the rolling buffer and is never returned.
