@@ -54,8 +54,7 @@ if (
     "deploy/openshell/credential-non-exposure-evidence.schema.json" ||
   profile.providerProfileEvidence?.contract?.schemaVersion !==
     "dataground.dev.openshell-credential-non-exposure-evidence/v1" ||
-  profile.providerProfileEvidence?.contract?.status !==
-    "contract verified; live evidence required"
+  profile.providerProfileEvidence?.contract?.status !== "contract verified; live evidence required"
 ) {
   fail("the credential non-exposure evidence contract is missing or unblocked");
 }
