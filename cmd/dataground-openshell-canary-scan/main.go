@@ -29,6 +29,7 @@ var surfaces = map[string]struct{}{
 type report struct {
 	SchemaVersion  string `json:"schemaVersion"`
 	Surface        string `json:"surface"`
+	Commitment     string `json:"canaryCommitment"`
 	Status         string `json:"status"`
 	Matches        int64  `json:"matches"`
 	Complete       bool   `json:"complete"`
@@ -64,6 +65,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, 
 	output := report{
 		SchemaVersion:  "dataground.dev.openshell-canary-scan/v1",
 		Surface:        *surface,
+		Commitment:     *commitment,
 		Status:         "clear",
 		Matches:        result.Matches,
 		Complete:       scanErr == nil,
