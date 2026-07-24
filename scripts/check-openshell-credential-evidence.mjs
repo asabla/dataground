@@ -70,6 +70,16 @@ function verifyEvidence(evidence) {
     failures.push("every inspection surface must bind to the run canary commitment");
   }
 
+  const runStartedAt = Date.parse(evidence.run.startedAt);
+  const runFinishedAt = Date.parse(evidence.run.finishedAt);
+  if (
+    !Number.isFinite(runStartedAt) ||
+    !Number.isFinite(runFinishedAt) ||
+    runFinishedAt < runStartedAt
+  ) {
+    failures.push("evidence timestamps are invalid or out of order");
+  }
+
   for (const check of evidence.checks) {
     if (!validateScanSchema(check)) {
       failures.push(`${check.surface} is not a complete canary scanner report`);
@@ -81,12 +91,17 @@ function verifyEvidence(evidence) {
     if (check.inspectedBytes > check.inputLimitBytes) {
       failures.push(`${check.surface} claims more inspected bytes than its input limit`);
     }
-  }
-
-  const startedAt = Date.parse(evidence.run.startedAt);
-  const finishedAt = Date.parse(evidence.run.finishedAt);
-  if (!Number.isFinite(startedAt) || !Number.isFinite(finishedAt) || finishedAt < startedAt) {
-    failures.push("evidence timestamps are invalid or out of order");
+    const scanStartedAt = Date.parse(check.startedAt);
+    const scanFinishedAt = Date.parse(check.finishedAt);
+    if (
+      !Number.isFinite(scanStartedAt) ||
+      !Number.isFinite(scanFinishedAt) ||
+      scanFinishedAt < scanStartedAt ||
+      scanStartedAt < runStartedAt ||
+      scanFinishedAt > runFinishedAt
+    ) {
+      failures.push(`${check.surface} observation window is outside the evidence run`);
+    }
   }
 
   return failures;
@@ -112,6 +127,8 @@ function representativeEvidence() {
       inputLimitBytes: expectedScanLimits[surface],
       inspectedBytes: 128,
       candidates: 0,
+      startedAt: "2026-07-24T12:00:10.000Z",
+      finishedAt: "2026-07-24T12:00:11.000Z",
     })),
     cleanup: {
       sandbox: "removed",
@@ -197,6 +214,32 @@ function runSelfTest() {
       },
       false,
     ],
+    [
+      "stale scan window",
+      {
+        ...valid,
+        checks: valid.checks.map((check, index) =>
+          index === 0 ? { ...check, startedAt: "2026-07-24T11:59:59.000Z" } : check,
+        ),
+      },
+      false,
+    ],
+    [
+      "reversed scan window",
+      {
+        ...valid,
+        checks: valid.checks.map((check, index) =>
+          index === 0
+            ? {
+                ...check,
+                startedAt: "2026-07-24T12:00:12.000Z",
+                finishedAt: "2026-07-24T12:00:11.000Z",
+              }
+            : check,
+        ),
+      },
+      false,
+    ],
     ["uncertain cleanup", { ...valid, cleanup: { ...valid.cleanup, sandbox: "unknown" } }, false],
     [
       "reversed timestamps",
@@ -226,6 +269,8 @@ function runSelfTest() {
     inputLimitBytes: 1024,
     inspectedBytes: 128,
     candidates: 0,
+    startedAt: "2026-07-24T12:00:10.000Z",
+    finishedAt: "2026-07-24T12:00:11.000Z",
   };
   if (!validateScanSchema(clearScan)) {
     failures.push("self-test failed: representative canary scan report");
