@@ -7,3 +7,10 @@ The policy source resolves by exact isolation domain, service, and revision. A r
 The evaluator is an explicit deployment dependency. It receives the verified immutable bundle and the already normalized authorization request, including durable actor, correlation, operation, invocation, and runtime context. Only the stable authorization-denied outcome is translated into the existing phase-specific denial errors. Other source and evaluator failures are reported as policy unavailability without exposing backend diagnostics; cancellation and deadline outcomes remain distinguishable.
 
 This boundary does not implement a Cedar parser or evaluator, policy persistence, policy authoring, identity resolution, a default policy, or default-worker composition. It also does not authorize OpenShell calls, configure credentials, or certify live execution. Those capabilities remain blocked until their concrete implementations and conformance evidence are added.
+
+
+## Cedar evaluator input
+
+The evaluator port receives the closed `dataground.invocation-authorization-cedar/v1` input rather than the normalized runtime request. The durable actor is the `DataGround::Actor` principal, the invocation is the `DataGround::Invocation` resource, and the action is one of `admit`, `run`, or `cancel`. Isolation domain, operation, service, revision, and correlation remain explicit context.
+
+Runtime context exists only for the `run` action and exposes locked approval mode, sandbox mode, output-schema presence, artifact count, and the sorted unique closed artifact kinds. It deliberately excludes prompts, schema bodies, artifact identifiers and paths, names, media types, working directories, model values, native provider identities, and policy content. A concrete evaluator must consume this mapping without recovering excluded data through another dependency.
