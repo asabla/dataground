@@ -344,7 +344,7 @@ func TestNewInvocationAuthorizationPolicyRejectsInvalidInput(t *testing.T) {
 			if !errors.Is(err, ErrInvocationAuthorizationPolicyInvalid) {
 				t.Fatalf("construction error = %v", err)
 			}
-			if policy != (InvocationAuthorizationPolicy{}) {
+			if policy.Contract != "" || policy.Schema != nil || policy.Policies != nil {
 				t.Fatalf("invalid construction returned policy = %#v", policy)
 			}
 		})
