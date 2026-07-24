@@ -27,14 +27,15 @@ var surfaces = map[string]struct{}{
 }
 
 type report struct {
-	SchemaVersion  string `json:"schemaVersion"`
-	Surface        string `json:"surface"`
-	Commitment     string `json:"canaryCommitment"`
-	Status         string `json:"status"`
-	Matches        int64  `json:"matches"`
-	Complete       bool   `json:"complete"`
-	InspectedBytes int64  `json:"inspectedBytes"`
-	Candidates     int64  `json:"candidates"`
+	SchemaVersion   string `json:"schemaVersion"`
+	Surface         string `json:"surface"`
+	Commitment      string `json:"canaryCommitment"`
+	Status          string `json:"status"`
+	Matches         int64  `json:"matches"`
+	Complete        bool   `json:"complete"`
+	InputLimitBytes int64  `json:"inputLimitBytes"`
+	InspectedBytes  int64  `json:"inspectedBytes"`
+	Candidates      int64  `json:"candidates"`
 }
 
 func main() {
@@ -63,14 +64,15 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, 
 
 	result, scanErr := canaryscan.Scan(ctx, stdin, *maxBytes, *commitment)
 	output := report{
-		SchemaVersion:  "dataground.dev.openshell-canary-scan/v1",
-		Surface:        *surface,
-		Commitment:     *commitment,
-		Status:         "clear",
-		Matches:        result.Matches,
-		Complete:       scanErr == nil,
-		InspectedBytes: result.InspectedBytes,
-		Candidates:     result.Candidates,
+		SchemaVersion:   "dataground.dev.openshell-canary-scan/v1",
+		Surface:         *surface,
+		Commitment:      *commitment,
+		Status:          "clear",
+		Matches:         result.Matches,
+		Complete:        scanErr == nil,
+		InputLimitBytes: *maxBytes,
+		InspectedBytes:  result.InspectedBytes,
+		Candidates:      result.Candidates,
 	}
 	if result.Matches > 0 {
 		output.Status = "matched"
