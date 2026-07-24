@@ -281,7 +281,7 @@ func TestStaticInvocationAuthorizationPolicySourceRejectsInvalidConfiguration(t 
 
 	policy := testInvocationAuthorizationPolicy()
 	tests := map[string][]InvocationAuthorizationPolicy{
-		"empty": nil,
+		"empty":           nil,
 		"duplicate scope": {policy, policy},
 		"empty isolation domain": {func() InvocationAuthorizationPolicy {
 			invalid := policy
