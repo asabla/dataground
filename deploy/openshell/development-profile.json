@@ -50,7 +50,7 @@
     "contract": {
       "schema": "deploy/openshell/credential-non-exposure-evidence.schema.json",
       "schemaVersion": "dataground.dev.openshell-credential-non-exposure-evidence/v1",
-      "verifier": "pnpm openshell:credential-evidence:check -- <evidence.json>",
+      "verifier": "pnpm openshell:credential-evidence:check <evidence.json>",
       "status": "contract verified; live evidence required"
     }
   },
