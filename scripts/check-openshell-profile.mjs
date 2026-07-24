@@ -9,6 +9,15 @@ const profile = JSON.parse(await readFile(profilePath, "utf8"));
 const failures = [];
 const fail = (message) => failures.push(message);
 const digestPattern = /@sha256:[a-f0-9]{64}$/;
+const expectedSurfaceResourceKinds = {
+  "sandbox-process": "sandbox",
+  "sandbox-environment": "sandbox",
+  "sandbox-filesystem": "sandbox",
+  "provider-arguments": "provider",
+  "gateway-logs": "gateway",
+  "sandbox-logs": "sandbox",
+  "runtime-errors": "runtime",
+};
 const expectedCanarySurfaces = [
   "sandbox-process",
   "sandbox-environment",
@@ -84,6 +93,9 @@ const evidenceRunProperties = credentialEvidenceSchema?.properties?.run?.propert
 if (
   credentialEvidenceSchema?.properties?.schemaVersion?.const !==
     credentialEvidenceContract?.schemaVersion ||
+  evidenceRunProperties?.id?.pattern !== "^[a-f0-9]{32}$" ||
+  JSON.stringify(Object.keys(evidenceRunProperties?.resources?.properties ?? {}).sort()) !==
+    JSON.stringify(["gateway", "provider", "runtime", "sandbox"]) ||
   evidenceRunProperties?.startedAt?.format !== "date-time" ||
   evidenceRunProperties?.startedAt?.pattern !== "Z$" ||
   evidenceRunProperties?.finishedAt?.format !== "date-time" ||
@@ -104,6 +116,10 @@ if (
     "dataground-canary-v1:<43-character unpadded base64url entropy>" ||
   canaryScanner?.observationWindow !==
     "scanner-owned UTC RFC3339 interval within the evidence run" ||
+  canaryScanner?.runIDFormat !== "32-character lowercase hexadecimal nonce" ||
+  canaryScanner?.resourceNameFormat !== "portable lowercase identifier" ||
+  JSON.stringify(canaryScanner?.surfaceResourceKinds) !==
+    JSON.stringify(expectedSurfaceResourceKinds) ||
   canaryScanner?.status !== "commitment-only scanner verified; live harness required"
 ) {
   fail("the commitment-only credential canary scanner contract is missing or unblocked");
@@ -127,6 +143,14 @@ if (
   canaryScannerSchema?.properties?.schemaVersion?.const !== canaryScanner?.schemaVersion ||
   JSON.stringify([...(canaryScannerSchema?.properties?.surface?.enum ?? [])].sort()) !==
     JSON.stringify([...expectedCanarySurfaces].sort()) ||
+  !canaryScannerSchema?.required?.includes("runID") ||
+  canaryScannerSchema?.properties?.runID?.pattern !== "^[a-f0-9]{32}$" ||
+  !canaryScannerSchema?.required?.includes("resource") ||
+  canaryScannerSchema?.properties?.resource?.properties?.name?.pattern !==
+    "^[a-z0-9][a-z0-9._-]{0,127}$" ||
+  JSON.stringify(
+    [...(canaryScannerSchema?.properties?.resource?.properties?.kind?.enum ?? [])].sort(),
+  ) !== JSON.stringify(["gateway", "provider", "runtime", "sandbox"]) ||
   !canaryScannerSchema?.required?.includes("canaryCommitment") ||
   canaryScannerSchema?.properties?.canaryCommitment?.pattern !== "^sha256:[a-f0-9]{64}$" ||
   !canaryScannerSchema?.required?.includes("inputLimitBytes") ||
