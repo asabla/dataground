@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/asabla/dataground/internal/security/canaryscan"
 )
@@ -36,15 +37,17 @@ type report struct {
 	InputLimitBytes int64  `json:"inputLimitBytes"`
 	InspectedBytes  int64  `json:"inspectedBytes"`
 	Candidates      int64  `json:"candidates"`
+	StartedAt       string `json:"startedAt"`
+	FinishedAt      string `json:"finishedAt"`
 }
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	os.Exit(run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+	os.Exit(run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr, time.Now))
 }
 
-func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) int {
+func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer, now func() time.Time) int {
 	flags := flag.NewFlagSet("dataground-openshell-canary-scan", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	commitment := flags.String("commitment", "", "lowercase sha256 commitment for a structured canary")
@@ -62,7 +65,9 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, 
 		return 2
 	}
 
+	startedAt := now().UTC()
 	result, scanErr := canaryscan.Scan(ctx, stdin, *maxBytes, *commitment)
+	finishedAt := now().UTC()
 	output := report{
 		SchemaVersion:   "dataground.dev.openshell-canary-scan/v1",
 		Surface:         *surface,
@@ -73,6 +78,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, 
 		InputLimitBytes: *maxBytes,
 		InspectedBytes:  result.InspectedBytes,
 		Candidates:      result.Candidates,
+		StartedAt:       startedAt.Format(time.RFC3339Nano),
+		FinishedAt:      finishedAt.Format(time.RFC3339Nano),
 	}
 	if result.Matches > 0 {
 		output.Status = "matched"
