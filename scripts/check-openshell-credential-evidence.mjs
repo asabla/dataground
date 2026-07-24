@@ -95,6 +95,14 @@ function verifyEvidence(evidence) {
   }
 
   if (
+    evidence.cleanup.sandbox.name !== evidence.run.resources.sandbox ||
+    evidence.cleanup.providerBinding.name !== evidence.run.resources.provider ||
+    evidence.cleanup.workspace.name !== evidence.run.resources.workspace
+  ) {
+    failures.push("cleanup must bind to the resources owned by the evidence run");
+  }
+
+  if (
     Object.entries(expectedVerifierIdentity).some(
       ([field, expected]) => evidence.run.verifier[field] !== expected,
     )
@@ -150,6 +158,7 @@ function representativeEvidence() {
         sandbox: "sandbox-credential-check",
         provider: "provider-credential-check",
         runtime: "runtime-invocation",
+        workspace: "credential-check-workspace",
       },
       startedAt: "2026-07-24T12:00:00.000Z",
       finishedAt: "2026-07-24T12:01:00.000Z",
@@ -180,9 +189,9 @@ function representativeEvidence() {
       finishedAt: "2026-07-24T12:00:11.000Z",
     })),
     cleanup: {
-      sandbox: "removed",
-      providerBinding: "removed",
-      workspace: "removed",
+      sandbox: { name: "sandbox-credential-check", status: "removed" },
+      providerBinding: { name: "provider-credential-check", status: "removed" },
+      workspace: { name: "credential-check-workspace", status: "removed" },
     },
     result: "passed",
   };
@@ -325,7 +334,28 @@ function runSelfTest() {
       },
       false,
     ],
-    ["uncertain cleanup", { ...valid, cleanup: { ...valid.cleanup, sandbox: "unknown" } }, false],
+    [
+      "uncertain cleanup",
+      {
+        ...valid,
+        cleanup: {
+          ...valid.cleanup,
+          sandbox: { ...valid.cleanup.sandbox, status: "unknown" },
+        },
+      },
+      false,
+    ],
+    [
+      "wrong cleanup target",
+      {
+        ...valid,
+        cleanup: {
+          ...valid.cleanup,
+          providerBinding: { ...valid.cleanup.providerBinding, name: "other-provider" },
+        },
+      },
+      false,
+    ],
     [
       "non-canonical run timestamp",
       {
