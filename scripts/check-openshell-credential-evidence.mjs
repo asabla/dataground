@@ -6,10 +6,7 @@ import addFormats from "ajv-formats";
 
 const root = resolve(import.meta.dirname, "..");
 const profilePath = resolve(root, "deploy/openshell/development-profile.json");
-const schemaPath = resolve(
-  root,
-  "deploy/openshell/credential-non-exposure-evidence.schema.json",
-);
+const schemaPath = resolve(root, "deploy/openshell/credential-non-exposure-evidence.schema.json");
 const requiredSurfaces = [
   "sandbox-process",
   "sandbox-environment",
@@ -20,10 +17,7 @@ const requiredSurfaces = [
   "runtime-errors",
 ];
 
-const [profile, schema] = await Promise.all([
-  readJSON(profilePath),
-  readJSON(schemaPath),
-]);
+const [profile, schema] = await Promise.all([readJSON(profilePath), readJSON(schemaPath)]);
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormats(ajv);
 const validateSchema = ajv.compile(schema);
@@ -44,9 +38,7 @@ function verifyEvidence(evidence) {
 
   if (!validateSchema(evidence)) {
     failures.push(
-      ...validateSchema.errors.map(
-        (error) => `${error.instancePath || "/"} ${error.message}`,
-      ),
+      ...validateSchema.errors.map((error) => `${error.instancePath || "/"} ${error.message}`),
     );
     return failures;
   }
@@ -62,19 +54,14 @@ function verifyEvidence(evidence) {
   const surfaces = evidence.checks.map((check) => check.surface);
   if (
     surfaces.length !== new Set(surfaces).size ||
-    JSON.stringify([...surfaces].sort()) !==
-      JSON.stringify([...requiredSurfaces].sort())
+    JSON.stringify([...surfaces].sort()) !== JSON.stringify([...requiredSurfaces].sort())
   ) {
     failures.push("evidence must contain every inspection surface exactly once");
   }
 
   const startedAt = Date.parse(evidence.run.startedAt);
   const finishedAt = Date.parse(evidence.run.finishedAt);
-  if (
-    !Number.isFinite(startedAt) ||
-    !Number.isFinite(finishedAt) ||
-    finishedAt < startedAt
-  ) {
+  if (!Number.isFinite(startedAt) || !Number.isFinite(finishedAt) || finishedAt < startedAt) {
     failures.push("evidence timestamps are invalid or out of order");
   }
 
@@ -83,8 +70,7 @@ function verifyEvidence(evidence) {
 
 function representativeEvidence() {
   return {
-    schemaVersion:
-      "dataground.dev.openshell-credential-non-exposure-evidence/v1",
+    schemaVersion: "dataground.dev.openshell-credential-non-exposure-evidence/v1",
     profile: structuredClone(expectedProfile),
     run: {
       startedAt: "2026-07-24T12:00:00.000Z",
@@ -111,11 +97,7 @@ function runSelfTest() {
   const valid = representativeEvidence();
   const cases = [
     ["representative evidence", valid, true],
-    [
-      "profile drift",
-      { ...valid, profile: { ...valid.profile, runtimeVersion: "0.0.0" } },
-      false,
-    ],
+    ["profile drift", { ...valid, profile: { ...valid.profile, runtimeVersion: "0.0.0" } }, false],
     [
       "duplicate surface",
       {
@@ -146,11 +128,7 @@ function runSelfTest() {
       },
       false,
     ],
-    [
-      "uncertain cleanup",
-      { ...valid, cleanup: { ...valid.cleanup, sandbox: "unknown" } },
-      false,
-    ],
+    ["uncertain cleanup", { ...valid, cleanup: { ...valid.cleanup, sandbox: "unknown" } }, false],
     [
       "reversed timestamps",
       {
