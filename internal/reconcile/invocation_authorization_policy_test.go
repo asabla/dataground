@@ -23,15 +23,15 @@ func (source invocationAuthorizationPolicySourceFunc) ResolveInvocationAuthoriza
 type invocationCedarEvaluatorFunc func(
 	context.Context,
 	InvocationAuthorizationPolicy,
-	InvocationAuthorizationRequest,
+	InvocationCedarInput,
 ) error
 
 func (evaluator invocationCedarEvaluatorFunc) EvaluateInvocationAuthorization(
 	ctx context.Context,
 	policy InvocationAuthorizationPolicy,
-	request InvocationAuthorizationRequest,
+	request InvocationCedarInput,
 ) error {
-	return evaluator(ctx, policy, request)
+	return evaluator(ctx, policy, input)
 }
 
 type nilInvocationAuthorizationPolicySource struct{}
@@ -48,7 +48,7 @@ type nilInvocationCedarEvaluator struct{}
 func (*nilInvocationCedarEvaluator) EvaluateInvocationAuthorization(
 	context.Context,
 	InvocationAuthorizationPolicy,
-	InvocationAuthorizationRequest,
+	InvocationCedarInput,
 ) error {
 	return nil
 }
@@ -79,13 +79,13 @@ func TestPolicyBoundInvocationAuthorizationDecisionBindsAndOwnsPolicy(t *testing
 		invocationCedarEvaluatorFunc(func(
 			_ context.Context,
 			got InvocationAuthorizationPolicy,
-			gotRequest InvocationAuthorizationRequest,
+			gotInput InvocationCedarInput,
 		) error {
 			evaluatorCalls++
 			if got.Contract != InvocationAuthorizationPolicyContract ||
 				got.PolicySetID != policy.PolicySetID ||
-				gotRequest.Action != InvocationAuthorizationAdmit {
-				t.Fatalf("evaluation input = %#v, %#v", got, gotRequest)
+				gotInput.Action.ID != "admit" {
+				t.Fatalf("evaluation input = %#v, %#v", got, gotInput)
 			}
 			got.Schema[0] = 'X'
 			got.Policies[0] = 'X'
@@ -265,7 +265,7 @@ func TestPolicyBoundInvocationAuthorizationDecisionFailsClosedAtConstruction(t *
 	evaluator := invocationCedarEvaluatorFunc(func(
 		context.Context,
 		InvocationAuthorizationPolicy,
-		InvocationAuthorizationRequest,
+		InvocationCedarInput,
 	) error {
 		return nil
 	})
