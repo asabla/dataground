@@ -111,7 +111,7 @@ func run(
 		RunID:           *runID,
 		Resource:        resourceBinding{Kind: resourceKind, Name: *resourceName},
 		Commitment:      *commitment,
-		InputCommitment: bindInput(*runID, *surface, resourceKind, *resourceName, result.InspectedSHA256),
+		InputCommitment: bindInput(*runID, *surface, resourceKind, *resourceName, result.InspectedSHA256()),
 		Status:          "clear",
 		Matches:         result.Matches,
 		Complete:        scanErr == nil,
