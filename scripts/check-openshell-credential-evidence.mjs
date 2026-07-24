@@ -239,6 +239,9 @@ function runSelfTest() {
   if (validateScanSchema({ ...clearScan, inputLimitBytes: undefined })) {
     failures.push("self-test failed: unbounded canary scan report");
   }
+  if (validateScanSchema({ ...clearScan, inputLimitBytes: 268_435_457 })) {
+    failures.push("self-test failed: oversized canary scan report");
+  }
 
   if (failures.length > 0) {
     throw new Error(failures.join("\n"));
