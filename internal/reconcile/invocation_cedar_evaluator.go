@@ -43,15 +43,8 @@ func (*CedarInvocationAuthorizationEvaluator) EvaluateInvocationAuthorization(
 		!bytes.Equal(policy.Schema, []byte(invocationCedarSchemaV1)) {
 		return errInvocationCedarEvaluation
 	}
-	policies, err := cedar.NewPolicySetFromBytes(policy.PolicySetID+".cedar", policy.Policies)
+	policies, err := validatedInvocationCedarPolicySet(policy)
 	if err != nil {
-		return errInvocationCedarEvaluation
-	}
-	policyCount := 0
-	for range policies.All() {
-		policyCount++
-	}
-	if policyCount == 0 {
 		return errInvocationCedarEvaluation
 	}
 	request, err := invocationCedarRequest(input)
@@ -69,6 +62,28 @@ func (*CedarInvocationAuthorizationEvaluator) EvaluateInvocationAuthorization(
 		return ErrInvocationAuthorizationDenied
 	}
 	return nil
+}
+
+func validatedInvocationCedarPolicySet(
+	policy InvocationAuthorizationPolicy,
+) (*cedar.PolicySet, error) {
+	scope := InvocationAuthorizationPolicyScope{
+		IsolationDomainID: policy.IsolationDomainID,
+		ServiceID:         policy.ServiceID,
+		RevisionID:        policy.RevisionID,
+	}
+	if !validInvocationAuthorizationPolicy(policy, scope) ||
+		!bytes.Equal(policy.Schema, []byte(invocationCedarSchemaV1)) {
+		return nil, errInvocationCedarEvaluation
+	}
+	policies, err := cedar.NewPolicySetFromBytes(policy.PolicySetID+".cedar", policy.Policies)
+	if err != nil {
+		return nil, errInvocationCedarEvaluation
+	}
+	for range policies.All() {
+		return policies, nil
+	}
+	return nil, errInvocationCedarEvaluation
 }
 
 func invocationCedarRequest(input InvocationCedarInput) (cedar.Request, error) {
