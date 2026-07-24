@@ -58,6 +58,26 @@ if (
 ) {
   fail("the credential non-exposure evidence contract is missing or unblocked");
 }
+const canaryScanner = profile.providerProfileEvidence?.contract?.scanner;
+if (
+  canaryScanner?.command !== "go run ./cmd/dataground-openshell-canary-scan" ||
+  canaryScanner?.schema !== "deploy/openshell/credential-canary-scan.schema.json" ||
+  canaryScanner?.schemaVersion !== "dataground.dev.openshell-canary-scan/v1" ||
+  canaryScanner?.canaryFormat !==
+    "dataground-canary-v1:<43-character unpadded base64url entropy>" ||
+  canaryScanner?.status !== "commitment-only scanner verified; live harness required"
+) {
+  fail("the commitment-only credential canary scanner contract is missing or unblocked");
+}
+const canaryScannerSchema = JSON.parse(
+  await readFile(resolve(root, canaryScanner?.schema ?? ""), "utf8"),
+);
+if (
+  canaryScannerSchema?.properties?.schemaVersion?.const !== canaryScanner?.schemaVersion ||
+  canaryScannerSchema?.properties?.surface?.enum?.length !== 7
+) {
+  fail("the credential canary scanner report schema does not match the development profile");
+}
 if (
   profile.runtime?.schemaEvidence?.file !== "codex_app_server_protocol.v2.schemas.json" ||
   !/^[a-f0-9]{64}$/.test(profile.runtime?.schemaEvidence?.canonicalSHA256 ?? "") ||
