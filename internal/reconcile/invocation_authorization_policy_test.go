@@ -239,6 +239,118 @@ func TestPolicyBoundInvocationAuthorizationDecisionMapsStableOutcomes(t *testing
 	}
 }
 
+func TestNewInvocationAuthorizationPolicyConstructsOwnedBundle(t *testing.T) {
+	t.Parallel()
+
+	scope := InvocationAuthorizationPolicyScope{
+		IsolationDomainID: "iso_1",
+		ServiceID:         "svc_1",
+		RevisionID:        "rev_1",
+	}
+	schema := []byte(`{"type":"object"}`)
+	policies := []byte("permit(principal, action, resource);")
+	policy, err := NewInvocationAuthorizationPolicy(scope, "policy_1", schema, policies)
+	if err != nil {
+		t.Fatalf("construct policy: %v", err)
+	}
+	schema[0] = 'X'
+	policies[0] = 'X'
+	if policy.Contract != InvocationAuthorizationPolicyContract ||
+		policy.IsolationDomainID != scope.IsolationDomainID ||
+		policy.ServiceID != scope.ServiceID ||
+		policy.RevisionID != scope.RevisionID ||
+		policy.PolicySetID != "policy_1" ||
+		string(policy.Schema) != `{"type":"object"}` ||
+		string(policy.Policies) != "permit(principal, action, resource);" {
+		t.Fatalf("constructed policy = %#v", policy)
+	}
+	if policy.Digest != invocationAuthorizationPolicyDigest(policy.Schema, policy.Policies) {
+		t.Fatal("constructed policy digest does not bind owned content")
+	}
+}
+
+func TestNewInvocationAuthorizationPolicyRejectsInvalidInput(t *testing.T) {
+	t.Parallel()
+
+	validScope := InvocationAuthorizationPolicyScope{
+		IsolationDomainID: "iso_1",
+		ServiceID:         "svc_1",
+		RevisionID:        "rev_1",
+	}
+	tests := []struct {
+		name        string
+		scope       InvocationAuthorizationPolicyScope
+		policySetID string
+		schema      []byte
+		policies    []byte
+	}{
+		{
+			name:        "empty scope",
+			policySetID: "policy_1",
+			schema:      []byte("{}"),
+			policies:    []byte("permit(principal, action, resource);"),
+		},
+		{
+			name:        "unsafe policy set",
+			scope:       validScope,
+			policySetID: "../policy",
+			schema:      []byte("{}"),
+			policies:    []byte("permit(principal, action, resource);"),
+		},
+		{
+			name:        "oversized policy set",
+			scope:       validScope,
+			policySetID: strings.Repeat("a", maxInvocationAuthorizationPolicyIDBytes+1),
+			schema:      []byte("{}"),
+			policies:    []byte("permit(principal, action, resource);"),
+		},
+		{
+			name:        "empty schema",
+			scope:       validScope,
+			policySetID: "policy_1",
+			policies:    []byte("permit(principal, action, resource);"),
+		},
+		{
+			name:        "oversized schema",
+			scope:       validScope,
+			policySetID: "policy_1",
+			schema:      make([]byte, maxInvocationAuthorizationSchemaBytes+1),
+			policies:    []byte("permit(principal, action, resource);"),
+		},
+		{
+			name:        "empty policies",
+			scope:       validScope,
+			policySetID: "policy_1",
+			schema:      []byte("{}"),
+		},
+		{
+			name:        "oversized policies",
+			scope:       validScope,
+			policySetID: "policy_1",
+			schema:      []byte("{}"),
+			policies:    make([]byte, maxInvocationAuthorizationPolicyBytes+1),
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			policy, err := NewInvocationAuthorizationPolicy(
+				test.scope,
+				test.policySetID,
+				test.schema,
+				test.policies,
+			)
+			if !errors.Is(err, ErrInvocationAuthorizationPolicyInvalid) {
+				t.Fatalf("construction error = %v", err)
+			}
+			if policy != (InvocationAuthorizationPolicy{}) {
+				t.Fatalf("invalid construction returned policy = %#v", policy)
+			}
+		})
+	}
+}
+
 func TestStaticInvocationAuthorizationPolicySourceResolvesExactOwnedPolicy(t *testing.T) {
 	t.Parallel()
 
