@@ -16,7 +16,7 @@ Public clients use DataGround APIs and resource identities. They must never rece
 
 Cedar expresses authorization intent. Rosetta is the Cedar-to-OpenShell materialization boundary; do not add a fallback compiler inside DataGround. An unavailable or unrepresentable translation fails closed. OpenShell provides the sandbox execution and enforcement boundary, while DataGround owns product identity, authorization, durable state, placement, lifecycle, audit, and public contracts.
 
-Provider credentials must never be readable by notebook or harness processes. Use OpenShell-mediated credentials or an explicitly designed credential-holding bridge. Treat raw provider-secret visibility as a configuration and release failure.
+Provider credentials must never be readable by notebook or harness processes. Use OpenShell-mediated credentials or an explicitly designed credential-holding bridge. OpenShell provider-profile selection must resolve through the immutable deployment-owned registry; malformed, unregistered, or fallback profiles fail closed before provider access. Treat raw provider-secret visibility as a configuration and release failure.
 
 Durable lifecycle state belongs in PostgreSQL-backed, finite resource state machines. Workers are replaceable, state transitions and outbox records commit atomically, timers and retries are durable, and ambiguous external effects are observed before repetition. Process-local state is permitted only in the explicitly documented reference implementation and must not acquire production guarantees. Do not introduce a general workflow engine or generic workflow abstraction without a new architectural decision supported by measured need.
 
