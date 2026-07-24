@@ -74,6 +74,8 @@ if (
   canaryScanner?.schemaVersion !== "dataground.dev.openshell-canary-scan/v1" ||
   canaryScanner?.canaryFormat !==
     "dataground-canary-v1:<43-character unpadded base64url entropy>" ||
+  canaryScanner?.observationWindow !==
+    "scanner-owned UTC RFC3339 interval within the evidence run" ||
   canaryScanner?.status !== "commitment-only scanner verified; live harness required"
 ) {
   fail("the commitment-only credential canary scanner contract is missing or unblocked");
@@ -101,7 +103,11 @@ if (
   canaryScannerSchema?.properties?.canaryCommitment?.pattern !== "^sha256:[a-f0-9]{64}$" ||
   !canaryScannerSchema?.required?.includes("inputLimitBytes") ||
   canaryScannerSchema?.properties?.inputLimitBytes?.minimum !== 1 ||
-  canaryScannerSchema?.properties?.inputLimitBytes?.maximum !== 268_435_456
+  canaryScannerSchema?.properties?.inputLimitBytes?.maximum !== 268_435_456 ||
+  !canaryScannerSchema?.required?.includes("startedAt") ||
+  !canaryScannerSchema?.required?.includes("finishedAt") ||
+  canaryScannerSchema?.properties?.startedAt?.format !== "date-time" ||
+  canaryScannerSchema?.properties?.finishedAt?.format !== "date-time"
 ) {
   fail("the credential canary scanner report schema does not match the development profile");
 }
