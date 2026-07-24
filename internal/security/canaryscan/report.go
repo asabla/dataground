@@ -80,21 +80,29 @@ type ReportConfig struct {
 	ResourceName     string
 	CanaryCommitment string
 	MaxBytes         int64
-	Now              func() time.Time
 }
 
 // ScanReport scans one acquired byte stream and owns every field of the
 // content-free report. Callers cannot substitute metrics, resource kinds,
 // timestamps, status, or input commitments.
 func ScanReport(ctx context.Context, input io.Reader, config ReportConfig) (Report, error) {
+	return scanReport(ctx, input, config, time.Now)
+}
+
+func scanReport(
+	ctx context.Context,
+	input io.Reader,
+	config ReportConfig,
+	now func() time.Time,
+) (Report, error) {
 	resourceKind, err := validateReportConfig(config)
 	if err != nil {
 		return Report{}, err
 	}
 
-	startedAt := config.Now().UTC()
+	startedAt := now().UTC()
 	result, scanErr := scan(ctx, input, config.MaxBytes, config.CanaryCommitment)
-	finishedAt := config.Now().UTC()
+	finishedAt := now().UTC()
 	if finishedAt.Before(startedAt) {
 		scanErr = errors.Join(scanErr, errors.New("canary scan observation clock moved backwards"))
 	}
@@ -154,8 +162,7 @@ func validateReportConfig(config ReportConfig) (string, error) {
 		!runIDPattern.MatchString(config.RunID) ||
 		!resourceNamePattern.MatchString(config.ResourceName) ||
 		config.MaxBytes <= 0 ||
-		config.MaxBytes > MaxInputBytes ||
-		config.Now == nil {
+		config.MaxBytes > MaxInputBytes {
 		return "", ErrInvalidConfiguration
 	}
 	if _, err := parseCommitment(config.CanaryCommitment); err != nil {
