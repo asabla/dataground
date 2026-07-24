@@ -243,6 +243,18 @@ func TestCreateUsesArgumentVectorAndNoCredentialValues(t *testing.T) {
 	}
 }
 
+func TestCreateRejectsUnconfiguredProviderProfileBeforeProviderAccess(t *testing.T) {
+	provider, runner, placement, policy, policyDigest := preparedProvider(t, nil)
+	request := createRequest(placement, policy, policyDigest)
+	request.ProviderProfiles = []string{"unregistered"}
+	if _, err := provider.Create(context.Background(), request); !errors.Is(err, execution.ErrProviderProfileUnavailable) {
+		t.Fatalf("unregistered profile error = %v, want unavailable", err)
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("provider access reached for unregistered profile: %#v", runner.calls)
+	}
+}
+
 func TestCreateRejectsUnreservedOrMismatchedPlacement(t *testing.T) {
 	provider, _, placement, policy, policyDigest := preparedProvider(t, nil)
 	request := createRequest(placement, policy, policyDigest)
@@ -482,9 +494,16 @@ func preparedProvider(t *testing.T, runner *scriptedRunner) (*Provider, *scripte
 			t.Errorf("close policy workspace: %v", err)
 		}
 	})
-	provider := New(Config{ExpectedVersion: "0.0.86", PolicyWorkspace: workspace, Now: func() time.Time {
-		return time.Date(2026, time.July, 20, 10, 0, 0, 0, time.UTC)
-	}}, runner)
+	profiles, err := execution.NewProviderProfileRegistry([]string{"codex", "other"})
+	if err != nil {
+		t.Fatalf("construct provider profile registry: %v", err)
+	}
+	provider := New(Config{
+		ExpectedVersion: "0.0.86", PolicyWorkspace: workspace, ProviderProfiles: profiles,
+		Now: func() time.Time {
+			return time.Date(2026, time.July, 20, 10, 0, 0, 0, time.UTC)
+		},
+	}, runner)
 	context := context.Background()
 	_, err = provider.RegisterGateway(context, execution.GatewayRegistration{
 		IsolationDomainID: "iso-a", ID: "gateway-a", Endpoint: "http://127.0.0.1:8080", Driver: "docker",
