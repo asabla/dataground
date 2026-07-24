@@ -122,6 +122,8 @@ if (
     "dataground-canary-v1:<43-character unpadded base64url entropy>" ||
   canaryScanner?.observationWindow !==
     "scanner-owned UTC RFC3339 interval within the evidence run" ||
+  canaryScanner?.inputCommitment !==
+    "sha256 over versioned length-delimited run, surface, resource, and scanner-owned input digest" ||
   canaryScanner?.runIDFormat !== "32-character lowercase hexadecimal nonce" ||
   canaryScanner?.resourceNameFormat !== "portable lowercase identifier" ||
   JSON.stringify(canaryScanner?.surfaceResourceKinds) !==
@@ -159,6 +161,8 @@ if (
   ) !== JSON.stringify(["gateway", "provider", "runtime", "sandbox"]) ||
   !canaryScannerSchema?.required?.includes("canaryCommitment") ||
   canaryScannerSchema?.properties?.canaryCommitment?.pattern !== "^sha256:[a-f0-9]{64}$" ||
+  !canaryScannerSchema?.required?.includes("inputCommitment") ||
+  canaryScannerSchema?.properties?.inputCommitment?.pattern !== "^sha256:[a-f0-9]{64}$" ||
   !canaryScannerSchema?.required?.includes("inputLimitBytes") ||
   canaryScannerSchema?.properties?.inputLimitBytes?.minimum !== 1 ||
   canaryScannerSchema?.properties?.inputLimitBytes?.maximum !== 268_435_456 ||
