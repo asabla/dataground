@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -16,7 +19,10 @@ import (
 	"github.com/asabla/dataground/internal/security/canaryscan"
 )
 
-const defaultMaxBytes = 256 << 20
+const (
+	defaultMaxBytes       = 256 << 20
+	inputCommitmentDomain = "dataground.openshell-canary-input/v1"
+)
 
 var (
 	runIDPattern         = regexp.MustCompile(`^[a-f0-9]{32}$`)
@@ -43,6 +49,7 @@ type report struct {
 	RunID           string          `json:"runID"`
 	Resource        resourceBinding `json:"resource"`
 	Commitment      string          `json:"canaryCommitment"`
+	InputCommitment string          `json:"inputCommitment"`
 	Status          string          `json:"status"`
 	Matches         int64           `json:"matches"`
 	Complete        bool            `json:"complete"`
@@ -104,6 +111,7 @@ func run(
 		RunID:           *runID,
 		Resource:        resourceBinding{Kind: resourceKind, Name: *resourceName},
 		Commitment:      *commitment,
+		InputCommitment: bindInput(*runID, *surface, resourceKind, *resourceName, result.InspectedSHA256),
 		Status:          "clear",
 		Matches:         result.Matches,
 		Complete:        scanErr == nil,
@@ -143,4 +151,22 @@ func run(
 		return 1
 	}
 	return 0
+}
+
+func bindInput(runID, surface, resourceKind, resourceName string, inspectedSHA256 [sha256.Size]byte) string {
+	digest := sha256.New()
+	var length [4]byte
+	for _, value := range []string{
+		inputCommitmentDomain,
+		runID,
+		surface,
+		resourceKind,
+		resourceName,
+	} {
+		binary.BigEndian.PutUint32(length[:], uint32(len(value)))
+		_, _ = digest.Write(length[:])
+		_, _ = digest.Write([]byte(value))
+	}
+	_, _ = digest.Write(inspectedSHA256[:])
+	return "sha256:" + hex.EncodeToString(digest.Sum(nil))
 }
