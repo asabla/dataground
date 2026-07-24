@@ -51,6 +51,13 @@
       "schema": "deploy/openshell/credential-non-exposure-evidence.schema.json",
       "schemaVersion": "dataground.dev.openshell-credential-non-exposure-evidence/v1",
       "verifier": "pnpm openshell:credential-evidence:check <evidence.json>",
+      "scanner": {
+        "command": "go run ./cmd/dataground-openshell-canary-scan",
+        "schema": "deploy/openshell/credential-canary-scan.schema.json",
+        "schemaVersion": "dataground.dev.openshell-canary-scan/v1",
+        "canaryFormat": "dataground-canary-v1:<43-character unpadded base64url entropy>",
+        "status": "commitment-only scanner verified; live harness required"
+      },
       "status": "contract verified; live evidence required"
     }
   },
