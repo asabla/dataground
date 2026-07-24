@@ -83,6 +83,19 @@ func mapInvocationCedarInput(request InvocationAuthorizationRequest) (Invocation
 }
 
 func cloneInvocationCedarInput(input InvocationCedarInput) (InvocationCedarInput, error) {
+	if !validInvocationCedarInput(input) {
+		return InvocationCedarInput{}, errors.New("invocation Cedar input is invalid")
+	}
+	cloned := input
+	if input.Runtime != nil {
+		runtimeContext := *input.Runtime
+		runtimeContext.ArtifactKinds = append([]string(nil), input.Runtime.ArtifactKinds...)
+		cloned.Runtime = &runtimeContext
+	}
+	return cloned, nil
+}
+
+func validInvocationCedarInput(input InvocationCedarInput) bool {
 	if input.Contract != InvocationCedarContract ||
 		input.Principal.Type != invocationCedarPrincipalType ||
 		input.Principal.ID == "" ||
@@ -94,13 +107,26 @@ func cloneInvocationCedarInput(input InvocationCedarInput) (InvocationCedarInput
 		input.ServiceID == "" ||
 		input.RevisionID == "" ||
 		input.CorrelationID == "" {
-		return InvocationCedarInput{}, errors.New("invocation Cedar input is invalid")
+		return false
 	}
-	cloned := input
-	if input.Runtime != nil {
-		runtimeContext := *input.Runtime
-		runtimeContext.ArtifactKinds = append([]string(nil), input.Runtime.ArtifactKinds...)
-		cloned.Runtime = &runtimeContext
+	switch input.Action.ID {
+	case string(InvocationAuthorizationAdmit), string(InvocationAuthorizationCancel):
+		return input.Runtime == nil
+	case string(InvocationAuthorizationRun):
+		if input.Runtime == nil ||
+			input.Runtime.ApprovalMode == "" ||
+			input.Runtime.SandboxMode == "" ||
+			input.Runtime.ArtifactCount < 0 ||
+			input.Runtime.ArtifactCount < len(input.Runtime.ArtifactKinds) {
+			return false
+		}
+		for index, kind := range input.Runtime.ArtifactKinds {
+			if kind == "" || index > 0 && input.Runtime.ArtifactKinds[index-1] >= kind {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
 	}
-	return cloned, nil
 }
