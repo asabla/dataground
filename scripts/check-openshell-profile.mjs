@@ -131,6 +131,10 @@ if (
   canaryScanner?.schemaVersion !== "dataground.dev.openshell-canary-scan/v1" ||
   canaryScanner?.reportAssembly !== "internal/security/canaryscan.ScanReport" ||
   !canaryScannerCommandSource.includes("canaryscan.ScanReport(") ||
+  !canaryScannerCommandSource.includes("output.HasMatches()") ||
+  !canaryScannerReportSource.includes("func ScanReport(") ||
+  !canaryScannerReportSource.includes("func (report Report) MarshalJSON(") ||
+  canaryScannerReportSource.includes("\nfunc Scan(") ||
   canaryScanner?.canaryFormat !==
     "dataground-canary-v1:<43-character unpadded base64url entropy>" ||
   canaryScanner?.observationWindow !==
