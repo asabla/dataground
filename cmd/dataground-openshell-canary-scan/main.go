@@ -19,8 +19,8 @@ import (
 const defaultMaxBytes = 256 << 20
 
 var (
-	runIDPattern        = regexp.MustCompile(`^[a-f0-9]{32}$`)
-	resourceNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
+	runIDPattern         = regexp.MustCompile(`^[a-f0-9]{32}$`)
+	resourceNamePattern  = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 	surfaceResourceKinds = map[string]string{
 		"sandbox-process":     "sandbox",
 		"sandbox-environment": "sandbox",
