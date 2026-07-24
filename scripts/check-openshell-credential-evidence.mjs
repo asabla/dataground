@@ -8,6 +8,15 @@ const root = resolve(import.meta.dirname, "..");
 const profilePath = resolve(root, "deploy/openshell/development-profile.json");
 const schemaPath = resolve(root, "deploy/openshell/credential-non-exposure-evidence.schema.json");
 const scanSchemaPath = resolve(root, "deploy/openshell/credential-canary-scan.schema.json");
+const requiredResourceKinds = {
+  "sandbox-process": "sandbox",
+  "sandbox-environment": "sandbox",
+  "sandbox-filesystem": "sandbox",
+  "provider-arguments": "provider",
+  "gateway-logs": "gateway",
+  "sandbox-logs": "sandbox",
+  "runtime-errors": "runtime",
+};
 const requiredSurfaces = [
   "sandbox-process",
   "sandbox-environment",
@@ -67,6 +76,20 @@ function verifyEvidence(evidence) {
     failures.push("evidence must contain every inspection surface exactly once");
   }
 
+  if (evidence.checks.some((check) => check.runID !== evidence.run.id)) {
+    failures.push("every inspection surface must bind to the evidence run");
+  }
+
+  if (
+    evidence.checks.some(
+      (check) =>
+        check.resource.kind !== requiredResourceKinds[check.surface] ||
+        check.resource.name !== evidence.run.resources[check.resource.kind],
+    )
+  ) {
+    failures.push("every inspection surface must bind to its checked live resource");
+  }
+
   if (evidence.checks.some((check) => check.canaryCommitment !== evidence.run.canaryCommitment)) {
     failures.push("every inspection surface must bind to the run canary commitment");
   }
@@ -121,6 +144,13 @@ function representativeEvidence() {
     schemaVersion: "dataground.dev.openshell-credential-non-exposure-evidence/v1",
     profile: structuredClone(expectedProfile),
     run: {
+      id: "0123456789abcdef0123456789abcdef",
+      resources: {
+        gateway: "dataground-gateway",
+        sandbox: "sandbox-credential-check",
+        provider: "provider-credential-check",
+        runtime: "runtime-invocation",
+      },
       startedAt: "2026-07-24T12:00:00.000Z",
       finishedAt: "2026-07-24T12:01:00.000Z",
       verifier: structuredClone(expectedVerifierIdentity),
@@ -129,6 +159,16 @@ function representativeEvidence() {
     checks: requiredSurfaces.map((surface) => ({
       schemaVersion: "dataground.dev.openshell-canary-scan/v1",
       surface,
+      runID: "0123456789abcdef0123456789abcdef",
+      resource: {
+        kind: requiredResourceKinds[surface],
+        name: {
+          gateway: "dataground-gateway",
+          sandbox: "sandbox-credential-check",
+          provider: "provider-credential-check",
+          runtime: "runtime-invocation",
+        }[requiredResourceKinds[surface]],
+      },
       canaryCommitment: `sha256:${"a".repeat(64)}`,
       status: "clear",
       matches: 0,
@@ -175,6 +215,26 @@ function runSelfTest() {
         ...valid,
         checks: valid.checks.map((check, index) =>
           index === 1 ? { ...check, surface: valid.checks[0].surface } : check,
+        ),
+      },
+      false,
+    ],
+    [
+      "mixed run binding",
+      {
+        ...valid,
+        checks: valid.checks.map((check, index) =>
+          index === 0 ? { ...check, runID: "fedcba9876543210fedcba9876543210" } : check,
+        ),
+      },
+      false,
+    ],
+    [
+      "mixed resource binding",
+      {
+        ...valid,
+        checks: valid.checks.map((check, index) =>
+          index === 0 ? { ...check, resource: { ...check.resource, name: "other-sandbox" } } : check,
         ),
       },
       false,
@@ -295,6 +355,8 @@ function runSelfTest() {
   const clearScan = {
     schemaVersion: "dataground.dev.openshell-canary-scan/v1",
     surface: "sandbox-process",
+    runID: "0123456789abcdef0123456789abcdef",
+    resource: { kind: "sandbox", name: "sandbox-credential-check" },
     canaryCommitment: `sha256:${"a".repeat(64)}`,
     status: "clear",
     matches: 0,
@@ -310,6 +372,12 @@ function runSelfTest() {
   }
   if (validateScanSchema({ ...clearScan, matches: 1 })) {
     failures.push("self-test failed: inconsistent clear canary scan report");
+  }
+  if (validateScanSchema({ ...clearScan, runID: undefined })) {
+    failures.push("self-test failed: unbound canary scan run");
+  }
+  if (validateScanSchema({ ...clearScan, resource: undefined })) {
+    failures.push("self-test failed: unbound canary scan resource");
   }
   if (validateScanSchema({ ...clearScan, canaryCommitment: undefined })) {
     failures.push("self-test failed: unbound canary scan report");
