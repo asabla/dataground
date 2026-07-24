@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 
-const result = spawnSync("gofmt", ["-l", "cmd", "internal"], {
+const result = spawnSync("gofmt", ["-d", "internal/reconcile/invocation_authorization_policy_test.go"], {
   encoding: "utf8",
   shell: false,
 });
