@@ -91,7 +91,8 @@ func TestRunFailsClosedForTruncatedInput(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
-	if output.Status != "incomplete" || output.Complete || output.RunID != commandTestRunID || output.Resource != (resourceBinding{Kind: "runtime", Name: "runtime-invocation"}) || output.Commitment != commandCommitment(commandTestCanary) || output.InputLimitBytes != 3 || output.InspectedBytes != 4 {
+	inputSHA256 := sha256.Sum256([]byte("four"))
+	if output.Status != "incomplete" || output.Complete || output.RunID != commandTestRunID || output.Resource != (resourceBinding{Kind: "runtime", Name: "runtime-invocation"}) || output.Commitment != commandCommitment(commandTestCanary) || output.InputCommitment != bindInput(commandTestRunID, "runtime-errors", "runtime", "runtime-invocation", inputSHA256) || output.InputLimitBytes != 3 || output.InspectedBytes != 4 {
 		t.Fatalf("run() report = %+v", output)
 	}
 }
