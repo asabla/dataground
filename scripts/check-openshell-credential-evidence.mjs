@@ -162,6 +162,14 @@ function runSelfTest() {
       false,
     ],
     [
+      "verifier identity extension",
+      {
+        ...valid,
+        run: { ...valid.run, verifier: { ...valid.run.verifier, build: "local" } },
+      },
+      false,
+    ],
+    [
       "duplicate surface",
       {
         ...valid,
