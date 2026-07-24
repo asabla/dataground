@@ -95,7 +95,13 @@ if (
     credentialEvidenceContract?.schemaVersion ||
   evidenceRunProperties?.id?.pattern !== "^[a-f0-9]{32}$" ||
   JSON.stringify(Object.keys(evidenceRunProperties?.resources?.properties ?? {}).sort()) !==
-    JSON.stringify(["gateway", "provider", "runtime", "sandbox"]) ||
+    JSON.stringify(["gateway", "provider", "runtime", "sandbox", "workspace"]) ||
+  credentialEvidenceSchema?.properties?.cleanup?.properties?.sandbox?.$ref !==
+    "#/$defs/cleanupReceipt" ||
+  credentialEvidenceSchema?.properties?.cleanup?.properties?.providerBinding?.$ref !==
+    "#/$defs/cleanupReceipt" ||
+  credentialEvidenceSchema?.properties?.cleanup?.properties?.workspace?.$ref !==
+    "#/$defs/cleanupReceipt" ||
   evidenceRunProperties?.startedAt?.format !== "date-time" ||
   evidenceRunProperties?.startedAt?.pattern !== "Z$" ||
   evidenceRunProperties?.finishedAt?.format !== "date-time" ||
