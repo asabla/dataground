@@ -1,7 +1,5 @@
 package reconcile
 
-import "errors"
-
 // NewStaticCedarInvocationAuthorizer composes explicit immutable policy bundles
 // with the canonical Cedar evaluator and the shared governed-phase authorizer.
 // It validates every concrete Cedar policy before returning so deployment
@@ -28,11 +26,11 @@ func NewStaticCedarInvocationAuthorizer(
 		NewCedarInvocationAuthorizationEvaluator(),
 	)
 	if err != nil {
-		return nil, errors.New("compose invocation authorization decision")
+		return nil, err
 	}
 	authorizer, err := NewInvocationAuthorizer(decision)
 	if err != nil {
-		return nil, errors.New("compose invocation authorizer")
+		return nil, err
 	}
 	return authorizer, nil
 }
