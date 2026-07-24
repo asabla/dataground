@@ -261,7 +261,7 @@ func TestStaticInvocationAuthorizationPolicySourceResolvesExactOwnedPolicy(t *te
 	if err != nil {
 		t.Fatalf("resolve policy: %v", err)
 	}
-	if string(first.Schema) != `{\"type\":\"object\"}` ||
+	if string(first.Schema) != `{"type":"object"}` ||
 		string(first.Policies) != "permit(principal, action, resource);" {
 		t.Fatal("source did not retain owned policy bytes")
 	}
