@@ -24,24 +24,24 @@ func TestScanReportOwnsCompleteEvidenceShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanReport() error = %v", err)
 	}
-	if report.SchemaVersion != SchemaVersion ||
-		report.Surface != "sandbox-environment" ||
-		report.RunID != reportTestRunID ||
-		report.Resource != (ResourceBinding{Kind: "sandbox", Name: "sandbox-credential-check"}) ||
-		report.CanaryCommitment != commitment(testCanary) ||
-		report.InputCommitment != bindInput(
+	if report.schemaVersion != SchemaVersion ||
+		report.surface != "sandbox-environment" ||
+		report.runID != reportTestRunID ||
+		report.resource != (resourceBinding{Kind: "sandbox", Name: "sandbox-credential-check"}) ||
+		report.canaryCommitment != commitment(testCanary) ||
+		report.inputCommitment != bindInput(
 			reportConfig("sandbox-environment", "sandbox-credential-check", int64(len(input))),
 			"sandbox",
 			sha256.Sum256(input),
 		) ||
-		report.Status != "clear" ||
-		!report.Complete ||
-		report.Matches != 0 ||
-		report.InputLimitBytes != int64(len(input)) ||
-		report.InspectedBytes != int64(len(input)) ||
-		report.Candidates != 0 ||
-		report.StartedAt != "2026-07-24T12:00:00Z" ||
-		report.FinishedAt != "2026-07-24T12:00:01Z" {
+		report.status != "clear" ||
+		!report.complete ||
+		report.matches != 0 ||
+		report.inputLimitBytes != int64(len(input)) ||
+		report.inspectedBytes != int64(len(input)) ||
+		report.candidates != 0 ||
+		report.startedAt != "2026-07-24T12:00:00Z" ||
+		report.finishedAt != "2026-07-24T12:00:01Z" {
 		t.Fatalf("ScanReport() report = %+v", report)
 	}
 }
@@ -57,7 +57,7 @@ func TestScanReportOwnsMatchedAndIncompleteStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanReport() matched error = %v", err)
 	}
-	if matched.Status != "matched" || !matched.Complete || matched.Matches != 1 {
+	if matched.status != "matched" || !matched.complete || matched.matches != 1 {
 		t.Fatalf("ScanReport() matched report = %+v", matched)
 	}
 
@@ -69,10 +69,10 @@ func TestScanReportOwnsMatchedAndIncompleteStatus(t *testing.T) {
 	if !errors.Is(err, ErrInputLimit) {
 		t.Fatalf("ScanReport() truncated error = %v, want ErrInputLimit", err)
 	}
-	if truncated.Status != "incomplete" ||
-		truncated.Complete ||
-		truncated.Resource.Kind != "runtime" ||
-		truncated.InspectedBytes != 4 {
+	if truncated.status != "incomplete" ||
+		truncated.complete ||
+		truncated.resource.Kind != "runtime" ||
+		truncated.inspectedBytes != 4 {
 		t.Fatalf("ScanReport() truncated report = %+v", truncated)
 	}
 }
@@ -89,7 +89,7 @@ func TestScanReportRejectsClockRegression(t *testing.T) {
 	if err == nil {
 		t.Fatal("ScanReport() accepted clock regression")
 	}
-	if report.Status != "incomplete" || report.Complete {
+	if report.status != "incomplete" || report.complete {
 		t.Fatalf("ScanReport() report = %+v", report)
 	}
 }
@@ -118,8 +118,8 @@ func TestScanReportDerivesEveryResourceKind(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ScanReport() error = %v", err)
 			}
-			if report.Resource != (ResourceBinding{Kind: kind, Name: "checked-resource"}) {
-				t.Fatalf("ScanReport() resource = %+v", report.Resource)
+			if report.resource != (resourceBinding{Kind: kind, Name: "checked-resource"}) {
+				t.Fatalf("ScanReport() resource = %+v", report.resource)
 			}
 		})
 	}
