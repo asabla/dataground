@@ -24,13 +24,14 @@ var (
 // Result contains only non-sensitive scan metadata.
 type Result struct {
 	InspectedBytes int64
+	InspectedSHA256 [sha256.Size]byte
 	Candidates     int64
 	Matches        int64
 }
 
 // Scan searches a bounded stream for structured canaries matching commitment.
 // Candidate plaintext is kept only in the rolling buffer and is never returned.
-func Scan(ctx context.Context, input io.Reader, maxBytes int64, commitment string) (Result, error) {
+func Scan(ctx context.Context, input io.Reader, maxBytes int64, commitment string) (result Result, err error) {
 	target, err := parseCommitment(commitment)
 	if err != nil {
 		return Result{}, err
@@ -40,9 +41,12 @@ func Scan(ctx context.Context, input io.Reader, maxBytes int64, commitment strin
 	}
 
 	limited := &io.LimitedReader{R: input, N: maxBytes + 1}
+	inputHash := sha256.New()
+	defer func() {
+		copy(result.InspectedSHA256[:], inputHash.Sum(nil))
+	}()
 	chunk := make([]byte, 64*1024)
 	window := make([]byte, 0, len(chunk)+PlaintextLength-1)
-	result := Result{}
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -50,6 +54,7 @@ func Scan(ctx context.Context, input io.Reader, maxBytes int64, commitment strin
 		}
 		read, readErr := limited.Read(chunk)
 		if read > 0 {
+			_, _ = inputHash.Write(chunk[:read])
 			result.InspectedBytes += int64(read)
 			if result.InspectedBytes > maxBytes {
 				return result, ErrInputLimit
