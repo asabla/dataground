@@ -50,7 +50,7 @@ type InvocationCedarEvaluator interface {
 	EvaluateInvocationAuthorization(
 		context.Context,
 		InvocationAuthorizationPolicy,
-		InvocationAuthorizationRequest,
+		InvocationCedarInput,
 	) error
 }
 
@@ -91,12 +91,16 @@ func (decision *PolicyBoundInvocationAuthorizationDecision) AuthorizeInvocationE
 	if !validInvocationAuthorizationPolicy(policy, scope) {
 		return ErrInvocationAuthorizationPolicyInvalid
 	}
-	ownedRequest, err := clonePolicyBoundInvocationAuthorizationRequest(request)
+	input, err := mapInvocationCedarInput(request)
 	if err != nil {
 		return err
 	}
+	input, err = cloneInvocationCedarInput(input)
+	if err != nil {
+		return ErrInvocationAuthorizationInvalid
+	}
 	policy = cloneInvocationAuthorizationPolicy(policy)
-	if err := decision.evaluator.EvaluateInvocationAuthorization(ctx, policy, ownedRequest); err != nil {
+	if err := decision.evaluator.EvaluateInvocationAuthorization(ctx, policy, input); err != nil {
 		if errors.Is(err, ErrInvocationAuthorizationDenied) {
 			return ErrInvocationAuthorizationDenied
 		}
@@ -145,21 +149,6 @@ func cloneInvocationAuthorizationPolicy(
 	policy.Schema = append([]byte(nil), policy.Schema...)
 	policy.Policies = append([]byte(nil), policy.Policies...)
 	return policy
-}
-
-func clonePolicyBoundInvocationAuthorizationRequest(
-	request InvocationAuthorizationRequest,
-) (InvocationAuthorizationRequest, error) {
-	owned := request
-	if request.Runtime == nil {
-		return owned, nil
-	}
-	runtimeRequest, err := cloneInvocationAuthorizationRuntime(*request.Runtime)
-	if err != nil {
-		return InvocationAuthorizationRequest{}, err
-	}
-	owned.Runtime = &runtimeRequest
-	return owned, nil
 }
 
 func stableInvocationAuthorizationDependencyError(ctx context.Context, err error) error {
