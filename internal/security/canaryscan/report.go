@@ -13,16 +13,16 @@ import (
 )
 
 const (
-	SchemaVersion         = "dataground.dev.openshell-canary-scan/v1"
-	InputCommitmentDomain = "dataground.openshell-canary-input/v1"
-	MaxInputBytes   int64 = 256 << 20
+	SchemaVersion               = "dataground.dev.openshell-canary-scan/v1"
+	InputCommitmentDomain       = "dataground.openshell-canary-input/v1"
+	MaxInputBytes         int64 = 256 << 20
 )
 
 var (
 	ErrInvalidConfiguration = errors.New("invalid canary scan configuration")
-	runIDPattern             = regexp.MustCompile(`^[a-f0-9]{32}$`)
-	resourceNamePattern      = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
-	surfaceResourceKinds     = map[string]string{
+	runIDPattern            = regexp.MustCompile(`^[a-f0-9]{32}$`)
+	resourceNamePattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
+	surfaceResourceKinds    = map[string]string{
 		"sandbox-process":     "sandbox",
 		"sandbox-environment": "sandbox",
 		"sandbox-filesystem":  "sandbox",
