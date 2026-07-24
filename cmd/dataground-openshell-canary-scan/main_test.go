@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-const commandTestCanary = "dataground-canary-v1:0123456789abcdefghijklmnopqrstuvwxyz_A-B-C"
+const commandTestCanary = "dataground-canary-v1:0123456789abcdefghijklmnopqrstuvwxyz_A-B-CD"
 
 func TestRunReportsClearBoundedScan(t *testing.T) {
 	t.Parallel()
