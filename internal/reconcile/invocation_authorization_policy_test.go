@@ -29,7 +29,7 @@ type invocationCedarEvaluatorFunc func(
 func (evaluator invocationCedarEvaluatorFunc) EvaluateInvocationAuthorization(
 	ctx context.Context,
 	policy InvocationAuthorizationPolicy,
-	request InvocationCedarInput,
+	input InvocationCedarInput,
 ) error {
 	return evaluator(ctx, policy, input)
 }
@@ -166,7 +166,7 @@ func TestPolicyBoundInvocationAuthorizationDecisionRejectsPolicyDrift(t *testing
 				invocationCedarEvaluatorFunc(func(
 					context.Context,
 					InvocationAuthorizationPolicy,
-					InvocationAuthorizationRequest,
+					InvocationCedarInput,
 				) error {
 					evaluatorCalls++
 					return nil
@@ -220,7 +220,7 @@ func TestPolicyBoundInvocationAuthorizationDecisionMapsStableOutcomes(t *testing
 				invocationCedarEvaluatorFunc(func(
 					context.Context,
 					InvocationAuthorizationPolicy,
-					InvocationAuthorizationRequest,
+					InvocationCedarInput,
 				) error {
 					return test.evalErr
 				}),
