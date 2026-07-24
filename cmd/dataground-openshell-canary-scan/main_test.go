@@ -92,6 +92,35 @@ func TestRunFailsClosedForTruncatedInput(t *testing.T) {
 	}
 }
 
+
+func TestRunFailsClosedForReversedObservationWindow(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := run(
+		context.Background(),
+		[]string{"--surface", "sandbox-process", "--commitment", commandCommitment(commandTestCanary), "--max-bytes", "1024"},
+		strings.NewReader("safe material"),
+		&stdout,
+		&stderr,
+		commandClock(
+			time.Date(2026, 7, 24, 12, 0, 1, 0, time.UTC),
+			time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC),
+		),
+	)
+	if exitCode != 1 || !strings.Contains(stderr.String(), "canary scan failed") {
+		t.Fatalf("run() exit = %d, stderr = %q", exitCode, stderr.String())
+	}
+	var output report
+	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
+		t.Fatalf("decode report: %v", err)
+	}
+	if output.Status != "incomplete" || output.Complete {
+		t.Fatalf("run() report = %+v", output)
+	}
+}
+
 func TestRunRejectsUnboundedInputLimit(t *testing.T) {
 	t.Parallel()
 
@@ -129,10 +158,13 @@ func TestRunRejectsUnknownSurface(t *testing.T) {
 }
 
 func commandTestClock() func() time.Time {
-	values := []time.Time{
+	return commandClock(
 		time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC),
 		time.Date(2026, 7, 24, 12, 0, 1, 0, time.UTC),
-	}
+	)
+}
+
+func commandClock(values ...time.Time) func() time.Time {
 	index := 0
 	return func() time.Time {
 		value := values[index]
