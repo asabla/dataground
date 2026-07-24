@@ -179,6 +179,7 @@ function representativeEvidence() {
         }[requiredResourceKinds[surface]],
       },
       canaryCommitment: `sha256:${"a".repeat(64)}`,
+      inputCommitment: `sha256:${"c".repeat(64)}`,
       status: "clear",
       matches: 0,
       complete: true,
@@ -256,6 +257,16 @@ function runSelfTest() {
         ...valid,
         checks: valid.checks.map((check, index) =>
           index === 0 ? { ...check, canaryCommitment: `sha256:${"b".repeat(64)}` } : check,
+        ),
+      },
+      false,
+    ],
+    [
+      "missing input commitment",
+      {
+        ...valid,
+        checks: valid.checks.map((check, index) =>
+          index === 0 ? { ...check, inputCommitment: undefined } : check,
         ),
       },
       false,
@@ -390,6 +401,7 @@ function runSelfTest() {
     runID: "0123456789abcdef0123456789abcdef",
     resource: { kind: "sandbox", name: "sandbox-credential-check" },
     canaryCommitment: `sha256:${"a".repeat(64)}`,
+    inputCommitment: `sha256:${"c".repeat(64)}`,
     status: "clear",
     matches: 0,
     complete: true,
@@ -413,6 +425,9 @@ function runSelfTest() {
   }
   if (validateScanSchema({ ...clearScan, canaryCommitment: undefined })) {
     failures.push("self-test failed: unbound canary scan report");
+  }
+  if (validateScanSchema({ ...clearScan, inputCommitment: undefined })) {
+    failures.push("self-test failed: unbound canary scan input");
   }
   if (validateScanSchema({ ...clearScan, inputLimitBytes: undefined })) {
     failures.push("self-test failed: unbounded canary scan report");
