@@ -74,7 +74,7 @@ func ScanReport(ctx context.Context, input io.Reader, config ReportConfig) (Repo
 	}
 
 	startedAt := config.Now().UTC()
-	result, scanErr := Scan(ctx, input, config.MaxBytes, config.CanaryCommitment)
+	result, scanErr := scan(ctx, input, config.MaxBytes, config.CanaryCommitment)
 	finishedAt := config.Now().UTC()
 	if finishedAt.Before(startedAt) {
 		scanErr = errors.Join(scanErr, errors.New("canary scan observation clock moved backwards"))
