@@ -19,48 +19,8 @@ import (
 const defaultMaxBytes = 256 << 20
 
 var (
-	runIDPattern       = regexp.MustCompile(`^[a-f0-9]{32}package main
-
-import (
-	"context"
-	"encoding/json"
-	"errors"
-	"flag"
-	"fmt"
-	"io"
-	"os"
-	"os/signal"
-	"regexp"
-	"syscall"
-	"time"
-
-	"github.com/asabla/dataground/internal/security/canaryscan"
-)
-
-const defaultMaxBytes = 256 << 20
-
-)
-	resourceNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}package main
-
-import (
-	"context"
-	"encoding/json"
-	"errors"
-	"flag"
-	"fmt"
-	"io"
-	"os"
-	"os/signal"
-	"regexp"
-	"syscall"
-	"time"
-
-	"github.com/asabla/dataground/internal/security/canaryscan"
-)
-
-const defaultMaxBytes = 256 << 20
-
-)
+	runIDPattern        = regexp.MustCompile(`^[a-f0-9]{32}$`)
+	resourceNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 	surfaceResourceKinds = map[string]string{
 		"sandbox-process":     "sandbox",
 		"sandbox-environment": "sandbox",
@@ -78,19 +38,19 @@ type resourceBinding struct {
 }
 
 type report struct {
-	SchemaVersion   string `json:"schemaVersion"`
-	Surface         string `json:"surface"`
-	RunID           string `json:"runID"`
+	SchemaVersion   string          `json:"schemaVersion"`
+	Surface         string          `json:"surface"`
+	RunID           string          `json:"runID"`
 	Resource        resourceBinding `json:"resource"`
-	Commitment      string `json:"canaryCommitment"`
-	Status          string `json:"status"`
-	Matches         int64  `json:"matches"`
-	Complete        bool   `json:"complete"`
-	InputLimitBytes int64  `json:"inputLimitBytes"`
-	InspectedBytes  int64  `json:"inspectedBytes"`
-	Candidates      int64  `json:"candidates"`
-	StartedAt       string `json:"startedAt"`
-	FinishedAt      string `json:"finishedAt"`
+	Commitment      string          `json:"canaryCommitment"`
+	Status          string          `json:"status"`
+	Matches         int64           `json:"matches"`
+	Complete        bool            `json:"complete"`
+	InputLimitBytes int64           `json:"inputLimitBytes"`
+	InspectedBytes  int64           `json:"inspectedBytes"`
+	Candidates      int64           `json:"candidates"`
+	StartedAt       string          `json:"startedAt"`
+	FinishedAt      string          `json:"finishedAt"`
 }
 
 func main() {
@@ -99,7 +59,14 @@ func main() {
 	os.Exit(run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr, time.Now))
 }
 
-func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer, now func() time.Time) int {
+func run(
+	ctx context.Context,
+	args []string,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+	now func() time.Time,
+) int {
 	flags := flag.NewFlagSet("dataground-openshell-canary-scan", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	commitment := flags.String("commitment", "", "lowercase sha256 commitment for a structured canary")
@@ -110,8 +77,12 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, 
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
-	if flags.NArg() != 0 || *commitment == "" || !runIDPattern.MatchString(*runID) ||
-		!resourceNamePattern.MatchString(*resourceName) || *maxBytes <= 0 || *maxBytes > defaultMaxBytes {
+	if flags.NArg() != 0 ||
+		*commitment == "" ||
+		!runIDPattern.MatchString(*runID) ||
+		!resourceNamePattern.MatchString(*resourceName) ||
+		*maxBytes <= 0 ||
+		*maxBytes > defaultMaxBytes {
 		fmt.Fprintln(stderr, "invalid canary scan configuration")
 		return 2
 	}
