@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/asabla/dataground/internal/security/canaryscan"
 )
@@ -18,7 +17,7 @@ import (
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	os.Exit(run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr, time.Now))
+	os.Exit(run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
 func run(
@@ -27,7 +26,6 @@ func run(
 	stdin io.Reader,
 	stdout io.Writer,
 	stderr io.Writer,
-	now func() time.Time,
 ) int {
 	flags := flag.NewFlagSet("dataground-openshell-canary-scan", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -50,7 +48,6 @@ func run(
 		ResourceName:     *resourceName,
 		CanaryCommitment: *commitment,
 		MaxBytes:         *maxBytes,
-		Now:              now,
 	})
 	if errors.Is(scanErr, canaryscan.ErrInvalidConfiguration) {
 		fmt.Fprintln(stderr, "invalid canary scan configuration")
