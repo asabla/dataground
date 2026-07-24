@@ -9,6 +9,15 @@ const profile = JSON.parse(await readFile(profilePath, "utf8"));
 const failures = [];
 const fail = (message) => failures.push(message);
 const digestPattern = /@sha256:[a-f0-9]{64}$/;
+const expectedCanarySurfaces = [
+  "sandbox-process",
+  "sandbox-environment",
+  "sandbox-filesystem",
+  "provider-arguments",
+  "gateway-logs",
+  "sandbox-logs",
+  "runtime-errors",
+];
 
 if (profile.schemaVersion !== "dataground.dev.openshell-profile/v1") {
   fail("unexpected development profile schema version");
@@ -69,14 +78,29 @@ if (
 ) {
   fail("the commitment-only credential canary scanner contract is missing or unblocked");
 }
+const surfaceMaxBytes = canaryScanner?.surfaceMaxBytes;
+if (
+  typeof surfaceMaxBytes !== "object" ||
+  surfaceMaxBytes === null ||
+  JSON.stringify(Object.keys(surfaceMaxBytes).sort()) !==
+    JSON.stringify([...expectedCanarySurfaces].sort()) ||
+  Object.values(surfaceMaxBytes).some(
+    (limit) => !Number.isSafeInteger(limit) || limit <= 0 || limit > 268_435_456,
+  )
+) {
+  fail("the credential canary scanner must define one bounded input limit per surface");
+}
 const canaryScannerSchema = JSON.parse(
   await readFile(resolve(root, canaryScanner?.schema ?? ""), "utf8"),
 );
 if (
   canaryScannerSchema?.properties?.schemaVersion?.const !== canaryScanner?.schemaVersion ||
-  canaryScannerSchema?.properties?.surface?.enum?.length !== 7 ||
+  JSON.stringify([...(canaryScannerSchema?.properties?.surface?.enum ?? [])].sort()) !==
+    JSON.stringify([...expectedCanarySurfaces].sort()) ||
   !canaryScannerSchema?.required?.includes("canaryCommitment") ||
-  canaryScannerSchema?.properties?.canaryCommitment?.pattern !== "^sha256:[a-f0-9]{64}$"
+  canaryScannerSchema?.properties?.canaryCommitment?.pattern !== "^sha256:[a-f0-9]{64}$" ||
+  !canaryScannerSchema?.required?.includes("inputLimitBytes") ||
+  canaryScannerSchema?.properties?.inputLimitBytes?.minimum !== 1
 ) {
   fail("the credential canary scanner report schema does not match the development profile");
 }
