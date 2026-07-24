@@ -37,7 +37,8 @@ func TestRunReportsClearBoundedScan(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
-	if output.Status != "clear" || !output.Complete || output.Matches != 0 || output.Surface != "sandbox-environment" || output.RunID != commandTestRunID || output.Resource != (resourceBinding{Kind: "sandbox", Name: "sandbox-credential-check"}) || output.Commitment != commandCommitment(commandTestCanary) || output.InputLimitBytes != 1024 || output.InspectedBytes != int64(len("safe material")) || output.StartedAt != "2026-07-24T12:00:00Z" || output.FinishedAt != "2026-07-24T12:00:01Z" {
+	inputSHA256 := sha256.Sum256([]byte("safe material"))
+	if output.Status != "clear" || !output.Complete || output.Matches != 0 || output.Surface != "sandbox-environment" || output.RunID != commandTestRunID || output.Resource != (resourceBinding{Kind: "sandbox", Name: "sandbox-credential-check"}) || output.Commitment != commandCommitment(commandTestCanary) || output.InputCommitment != bindInput(commandTestRunID, "sandbox-environment", "sandbox", "sandbox-credential-check", inputSHA256) || output.InputLimitBytes != 1024 || output.InspectedBytes != int64(len("safe material")) || output.StartedAt != "2026-07-24T12:00:00Z" || output.FinishedAt != "2026-07-24T12:00:01Z" {
 		t.Fatalf("run() report = %+v", output)
 	}
 }
