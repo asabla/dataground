@@ -21,12 +21,19 @@ var (
 	ErrInputLimit        = errors.New("canary scan input limit exceeded")
 )
 
-// Result contains only non-sensitive scan metadata.
+// Result contains bounded scan metrics. The raw inspected-input digest remains
+// private so callers cannot serialize it in place of a domain-separated binding.
 type Result struct {
 	InspectedBytes  int64
-	InspectedSHA256 [sha256.Size]byte
+	inspectedSHA256 [sha256.Size]byte
 	Candidates      int64
 	Matches         int64
+}
+
+// InspectedSHA256 returns the raw digest for constructing a context-bound
+// commitment. It must not be retained directly as credential evidence.
+func (result Result) InspectedSHA256() [sha256.Size]byte {
+	return result.inspectedSHA256
 }
 
 // Scan searches a bounded stream for structured canaries matching commitment.
@@ -43,7 +50,7 @@ func Scan(ctx context.Context, input io.Reader, maxBytes int64, commitment strin
 	limited := &io.LimitedReader{R: input, N: maxBytes + 1}
 	inputHash := sha256.New()
 	defer func() {
-		copy(result.InspectedSHA256[:], inputHash.Sum(nil))
+		copy(result.inspectedSHA256[:], inputHash.Sum(nil))
 	}()
 	chunk := make([]byte, 64*1024)
 	window := make([]byte, 0, len(chunk)+PlaintextLength-1)
