@@ -88,6 +88,23 @@ func TestRunFailsClosedForTruncatedInput(t *testing.T) {
 	}
 }
 
+func TestRunRejectsUnboundedInputLimit(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := run(
+		context.Background(),
+		[]string{"--surface", "sandbox-filesystem", "--commitment", commandCommitment(commandTestCanary), "--max-bytes", "268435457"},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 2 || stdout.Len() != 0 {
+		t.Fatalf("run() exit = %d, stdout = %q", exitCode, stdout.String())
+	}
+}
+
 func TestRunRejectsUnknownSurface(t *testing.T) {
 	t.Parallel()
 
