@@ -56,6 +56,7 @@
         "schema": "deploy/openshell/credential-canary-scan.schema.json",
         "schemaVersion": "dataground.dev.openshell-canary-scan/v1",
         "canaryFormat": "dataground-canary-v1:<43-character unpadded base64url entropy>",
+        "observationWindow": "scanner-owned UTC RFC3339 interval within the evidence run",
         "surfaceMaxBytes": {
           "sandbox-process": 16777216,
           "sandbox-environment": 16777216,
