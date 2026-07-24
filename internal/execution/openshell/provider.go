@@ -44,12 +44,12 @@ type Runner interface {
 }
 
 type Config struct {
-	Binary          string
-	ExpectedVersion string
-	PolicyWorkspace *PolicyWorkspace
-	ExportWorkspace *ExportWorkspace
-	Now             func() time.Time
-	StateStore      execution.StateStore
+	Binary           string
+	ExpectedVersion  string
+	PolicyWorkspace  *PolicyWorkspace
+	ExportWorkspace  *ExportWorkspace
+	Now              func() time.Time
+	StateStore       execution.StateStore
 	ProviderProfiles *execution.ProviderProfileRegistry
 }
 
