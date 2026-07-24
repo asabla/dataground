@@ -66,6 +66,8 @@ if (
     "dataground.dev.openshell-credential-non-exposure-evidence/v1" ||
   credentialEvidenceContract?.verifier !==
     "pnpm openshell:credential-evidence:check <evidence.json>" ||
+  JSON.stringify(Object.keys(credentialEvidenceContract?.verifierIdentity ?? {}).sort()) !==
+    JSON.stringify(["name", "version"]) ||
   credentialEvidenceContract?.verifierIdentity?.name !== "dataground-openshell-canary" ||
   credentialEvidenceContract?.verifierIdentity?.version !== "1.0.0" ||
   credentialEvidenceContract?.status !== "contract verified; live evidence required"
