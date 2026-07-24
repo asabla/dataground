@@ -15,7 +15,7 @@ const testCanary = "dataground-canary-v1:0123456789abcdefghijklmnopqrstuvwxyz_A-
 func TestScanFindsOnlyCommittedStructuredCanary(t *testing.T) {
 	t.Parallel()
 
-	other := "dataground-canary-v1:ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_a-b-c"
+	other := "dataground-canary-v1:ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_a-b-cD"
 	input := []byte("before " + other + " middle " + testCanary + " after")
 	result, err := Scan(context.Background(), &singleByteReader{content: input}, int64(len(input)), commitment(testCanary))
 	if err != nil {
