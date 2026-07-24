@@ -62,6 +62,7 @@
         "canaryFormat": "dataground-canary-v1:<43-character unpadded base64url entropy>",
         "observationWindow": "scanner-owned UTC RFC3339 interval within the evidence run",
         "inputCommitment": "sha256 of four-byte big-endian length-prefixed UTF-8 domain, run ID, surface, resource kind, resource name, then the 32-byte input sha256",
+        "inputCommitmentDomain": "dataground.openshell-canary-input/v1",
         "surfaceMaxBytes": {
           "sandbox-process": 16777216,
           "sandbox-environment": 16777216,
