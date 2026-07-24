@@ -21,7 +21,7 @@ func TestScanFindsOnlyCommittedStructuredCanary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Scan() error = %v", err)
 	}
-	if result.InspectedBytes != int64(len(input)) || result.InspectedSHA256 != sha256.Sum256(input) || result.Candidates != 2 || result.Matches != 1 {
+	if result.InspectedBytes != int64(len(input)) || result.inspectedSHA256 != sha256.Sum256(input) || result.Candidates != 2 || result.Matches != 1 {
 		t.Fatalf("Scan() result = %+v", result)
 	}
 }
@@ -50,8 +50,8 @@ func TestScanFailsClosedAtInputLimit(t *testing.T) {
 	if result.InspectedBytes != int64(len(input)) {
 		t.Fatalf("Scan() inspected bytes = %d, want %d", result.InspectedBytes, len(input))
 	}
-	if result.InspectedSHA256 != sha256.Sum256(input) {
-		t.Fatalf("Scan() inspected digest = %x", result.InspectedSHA256)
+	if result.inspectedSHA256 != sha256.Sum256(input) {
+		t.Fatalf("Scan() inspected digest = %x", result.inspectedSHA256)
 	}
 }
 
@@ -69,7 +69,7 @@ func TestScanRetainsDigestForPartialReadFailure(t *testing.T) {
 	if !errors.Is(err, readErr) {
 		t.Fatalf("Scan() error = %v, want %v", err, readErr)
 	}
-	if result.InspectedBytes != int64(len(input)) || result.InspectedSHA256 != sha256.Sum256(input) {
+	if result.InspectedBytes != int64(len(input)) || result.inspectedSHA256 != sha256.Sum256(input) {
 		t.Fatalf("Scan() result = %+v", result)
 	}
 }
