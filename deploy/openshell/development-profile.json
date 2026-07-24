@@ -51,6 +51,10 @@
       "schema": "deploy/openshell/credential-non-exposure-evidence.schema.json",
       "schemaVersion": "dataground.dev.openshell-credential-non-exposure-evidence/v1",
       "verifier": "pnpm openshell:credential-evidence:check <evidence.json>",
+      "verifierIdentity": {
+        "name": "dataground-openshell-canary",
+        "version": "1.0.0"
+      },
       "scanner": {
         "command": "go run ./cmd/dataground-openshell-canary-scan",
         "schema": "deploy/openshell/credential-canary-scan.schema.json",
