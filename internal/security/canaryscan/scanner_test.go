@@ -55,6 +55,25 @@ func TestScanFailsClosedAtInputLimit(t *testing.T) {
 	}
 }
 
+func TestScanRetainsDigestForPartialReadFailure(t *testing.T) {
+	t.Parallel()
+
+	input := []byte("partial source")
+	readErr := errors.New("source read failed")
+	result, err := Scan(
+		context.Background(),
+		&partialErrorReader{content: input, err: readErr},
+		1024,
+		commitment(testCanary),
+	)
+	if !errors.Is(err, readErr) {
+		t.Fatalf("Scan() error = %v, want %v", err, readErr)
+	}
+	if result.InspectedBytes != int64(len(input)) || result.InspectedSHA256 != sha256.Sum256(input) {
+		t.Fatalf("Scan() result = %+v", result)
+	}
+}
+
 func TestScanPreservesCancellation(t *testing.T) {
 	t.Parallel()
 
@@ -103,6 +122,17 @@ func stringsOf(value string, count int) string {
 		result.WriteString(value)
 	}
 	return result.String()
+}
+
+type partialErrorReader struct {
+	content []byte
+	err     error
+}
+
+func (reader *partialErrorReader) Read(target []byte) (int, error) {
+	read := copy(target, reader.content)
+	reader.content = nil
+	return read, reader.err
 }
 
 type singleByteReader struct {
