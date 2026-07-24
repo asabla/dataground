@@ -5,17 +5,20 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"regexp"
 )
 
 const (
 	InvocationAuthorizationPolicyContract = "dataground.invocation-authorization-policy/v1"
-	maxInvocationAuthorizationSchemaBytes  = 1 << 20
-	maxInvocationAuthorizationPolicyBytes  = 1 << 20
+	maxInvocationAuthorizationPolicyIDBytes = 128
+	maxInvocationAuthorizationSchemaBytes   = 1 << 20
+	maxInvocationAuthorizationPolicyBytes   = 1 << 20
 )
 
 var (
 	ErrInvocationAuthorizationPolicyInvalid     = errors.New("invocation authorization policy is invalid")
 	ErrInvocationAuthorizationPolicyUnavailable = errors.New("invocation authorization policy is unavailable")
+	invocationAuthorizationPolicyIDPattern       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 )
 
 type InvocationAuthorizationPolicyScope struct {
@@ -31,8 +34,8 @@ type InvocationAuthorizationPolicy struct {
 	RevisionID        string
 	PolicySetID       string
 	Digest            [sha256.Size]byte
-	Schema            []byte
-	Policies          []byte
+	Schema            []byte `json:"-"`
+	Policies          []byte `json:"-"`
 }
 
 type InvocationAuthorizationPolicySource interface {
@@ -87,8 +90,12 @@ func (decision *PolicyBoundInvocationAuthorizationDecision) AuthorizeInvocationE
 	if !validInvocationAuthorizationPolicy(policy, scope) {
 		return ErrInvocationAuthorizationPolicyInvalid
 	}
+	ownedRequest, err := clonePolicyBoundInvocationAuthorizationRequest(request)
+	if err != nil {
+		return err
+	}
 	policy = cloneInvocationAuthorizationPolicy(policy)
-	if err := decision.evaluator.EvaluateInvocationAuthorization(ctx, policy, request); err != nil {
+	if err := decision.evaluator.EvaluateInvocationAuthorization(ctx, policy, ownedRequest); err != nil {
 		if errors.Is(err, ErrInvocationAuthorizationDenied) {
 			return ErrInvocationAuthorizationDenied
 		}
@@ -105,7 +112,9 @@ func validInvocationAuthorizationPolicy(
 		policy.IsolationDomainID != scope.IsolationDomainID ||
 		policy.ServiceID != scope.ServiceID ||
 		policy.RevisionID != scope.RevisionID ||
-		policy.PolicySetID == "" ||
+		len(policy.PolicySetID) == 0 ||
+		len(policy.PolicySetID) > maxInvocationAuthorizationPolicyIDBytes ||
+		!invocationAuthorizationPolicyIDPattern.MatchString(policy.PolicySetID) ||
 		len(policy.Schema) == 0 ||
 		len(policy.Schema) > maxInvocationAuthorizationSchemaBytes ||
 		len(policy.Policies) == 0 ||
@@ -135,6 +144,21 @@ func cloneInvocationAuthorizationPolicy(
 	policy.Schema = append([]byte(nil), policy.Schema...)
 	policy.Policies = append([]byte(nil), policy.Policies...)
 	return policy
+}
+
+func clonePolicyBoundInvocationAuthorizationRequest(
+	request InvocationAuthorizationRequest,
+) (InvocationAuthorizationRequest, error) {
+	owned := request
+	if request.Runtime == nil {
+		return owned, nil
+	}
+	runtimeRequest, err := cloneInvocationAuthorizationRuntime(*request.Runtime)
+	if err != nil {
+		return InvocationAuthorizationRequest{}, err
+	}
+	owned.Runtime = &runtimeRequest
+	return owned, nil
 }
 
 func stableInvocationAuthorizationDependencyError(ctx context.Context, err error) error {
