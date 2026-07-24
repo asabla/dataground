@@ -39,6 +39,35 @@ type InvocationAuthorizationPolicy struct {
 	Policies          []byte `json:"-"`
 }
 
+func NewInvocationAuthorizationPolicy(
+	scope InvocationAuthorizationPolicyScope,
+	policySetID string,
+	schema []byte,
+	policies []byte,
+) (InvocationAuthorizationPolicy, error) {
+	if !validInvocationAuthorizationPolicyScope(scope) ||
+		len(policySetID) == 0 ||
+		len(policySetID) > maxInvocationAuthorizationPolicyIDBytes ||
+		!invocationAuthorizationPolicyIDPattern.MatchString(policySetID) ||
+		len(schema) == 0 ||
+		len(schema) > maxInvocationAuthorizationSchemaBytes ||
+		len(policies) == 0 ||
+		len(policies) > maxInvocationAuthorizationPolicyBytes {
+		return InvocationAuthorizationPolicy{}, ErrInvocationAuthorizationPolicyInvalid
+	}
+	policy := InvocationAuthorizationPolicy{
+		Contract:          InvocationAuthorizationPolicyContract,
+		IsolationDomainID: scope.IsolationDomainID,
+		ServiceID:         scope.ServiceID,
+		RevisionID:        scope.RevisionID,
+		PolicySetID:       policySetID,
+		Schema:            append([]byte(nil), schema...),
+		Policies:          append([]byte(nil), policies...),
+	}
+	policy.Digest = invocationAuthorizationPolicyDigest(policy.Schema, policy.Policies)
+	return policy, nil
+}
+
 type invocationAuthorizationPolicyKey struct {
 	IsolationDomainID string
 	ServiceID         string
