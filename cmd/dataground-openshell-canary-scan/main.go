@@ -53,7 +53,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, 
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
-	if flags.NArg() != 0 || *commitment == "" || *maxBytes <= 0 {
+	if flags.NArg() != 0 || *commitment == "" || *maxBytes <= 0 || *maxBytes > defaultMaxBytes {
 		fmt.Fprintln(stderr, "invalid canary scan configuration")
 		return 2
 	}
