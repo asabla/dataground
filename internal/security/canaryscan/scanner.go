@@ -29,7 +29,6 @@ type result struct {
 	Matches         int64
 }
 
-
 // scan searches a bounded stream for structured canaries matching commitment.
 // Candidate plaintext is kept only in the rolling buffer and is never returned.
 func scan(ctx context.Context, input io.Reader, maxBytes int64, commitment string) (value result, err error) {
