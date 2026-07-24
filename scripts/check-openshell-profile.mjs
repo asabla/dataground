@@ -107,7 +107,9 @@ if (
   !canaryScannerSchema?.required?.includes("startedAt") ||
   !canaryScannerSchema?.required?.includes("finishedAt") ||
   canaryScannerSchema?.properties?.startedAt?.format !== "date-time" ||
-  canaryScannerSchema?.properties?.finishedAt?.format !== "date-time"
+  canaryScannerSchema?.properties?.startedAt?.pattern !== "Z$" ||
+  canaryScannerSchema?.properties?.finishedAt?.format !== "date-time" ||
+  canaryScannerSchema?.properties?.finishedAt?.pattern !== "Z$"
 ) {
   fail("the credential canary scanner report schema does not match the development profile");
 }
