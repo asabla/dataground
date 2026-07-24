@@ -51,7 +51,11 @@ function verifyEvidence(evidence) {
     return failures;
   }
 
-  if (JSON.stringify(evidence.profile) !== JSON.stringify(expectedProfile)) {
+  if (
+    Object.entries(expectedProfile).some(
+      ([field, expected]) => evidence.profile[field] !== expected,
+    )
+  ) {
     failures.push("evidence does not match the checked-in OpenShell profile");
   }
 
