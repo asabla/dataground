@@ -287,6 +287,9 @@ function runSelfTest() {
   if (validateScanSchema({ ...clearScan, inputLimitBytes: 268_435_457 })) {
     failures.push("self-test failed: oversized canary scan report");
   }
+  if (validateScanSchema({ ...clearScan, startedAt: undefined })) {
+    failures.push("self-test failed: missing canary scan observation timestamp");
+  }
   if (validateScanSchema({ ...clearScan, startedAt: "2026-07-24T12:00:10+00:00" })) {
     failures.push("self-test failed: non-canonical canary scan timestamp");
   }
