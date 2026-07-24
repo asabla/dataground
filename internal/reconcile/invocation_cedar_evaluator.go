@@ -39,11 +39,7 @@ func (*CedarInvocationAuthorizationEvaluator) EvaluateInvocationAuthorization(
 		ServiceID:         input.ServiceID,
 		RevisionID:        input.RevisionID,
 	}
-	if !validInvocationAuthorizationPolicy(policy, scope) ||
-		!bytes.Equal(policy.Schema, []byte(invocationCedarSchemaV1)) {
-		return errInvocationCedarEvaluation
-	}
-	policies, err := validatedInvocationCedarPolicySet(policy)
+	policies, err := validatedInvocationCedarPolicySet(policy, scope)
 	if err != nil {
 		return errInvocationCedarEvaluation
 	}
@@ -66,12 +62,8 @@ func (*CedarInvocationAuthorizationEvaluator) EvaluateInvocationAuthorization(
 
 func validatedInvocationCedarPolicySet(
 	policy InvocationAuthorizationPolicy,
+	scope InvocationAuthorizationPolicyScope,
 ) (*cedar.PolicySet, error) {
-	scope := InvocationAuthorizationPolicyScope{
-		IsolationDomainID: policy.IsolationDomainID,
-		ServiceID:         policy.ServiceID,
-		RevisionID:        policy.RevisionID,
-	}
 	if !validInvocationAuthorizationPolicy(policy, scope) ||
 		!bytes.Equal(policy.Schema, []byte(invocationCedarSchemaV1)) {
 		return nil, errInvocationCedarEvaluation
