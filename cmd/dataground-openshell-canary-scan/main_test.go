@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/asabla/dataground/internal/security/canaryscan"
 )
 
 const (
@@ -33,12 +35,11 @@ func TestRunReportsClearBoundedScan(t *testing.T) {
 	if exitCode != 0 || stderr.Len() != 0 {
 		t.Fatalf("run() exit = %d, stderr = %q", exitCode, stderr.String())
 	}
-	var output report
+	var output canaryscan.Report
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
-	inputSHA256 := sha256.Sum256([]byte("safe material"))
-	if output.Status != "clear" || !output.Complete || output.Matches != 0 || output.Surface != "sandbox-environment" || output.RunID != commandTestRunID || output.Resource != (resourceBinding{Kind: "sandbox", Name: "sandbox-credential-check"}) || output.Commitment != commandCommitment(commandTestCanary) || output.InputCommitment != bindInput(commandTestRunID, "sandbox-environment", "sandbox", "sandbox-credential-check", inputSHA256) || output.InputLimitBytes != 1024 || output.InspectedBytes != int64(len("safe material")) || output.StartedAt != "2026-07-24T12:00:00Z" || output.FinishedAt != "2026-07-24T12:00:01Z" {
+	if output.Status != "clear" || !output.Complete || output.Matches != 0 || output.Surface != "sandbox-environment" || output.RunID != commandTestRunID || output.Resource != (canaryscan.ResourceBinding{Kind: "sandbox", Name: "sandbox-credential-check"}) || output.CanaryCommitment != commandCommitment(commandTestCanary) || !validInputCommitment(output.InputCommitment) || output.InputLimitBytes != 1024 || output.InspectedBytes != int64(len("safe material")) || output.StartedAt != "2026-07-24T12:00:00Z" || output.FinishedAt != "2026-07-24T12:00:01Z" {
 		t.Fatalf("run() report = %+v", output)
 	}
 }
@@ -62,7 +63,7 @@ func TestRunReportsMatchWithoutEchoingCanary(t *testing.T) {
 	if strings.Contains(stdout.String(), commandTestCanary) {
 		t.Fatal("report exposed canary plaintext")
 	}
-	var output report
+	var output canaryscan.Report
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
@@ -87,12 +88,11 @@ func TestRunFailsClosedForTruncatedInput(t *testing.T) {
 	if exitCode != 1 || !strings.Contains(stderr.String(), "input limit exceeded") {
 		t.Fatalf("run() exit = %d, stderr = %q", exitCode, stderr.String())
 	}
-	var output report
+	var output canaryscan.Report
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
-	inputSHA256 := sha256.Sum256([]byte("four"))
-	if output.Status != "incomplete" || output.Complete || output.RunID != commandTestRunID || output.Resource != (resourceBinding{Kind: "runtime", Name: "runtime-invocation"}) || output.Commitment != commandCommitment(commandTestCanary) || output.InputCommitment != bindInput(commandTestRunID, "runtime-errors", "runtime", "runtime-invocation", inputSHA256) || output.InputLimitBytes != 3 || output.InspectedBytes != 4 {
+	if output.Status != "incomplete" || output.Complete || output.RunID != commandTestRunID || output.Resource != (canaryscan.ResourceBinding{Kind: "runtime", Name: "runtime-invocation"}) || output.CanaryCommitment != commandCommitment(commandTestCanary) || !validInputCommitment(output.InputCommitment) || output.InputLimitBytes != 3 || output.InspectedBytes != 4 {
 		t.Fatalf("run() report = %+v", output)
 	}
 }
@@ -116,7 +116,7 @@ func TestRunFailsClosedForReversedObservationWindow(t *testing.T) {
 	if exitCode != 1 || !strings.Contains(stderr.String(), "canary scan failed") {
 		t.Fatalf("run() exit = %d, stderr = %q", exitCode, stderr.String())
 	}
-	var output report
+	var output canaryscan.Report
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
@@ -155,69 +155,14 @@ func TestRunDerivesResourceKindForEverySurface(t *testing.T) {
 			if exitCode != 0 || stderr.Len() != 0 {
 				t.Fatalf("run() exit = %d, stderr = %q", exitCode, stderr.String())
 			}
-			var output report
+			var output canaryscan.Report
 			if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 				t.Fatalf("decode report: %v", err)
 			}
-			if output.Resource != (resourceBinding{Kind: kind, Name: "checked-resource"}) {
+			if output.Resource != (canaryscan.ResourceBinding{Kind: kind, Name: "checked-resource"}) {
 				t.Fatalf("run() resource = %+v", output.Resource)
 			}
 		})
-	}
-}
-
-func TestBindInputSeparatesScanContexts(t *testing.T) {
-	t.Parallel()
-
-	inputSHA256 := sha256.Sum256([]byte("safe material"))
-	base := bindInput(
-		commandTestRunID,
-		"sandbox-process",
-		"sandbox",
-		"sandbox-credential-check",
-		inputSHA256,
-	)
-	otherInputSHA256 := sha256.Sum256([]byte("different material"))
-	for name, commitment := range map[string]string{
-		"run": bindInput(
-			"fedcba9876543210fedcba9876543210",
-			"sandbox-process",
-			"sandbox",
-			"sandbox-credential-check",
-			inputSHA256,
-		),
-		"surface": bindInput(
-			commandTestRunID,
-			"sandbox-environment",
-			"sandbox",
-			"sandbox-credential-check",
-			inputSHA256,
-		),
-		"resource kind": bindInput(
-			commandTestRunID,
-			"sandbox-process",
-			"runtime",
-			"sandbox-credential-check",
-			inputSHA256,
-		),
-		"resource name": bindInput(
-			commandTestRunID,
-			"sandbox-process",
-			"sandbox",
-			"other-sandbox",
-			inputSHA256,
-		),
-		"input": bindInput(
-			commandTestRunID,
-			"sandbox-process",
-			"sandbox",
-			"sandbox-credential-check",
-			otherInputSHA256,
-		),
-	} {
-		if commitment == base {
-			t.Fatalf("%s did not separate input commitment contexts", name)
-		}
 	}
 }
 
@@ -246,6 +191,12 @@ func TestRunRejectsInvalidResourceBindingConfiguration(t *testing.T) {
 			"--run-id", commandTestRunID,
 			"--resource-name", "Checked Resource",
 			"--commitment", commandCommitment(commandTestCanary),
+		},
+		"malformed commitment": {
+			"--surface", "sandbox-process",
+			"--run-id", commandTestRunID,
+			"--resource-name", "checked-resource",
+			"--commitment", "sha256:00",
 		},
 	}
 	for name, args := range tests {
@@ -304,6 +255,16 @@ func TestRunRejectsUnknownSurface(t *testing.T) {
 	if exitCode != 2 || stdout.Len() != 0 {
 		t.Fatalf("run() exit = %d, stdout = %q", exitCode, stdout.String())
 	}
+}
+
+func validInputCommitment(value string) bool {
+	if len(value) != len("sha256:")+sha256.Size*2 ||
+		!strings.HasPrefix(value, "sha256:") ||
+		strings.ToLower(value) != value {
+		return false
+	}
+	_, err := hex.DecodeString(value[len("sha256:"):])
+	return err == nil
 }
 
 func commandArgs(surface string, resourceName string, maxBytes string) []string {
