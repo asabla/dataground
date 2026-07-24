@@ -239,6 +239,130 @@ func TestPolicyBoundInvocationAuthorizationDecisionMapsStableOutcomes(t *testing
 	}
 }
 
+func TestStaticInvocationAuthorizationPolicySourceResolvesExactOwnedPolicy(t *testing.T) {
+	t.Parallel()
+
+	policy := testInvocationAuthorizationPolicy()
+	source, err := NewStaticInvocationAuthorizationPolicySource(
+		[]InvocationAuthorizationPolicy{policy},
+	)
+	if err != nil {
+		t.Fatalf("construct static policy source: %v", err)
+	}
+	policy.Schema[0] = 'X'
+	policy.Policies[0] = 'X'
+
+	scope := InvocationAuthorizationPolicyScope{
+		IsolationDomainID: "iso_1",
+		ServiceID:         "svc_1",
+		RevisionID:        "rev_1",
+	}
+	first, err := source.ResolveInvocationAuthorizationPolicy(context.Background(), scope)
+	if err != nil {
+		t.Fatalf("resolve policy: %v", err)
+	}
+	if string(first.Schema) != `{"type":"object"}` ||
+		string(first.Policies) != "permit(principal, action, resource);" {
+		t.Fatal("source did not retain owned policy bytes")
+	}
+	first.Schema[0] = 'X'
+	first.Policies[0] = 'X'
+	second, err := source.ResolveInvocationAuthorizationPolicy(context.Background(), scope)
+	if err != nil {
+		t.Fatalf("resolve policy again: %v", err)
+	}
+	if second.Schema[0] == 'X' || second.Policies[0] == 'X' {
+		t.Fatal("resolved policy shared mutable bytes")
+	}
+}
+
+func TestStaticInvocationAuthorizationPolicySourceRejectsInvalidConfiguration(t *testing.T) {
+	t.Parallel()
+
+	policy := testInvocationAuthorizationPolicy()
+	tests := map[string][]InvocationAuthorizationPolicy{
+		"empty": nil,
+		"duplicate scope": {policy, policy},
+		"empty isolation domain": {func() InvocationAuthorizationPolicy {
+			invalid := policy
+			invalid.IsolationDomainID = ""
+			return invalid
+		}()},
+		"digest mismatch": {func() InvocationAuthorizationPolicy {
+			invalid := policy
+			invalid.Policies = append(invalid.Policies, ' ')
+			return invalid
+		}()},
+	}
+	for name, policies := range tests {
+		name, policies := name, policies
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := NewStaticInvocationAuthorizationPolicySource(policies); err == nil {
+				t.Fatal("invalid policy configuration was accepted")
+			}
+		})
+	}
+}
+
+func TestStaticInvocationAuthorizationPolicySourceFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	source, err := NewStaticInvocationAuthorizationPolicySource(
+		[]InvocationAuthorizationPolicy{testInvocationAuthorizationPolicy()},
+	)
+	if err != nil {
+		t.Fatalf("construct static policy source: %v", err)
+	}
+	tests := []struct {
+		name  string
+		ctx   context.Context
+		scope InvocationAuthorizationPolicyScope
+		want  error
+	}{
+		{
+			name: "missing exact revision",
+			ctx:  context.Background(),
+			scope: InvocationAuthorizationPolicyScope{
+				IsolationDomainID: "iso_1",
+				ServiceID:         "svc_1",
+				RevisionID:        "rev_other",
+			},
+			want: ErrInvocationAuthorizationPolicyUnavailable,
+		},
+		{
+			name:  "invalid scope",
+			ctx:   context.Background(),
+			scope: InvocationAuthorizationPolicyScope{},
+			want:  ErrInvocationAuthorizationPolicyUnavailable,
+		},
+		{
+			name: "cancelled",
+			ctx: func() context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			}(),
+			scope: InvocationAuthorizationPolicyScope{
+				IsolationDomainID: "iso_1",
+				ServiceID:         "svc_1",
+				RevisionID:        "rev_1",
+			},
+			want: context.Canceled,
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := source.ResolveInvocationAuthorizationPolicy(test.ctx, test.scope)
+			if !errors.Is(err, test.want) {
+				t.Fatalf("resolve error = %v, want %v", err, test.want)
+			}
+		})
+	}
+}
+
 func TestInvocationAuthorizationPolicyExcludesContentFromSerialization(t *testing.T) {
 	t.Parallel()
 
