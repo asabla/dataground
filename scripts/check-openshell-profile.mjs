@@ -123,7 +123,7 @@ if (
   canaryScanner?.observationWindow !==
     "scanner-owned UTC RFC3339 interval within the evidence run" ||
   canaryScanner?.inputCommitment !==
-    "sha256 over versioned length-delimited run, surface, resource, and scanner-owned input digest" ||
+    "sha256 of four-byte big-endian length-prefixed UTF-8 domain, run ID, surface, resource kind, resource name, then the 32-byte input sha256" ||
   canaryScanner?.runIDFormat !== "32-character lowercase hexadecimal nonce" ||
   canaryScanner?.resourceNameFormat !== "portable lowercase identifier" ||
   JSON.stringify(canaryScanner?.surfaceResourceKinds) !==
