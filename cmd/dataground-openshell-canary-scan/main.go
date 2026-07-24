@@ -68,6 +68,9 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, 
 	startedAt := now().UTC()
 	result, scanErr := canaryscan.Scan(ctx, stdin, *maxBytes, *commitment)
 	finishedAt := now().UTC()
+	if finishedAt.Before(startedAt) {
+		scanErr = errors.Join(scanErr, errors.New("canary scan observation clock moved backwards"))
+	}
 	output := report{
 		SchemaVersion:   "dataground.dev.openshell-canary-scan/v1",
 		Surface:         *surface,
