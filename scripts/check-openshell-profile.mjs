@@ -100,7 +100,8 @@ if (
   !canaryScannerSchema?.required?.includes("canaryCommitment") ||
   canaryScannerSchema?.properties?.canaryCommitment?.pattern !== "^sha256:[a-f0-9]{64}$" ||
   !canaryScannerSchema?.required?.includes("inputLimitBytes") ||
-  canaryScannerSchema?.properties?.inputLimitBytes?.minimum !== 1
+  canaryScannerSchema?.properties?.inputLimitBytes?.minimum !== 1 ||
+  canaryScannerSchema?.properties?.inputLimitBytes?.maximum !== 268_435_456
 ) {
   fail("the credential canary scanner report schema does not match the development profile");
 }
