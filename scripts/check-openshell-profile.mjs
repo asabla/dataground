@@ -74,7 +74,9 @@ const canaryScannerSchema = JSON.parse(
 );
 if (
   canaryScannerSchema?.properties?.schemaVersion?.const !== canaryScanner?.schemaVersion ||
-  canaryScannerSchema?.properties?.surface?.enum?.length !== 7
+  canaryScannerSchema?.properties?.surface?.enum?.length !== 7 ||
+  !canaryScannerSchema?.required?.includes("canaryCommitment") ||
+  canaryScannerSchema?.properties?.canaryCommitment?.pattern !== "^sha256:[a-f0-9]{64}$"
 ) {
   fail("the credential canary scanner report schema does not match the development profile");
 }
