@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"regexp"
@@ -12,9 +13,9 @@ import (
 )
 
 const (
-	SchemaVersion          = "dataground.dev.openshell-canary-scan/v1"
-	InputCommitmentDomain  = "dataground.openshell-canary-input/v1"
-	MaxInputBytes    int64 = 256 << 20
+	SchemaVersion         = "dataground.dev.openshell-canary-scan/v1"
+	InputCommitmentDomain = "dataground.openshell-canary-input/v1"
+	MaxInputBytes   int64 = 256 << 20
 )
 
 var (
@@ -32,27 +33,45 @@ var (
 	}
 )
 
-type ResourceBinding struct {
+type resourceBinding struct {
 	Kind string `json:"kind"`
 	Name string `json:"name"`
 }
 
-// Report is the complete content-free result retained as credential evidence.
+// Report is an opaque content-free result. Its JSON form is owned by this
+// package so callers cannot substitute scan metrics or evidence bindings.
 type Report struct {
-	SchemaVersion   string          `json:"schemaVersion"`
-	Surface         string          `json:"surface"`
-	RunID           string          `json:"runID"`
-	Resource        ResourceBinding `json:"resource"`
-	CanaryCommitment string         `json:"canaryCommitment"`
-	InputCommitment string          `json:"inputCommitment"`
-	Status          string          `json:"status"`
-	Matches         int64           `json:"matches"`
-	Complete        bool            `json:"complete"`
-	InputLimitBytes int64           `json:"inputLimitBytes"`
-	InspectedBytes  int64           `json:"inspectedBytes"`
-	Candidates      int64           `json:"candidates"`
-	StartedAt       string          `json:"startedAt"`
-	FinishedAt      string          `json:"finishedAt"`
+	schemaVersion    string
+	surface          string
+	runID            string
+	resource         resourceBinding
+	canaryCommitment string
+	inputCommitment  string
+	status           string
+	matches          int64
+	complete         bool
+	inputLimitBytes  int64
+	inspectedBytes   int64
+	candidates       int64
+	startedAt        string
+	finishedAt       string
+}
+
+type reportJSON struct {
+	SchemaVersion    string          `json:"schemaVersion"`
+	Surface          string          `json:"surface"`
+	RunID            string          `json:"runID"`
+	Resource         resourceBinding `json:"resource"`
+	CanaryCommitment string          `json:"canaryCommitment"`
+	InputCommitment  string          `json:"inputCommitment"`
+	Status           string          `json:"status"`
+	Matches          int64           `json:"matches"`
+	Complete         bool            `json:"complete"`
+	InputLimitBytes  int64           `json:"inputLimitBytes"`
+	InspectedBytes   int64           `json:"inspectedBytes"`
+	Candidates       int64           `json:"candidates"`
+	StartedAt        string          `json:"startedAt"`
+	FinishedAt       string          `json:"finishedAt"`
 }
 
 type ReportConfig struct {
@@ -81,28 +100,52 @@ func ScanReport(ctx context.Context, input io.Reader, config ReportConfig) (Repo
 	}
 
 	report := Report{
-		SchemaVersion:    SchemaVersion,
-		Surface:          config.Surface,
-		RunID:            config.RunID,
-		Resource:         ResourceBinding{Kind: resourceKind, Name: config.ResourceName},
-		CanaryCommitment: config.CanaryCommitment,
-		InputCommitment:  bindInput(config, resourceKind, result.inspectedSHA256),
-		Status:           "clear",
-		Matches:          result.Matches,
-		Complete:         scanErr == nil,
-		InputLimitBytes:  config.MaxBytes,
-		InspectedBytes:   result.InspectedBytes,
-		Candidates:       result.Candidates,
-		StartedAt:        startedAt.Format(time.RFC3339Nano),
-		FinishedAt:       finishedAt.Format(time.RFC3339Nano),
+		schemaVersion:    SchemaVersion,
+		surface:          config.Surface,
+		runID:            config.RunID,
+		resource:         resourceBinding{Kind: resourceKind, Name: config.ResourceName},
+		canaryCommitment: config.CanaryCommitment,
+		inputCommitment:  bindInput(config, resourceKind, result.inspectedSHA256),
+		status:           "clear",
+		matches:          result.Matches,
+		complete:         scanErr == nil,
+		inputLimitBytes:  config.MaxBytes,
+		inspectedBytes:   result.InspectedBytes,
+		candidates:       result.Candidates,
+		startedAt:        startedAt.Format(time.RFC3339Nano),
+		finishedAt:       finishedAt.Format(time.RFC3339Nano),
 	}
 	if result.Matches > 0 {
-		report.Status = "matched"
+		report.status = "matched"
 	}
 	if scanErr != nil {
-		report.Status = "incomplete"
+		report.status = "incomplete"
 	}
 	return report, scanErr
+}
+
+// HasMatches reports whether the scanner observed the committed canary.
+func (report Report) HasMatches() bool {
+	return report.matches > 0
+}
+
+func (report Report) MarshalJSON() ([]byte, error) {
+	return json.Marshal(reportJSON{
+		SchemaVersion:    report.schemaVersion,
+		Surface:          report.surface,
+		RunID:            report.runID,
+		Resource:         report.resource,
+		CanaryCommitment: report.canaryCommitment,
+		InputCommitment:  report.inputCommitment,
+		Status:           report.status,
+		Matches:          report.matches,
+		Complete:         report.complete,
+		InputLimitBytes:  report.inputLimitBytes,
+		InspectedBytes:   report.inspectedBytes,
+		Candidates:       report.candidates,
+		StartedAt:        report.startedAt,
+		FinishedAt:       report.finishedAt,
+	})
 }
 
 func validateReportConfig(config ReportConfig) (string, error) {
