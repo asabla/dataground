@@ -10,13 +10,34 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asabla/dataground/internal/security/canaryscan"
 )
 
 const (
 	commandTestCanary = "dataground-canary-v1:0123456789abcdefghijklmnopqrstuvwxyz_A-B-CD"
 	commandTestRunID  = "0123456789abcdef0123456789abcdef"
 )
+
+type commandResource struct {
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+}
+
+type commandReport struct {
+	SchemaVersion    string          `json:"schemaVersion"`
+	Surface          string          `json:"surface"`
+	RunID            string          `json:"runID"`
+	Resource         commandResource `json:"resource"`
+	CanaryCommitment string          `json:"canaryCommitment"`
+	InputCommitment  string          `json:"inputCommitment"`
+	Status           string          `json:"status"`
+	Matches          int64           `json:"matches"`
+	Complete         bool            `json:"complete"`
+	InputLimitBytes  int64           `json:"inputLimitBytes"`
+	InspectedBytes   int64           `json:"inspectedBytes"`
+	Candidates       int64           `json:"candidates"`
+	StartedAt        string          `json:"startedAt"`
+	FinishedAt       string          `json:"finishedAt"`
+}
 
 func TestRunReportsClearBoundedScan(t *testing.T) {
 	t.Parallel()
@@ -35,11 +56,11 @@ func TestRunReportsClearBoundedScan(t *testing.T) {
 	if exitCode != 0 || stderr.Len() != 0 {
 		t.Fatalf("run() exit = %d, stderr = %q", exitCode, stderr.String())
 	}
-	var output canaryscan.Report
+	var output commandReport
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
-	if output.Status != "clear" || !output.Complete || output.Matches != 0 || output.Surface != "sandbox-environment" || output.RunID != commandTestRunID || output.Resource != (canaryscan.ResourceBinding{Kind: "sandbox", Name: "sandbox-credential-check"}) || output.CanaryCommitment != commandCommitment(commandTestCanary) || !validInputCommitment(output.InputCommitment) || output.InputLimitBytes != 1024 || output.InspectedBytes != int64(len("safe material")) || output.StartedAt != "2026-07-24T12:00:00Z" || output.FinishedAt != "2026-07-24T12:00:01Z" {
+	if output.Status != "clear" || !output.Complete || output.Matches != 0 || output.Surface != "sandbox-environment" || output.RunID != commandTestRunID || output.Resource != (commandResource{Kind: "sandbox", Name: "sandbox-credential-check"}) || output.CanaryCommitment != commandCommitment(commandTestCanary) || !validInputCommitment(output.InputCommitment) || output.InputLimitBytes != 1024 || output.InspectedBytes != int64(len("safe material")) || output.StartedAt != "2026-07-24T12:00:00Z" || output.FinishedAt != "2026-07-24T12:00:01Z" {
 		t.Fatalf("run() report = %+v", output)
 	}
 }
@@ -63,7 +84,7 @@ func TestRunReportsMatchWithoutEchoingCanary(t *testing.T) {
 	if strings.Contains(stdout.String(), commandTestCanary) {
 		t.Fatal("report exposed canary plaintext")
 	}
-	var output canaryscan.Report
+	var output commandReport
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
@@ -88,11 +109,11 @@ func TestRunFailsClosedForTruncatedInput(t *testing.T) {
 	if exitCode != 1 || !strings.Contains(stderr.String(), "input limit exceeded") {
 		t.Fatalf("run() exit = %d, stderr = %q", exitCode, stderr.String())
 	}
-	var output canaryscan.Report
+	var output commandReport
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
-	if output.Status != "incomplete" || output.Complete || output.RunID != commandTestRunID || output.Resource != (canaryscan.ResourceBinding{Kind: "runtime", Name: "runtime-invocation"}) || output.CanaryCommitment != commandCommitment(commandTestCanary) || !validInputCommitment(output.InputCommitment) || output.InputLimitBytes != 3 || output.InspectedBytes != 4 {
+	if output.Status != "incomplete" || output.Complete || output.RunID != commandTestRunID || output.Resource != (commandResource{Kind: "runtime", Name: "runtime-invocation"}) || output.CanaryCommitment != commandCommitment(commandTestCanary) || !validInputCommitment(output.InputCommitment) || output.InputLimitBytes != 3 || output.InspectedBytes != 4 {
 		t.Fatalf("run() report = %+v", output)
 	}
 }
@@ -116,7 +137,7 @@ func TestRunFailsClosedForReversedObservationWindow(t *testing.T) {
 	if exitCode != 1 || !strings.Contains(stderr.String(), "canary scan failed") {
 		t.Fatalf("run() exit = %d, stderr = %q", exitCode, stderr.String())
 	}
-	var output canaryscan.Report
+	var output commandReport
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
@@ -155,11 +176,11 @@ func TestRunDerivesResourceKindForEverySurface(t *testing.T) {
 			if exitCode != 0 || stderr.Len() != 0 {
 				t.Fatalf("run() exit = %d, stderr = %q", exitCode, stderr.String())
 			}
-			var output canaryscan.Report
+			var output commandReport
 			if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 				t.Fatalf("decode report: %v", err)
 			}
-			if output.Resource != (canaryscan.ResourceBinding{Kind: kind, Name: "checked-resource"}) {
+			if output.Resource != (commandResource{Kind: kind, Name: "checked-resource"}) {
 				t.Fatalf("run() resource = %+v", output.Resource)
 			}
 		})
