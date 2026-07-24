@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-const testCanary = "dataground-canary-v1:0123456789abcdefghijklmnopqrstuvwxyz_A-B-C"
+const testCanary = "dataground-canary-v1:0123456789abcdefghijklmnopqrstuvwxyz_A-B-CD"
 
 func TestScanFindsOnlyCommittedStructuredCanary(t *testing.T) {
 	t.Parallel()
