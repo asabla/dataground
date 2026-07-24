@@ -153,6 +153,22 @@ function runSelfTest() {
     const passed = verifyEvidence(evidence).length === 0;
     return passed === shouldPass ? [] : [`self-test failed: ${name}`];
   });
+  const clearScan = {
+    schemaVersion: "dataground.dev.openshell-canary-scan/v1",
+    surface: "sandbox-process",
+    status: "clear",
+    matches: 0,
+    complete: true,
+    inspectedBytes: 128,
+    candidates: 0,
+  };
+  if (!validateScanSchema(clearScan)) {
+    failures.push("self-test failed: representative canary scan report");
+  }
+  if (validateScanSchema({ ...clearScan, matches: 1 })) {
+    failures.push("self-test failed: inconsistent clear canary scan report");
+  }
+
   if (failures.length > 0) {
     throw new Error(failures.join("\n"));
   }
