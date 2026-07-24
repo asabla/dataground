@@ -46,6 +46,12 @@
       "source": "providers/codex.yaml",
       "sha256": "d9c7f48d96916dcaca319e396d75e30ff6ad3bf2474f38f54ab37f37cabbca8f",
       "status": "development candidate; live credential non-exposure proof required"
+    },
+    "contract": {
+      "schema": "deploy/openshell/credential-non-exposure-evidence.schema.json",
+      "schemaVersion": "dataground.dev.openshell-credential-non-exposure-evidence/v1",
+      "verifier": "pnpm openshell:credential-evidence:check -- <evidence.json>",
+      "status": "contract verified; live evidence required"
     }
   },
   "runtime": {
