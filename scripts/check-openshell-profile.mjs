@@ -73,11 +73,18 @@ if (
   fail("the credential non-exposure evidence contract is missing or unblocked");
 }
 const credentialEvidenceSchema = JSON.parse(
-  await readFile(resolve(root, credentialEvidenceContract?.schema ?? ""), "utf8"),
+  await readFile(
+    resolve(root, "deploy/openshell/credential-non-exposure-evidence.schema.json"),
+    "utf8",
+  ),
 );
 const evidenceRunProperties = credentialEvidenceSchema?.properties?.run?.properties;
 if (
+  credentialEvidenceSchema?.properties?.schemaVersion?.const !==
+    credentialEvidenceContract?.schemaVersion ||
+  evidenceRunProperties?.startedAt?.format !== "date-time" ||
   evidenceRunProperties?.startedAt?.pattern !== "Z$" ||
+  evidenceRunProperties?.finishedAt?.format !== "date-time" ||
   evidenceRunProperties?.finishedAt?.pattern !== "Z$" ||
   evidenceRunProperties?.verifier?.properties?.name?.const !==
     credentialEvidenceContract?.verifierIdentity?.name ||
