@@ -19,7 +19,7 @@ const maxInvocationAuthorizationPolicyBytes = 1 << 20
 var (
 	ErrInvocationAuthorizationPolicyInvalid     = errors.New("invocation authorization policy is invalid")
 	ErrInvocationAuthorizationPolicyUnavailable = errors.New("invocation authorization policy is unavailable")
-	invocationAuthorizationPolicyIDPattern       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+	invocationAuthorizationPolicyIDPattern      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 )
 
 type InvocationAuthorizationPolicyScope struct {
