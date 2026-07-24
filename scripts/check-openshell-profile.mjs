@@ -90,10 +90,13 @@ const credentialEvidenceSchema = JSON.parse(
   ),
 );
 const evidenceRunProperties = credentialEvidenceSchema?.properties?.run?.properties;
+const evidenceCheckSchema = credentialEvidenceSchema?.properties?.checks?.items;
 if (
   credentialEvidenceSchema?.properties?.schemaVersion?.const !==
     credentialEvidenceContract?.schemaVersion ||
   evidenceRunProperties?.id?.pattern !== "^[a-f0-9]{32}$" ||
+  !evidenceCheckSchema?.required?.includes("inputCommitment") ||
+  evidenceCheckSchema?.properties?.inputCommitment?.pattern !== "^sha256:[a-f0-9]{64}$" ||
   JSON.stringify(Object.keys(evidenceRunProperties?.resources?.properties ?? {}).sort()) !==
     JSON.stringify(["gateway", "provider", "runtime", "sandbox", "workspace"]) ||
   credentialEvidenceSchema?.properties?.cleanup?.properties?.sandbox?.$ref !==
