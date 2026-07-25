@@ -124,7 +124,7 @@
         "sandboxCleanup": {
           "assembly": "internal/security/canarysandbox.New",
           "resource": "exact DataGround execution returned by the OpenShell provider",
-          "verification": "terminate then observe the exact execution as terminated",
+          "verification": "terminate then require a timestamped exact terminal observation",
           "serialization": "forbidden",
           "status": "sandbox cleanup adapter verified; live harness wiring required"
         }
