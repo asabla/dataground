@@ -99,6 +99,57 @@ func TestAdapterRecoversLostDeleteAcknowledgementByAbsence(t *testing.T) {
 	}
 }
 
+func TestAdapterRetriesOnlyAfterObservedPersistence(t *testing.T) {
+	t.Parallel()
+
+	binding := testBinding()
+	manager := &fakeManager{
+		observations: []observationResult{
+			{observation: presentObservation(binding)},
+			{observation: presentObservation(binding)},
+			{observation: presentObservation(binding)},
+			{observation: absentObservation(binding)},
+		},
+		deleteErr: errors.New("uncertain deletion"),
+	}
+	adapter, err := New(Config{RunID: testRunID, Binding: binding}, manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := cleanupRequest(binding.Name)
+	if err := adapter.Cleanup(context.Background(), request); !errors.Is(err, ErrCleanupFailure) {
+		t.Fatalf("first Cleanup() error = %v", err)
+	}
+	if err := adapter.Cleanup(context.Background(), request); err != nil {
+		t.Fatalf("retry Cleanup() error = %v", err)
+	}
+	if calls := manager.callNames(); !slices.Equal(calls, []string{
+		"observe", "delete", "observe", "observe", "delete", "observe",
+	}) {
+		t.Fatalf("manager calls = %v", calls)
+	}
+}
+
+func TestAdapterHonorsCancellationBeforeObservation(t *testing.T) {
+	t.Parallel()
+
+	binding := testBinding()
+	manager := &fakeManager{}
+	adapter, err := New(Config{RunID: testRunID, Binding: binding}, manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = adapter.Cleanup(ctx, cleanupRequest(binding.Name))
+	if !errors.Is(err, ErrCleanupFailure) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("Cleanup() error = %v", err)
+	}
+	if calls := manager.callNames(); len(calls) != 0 {
+		t.Fatalf("cancelled cleanup reached manager: %v", calls)
+	}
+}
+
 func TestAdapterSanitizesManagerFailures(t *testing.T) {
 	t.Parallel()
 
