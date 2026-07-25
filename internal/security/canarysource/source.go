@@ -65,6 +65,10 @@ type Config struct {
 // single-use because live streams cannot be safely replayed after acquisition
 // begins, even when the first attempt fails before producing a report.
 type Adapter struct {
+	state *state
+}
+
+type state struct {
 	mu      sync.Mutex
 	config  Config
 	started bool
@@ -74,7 +78,7 @@ func New(config Config) (*Adapter, error) {
 	if isNil(config.OpenShell) || isNil(config.Docker) || isNil(config.Runtime) {
 		return nil, ErrInvalidConfiguration
 	}
-	adapter := &Adapter{config: config}
+	adapter := &Adapter{state: &state{config: config}}
 	if err := canarycollect.ValidateConfig(adapter.collectorConfig()); err != nil {
 		return nil, ErrInvalidConfiguration
 	}
@@ -87,9 +91,10 @@ func (adapter *Adapter) ValidateBinding(
 	resources ResourceNames,
 ) error {
 	if adapter == nil ||
-		adapter.config.RunID != runID ||
-		adapter.config.CanaryCommitment != canaryCommitment ||
-		adapter.config.Resources != resources {
+		adapter.state == nil ||
+		adapter.state.config.RunID != runID ||
+		adapter.state.config.CanaryCommitment != canaryCommitment ||
+		adapter.state.config.Resources != resources {
 		return ErrInvalidConfiguration
 	}
 	return nil
@@ -98,17 +103,17 @@ func (adapter *Adapter) ValidateBinding(
 // Collect acquires the seven live sources exactly once in the collector's
 // canonical order and passes each stream directly into the scanner boundary.
 func (adapter *Adapter) Collect(ctx context.Context) (canarycollect.Collection, error) {
-	if adapter == nil || ctx == nil {
+	if adapter == nil || adapter.state == nil || ctx == nil {
 		return canarycollect.Collection{}, ErrInvalidConfiguration
 	}
 
-	adapter.mu.Lock()
-	if adapter.started {
-		adapter.mu.Unlock()
+	adapter.state.mu.Lock()
+	if adapter.state.started {
+		adapter.state.mu.Unlock()
 		return canarycollect.Collection{}, ErrAlreadyStarted
 	}
-	adapter.started = true
-	adapter.mu.Unlock()
+	adapter.state.started = true
+	adapter.state.mu.Unlock()
 
 	return canarycollect.Collect(ctx, adapter.collectorConfig())
 }
@@ -119,22 +124,22 @@ func (Adapter) MarshalJSON() ([]byte, error) {
 
 func (adapter *Adapter) collectorConfig() canarycollect.Config {
 	return canarycollect.Config{
-		RunID:            adapter.config.RunID,
-		CanaryCommitment: adapter.config.CanaryCommitment,
+		RunID:            adapter.state.config.RunID,
+		CanaryCommitment: adapter.state.config.CanaryCommitment,
 		Resources: canarycollect.ResourceNames{
-			Gateway:  adapter.config.Resources.Gateway,
-			Sandbox:  adapter.config.Resources.Sandbox,
-			Provider: adapter.config.Resources.Provider,
-			Runtime:  adapter.config.Resources.Runtime,
+			Gateway:  adapter.state.config.Resources.Gateway,
+			Sandbox:  adapter.state.config.Resources.Sandbox,
+			Provider: adapter.state.config.Resources.Provider,
+			Runtime:  adapter.state.config.Resources.Runtime,
 		},
 		Sources: []canarycollect.Source{
-			adapter.source("sandbox-process", adapter.config.Resources.Sandbox, adapter.config.OpenShell.OpenSandboxProcess),
-			adapter.source("sandbox-environment", adapter.config.Resources.Sandbox, adapter.config.OpenShell.OpenSandboxEnvironment),
-			adapter.source("sandbox-filesystem", adapter.config.Resources.Sandbox, adapter.config.OpenShell.OpenSandboxFilesystem),
-			adapter.source("provider-arguments", adapter.config.Resources.Provider, adapter.config.Docker.OpenProviderArguments),
-			adapter.source("gateway-logs", adapter.config.Resources.Gateway, adapter.config.Docker.OpenGatewayLogs),
-			adapter.source("sandbox-logs", adapter.config.Resources.Sandbox, adapter.config.OpenShell.OpenSandboxLogs),
-			adapter.source("runtime-errors", adapter.config.Resources.Runtime, adapter.config.Runtime.OpenRuntimeErrors),
+			adapter.source("sandbox-process", adapter.state.config.Resources.Sandbox, adapter.state.config.OpenShell.OpenSandboxProcess),
+			adapter.source("sandbox-environment", adapter.state.config.Resources.Sandbox, adapter.state.config.OpenShell.OpenSandboxEnvironment),
+			adapter.source("sandbox-filesystem", adapter.state.config.Resources.Sandbox, adapter.state.config.OpenShell.OpenSandboxFilesystem),
+			adapter.source("provider-arguments", adapter.state.config.Resources.Provider, adapter.state.config.Docker.OpenProviderArguments),
+			adapter.source("gateway-logs", adapter.state.config.Resources.Gateway, adapter.state.config.Docker.OpenGatewayLogs),
+			adapter.source("sandbox-logs", adapter.state.config.Resources.Sandbox, adapter.state.config.OpenShell.OpenSandboxLogs),
+			adapter.source("runtime-errors", adapter.state.config.Resources.Runtime, adapter.state.config.Runtime.OpenRuntimeErrors),
 		},
 	}
 }
@@ -150,7 +155,7 @@ func (adapter *Adapter) source(
 			ctx context.Context,
 			request canarycollect.SourceRequest,
 		) (io.ReadCloser, error) {
-			if request.RunID != adapter.config.RunID ||
+			if request.RunID != adapter.state.config.RunID ||
 				request.Surface != surface ||
 				request.ResourceName != resourceName {
 				return nil, ErrInvalidConfiguration
