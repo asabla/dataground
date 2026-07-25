@@ -267,7 +267,7 @@ if (
     "bounded in-memory capture of complete native stderr before one scanner handoff" ||
   canarySourceAcquisition?.runtime?.maxBytes !== 16_777_216 ||
   canarySourceAcquisition?.runtime?.zeroization !==
-    "captured bytes cleared after scanner close or failed handoff" ||
+    "captured bytes cleared after scanner close, unusable handoff, or explicit discard" ||
   canarySourceAcquisition?.runtime?.serialization !== "forbidden" ||
   canarySourceAcquisition?.runtime?.status !==
     "runtime-error source backend verified; live Docker execution required" ||
@@ -327,6 +327,7 @@ if (
   !canaryRuntimeSource.includes("execution.RuntimeSession") ||
   !canaryRuntimeSource.includes("func (sources *Sources) Errors(") ||
   !canaryRuntimeSource.includes("func (sources *Sources) OpenRuntimeErrors(") ||
+  !canaryRuntimeSource.includes("func (sources *Sources) Discard(") ||
   !canaryRuntimeSource.includes("clear(state.capture)") ||
   !canaryRuntimeSource.includes("func (Sources) MarshalJSON(") ||
   canaryRuntimeSource.includes("os/exec")
