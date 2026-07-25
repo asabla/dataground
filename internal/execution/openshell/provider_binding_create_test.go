@@ -96,6 +96,30 @@ func TestCreateCredentialEvidenceProviderRecoversLostAcknowledgement(t *testing.
 	}
 }
 
+func TestCreateCredentialEvidenceProviderObservesAfterCancellation(t *testing.T) {
+	t.Parallel()
+
+	view := testCreatedProviderView()
+	runner := &scriptedRunner{results: []scriptedResult{
+		{result: CommandResult{Stdout: []byte("openshell 0.0.86")}},
+		{result: CommandResult{Stdout: []byte("[]")}},
+		{result: CommandResult{Stdout: bindingJSON(t, view)}},
+	}}
+	ctx, cancel := context.WithCancel(context.Background())
+	credentialRunner := &scriptedCredentialProviderRunner{
+		after: cancel,
+		err:   context.Canceled,
+	}
+	provider := credentialProviderTestProvider(t, runner, credentialRunner)
+	binding, err := provider.CreateCredentialEvidenceProvider(ctx, testCredentialProviderRequest())
+	if err != nil {
+		t.Fatalf("CreateCredentialEvidenceProvider() error = %v", err)
+	}
+	if binding.ID != view.ID || !errors.Is(ctx.Err(), context.Canceled) {
+		t.Fatalf("binding = %+v, context error = %v", binding, ctx.Err())
+	}
+}
+
 func TestCreateCredentialEvidenceProviderRejectsPreexistingName(t *testing.T) {
 	t.Parallel()
 
@@ -250,6 +274,7 @@ type scriptedCredentialProviderRunner struct {
 	retained [][]byte
 	result   CommandResult
 	err      error
+	after    func()
 }
 
 func (runner *scriptedCredentialProviderRunner) RunWithCredentials(
@@ -264,6 +289,9 @@ func (runner *scriptedCredentialProviderRunner) RunWithCredentials(
 	for key, value := range credentials {
 		runner.observed[key] = append([]byte(nil), value...)
 		runner.retained = append(runner.retained, value)
+	}
+	if runner.after != nil {
+		runner.after()
 	}
 	return runner.result, runner.err
 }
