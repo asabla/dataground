@@ -453,6 +453,9 @@ if (
   !providerBindingCreateSource.includes('"create",') ||
   !providerBindingCreateSource.includes('"--credential", key') ||
   !providerBindingCreateSource.includes("command.Env = make(") ||
+  !providerBindingCreateSource.includes("command.Stderr = io.Discard") ||
+  !providerBindingCreateSource.includes("context.WithoutCancel(ctx)") ||
+  !providerBindingCreateSource.includes("credentialProviderRecoveryTimeout") ||
   providerBindingCreateSource.includes('"sh", "-c"') ||
   !providerBindingSource.includes("func (provider *Provider) ObserveProviderBinding(") ||
   !providerBindingSource.includes("providerBindingMaxOutputBytes") ||
