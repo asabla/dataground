@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/asabla/dataground/internal/execution"
 	"github.com/asabla/dataground/internal/security/canaryevidence"
@@ -150,6 +151,19 @@ func TestAdapterSanitizesProviderFailures(t *testing.T) {
 					IsolationDomainID: testExecution().IsolationDomainID,
 					ExecutionID:       testExecution().ID,
 					State:             "running",
+					ObservedAt:        time.Unix(1, 0).UTC(),
+				},
+			},
+			want:        ErrCleanupUncertain,
+			wantObserve: true,
+		},
+		{
+			name: "missing observation timestamp",
+			provider: &providerStub{
+				observation: execution.Observation{
+					IsolationDomainID: testExecution().IsolationDomainID,
+					ExecutionID:       testExecution().ID,
+					State:             "terminated",
 				},
 			},
 			want:        ErrCleanupUncertain,
@@ -268,6 +282,7 @@ func terminatedObservation() execution.Observation {
 		IsolationDomainID: testExecution().IsolationDomainID,
 		ExecutionID:       testExecution().ID,
 		State:             "terminated",
+		ObservedAt:        time.Unix(1, 0).UTC(),
 	}
 }
 
