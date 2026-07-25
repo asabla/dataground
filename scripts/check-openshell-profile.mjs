@@ -104,8 +104,7 @@ if (
   credentialEvidenceSchema?.properties?.cleanup?.properties?.sandbox?.$ref !==
     "#/$defs/cleanupReceipt" ||
   evidenceRunProperties?.resources?.properties?.provider?.$ref !== "#/$defs/providerName" ||
-  credentialEvidenceSchema?.$defs?.providerName?.pattern !==
-    "^dg-canary-provider-[a-f0-9]{32}$" ||
+  credentialEvidenceSchema?.$defs?.providerName?.pattern !== "^dg-canary-provider-[a-f0-9]{32}$" ||
   credentialEvidenceSchema?.properties?.cleanup?.properties?.providerBinding?.$ref !==
     "#/$defs/providerCleanupReceipt" ||
   credentialEvidenceSchema?.$defs?.providerCleanupReceipt?.properties?.name?.$ref !==
@@ -232,8 +231,7 @@ if (
   canaryEvidenceRun?.sandboxCleanup?.serialization !== "forbidden" ||
   canaryEvidenceRun?.sandboxCleanup?.status !==
     "sandbox cleanup adapter verified; live harness wiring required" ||
-  canaryEvidenceRun?.providerCleanup?.assembly !==
-    "internal/security/canaryprovider.New" ||
+  canaryEvidenceRun?.providerCleanup?.assembly !== "internal/security/canaryprovider.New" ||
   canaryEvidenceRun?.providerCleanup?.name !== "dg-canary-provider-<runID>" ||
   canaryEvidenceRun?.providerCleanup?.resource !==
     "exact OpenShell provider ID, name, resource version, isolation domain, and gateway" ||
@@ -258,9 +256,7 @@ if (
   !compactCanaryEvidenceSource.includes(
     "config.Resources.Workspace!=workspaceNamePrefix+config.RunID",
   ) ||
-  !compactCanaryEvidenceSource.includes(
-    'providerNamePrefix="dg-canary-provider-"',
-  ) ||
+  !compactCanaryEvidenceSource.includes('providerNamePrefix="dg-canary-provider-"') ||
   !compactCanaryEvidenceSource.includes(
     "config.Resources.Provider!=providerNamePrefix+config.RunID",
   ) ||
