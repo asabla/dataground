@@ -137,6 +137,10 @@ const canaryCollectorSource = await readFile(
   resolve(root, "internal/security/canarycollect/collector.go"),
   "utf8",
 );
+const canarySourceAdapter = await readFile(
+  resolve(root, "internal/security/canarysource/source.go"),
+  "utf8",
+);
 const canaryEvidenceSource = await readFile(
   resolve(root, "internal/security/canaryevidence/evidence.go"),
   "utf8",
@@ -193,7 +197,7 @@ if (
   canaryCollector?.limitOwnership !== "collector-owned exact profile limits" ||
   JSON.stringify(canaryCollector?.sourceOrder) !== JSON.stringify(expectedCanarySurfaces) ||
   canaryCollector?.status !==
-    "collection boundary verified; live OpenShell and Docker acquisition required" ||
+    "collection boundary verified; run-bound acquisition adapter required" ||
   !canaryCollectorSource.includes("func Collect(") ||
   !canaryCollectorSource.includes("canaryscan.ValidateReportConfig(") ||
   !canaryCollectorSource.includes("canaryscan.ScanReport(") ||
@@ -205,6 +209,32 @@ if (
   canaryCollectorSource.includes("openshell")
 ) {
   fail("the credential source collection boundary is missing or claims live acquisition");
+}
+const canarySourceAcquisition = credentialEvidenceContract?.evidenceRun?.sourceAcquisition;
+if (
+  canarySourceAcquisition?.assembly !== "internal/security/canarysource.New" ||
+  canarySourceAcquisition?.binding !==
+    "exact evidence run, canary commitment, and portable gateway, sandbox, provider, and runtime names" ||
+  canarySourceAcquisition?.sourcePorts !== "typed OpenShell, Docker, and runtime streams" ||
+  canarySourceAcquisition?.handoff !==
+    "single-use canonical collection with direct scanner handoff" ||
+  canarySourceAcquisition?.serialization !== "forbidden" ||
+  canarySourceAcquisition?.status !==
+    "source lifecycle verified; concrete live OpenShell and Docker backends required" ||
+  !canarySourceAdapter.includes("func New(") ||
+  !canarySourceAdapter.includes("func (adapter *Adapter) ValidateBinding(") ||
+  !canarySourceAdapter.includes("func (adapter *Adapter) Collect(") ||
+  !canarySourceAdapter.includes("canarycollect.Collect(") ||
+  !canarySourceAdapter.includes("ErrAlreadyStarted") ||
+  !canarySourceAdapter.includes("func (Adapter) MarshalJSON(") ||
+  !canarySourceAdapter.includes("OpenSandboxProcess(") ||
+  !canarySourceAdapter.includes("OpenProviderArguments(") ||
+  !canarySourceAdapter.includes("OpenRuntimeErrors(") ||
+  canarySourceAdapter.includes("os/exec") ||
+  canarySourceAdapter.includes('"docker"') ||
+  canarySourceAdapter.includes('"openshell"')
+) {
+  fail("the credential source adapter is missing or claims a concrete live backend");
 }
 const canaryEvidenceRun = credentialEvidenceContract?.evidenceRun;
 const compactCanaryEvidenceSource = canaryEvidenceSource.replaceAll(/\s/g, "");
@@ -243,10 +273,10 @@ if (
   canaryEvidenceRun?.providerCleanup?.status !==
     "provider cleanup adapter verified; live harness wiring required" ||
   canaryEvidenceRun?.status !==
-    "run assembly and all cleanup adapters verified; live acquisition adapter required" ||
+    "run, source lifecycle, and cleanup adapters verified; concrete live acquisition backends required" ||
   !canaryEvidenceSource.includes("func Run(") ||
-  !canaryEvidenceSource.includes("canarycollect.ValidateConfig(") ||
-  !canaryEvidenceSource.includes("canarycollect.Collect(") ||
+  !canaryEvidenceSource.includes("config.Sources.ValidateBinding(") ||
+  !canaryEvidenceSource.includes("config.Sources.Collect(") ||
   !canaryEvidenceSource.includes("context.WithoutCancel(") ||
   !canaryEvidenceSource.includes("if !result.complete") ||
   !canaryEvidenceSource.includes("ErrRunIncomplete") ||
