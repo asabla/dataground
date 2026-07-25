@@ -199,11 +199,14 @@ if (
   !canaryEvidenceSource.includes("context.WithoutCancel(") ||
   !canaryEvidenceSource.includes("if !result.complete") ||
   !canaryEvidenceSource.includes("ErrRunIncomplete") ||
+  !canaryEvidenceSource.includes('Result:  "passed"') ||
+  !canaryEvidenceSource.includes('cleanupStatusRemoved = "removed"') ||
   canaryEvidenceSource.includes("os/exec")
 ) {
   fail("the credential evidence run boundary is missing or claims live execution");
 }
 const evidenceProfileBindings = [
+  credentialEvidenceContract.schemaVersion,
   profile.source.openshell.commit,
   profile.artifacts.gateway,
   profile.artifacts.supervisor,
