@@ -244,6 +244,27 @@ func TestCredentialEvidenceSourcesRequireReadyBoundExecution(t *testing.T) {
 	}
 }
 
+func TestCredentialEvidenceSourcesRequirePinnedCLI(t *testing.T) {
+	t.Parallel()
+
+	provider, created := preparedCredentialEvidenceExecution(t)
+	ref := execution.ExecutionRef{IsolationDomainID: created.IsolationDomainID, ID: created.ID}
+	if err := provider.store.UpdateExecutionState(context.Background(), ref, "ready"); err != nil {
+		t.Fatalf("mark execution ready: %v", err)
+	}
+	provider.expected = "0.0.87"
+	if _, err := provider.NewCredentialEvidenceSources(
+		context.Background(),
+		CredentialEvidenceSourceConfig{
+			RunID:     credentialEvidenceTestRunID,
+			Execution: ref,
+			Stream:    &recordingEvidenceStreamRunner{},
+		},
+	); !errors.Is(err, ErrCredentialEvidenceSource) {
+		t.Fatalf("NewCredentialEvidenceSources() error = %v", err)
+	}
+}
+
 func TestCredentialEvidenceSourcesCannotSerialize(t *testing.T) {
 	t.Parallel()
 
@@ -291,6 +312,7 @@ func preparedCredentialEvidenceExecution(t *testing.T) (*Provider, execution.Exe
 	commandRunner := &scriptedRunner{results: []scriptedResult{
 		{result: CommandResult{Stdout: []byte("[]")}},
 		{result: CommandResult{}},
+		{result: CommandResult{Stdout: []byte("openshell 0.0.86\n")}},
 	}}
 	provider, _, placement, policy, policyDigest := preparedProvider(t, commandRunner)
 	created, err := provider.Create(
