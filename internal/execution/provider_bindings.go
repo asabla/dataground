@@ -33,10 +33,29 @@ type ProviderBindingObservation struct {
 	ObservedAt        time.Time `json:"-"`
 }
 
+// CredentialEvidenceProviderRequest is the narrow secret-bearing request used
+// only to create one temporary provider for a credential non-exposure run.
+type CredentialEvidenceProviderRequest struct {
+	IsolationDomainID string `json:"-"`
+	GatewayID         string `json:"-"`
+	Name              string `json:"-"`
+	Canary            []byte `json:"-"`
+}
+
 // ProviderBindingManager is the narrow internal lifecycle port used by
 // credential-evidence cleanup. It is intentionally separate from sandbox
 // execution because ordinary workloads do not own deployment provider state.
 type ProviderBindingManager interface {
 	DeleteProviderBinding(context.Context, ProviderBindingRef) error
 	ObserveProviderBinding(context.Context, ProviderBindingRef) (ProviderBindingObservation, error)
+}
+
+// CredentialEvidenceProviderProvisioner is intentionally separate from the
+// ordinary provider registry. It can create only the temporary Codex binding
+// used by the closed credential-evidence harness.
+type CredentialEvidenceProviderProvisioner interface {
+	CreateCredentialEvidenceProvider(
+		context.Context,
+		CredentialEvidenceProviderRequest,
+	) (ProviderBinding, error)
 }
