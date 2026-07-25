@@ -120,7 +120,7 @@
           "serialization": "forbidden",
           "status": "workspace lifecycle verified; live harness wiring required"
         },
-        "status": "run, OpenShell and Docker source lifecycle, and cleanup adapters verified; concrete runtime backend required",
+        "status": "run, all source lifecycle, and cleanup adapters verified; live Docker execution required",
         "sandboxCleanup": {
           "assembly": "internal/security/canarysandbox.New",
           "resource": "exact DataGround execution returned by the OpenShell provider",
@@ -166,9 +166,18 @@
               "gateway-logs"
             ],
             "serialization": "forbidden",
-            "status": "Docker host source backend verified; runtime capture and live harness required"
+            "status": "Docker host source backend verified; live harness required"
           },
-          "status": "source lifecycle plus OpenShell and Docker streams verified; concrete runtime backend required"
+          "status": "all seven source backends verified; live Docker execution required",
+          "runtime": {
+            "assembly": "internal/security/canaryruntime.New",
+            "binding": "same exact execution.RuntimeSession passed to the native runtime adapter, evidence run, and portable runtime name",
+            "capture": "bounded in-memory capture of complete native stderr before one scanner handoff",
+            "maxBytes": 16777216,
+            "zeroization": "captured bytes cleared after scanner close or failed handoff",
+            "serialization": "forbidden",
+            "status": "runtime-error source backend verified; live Docker execution required"
+          }
         }
       }
     }
