@@ -104,6 +104,10 @@ func New(ctx context.Context, config Config) (*Sources, error) {
 	if err != nil {
 		return nil, ErrInvalidConfiguration
 	}
+	resolved, err = filepath.EvalSymlinks(resolved)
+	if err != nil {
+		return nil, ErrInvalidConfiguration
+	}
 	config.DockerBinary = filepath.Clean(resolved)
 	return newWithRunner(ctx, config, execDockerRunner{})
 }
@@ -300,7 +304,11 @@ func (execDockerRunner) Snapshot(
 	if err := command.Run(); err != nil {
 		return containerSnapshot{}, ErrCredentialSource
 	}
-	lines := strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n")
+	return parseSnapshot(output.String())
+}
+
+func parseSnapshot(output string) (containerSnapshot, error) {
+	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
 	if len(lines) != dockerMetadataLines {
 		return containerSnapshot{}, ErrCredentialSource
 	}
