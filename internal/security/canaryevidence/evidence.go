@@ -36,11 +36,11 @@ var (
 )
 
 type Resources struct {
-	Gateway   string
-	Sandbox   string
-	Provider  string
-	Runtime   string
-	Workspace string
+	Gateway   string `json:"gateway"`
+	Sandbox   string `json:"sandbox"`
+	Provider  string `json:"provider"`
+	Runtime   string `json:"runtime"`
+	Workspace string `json:"workspace"`
 }
 
 type CleanupRequest struct {
@@ -124,6 +124,9 @@ func Run(ctx context.Context, config Config) (Result, error) {
 }
 
 func runEvidence(ctx context.Context, config Config, now func() time.Time) (Result, error) {
+	if ctx == nil || now == nil {
+		return Result{}, ErrInvalidConfiguration
+	}
 	collectionConfig, err := validate(config)
 	if err != nil {
 		return Result{}, err
