@@ -19,7 +19,7 @@ func TestRunOwnsFinalEvidenceAndCleanup(t *testing.T) {
 	t.Parallel()
 
 	var cleanupRequests []CleanupRequest
-	config := validConfig(func(request CleanupRequest) error {
+	config := validConfig(func(_ context.Context, request CleanupRequest) error {
 		cleanupRequests = append(cleanupRequests, request)
 		return nil
 	})
@@ -73,7 +73,7 @@ func TestRunCleansUpAfterCollectionFailureAndStaysOpaque(t *testing.T) {
 	t.Parallel()
 
 	cleanupCalls := 0
-	config := validConfig(func(CleanupRequest) error {
+	config := validConfig(func(context.Context, CleanupRequest) error {
 		cleanupCalls++
 		return nil
 	})
@@ -96,11 +96,37 @@ func TestRunCleansUpAfterCollectionFailureAndStaysOpaque(t *testing.T) {
 	}
 }
 
+func TestRunCleansUpAfterCancellationWithRunContext(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cleanupCalls := 0
+	config := validConfig(func(cleanupCtx context.Context, request CleanupRequest) error {
+		cleanupCalls++
+		if err := cleanupCtx.Err(); err != nil {
+			t.Fatalf("cleanup context error = %v", err)
+		}
+		if request.RunID != "0123456789abcdef0123456789abcdef" {
+			t.Fatalf("cleanup request = %v", request)
+		}
+		return nil
+	})
+
+	_, err := Run(ctx, config)
+	if !errors.Is(err, ErrRunIncomplete) || !errors.Is(err, ErrCollection) {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if cleanupCalls != 3 {
+		t.Fatalf("cleanup calls = %d", cleanupCalls)
+	}
+}
+
 func TestRunAttemptsEveryCleanupAndRejectsUncertainty(t *testing.T) {
 	t.Parallel()
 
 	var cleanupKinds []string
-	config := validConfig(func(request CleanupRequest) error {
+	config := validConfig(func(_ context.Context, request CleanupRequest) error {
 		cleanupKinds = append(cleanupKinds, request.ResourceKind)
 		if request.ResourceKind == "provider" {
 			return errors.New("sensitive cleanup failure")
@@ -143,7 +169,7 @@ func TestRunRejectsInvalidPlanBeforeCollectionOrCleanup(t *testing.T) {
 
 			acquisitions := 0
 			cleanups := 0
-			config := validConfig(func(CleanupRequest) error {
+			config := validConfig(func(context.Context, CleanupRequest) error {
 				cleanups++
 				return nil
 			})
@@ -165,6 +191,16 @@ func TestRunRejectsInvalidPlanBeforeCollectionOrCleanup(t *testing.T) {
 	}
 }
 
+func TestRunRejectsNilContext(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Run(nil, validConfig(func(context.Context, CleanupRequest) error {
+		return nil
+	})); !errors.Is(err, ErrInvalidConfiguration) {
+		t.Fatalf("Run() error = %v", err)
+	}
+}
+
 func TestRunRejectsClockRegression(t *testing.T) {
 	t.Parallel()
 
@@ -173,7 +209,7 @@ func TestRunRejectsClockRegression(t *testing.T) {
 		time.Date(2026, time.July, 25, 12, 0, 0, 0, time.UTC),
 	}
 	index := 0
-	result, err := runEvidence(context.Background(), validConfig(func(CleanupRequest) error {
+	result, err := runEvidence(context.Background(), validConfig(func(context.Context, CleanupRequest) error {
 		return nil
 	}), func() time.Time {
 		value := times[index]
