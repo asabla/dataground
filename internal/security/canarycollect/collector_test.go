@@ -130,10 +130,14 @@ func TestCollectSanitizesAcquisitionFailure(t *testing.T) {
 	t.Parallel()
 
 	acquired := 0
+	ambiguousCloses := 0
 	config := validConfig(func(request SourceRequest) (io.ReadCloser, error) {
 		acquired++
 		if request.Surface == "sandbox-environment" {
-			return nil, errors.New("sensitive upstream payload")
+			return &trackedReadCloser{
+				Reader: strings.NewReader("unread"),
+				close:  func() { ambiguousCloses++ },
+			}, errors.New("sensitive upstream payload")
 		}
 		return io.NopCloser(strings.NewReader("safe")), nil
 	})
@@ -147,6 +151,9 @@ func TestCollectSanitizesAcquisitionFailure(t *testing.T) {
 	}
 	if acquired != 2 {
 		t.Fatalf("Collect() acquisitions = %d", acquired)
+	}
+	if ambiguousCloses != 1 {
+		t.Fatalf("Collect() ambiguous source closes = %d", ambiguousCloses)
 	}
 	assertReportCount(t, collection, 1)
 }
