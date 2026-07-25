@@ -25,6 +25,7 @@ const (
 	driver               = "docker"
 	cleanupStatusRemoved = "removed"
 	workspaceNamePrefix  = "dg-canary-"
+	providerNamePrefix   = "dg-canary-provider-"
 )
 
 var (
@@ -196,7 +197,8 @@ func validate(config Config) (canarycollect.Config, error) {
 		config.Cleanup.ProviderBinding == nil ||
 		config.Cleanup.Workspace == nil ||
 		!resourceNamePattern.MatchString(config.Resources.Workspace) ||
-		config.Resources.Workspace != workspaceNamePrefix+config.RunID {
+		config.Resources.Workspace != workspaceNamePrefix+config.RunID ||
+		config.Resources.Provider != providerNamePrefix+config.RunID {
 		return canarycollect.Config{}, ErrInvalidConfiguration
 	}
 
