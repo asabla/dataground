@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"io"
 	"os/exec"
 	"reflect"
 	"regexp"
@@ -222,6 +223,7 @@ func (ExecCredentialProviderRunner) RunWithCredentials(
 	for _, key := range keys {
 		command.Env = append(command.Env, key+"="+string(credentials[key]))
 	}
+	command.Stderr = io.Discard
 	output, err := command.Output()
 	for index := range command.Env {
 		command.Env[index] = ""
