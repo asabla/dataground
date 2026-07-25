@@ -23,30 +23,46 @@ var (
 	evidenceResourceNamePattern = regexp.MustCompile("^[a-z0-9][a-z0-9._-]{0,127}$")
 )
 
-var credentialEvidenceCommands = map[string][]string{
-	"sandbox-process": {
-		"find", "/proc", "-mindepth", "2", "-maxdepth", "2", "-type", "f",
-		"-name", "cmdline", "-readable", "-exec", "cat", "--", "{}", "+",
-	},
-	"sandbox-environment": {
-		"find", "/proc", "-mindepth", "2", "-maxdepth", "2", "-type", "f",
-		"-name", "environ", "-readable", "-exec", "cat", "--", "{}", "+",
-	},
-	"sandbox-filesystem": {
-		"find", "/", "-xdev", "-type", "f", "-readable",
-		"-exec", "cat", "--", "{}", "+",
-	},
-	"sandbox-logs": {
-		"find", "/var/log", "-maxdepth", "1", "-type", "f",
-		"-name", "openshell.*.log", "-readable", "-exec", "cat", "--", "{}", "+",
-	},
+func credentialEvidenceCommand(surface string) []string {
+	switch surface {
+	case "sandbox-process":
+		return []string{
+			"find", "/proc", "-mindepth", "2", "-maxdepth", "2", "-type", "f",
+			"-name", "cmdline", "-readable", "-exec", "cat", "--", "{}", "+",
+		}
+	case "sandbox-environment":
+		return []string{
+			"find", "/proc", "-mindepth", "2", "-maxdepth", "2", "-type", "f",
+			"-name", "environ", "-readable", "-exec", "cat", "--", "{}", "+",
+		}
+	case "sandbox-filesystem":
+		return []string{
+			"find", "/", "-xdev", "-type", "f", "-readable",
+			"-exec", "cat", "--", "{}", "+",
+		}
+	case "sandbox-logs":
+		return []string{
+			"find", "/var/log", "-maxdepth", "1", "-type", "f",
+			"-name", "openshell.*.log", "-readable", "-exec", "cat", "--", "{}", "+",
+		}
+	default:
+		return nil
+	}
 }
 
-var credentialEvidenceSurfaceOrder = []string{
-	"sandbox-process",
-	"sandbox-environment",
-	"sandbox-filesystem",
-	"sandbox-logs",
+func credentialEvidenceSurface(index int) string {
+	switch index {
+	case 0:
+		return "sandbox-process"
+	case 1:
+		return "sandbox-environment"
+	case 2:
+		return "sandbox-filesystem"
+	case 3:
+		return "sandbox-logs"
+	default:
+		return ""
+	}
 }
 
 // EvidenceStreamRunner starts one command and returns its stdout as a live
@@ -84,6 +100,7 @@ type credentialEvidenceTarget struct {
 	gatewayID         string
 	endpoint          string
 	sandboxName       string
+	binary            string
 }
 
 func (provider *Provider) NewCredentialEvidenceSources(
@@ -135,6 +152,7 @@ func (provider *Provider) NewCredentialEvidenceSources(
 				gatewayID:         entry.Execution.GatewayID,
 				endpoint:          gateway.Endpoint,
 				sandboxName:       entry.SandboxName,
+				binary:            provider.binary,
 			},
 		},
 	}, nil
@@ -179,8 +197,7 @@ func (sources *CredentialEvidenceSources) open(
 
 	state := sources.state
 	state.mu.Lock()
-	if state.next >= len(credentialEvidenceSurfaceOrder) ||
-		credentialEvidenceSurfaceOrder[state.next] != surface ||
+	if credentialEvidenceSurface(state.next) != surface ||
 		request.RunID != state.runID ||
 		request.Surface != surface ||
 		request.ResourceName != state.target.executionID {
@@ -207,11 +224,12 @@ func (sources *CredentialEvidenceSources) open(
 		entry.Execution.State != "ready" ||
 		entry.SandboxName != state.target.sandboxName ||
 		gateway.Gateway.ID != state.target.gatewayID ||
-		gateway.Endpoint != state.target.endpoint {
+		gateway.Endpoint != state.target.endpoint ||
+		state.provider.binary != state.target.binary {
 		return nil, ErrCredentialEvidenceSource
 	}
 
-	command := credentialEvidenceCommands[surface]
+	command := credentialEvidenceCommand(surface)
 	args := state.provider.gatewayArgs(
 		state.target.endpoint,
 		append(
@@ -222,7 +240,7 @@ func (sources *CredentialEvidenceSources) open(
 			command...,
 		)...,
 	)
-	stream, openErr := state.runner.Open(ctx, state.provider.binary, args...)
+	stream, openErr := state.runner.Open(ctx, state.target.binary, args...)
 	if openErr != nil || isNilEvidenceValue(stream) {
 		if !isNilEvidenceValue(stream) {
 			_ = stream.Close()
