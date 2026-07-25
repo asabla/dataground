@@ -120,7 +120,7 @@
           "serialization": "forbidden",
           "status": "workspace lifecycle verified; live harness wiring required"
         },
-        "status": "run, source lifecycle, and cleanup adapters verified; concrete live acquisition backends required",
+        "status": "run, source lifecycle, OpenShell sandbox streams, and cleanup adapters verified; concrete Docker and runtime backends required",
         "sandboxCleanup": {
           "assembly": "internal/security/canarysandbox.New",
           "resource": "exact DataGround execution returned by the OpenShell provider",
@@ -143,7 +143,20 @@
           "sourcePorts": "typed OpenShell, Docker, and runtime streams",
           "handoff": "single-use canonical collection with direct scanner handoff",
           "serialization": "forbidden",
-          "status": "source lifecycle verified; concrete live OpenShell and Docker backends required"
+          "openShell": {
+          "assembly": "internal/execution/openshell.NewCredentialEvidenceSources",
+          "binding": "exact persisted execution, private native sandbox, and gateway endpoint",
+          "transport": "streaming pinned OpenShell sandbox exec argument vectors without a shell",
+          "surfaces": [
+            "sandbox-process",
+            "sandbox-environment",
+            "sandbox-filesystem",
+            "sandbox-logs"
+          ],
+          "serialization": "forbidden",
+          "status": "OpenShell sandbox source backend verified; Docker-hosted execution required"
+        },
+        "status": "source lifecycle and OpenShell sandbox streams verified; concrete Docker and runtime backends required"
         }
       }
     }
