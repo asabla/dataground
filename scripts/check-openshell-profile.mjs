@@ -231,6 +231,8 @@ if (
     "exact persisted execution, private native sandbox, and gateway endpoint" ||
   canarySourceAcquisition?.openShell?.transport !==
     "streaming pinned OpenShell sandbox exec argument vectors without a shell" ||
+  canarySourceAcquisition?.openShell?.versionCheck !==
+    "OpenShell 0.0.86 before acquisition" ||
   JSON.stringify(canarySourceAcquisition?.openShell?.surfaces) !==
     JSON.stringify([
       "sandbox-process",
@@ -258,6 +260,8 @@ if (
 }
 if (
   !canaryOpenShellSource.includes("func (provider *Provider) NewCredentialEvidenceSources(") ||
+  !canaryOpenShellSource.includes('credentialEvidenceOpenShellVersion = "0.0.86"') ||
+  !canaryOpenShellSource.includes("provider.Check(ctx)") ||
   !canaryOpenShellSource.includes("type ExecEvidenceStreamRunner struct{}") ||
   !canaryOpenShellSource.includes("exec.CommandContext(") ||
   !canaryOpenShellSource.includes('"sandbox", "exec", "--name"') ||
