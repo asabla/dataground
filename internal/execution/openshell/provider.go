@@ -57,13 +57,13 @@ type Config struct {
 // Provider is the development OpenShell adapter. Gateway and sandbox
 // coordinates stay in private state and never appear in returned resources.
 type Provider struct {
-	runner    Runner
-	binary    string
-	expected  string
-	workspace *PolicyWorkspace
-	exports   *ExportWorkspace
-	now       func() time.Time
-	store     execution.StateStore
+	runner             Runner
+	binary             string
+	expected           string
+	workspace          *PolicyWorkspace
+	exports            *ExportWorkspace
+	now                func() time.Time
+	store              execution.StateStore
 	profiles           *execution.ProviderProfileRegistry
 	credentialProvider CredentialProviderRunner
 }
