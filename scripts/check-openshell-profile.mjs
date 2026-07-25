@@ -162,6 +162,7 @@ if (
   canaryCollector?.sourceContract !==
     "one-shot io.ReadCloser acquired from a run-owned live resource" ||
   canaryCollector?.reportHandoff !== "direct to internal/security/canaryscan.ScanReport" ||
+  canaryCollector?.limitOwnership !== "collector-owned exact profile limits" ||
   JSON.stringify(canaryCollector?.sourceOrder) !== JSON.stringify(expectedCanarySurfaces) ||
   canaryCollector?.status !==
     "collection boundary verified; live OpenShell and Docker acquisition required" ||
@@ -188,6 +189,16 @@ if (
   )
 ) {
   fail("the credential canary scanner must define one bounded input limit per surface");
+}
+if (
+  Object.entries(surfaceMaxBytes).some(
+    ([surface, limit]) =>
+      !canaryCollectorSource.includes(
+        `"${surface}":${" ".repeat(Math.max(1, 23 - surface.length))}${limit === 268_435_456 ? "256 << 20" : "16 << 20"},`,
+      ),
+  )
+) {
+  fail("the credential collector limits do not match the development profile");
 }
 const canaryScannerSchema = JSON.parse(
   await readFile(resolve(root, canaryScanner?.schema ?? ""), "utf8"),
