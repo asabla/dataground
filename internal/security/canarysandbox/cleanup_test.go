@@ -74,6 +74,15 @@ func TestAdapterRejectsInvalidConfiguration(t *testing.T) {
 				IsolationDomainID: "iso-test",
 				ID:                "invalid/resource",
 				GatewayID:         "gateway-test",
+				State:             "running",
+			},
+		}, provider: &providerStub{}},
+		{config: Config{
+			RunID: testRunID,
+			Execution: execution.Execution{
+				IsolationDomainID: "iso-test",
+				ID:                "exe_0123456789abcdef",
+				GatewayID:         "gateway-test",
 			},
 		}, provider: &providerStub{}},
 	}
