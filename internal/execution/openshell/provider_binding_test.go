@@ -68,6 +68,28 @@ func TestObserveProviderBindingPaginatesToAbsence(t *testing.T) {
 	}
 }
 
+func TestDeleteProviderBindingUsesExactRunDerivedName(t *testing.T) {
+	t.Parallel()
+
+	ref := testProviderBindingRef()
+	runner := &scriptedRunner{results: []scriptedResult{
+		{result: CommandResult{Stdout: bindingJSON(t, providerBindingView{
+			ID: ref.ID, Name: ref.Name, ResourceVersion: ref.ResourceVersion,
+		})}},
+		{result: CommandResult{}},
+	}}
+	provider := providerBindingTestProvider(t, runner)
+	if err := provider.DeleteProviderBinding(context.Background(), ref); err != nil {
+		t.Fatalf("DeleteProviderBinding() error = %v", err)
+	}
+	if len(runner.calls) != 2 || !slices.Equal(runner.calls[1].args, []string{
+		"--gateway-endpoint", "http://127.0.0.1:8080",
+		"provider", "delete", ref.Name,
+	}) {
+		t.Fatalf("provider delete calls = %#v", runner.calls)
+	}
+}
+
 func TestDeleteProviderBindingRejectsIdentityReplacement(t *testing.T) {
 	t.Parallel()
 
