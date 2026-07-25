@@ -343,9 +343,9 @@ func isNil(value any) bool {
 }
 
 var (
-	_ execution.RuntimeSession      = (*Sources)(nil)
-	_ canarysource.RuntimeSources   = (*Sources)(nil)
-	_ json.Marshaler                = (*Sources)(nil)
-	_ io.ReadCloser                 = (*captureStream)(nil)
-	_ io.ReadCloser                 = (*sensitiveReader)(nil)
+	_ execution.RuntimeSession    = (*Sources)(nil)
+	_ canarysource.RuntimeSources = (*Sources)(nil)
+	_ json.Marshaler              = (*Sources)(nil)
+	_ io.ReadCloser               = (*captureStream)(nil)
+	_ io.ReadCloser               = (*sensitiveReader)(nil)
 )
