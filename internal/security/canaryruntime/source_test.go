@@ -236,6 +236,27 @@ func TestSourcesConsumeCancelledEvidenceWait(t *testing.T) {
 	}
 }
 
+func TestSourcesDiscardUnusedCapture(t *testing.T) {
+	t.Parallel()
+
+	sources := validSources(t, newFakeSession("stderr"))
+	stream := sources.Errors()
+	_, _ = io.Copy(io.Discard, stream)
+	_ = stream.Close()
+	sources.Discard()
+	sources.Discard()
+
+	sources.state.mu.Lock()
+	captured := len(sources.state.capture)
+	sources.state.mu.Unlock()
+	if captured != 0 {
+		t.Fatalf("discard retained %d bytes", captured)
+	}
+	if _, err := sources.OpenRuntimeErrors(context.Background(), validRequest()); !errors.Is(err, ErrCredentialSource) {
+		t.Fatalf("OpenRuntimeErrors() after discard = %v", err)
+	}
+}
+
 func TestSourcesAbortWaitingHandoffOnCompetingOpen(t *testing.T) {
 	t.Parallel()
 
