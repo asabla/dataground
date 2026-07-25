@@ -52,6 +52,8 @@ type state struct {
 
 	sourceOpened bool
 	abandoned    bool
+	sourceAbort  chan struct{}
+	abortOnce    sync.Once
 }
 
 func New(config Config) (*Sources, error) {
@@ -70,6 +72,7 @@ func newWithLimit(config Config, limit int) (*Sources, error) {
 		config:      config,
 		limit:       limit,
 		captureDone: make(chan struct{}),
+		sourceAbort: make(chan struct{}),
 	}}, nil
 }
 
@@ -95,6 +98,7 @@ func (sources *Sources) Errors() io.ReadCloser {
 	state.mu.Lock()
 	if state.errorsOpened {
 		state.captureFailed = true
+		state.abandonLocked()
 		state.mu.Unlock()
 		return failingReader{}
 	}
@@ -139,19 +143,21 @@ func (sources *Sources) OpenRuntimeErrors(
 		request.Surface != "runtime-errors" ||
 		request.ResourceName != state.config.RuntimeName {
 		state.sourceOpened = true
-		state.abandoned = true
-		state.clearCaptureLocked()
+		state.abandonLocked()
 		state.mu.Unlock()
 		return nil, ErrCredentialSource
 	}
 	state.sourceOpened = true
 	done := state.captureDone
+	abort := state.sourceAbort
 	state.mu.Unlock()
 
 	select {
 	case <-ctx.Done():
 		state.abandon()
 		return nil, errors.Join(ErrCredentialSource, ctx.Err())
+	case <-abort:
+		return nil, ErrCredentialSource
 	case <-done:
 	}
 
@@ -174,17 +180,13 @@ func (Sources) MarshalJSON() ([]byte, error) {
 func (state *state) appendCapture(value []byte) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if state.abandoned || len(value) == 0 {
+	if state.abandoned || state.captureFailed || state.overflow || len(value) == 0 {
 		return
 	}
 	remaining := state.limit - len(state.capture)
-	if remaining <= 0 {
+	if remaining <= 0 || len(value) > remaining {
 		state.overflow = true
-		return
-	}
-	if len(value) > remaining {
-		state.capture = append(state.capture, value[:remaining]...)
-		state.overflow = true
+		state.abandonLocked()
 		return
 	}
 	state.capture = append(state.capture, value...)
@@ -194,7 +196,9 @@ func (state *state) finishCapture(failed bool) {
 	state.captureOnce.Do(func() {
 		state.mu.Lock()
 		state.captureFailed = state.captureFailed || failed
-		if state.abandoned {
+		if failed {
+			state.abandonLocked()
+		} else if state.abandoned {
 			state.clearCaptureLocked()
 		}
 		state.mu.Unlock()
@@ -204,9 +208,16 @@ func (state *state) finishCapture(failed bool) {
 
 func (state *state) abandon() {
 	state.mu.Lock()
+	state.abandonLocked()
+	state.mu.Unlock()
+}
+
+func (state *state) abandonLocked() {
 	state.abandoned = true
 	state.clearCaptureLocked()
-	state.mu.Unlock()
+	state.abortOnce.Do(func() {
+		close(state.sourceAbort)
+	})
 }
 
 func (state *state) clearCaptureLocked() {
@@ -218,8 +229,9 @@ type captureStream struct {
 	mu     sync.Mutex
 	source io.ReadCloser
 	state  *state
-	eof    bool
-	closed bool
+	eof      bool
+	closed   bool
+	closeErr error
 }
 
 func (stream *captureStream) Read(buffer []byte) (int, error) {
@@ -244,8 +256,9 @@ func (stream *captureStream) Read(buffer []byte) (int, error) {
 func (stream *captureStream) Close() error {
 	stream.mu.Lock()
 	if stream.closed {
+		err := stream.closeErr
 		stream.mu.Unlock()
-		return nil
+		return err
 	}
 	stream.closed = true
 	complete := stream.eof
@@ -254,18 +267,22 @@ func (stream *captureStream) Close() error {
 	err := stream.source.Close()
 	failed := !complete || err != nil
 	stream.state.finishCapture(failed)
+	stream.mu.Lock()
 	if failed {
-		return ErrCredentialSource
+		stream.closeErr = ErrCredentialSource
 	}
-	return nil
+	err = stream.closeErr
+	stream.mu.Unlock()
+	return err
 }
 
 type sensitiveReader struct {
 	mu      sync.Mutex
 	reader  *bytes.Reader
 	content []byte
-	eof     bool
-	closed  bool
+	eof      bool
+	closed   bool
+	closeErr error
 }
 
 func (reader *sensitiveReader) Read(buffer []byte) (int, error) {
@@ -285,7 +302,7 @@ func (reader *sensitiveReader) Close() error {
 	reader.mu.Lock()
 	defer reader.mu.Unlock()
 	if reader.closed {
-		return nil
+		return reader.closeErr
 	}
 	reader.closed = true
 	complete := reader.eof
@@ -293,9 +310,9 @@ func (reader *sensitiveReader) Close() error {
 	reader.content = nil
 	reader.reader.Reset(nil)
 	if !complete {
-		return ErrCredentialSource
+		reader.closeErr = ErrCredentialSource
 	}
-	return nil
+	return reader.closeErr
 }
 
 type failingReader struct{}
