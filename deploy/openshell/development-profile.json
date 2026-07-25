@@ -90,6 +90,7 @@
         "assembly": "internal/security/canarycollect.Collect",
         "sourceContract": "one-shot io.ReadCloser acquired from a run-owned live resource",
         "reportHandoff": "direct to internal/security/canaryscan.ScanReport",
+        "limitOwnership": "collector-owned exact profile limits",
         "sourceOrder": [
           "sandbox-process",
           "sandbox-environment",
