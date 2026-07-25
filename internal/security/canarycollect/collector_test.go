@@ -171,19 +171,25 @@ func TestCollectRetainsIncompleteBoundReport(t *testing.T) {
 	if strings.Contains(err.Error(), "sensitive") {
 		t.Fatalf("Collect() leaked scan error: %v", err)
 	}
-	encoded, marshalErr := json.Marshal(collection)
+	if _, marshalErr := json.Marshal(collection); !errors.Is(marshalErr, ErrCollectionIncomplete) {
+		t.Fatalf("marshal partial collection error = %v", marshalErr)
+	}
+	if len(collection.reports) != 1 {
+		t.Fatalf("partial collection report count = %d", len(collection.reports))
+	}
+	encoded, marshalErr := json.Marshal(collection.reports[0])
 	if marshalErr != nil {
-		t.Fatalf("marshal collection: %v", marshalErr)
+		t.Fatalf("marshal partial report: %v", marshalErr)
 	}
-	var reports []map[string]any
-	if unmarshalErr := json.Unmarshal(encoded, &reports); unmarshalErr != nil {
-		t.Fatalf("decode collection: %v", unmarshalErr)
+	var report map[string]any
+	if unmarshalErr := json.Unmarshal(encoded, &report); unmarshalErr != nil {
+		t.Fatalf("decode partial report: %v", unmarshalErr)
 	}
-	if len(reports) != 1 || reports[0]["status"] != "incomplete" {
-		t.Fatalf("partial collection = %v", reports)
+	if report["status"] != "incomplete" {
+		t.Fatalf("partial report = %v", report)
 	}
 	if bytes.Contains(encoded, []byte("partial source")) {
-		t.Fatalf("partial collection retained source content: %s", encoded)
+		t.Fatalf("partial report retained source content: %s", encoded)
 	}
 }
 
@@ -259,16 +265,13 @@ func configResources() ResourceNames {
 func assertReportCount(t *testing.T, collection Collection, want int) {
 	t.Helper()
 
-	encoded, err := json.Marshal(collection)
-	if err != nil {
-		t.Fatalf("marshal collection: %v", err)
+	if len(collection.reports) != want {
+		t.Fatalf("collection report count = %d, want %d", len(collection.reports), want)
 	}
-	var reports []json.RawMessage
-	if err := json.Unmarshal(encoded, &reports); err != nil {
-		t.Fatalf("decode collection: %v", err)
-	}
-	if len(reports) != want {
-		t.Fatalf("collection report count = %d, want %d", len(reports), want)
+	if !collection.complete {
+		if _, err := json.Marshal(collection); !errors.Is(err, ErrCollectionIncomplete) {
+			t.Fatalf("marshal incomplete collection error = %v", err)
+		}
 	}
 }
 
