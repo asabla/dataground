@@ -384,7 +384,10 @@ function runSelfTest() {
         ...valid,
         run: {
           ...valid.run,
-          resources: { ...valid.run.resources, workspace: "dg-canary-fedcba9876543210fedcba9876543210" },
+          resources: {
+            ...valid.run.resources,
+            workspace: "dg-canary-fedcba9876543210fedcba9876543210",
+          },
         },
         cleanup: {
           ...valid.cleanup,
