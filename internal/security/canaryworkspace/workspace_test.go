@@ -197,6 +197,43 @@ func TestWorkspaceRefusesReplacedPath(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRefusesReplacedRoot(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "workspace-root")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := Open(Config{Root: root, RunID: testRunID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := root + "-original"
+	if err := os.Rename(root, original); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	request := canaryevidence.CleanupRequest{
+		RunID: testRunID, ResourceKind: "workspace", ResourceName: workspace.Name(),
+	}
+	if err := workspace.Cleanup(context.Background(), request); !errors.Is(err, ErrWorkspaceUnsafe) {
+		t.Fatalf("Cleanup() error = %v", err)
+	}
+	if _, err := os.Lstat(root); err != nil {
+		t.Fatalf("replacement root was removed: %v", err)
+	}
+	if err := os.Remove(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(original, root); err != nil {
+		t.Fatal(err)
+	}
+	if err := workspace.Cleanup(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWorkspaceRejectsUnsafeConfiguration(t *testing.T) {
 	if _, err := Open(Config{}); !errors.Is(err, ErrInvalidConfiguration) {
 		t.Fatalf("empty Open() error = %v", err)
