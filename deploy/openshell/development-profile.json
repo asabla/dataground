@@ -113,7 +113,14 @@
         ],
         "cleanupContext": "cancellation-independent run-owned cleanup",
         "serialization": "sealed until collection and every cleanup succeeds",
-        "status": "run assembly verified; live acquisition and cleanup adapters required"
+        "workspaceCleanup": {
+          "assembly": "internal/security/canaryworkspace.Open",
+          "name": "dg-canary-<runID>",
+          "parent": "pre-existing owner-only mode-0700 directory",
+          "serialization": "forbidden",
+          "status": "workspace lifecycle verified; live harness wiring required"
+        },
+        "status": "run assembly and workspace cleanup verified; live acquisition and OpenShell cleanup adapters required"
       }
     }
   },
