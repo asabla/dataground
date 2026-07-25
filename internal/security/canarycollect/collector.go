@@ -28,15 +28,21 @@ var surfaceOrder = []string{
 }
 
 type ResourceNames struct {
-	Gateway string
-	Sandbox string
+	Gateway  string
+	Sandbox  string
 	Provider string
-	Runtime string
+	Runtime  string
+}
+
+type SourceRequest struct {
+	RunID        string
+	Surface      string
+	ResourceName string
 }
 
 type Source struct {
 	Surface string
-	Acquire func(context.Context) (io.ReadCloser, error)
+	Acquire func(context.Context, SourceRequest) (io.ReadCloser, error)
 }
 
 type Config struct {
@@ -64,7 +70,10 @@ func Collect(ctx context.Context, config Config) (Collection, error) {
 
 	collection := Collection{reports: make([]canaryscan.Report, 0, len(plans))}
 	for _, plan := range plans {
-		source, acquireErr := plan.acquire(ctx)
+		if err := ctx.Err(); err != nil {
+			return collection, errors.Join(ErrAcquisition, err)
+		}
+		source, acquireErr := plan.acquire(ctx, plan.request)
 		if acquireErr != nil || source == nil {
 			return collection, collectionError(ErrAcquisition, ctx)
 		}
@@ -91,11 +100,15 @@ func Collect(ctx context.Context, config Config) (Collection, error) {
 }
 
 func (collection Collection) MarshalJSON() ([]byte, error) {
+	if collection.reports == nil {
+		return []byte("[]"), nil
+	}
 	return json.Marshal(collection.reports)
 }
 
 type sourcePlan struct {
-	acquire func(context.Context) (io.ReadCloser, error)
+	acquire func(context.Context, SourceRequest) (io.ReadCloser, error)
+	request SourceRequest
 	report  canaryscan.ReportConfig
 }
 
@@ -104,7 +117,10 @@ func validate(config Config) ([]sourcePlan, error) {
 		return nil, ErrInvalidConfiguration
 	}
 
-	sources := make(map[string]func(context.Context) (io.ReadCloser, error), len(config.Sources))
+	sources := make(
+		map[string]func(context.Context, SourceRequest) (io.ReadCloser, error),
+		len(config.Sources),
+	)
 	for _, source := range config.Sources {
 		if source.Acquire == nil {
 			return nil, ErrInvalidConfiguration
@@ -122,17 +138,26 @@ func validate(config Config) ([]sourcePlan, error) {
 		if !ok || !hasLimit {
 			return nil, ErrInvalidConfiguration
 		}
+		resource := resourceName(config.Resources, surface)
 		report := canaryscan.ReportConfig{
 			Surface:          surface,
 			RunID:            config.RunID,
-			ResourceName:     resourceName(config.Resources, surface),
+			ResourceName:     resource,
 			CanaryCommitment: config.CanaryCommitment,
 			MaxBytes:         limit,
 		}
 		if err := canaryscan.ValidateReportConfig(report); err != nil {
 			return nil, ErrInvalidConfiguration
 		}
-		plans = append(plans, sourcePlan{acquire: acquire, report: report})
+		plans = append(plans, sourcePlan{
+			acquire: acquire,
+			request: SourceRequest{
+				RunID:        config.RunID,
+				Surface:      surface,
+				ResourceName: resource,
+			},
+			report: report,
+		})
 	}
 	return plans, nil
 }
