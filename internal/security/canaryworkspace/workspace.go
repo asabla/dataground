@@ -102,37 +102,39 @@ func Open(config Config) (*Workspace, error) {
 		}
 		return nil, ErrWorkspaceFailure
 	}
-	removeCreated := func() {
-		_ = os.Remove(path)
-		_ = parent.Sync()
-		_ = parent.Close()
-	}
 	created, err := os.Lstat(path)
 	if err != nil || created.Mode()&os.ModeSymlink != 0 || !created.IsDir() ||
 		created.Mode().Perm() != 0o700 || !ownedByCurrentUser(created) {
-		removeCreated()
+		_ = parent.Close()
 		return nil, ErrWorkspaceUnsafe
 	}
 	directory, err := os.Open(path)
 	if err != nil {
-		removeCreated()
+		_ = parent.Close()
 		return nil, ErrWorkspaceFailure
 	}
 	opened, err := directory.Stat()
 	if err != nil || !os.SameFile(created, opened) {
 		_ = directory.Close()
-		removeCreated()
+		_ = parent.Close()
 		return nil, ErrWorkspaceUnsafe
 	}
 	currentRoot, err = os.Lstat(root)
-	if err != nil || !os.SameFile(openedRoot, currentRoot) {
+	if err != nil || !os.SameFile(openedRoot, currentRoot) ||
+		currentRoot.Mode()&os.ModeSymlink != 0 || !currentRoot.IsDir() ||
+		currentRoot.Mode().Perm() != 0o700 || !ownedByCurrentUser(currentRoot) {
 		_ = directory.Close()
 		_ = parent.Close()
 		return nil, ErrWorkspaceUnsafe
 	}
-	if err := parent.Sync(); err != nil {
+	removeVerified := func() {
 		_ = directory.Close()
-		removeCreated()
+		_ = os.Remove(path)
+		_ = parent.Sync()
+		_ = parent.Close()
+	}
+	if err := parent.Sync(); err != nil {
+		removeVerified()
 		return nil, ErrWorkspaceFailure
 	}
 	return &Workspace{
