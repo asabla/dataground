@@ -16,21 +16,21 @@ import (
 )
 
 const (
-	canaryPrefix = "dataground-canary-v1:"
+	canaryPrefix       = "dataground-canary-v1:"
 	canaryEntropyBytes = 32
 )
 
 var (
-	ErrInvalidProvisioning = errors.New("invalid credential provider provisioning configuration")
-	ErrProvisioning        = errors.New("credential provider provisioning failed")
+	ErrInvalidProvisioning    = errors.New("invalid credential provider provisioning configuration")
+	ErrProvisioning           = errors.New("credential provider provisioning failed")
 	ErrProvisionSerialization = errors.New("credential provider provisioning cannot be serialized")
-	provisionRunIDPattern = regexp.MustCompile("^[a-f0-9]{32}$")
+	provisionRunIDPattern     = regexp.MustCompile("^[a-f0-9]{32}$")
 )
 
 type ProvisionConfig struct {
-	RunID               string
-	IsolationDomainID   string
-	GatewayID           string
+	RunID             string
+	IsolationDomainID string
+	GatewayID         string
 }
 
 // Provisioned is the secret-free result of creating one temporary provider.
