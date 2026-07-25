@@ -17,10 +17,10 @@ import (
 const credentialEvidenceOpenShellVersion = "0.0.86"
 
 var (
-	ErrCredentialEvidenceSource = errors.New("credential evidence source operation failed")
+	ErrCredentialEvidenceSource        = errors.New("credential evidence source operation failed")
 	ErrCredentialEvidenceSerialization = errors.New("credential evidence OpenShell source cannot be serialized")
-	evidenceRunIDPattern = regexp.MustCompile("^[a-f0-9]{32}$")
-	evidenceResourceNamePattern = regexp.MustCompile("^[a-z0-9][a-z0-9._-]{0,127}$")
+	evidenceRunIDPattern               = regexp.MustCompile("^[a-f0-9]{32}$")
+	evidenceResourceNamePattern        = regexp.MustCompile("^[a-z0-9][a-z0-9._-]{0,127}$")
 )
 
 func credentialEvidenceCommand(surface string) []string {
@@ -73,9 +73,9 @@ type EvidenceStreamRunner interface {
 }
 
 type CredentialEvidenceSourceConfig struct {
-	RunID      string
-	Execution  execution.ExecutionRef
-	Stream     EvidenceStreamRunner
+	RunID     string
+	Execution execution.ExecutionRef
+	Stream    EvidenceStreamRunner
 }
 
 // CredentialEvidenceSources binds the four sandbox-visible evidence streams
