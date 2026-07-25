@@ -226,9 +226,9 @@ func (state *state) clearCaptureLocked() {
 }
 
 type captureStream struct {
-	mu     sync.Mutex
-	source io.ReadCloser
-	state  *state
+	mu       sync.Mutex
+	source   io.ReadCloser
+	state    *state
 	eof      bool
 	closed   bool
 	closeErr error
@@ -277,9 +277,9 @@ func (stream *captureStream) Close() error {
 }
 
 type sensitiveReader struct {
-	mu      sync.Mutex
-	reader  *bytes.Reader
-	content []byte
+	mu       sync.Mutex
+	reader   *bytes.Reader
+	content  []byte
 	eof      bool
 	closed   bool
 	closeErr error
