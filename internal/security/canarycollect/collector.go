@@ -15,6 +15,7 @@ var (
 	ErrScan                 = errors.New("credential source scan failed")
 	ErrCanaryDetected       = errors.New("credential canary detected")
 	ErrSourceClose          = errors.New("credential source close failed")
+	ErrCollectionIncomplete = errors.New("credential source collection is incomplete")
 )
 
 var surfaceOrder = []string{
@@ -56,7 +57,8 @@ type Config struct {
 // Collection is an opaque ordered set of scanner-owned reports. Its JSON form
 // is the checks array consumed by the credential evidence contract.
 type Collection struct {
-	reports []canaryscan.Report
+	reports  []canaryscan.Report
+	complete bool
 }
 
 // Collect validates the complete seven-source plan before acquisition, then
@@ -96,12 +98,13 @@ func Collect(ctx context.Context, config Config) (Collection, error) {
 			return collection, collectionError(outcome, ctx)
 		}
 	}
+	collection.complete = true
 	return collection, nil
 }
 
 func (collection Collection) MarshalJSON() ([]byte, error) {
-	if collection.reports == nil {
-		return []byte("[]"), nil
+	if !collection.complete {
+		return nil, ErrCollectionIncomplete
 	}
 	return json.Marshal(collection.reports)
 }
