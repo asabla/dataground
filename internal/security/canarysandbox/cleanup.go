@@ -51,7 +51,8 @@ func New(config Config, provider Provider) (*Adapter, error) {
 		!runIDPattern.MatchString(config.RunID) ||
 		config.Execution.IsolationDomainID == "" ||
 		!resourceNamePattern.MatchString(config.Execution.ID) ||
-		config.Execution.GatewayID == "" {
+		config.Execution.GatewayID == "" ||
+		config.Execution.State == "" {
 		return nil, ErrInvalidConfiguration
 	}
 	return &Adapter{
