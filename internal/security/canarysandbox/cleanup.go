@@ -109,7 +109,8 @@ func (adapter *Adapter) Cleanup(ctx context.Context, request canaryevidence.Clea
 	}
 	if observation.IsolationDomainID != state.ref.IsolationDomainID ||
 		observation.ExecutionID != state.ref.ID ||
-		observation.State != "terminated" {
+		observation.State != "terminated" ||
+		observation.ObservedAt.IsZero() {
 		return ErrCleanupUncertain
 	}
 	state.removed = true
