@@ -75,8 +75,8 @@ func TestCollectRejectsCompletePlanDriftBeforeAcquisition(t *testing.T) {
 		"duplicate source": func(config *Config) {
 			config.Sources[1].Surface = config.Sources[0].Surface
 		},
-		"extra limit": func(config *Config) {
-			config.Limits["host-environment"] = 1024
+		"missing acquisition": func(config *Config) {
+			config.Sources[0].Acquire = nil
 		},
 		"invalid resource": func(config *Config) {
 			config.Resources.Sandbox = "Invalid Sandbox"
@@ -239,7 +239,6 @@ func TestCollectFailsOnCanaryAndCloseUncertainty(t *testing.T) {
 
 func validConfig(opener func(SourceRequest) (io.ReadCloser, error)) Config {
 	sources := make([]Source, 0, len(surfaceOrder))
-	limits := make(map[string]int64, len(surfaceOrder))
 	for _, surface := range surfaceOrder {
 		surface := surface
 		sources = append(sources, Source{
@@ -248,14 +247,12 @@ func validConfig(opener func(SourceRequest) (io.ReadCloser, error)) Config {
 				return opener(request)
 			},
 		})
-		limits[surface] = 1024
 	}
 	digest := sha256.Sum256([]byte(testCanary))
 	return Config{
 		RunID:            "0123456789abcdef0123456789abcdef",
 		CanaryCommitment: "sha256:" + hex.EncodeToString(digest[:]),
 		Resources: configResources(),
-		Limits:  limits,
 		Sources: sources,
 	}
 }
