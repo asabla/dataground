@@ -183,7 +183,7 @@ func TestCreateCredentialEvidenceProviderFailsWhenPostStateIsUncertain(t *testin
 	t.Parallel()
 
 	for name, result := range map[string]scriptedResult{
-		"absent": {result: CommandResult{Stdout: []byte("[]")}},
+		"absent":  {result: CommandResult{Stdout: []byte("[]")}},
 		"failure": {err: errors.New("sensitive observation payload")},
 	} {
 		name, result := name, result
