@@ -222,12 +222,12 @@ func TestProvisionedRefusesSerializationAcrossCopies(t *testing.T) {
 }
 
 type fakeProvisioner struct {
-	binding         execution.ProviderBinding
-	err             error
-	calls           int
-	request         execution.CredentialEvidenceProviderRequest
-	observedCanary  []byte
-	retainedCanary  []byte
+	binding        execution.ProviderBinding
+	err            error
+	calls          int
+	request        execution.CredentialEvidenceProviderRequest
+	observedCanary []byte
+	retainedCanary []byte
 }
 
 func (provisioner *fakeProvisioner) CreateCredentialEvidenceProvider(
