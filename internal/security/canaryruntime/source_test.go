@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/asabla/dataground/internal/security/canarysource"
 )
@@ -213,6 +214,50 @@ func TestSourcesConsumeCancelledEvidenceWait(t *testing.T) {
 	if _, err := sources.OpenRuntimeErrors(context.Background(), validRequest()); !errors.Is(err, ErrCredentialSource) {
 		t.Fatalf("retry error = %v", err)
 	}
+}
+
+func TestSourcesAbortWaitingHandoffOnCompetingOpen(t *testing.T) {
+	t.Parallel()
+
+	reader, writer := io.Pipe()
+	session := newFakeSession("")
+	session.errors = reader
+	sources := validSources(t, session)
+	stream := sources.Errors()
+	result := make(chan error, 1)
+	go func() {
+		_, err := sources.OpenRuntimeErrors(context.Background(), validRequest())
+		result <- err
+	}()
+
+	deadline := time.After(time.Second)
+	for {
+		sources.state.mu.Lock()
+		started := sources.state.sourceOpened
+		sources.state.mu.Unlock()
+		if started {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("first handoff did not start")
+		default:
+		}
+	}
+	if _, err := sources.OpenRuntimeErrors(context.Background(), validRequest()); !errors.Is(err, ErrCredentialSource) {
+		t.Fatalf("competing OpenRuntimeErrors() error = %v", err)
+	}
+	select {
+	case err := <-result:
+		if !errors.Is(err, ErrCredentialSource) {
+			t.Fatalf("waiting OpenRuntimeErrors() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("waiting handoff was not aborted")
+	}
+	_ = writer.Close()
+	_, _ = io.Copy(io.Discard, stream)
+	_ = stream.Close()
 }
 
 func TestEvidenceStreamRequiresCompleteReadAndClearsContent(t *testing.T) {
