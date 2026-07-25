@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asabla/dataground/internal/security/canarycollect"
+	"github.com/asabla/dataground/internal/security/canarysource"
 )
 
 func TestRunOwnsFinalEvidenceAndCleanup(t *testing.T) {
@@ -96,13 +96,18 @@ func TestRunCleansUpAfterCollectionFailureAndStaysOpaque(t *testing.T) {
 	t.Parallel()
 
 	cleanupCalls := 0
-	config := validConfig(func(context.Context, CleanupRequest) error {
+	backend := &sourceBackend{
+		open: func(request canarysource.Request) (io.ReadCloser, error) {
+			if request.Surface == "sandbox-process" {
+				return nil, errors.New("sensitive acquisition failure")
+			}
+			return io.NopCloser(strings.NewReader("safe")), nil
+		},
+	}
+	config := validConfigWithBackend(func(context.Context, CleanupRequest) error {
 		cleanupCalls++
 		return nil
-	})
-	config.Sources[0].Acquire = func(context.Context, canarycollect.SourceRequest) (io.ReadCloser, error) {
-		return nil, errors.New("sensitive acquisition failure")
-	}
+	}, backend)
 
 	result, err := Run(context.Background(), config)
 	if !errors.Is(err, ErrRunIncomplete) || !errors.Is(err, ErrCollection) {
@@ -191,32 +196,30 @@ func TestRunRejectsInvalidPlanBeforeCollectionOrCleanup(t *testing.T) {
 			config.Cleanup.Workspace = nil
 		},
 		"source": func(config *Config) {
-			config.Sources = config.Sources[:6]
+			config.Sources = nil
 		},
 	} {
 		name, mutate := name, mutate
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			acquisitions := 0
 			cleanups := 0
-			config := validConfig(func(context.Context, CleanupRequest) error {
+			backend := &sourceBackend{}
+			config := validConfigWithBackend(func(context.Context, CleanupRequest) error {
 				cleanups++
 				return nil
-			})
-			for index := range config.Sources {
-				config.Sources[index].Acquire = func(context.Context, canarycollect.SourceRequest) (io.ReadCloser, error) {
-					acquisitions++
-					return io.NopCloser(strings.NewReader("safe")), nil
-				}
-			}
+			}, backend)
 			mutate(&config)
 
 			if _, err := Run(context.Background(), config); !errors.Is(err, ErrInvalidConfiguration) {
 				t.Fatalf("Run() error = %v", err)
 			}
-			if acquisitions != 0 || cleanups != 0 {
-				t.Fatalf("side effects before validation: acquisitions=%d cleanups=%d", acquisitions, cleanups)
+			if backend.acquisitions != 0 || cleanups != 0 {
+				t.Fatalf(
+					"side effects before validation: acquisitions=%d cleanups=%d",
+					backend.acquisitions,
+					cleanups,
+				)
 			}
 		})
 	}
@@ -256,6 +259,10 @@ func TestRunRejectsClockRegression(t *testing.T) {
 }
 
 func validConfig(cleanup CleanupFunc) Config {
+	return validConfigWithBackend(cleanup, &sourceBackend{})
+}
+
+func validConfigWithBackend(cleanup CleanupFunc, backend *sourceBackend) Config {
 	resources := Resources{
 		Gateway:   "dataground-gateway",
 		Sandbox:   "sandbox-credential-check",
@@ -263,29 +270,27 @@ func validConfig(cleanup CleanupFunc) Config {
 		Runtime:   "runtime-invocation",
 		Workspace: "dg-canary-0123456789abcdef0123456789abcdef",
 	}
-	surfaces := []string{
-		"sandbox-process",
-		"sandbox-environment",
-		"sandbox-filesystem",
-		"provider-arguments",
-		"gateway-logs",
-		"sandbox-logs",
-		"runtime-errors",
-	}
-	sources := make([]canarycollect.Source, 0, len(surfaces))
-	for _, surface := range surfaces {
-		surface := surface
-		sources = append(sources, canarycollect.Source{
-			Surface: surface,
-			Acquire: func(context.Context, canarycollect.SourceRequest) (io.ReadCloser, error) {
-				return io.NopCloser(strings.NewReader("inspected source " + surface)), nil
-			},
-		})
-	}
 	digest := sha256.Sum256([]byte("test canary"))
+	commitment := "sha256:" + hex.EncodeToString(digest[:])
+	sources, err := canarysource.New(canarysource.Config{
+		RunID:            "0123456789abcdef0123456789abcdef",
+		CanaryCommitment: commitment,
+		Resources: canarysource.ResourceNames{
+			Gateway:  resources.Gateway,
+			Sandbox:  resources.Sandbox,
+			Provider: resources.Provider,
+			Runtime:  resources.Runtime,
+		},
+		OpenShell: backend,
+		Docker:    backend,
+		Runtime:   backend,
+	})
+	if err != nil {
+		panic(err)
+	}
 	return Config{
 		RunID:            "0123456789abcdef0123456789abcdef",
-		CanaryCommitment: "sha256:" + hex.EncodeToString(digest[:]),
+		CanaryCommitment: commitment,
 		Resources:        resources,
 		Sources:          sources,
 		Cleanup: Cleanup{
@@ -294,4 +299,66 @@ func validConfig(cleanup CleanupFunc) Config {
 			Workspace:       cleanup,
 		},
 	}
+}
+
+type sourceBackend struct {
+	acquisitions int
+	open         func(canarysource.Request) (io.ReadCloser, error)
+}
+
+func (backend *sourceBackend) acquire(request canarysource.Request) (io.ReadCloser, error) {
+	backend.acquisitions++
+	if backend.open != nil {
+		return backend.open(request)
+	}
+	return io.NopCloser(strings.NewReader("inspected source " + request.Surface)), nil
+}
+
+func (backend *sourceBackend) OpenSandboxProcess(
+	_ context.Context,
+	request canarysource.Request,
+) (io.ReadCloser, error) {
+	return backend.acquire(request)
+}
+
+func (backend *sourceBackend) OpenSandboxEnvironment(
+	_ context.Context,
+	request canarysource.Request,
+) (io.ReadCloser, error) {
+	return backend.acquire(request)
+}
+
+func (backend *sourceBackend) OpenSandboxFilesystem(
+	_ context.Context,
+	request canarysource.Request,
+) (io.ReadCloser, error) {
+	return backend.acquire(request)
+}
+
+func (backend *sourceBackend) OpenSandboxLogs(
+	_ context.Context,
+	request canarysource.Request,
+) (io.ReadCloser, error) {
+	return backend.acquire(request)
+}
+
+func (backend *sourceBackend) OpenProviderArguments(
+	_ context.Context,
+	request canarysource.Request,
+) (io.ReadCloser, error) {
+	return backend.acquire(request)
+}
+
+func (backend *sourceBackend) OpenGatewayLogs(
+	_ context.Context,
+	request canarysource.Request,
+) (io.ReadCloser, error) {
+	return backend.acquire(request)
+}
+
+func (backend *sourceBackend) OpenRuntimeErrors(
+	_ context.Context,
+	request canarysource.Request,
+) (io.ReadCloser, error) {
+	return backend.acquire(request)
 }
