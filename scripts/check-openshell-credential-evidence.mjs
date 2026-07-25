@@ -51,6 +51,8 @@ const expectedScanLimits = profile.providerProfileEvidence.contract.scanner.surf
 const expectedVerifierIdentity = profile.providerProfileEvidence.contract.verifierIdentity;
 const workspaceNameTemplate =
   profile.providerProfileEvidence.contract.evidenceRun.workspaceCleanup.name;
+const providerNameTemplate =
+  profile.providerProfileEvidence.contract.evidenceRun.providerCleanup.name;
 
 function verifyEvidence(evidence) {
   const failures = [];
@@ -108,6 +110,10 @@ function verifyEvidence(evidence) {
   if (evidence.run.resources.workspace !== expectedWorkspaceName) {
     failures.push("verifier workspace must be derived from the evidence run");
   }
+  const expectedProviderName = providerNameTemplate.replace("<runID>", evidence.run.id);
+  if (evidence.run.resources.provider !== expectedProviderName) {
+    failures.push("temporary provider binding must be derived from the evidence run");
+  }
 
   if (
     Object.entries(expectedVerifierIdentity).some(
@@ -163,7 +169,7 @@ function representativeEvidence() {
       resources: {
         gateway: "dataground-gateway",
         sandbox: "sandbox-credential-check",
-        provider: "provider-credential-check",
+        provider: "dg-canary-provider-0123456789abcdef0123456789abcdef",
         runtime: "runtime-invocation",
         workspace: "dg-canary-0123456789abcdef0123456789abcdef",
       },
@@ -181,7 +187,7 @@ function representativeEvidence() {
         name: {
           gateway: "dataground-gateway",
           sandbox: "sandbox-credential-check",
-          provider: "provider-credential-check",
+          provider: "dg-canary-provider-0123456789abcdef0123456789abcdef",
           runtime: "runtime-invocation",
         }[requiredResourceKinds[surface]],
       },
@@ -198,7 +204,7 @@ function representativeEvidence() {
     })),
     cleanup: {
       sandbox: { name: "sandbox-credential-check", status: "removed" },
-      providerBinding: { name: "provider-credential-check", status: "removed" },
+      providerBinding: { name: "dg-canary-provider-0123456789abcdef0123456789abcdef", status: "removed" },
       workspace: {
         name: "dg-canary-0123456789abcdef0123456789abcdef",
         status: "removed",
@@ -394,6 +400,27 @@ function runSelfTest() {
           workspace: {
             ...valid.cleanup.workspace,
             name: "dg-canary-fedcba9876543210fedcba9876543210",
+          },
+        },
+      },
+      false,
+    ],
+    [
+      "unbound provider identity",
+      {
+        ...valid,
+        run: {
+          ...valid.run,
+          resources: {
+            ...valid.run.resources,
+            provider: "dg-canary-provider-fedcba9876543210fedcba9876543210",
+          },
+        },
+        cleanup: {
+          ...valid.cleanup,
+          providerBinding: {
+            ...valid.cleanup.providerBinding,
+            name: "dg-canary-provider-fedcba9876543210fedcba9876543210",
           },
         },
       },
