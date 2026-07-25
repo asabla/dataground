@@ -82,6 +82,12 @@ type ReportConfig struct {
 	MaxBytes         int64
 }
 
+// ValidateReportConfig checks report identity and bounds without reading a source.
+func ValidateReportConfig(config ReportConfig) error {
+	_, err := validateReportConfig(config)
+	return err
+}
+
 // ScanReport scans one acquired byte stream and owns every field of the
 // content-free report. Callers cannot substitute metrics, resource kinds,
 // timestamps, status, or input commitments.
