@@ -231,8 +231,7 @@ if (
     "exact persisted execution, private native sandbox, and gateway endpoint" ||
   canarySourceAcquisition?.openShell?.transport !==
     "streaming pinned OpenShell sandbox exec argument vectors without a shell" ||
-  canarySourceAcquisition?.openShell?.versionCheck !==
-    "OpenShell 0.0.86 before acquisition" ||
+  canarySourceAcquisition?.openShell?.versionCheck !== "OpenShell 0.0.86 before acquisition" ||
   JSON.stringify(canarySourceAcquisition?.openShell?.surfaces) !==
     JSON.stringify([
       "sandbox-process",
@@ -272,7 +271,7 @@ if (
   !canaryOpenShellSource.includes('"find", "/", "-xdev"') ||
   !canaryOpenShellSource.includes('"find", "/var/log"') ||
   !canaryOpenShellSource.includes('"name", "openshell.*.log"') ||
-  !canaryOpenShellSource.includes("entry.Execution.State != \"ready\"") ||
+  !canaryOpenShellSource.includes('entry.Execution.State != "ready"') ||
   !canaryOpenShellSource.includes("func (CredentialEvidenceSources) MarshalJSON(") ||
   canaryOpenShellSource.includes('"sh", "-c"')
 ) {
