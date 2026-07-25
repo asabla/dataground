@@ -215,7 +215,7 @@ if (
   canaryEvidenceRun?.sandboxCleanup?.resource !==
     "exact DataGround execution returned by the OpenShell provider" ||
   canaryEvidenceRun?.sandboxCleanup?.verification !==
-    "terminate then observe the exact execution as terminated" ||
+    "terminate then require a timestamped exact terminal observation" ||
   canaryEvidenceRun?.sandboxCleanup?.serialization !== "forbidden" ||
   canaryEvidenceRun?.sandboxCleanup?.status !==
     "sandbox cleanup adapter verified; live harness wiring required" ||
@@ -249,6 +249,7 @@ if (
   !canarySandboxSource.includes("provider.Terminate(") ||
   !canarySandboxSource.includes("provider.Observe(") ||
   !canarySandboxSource.includes('observation.State != "terminated"') ||
+  !canarySandboxSource.includes("observation.ObservedAt.IsZero()") ||
   !canarySandboxSource.includes("func (Adapter) MarshalJSON(")
 ) {
   fail("the credential evidence run boundary is missing or claims live execution");
