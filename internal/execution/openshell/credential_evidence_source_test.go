@@ -36,22 +36,22 @@ func TestCredentialEvidenceSourcesUseExactPinnedCommands(t *testing.T) {
 		{
 			surface: "sandbox-process",
 			open:    sources.OpenSandboxProcess,
-			command: credentialEvidenceCommands["sandbox-process"],
+			command: credentialEvidenceCommand("sandbox-process"),
 		},
 		{
 			surface: "sandbox-environment",
 			open:    sources.OpenSandboxEnvironment,
-			command: credentialEvidenceCommands["sandbox-environment"],
+			command: credentialEvidenceCommand("sandbox-environment"),
 		},
 		{
 			surface: "sandbox-filesystem",
 			open:    sources.OpenSandboxFilesystem,
-			command: credentialEvidenceCommands["sandbox-filesystem"],
+			command: credentialEvidenceCommand("sandbox-filesystem"),
 		},
 		{
 			surface: "sandbox-logs",
 			open:    sources.OpenSandboxLogs,
-			command: credentialEvidenceCommands["sandbox-logs"],
+			command: credentialEvidenceCommand("sandbox-logs"),
 		},
 	}
 	for _, test := range tests {
