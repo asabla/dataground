@@ -133,6 +133,10 @@ const canaryEvidenceSource = await readFile(
   resolve(root, "internal/security/canaryevidence/evidence.go"),
   "utf8",
 );
+const canaryWorkspaceSource = await readFile(
+  resolve(root, "internal/security/canaryworkspace/workspace.go"),
+  "utf8",
+);
 if (
   canaryScanner?.command !== "go run ./cmd/dataground-openshell-canary-scan" ||
   canaryScanner?.schema !== "deploy/openshell/credential-canary-scan.schema.json" ||
@@ -192,8 +196,16 @@ if (
     JSON.stringify(["sandbox", "provider", "workspace"]) ||
   canaryEvidenceRun?.cleanupContext !== "cancellation-independent run-owned cleanup" ||
   canaryEvidenceRun?.serialization !== "sealed until collection and every cleanup succeeds" ||
+  canaryEvidenceRun?.workspaceCleanup?.assembly !==
+    "internal/security/canaryworkspace.Open" ||
+  canaryEvidenceRun?.workspaceCleanup?.name !== "dg-canary-<runID>" ||
+  canaryEvidenceRun?.workspaceCleanup?.parent !==
+    "pre-existing owner-only mode-0700 directory" ||
+  canaryEvidenceRun?.workspaceCleanup?.serialization !== "forbidden" ||
+  canaryEvidenceRun?.workspaceCleanup?.status !==
+    "workspace lifecycle verified; live harness wiring required" ||
   canaryEvidenceRun?.status !==
-    "run assembly verified; live acquisition and cleanup adapters required" ||
+    "run assembly and workspace cleanup verified; live acquisition and OpenShell cleanup adapters required" ||
   !canaryEvidenceSource.includes("func Run(") ||
   !canaryEvidenceSource.includes("canarycollect.ValidateConfig(") ||
   !canaryEvidenceSource.includes("canarycollect.Collect(") ||
@@ -202,7 +214,14 @@ if (
   !canaryEvidenceSource.includes("ErrRunIncomplete") ||
   !compactCanaryEvidenceSource.includes('Result:"passed"') ||
   !compactCanaryEvidenceSource.includes('cleanupStatusRemoved="removed"') ||
-  canaryEvidenceSource.includes("os/exec")
+  canaryEvidenceSource.includes("os/exec") ||
+  !canaryWorkspaceSource.includes("func Open(") ||
+  !canaryWorkspaceSource.includes("func (workspace *Workspace) Cleanup(") ||
+  !canaryWorkspaceSource.includes("os.Mkdir(") ||
+  !canaryWorkspaceSource.includes("os.Remove(") ||
+  !canaryWorkspaceSource.includes("parent.Sync()") ||
+  canaryWorkspaceSource.includes("os.MkdirAll(") ||
+  canaryWorkspaceSource.includes("os.RemoveAll(")
 ) {
   fail("the credential evidence run boundary is missing or claims live execution");
 }
