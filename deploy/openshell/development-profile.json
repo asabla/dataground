@@ -133,6 +133,7 @@
           "name": "dg-canary-provider-<runID>",
           "resource": "exact OpenShell provider ID, name, resource version, isolation domain, and gateway",
           "verification": "observe exact binding, delete, then require timestamped absence",
+          "exclusivity": "dedicated evidence gateway with no concurrent provider mutation",
           "serialization": "forbidden",
           "status": "provider cleanup adapter verified; live harness wiring required"
         }
