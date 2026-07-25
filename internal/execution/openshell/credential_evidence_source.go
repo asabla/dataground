@@ -14,6 +14,8 @@ import (
 	"github.com/asabla/dataground/internal/security/canarysource"
 )
 
+const credentialEvidenceOpenShellVersion = "0.0.86"
+
 var (
 	ErrCredentialEvidenceSource = errors.New("credential evidence source operation failed")
 	ErrCredentialEvidenceSerialization = errors.New("credential evidence OpenShell source cannot be serialized")
@@ -114,7 +116,11 @@ func (provider *Provider) NewCredentialEvidenceSources(
 		entry.Execution.State != "ready" ||
 		entry.SandboxName == "" ||
 		gateway.Gateway.ID != entry.Execution.GatewayID ||
-		gateway.Endpoint == "" {
+		gateway.Endpoint == "" ||
+		provider.expected != credentialEvidenceOpenShellVersion {
+		return nil, ErrCredentialEvidenceSource
+	}
+	if err := provider.Check(ctx); err != nil {
 		return nil, ErrCredentialEvidenceSource
 	}
 
