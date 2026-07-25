@@ -141,6 +141,10 @@ const canarySourceAdapter = await readFile(
   resolve(root, "internal/security/canarysource/source.go"),
   "utf8",
 );
+const canaryOpenShellSource = await readFile(
+  resolve(root, "internal/execution/openshell/credential_evidence_source.go"),
+  "utf8",
+);
 const canaryEvidenceSource = await readFile(
   resolve(root, "internal/security/canaryevidence/evidence.go"),
   "utf8",
@@ -220,7 +224,23 @@ if (
     "single-use canonical collection with direct scanner handoff" ||
   canarySourceAcquisition?.serialization !== "forbidden" ||
   canarySourceAcquisition?.status !==
-    "source lifecycle verified; concrete live OpenShell and Docker backends required" ||
+    "source lifecycle and OpenShell sandbox streams verified; concrete Docker and runtime backends required" ||
+  canarySourceAcquisition?.openShell?.assembly !==
+    "internal/execution/openshell.NewCredentialEvidenceSources" ||
+  canarySourceAcquisition?.openShell?.binding !==
+    "exact persisted execution, private native sandbox, and gateway endpoint" ||
+  canarySourceAcquisition?.openShell?.transport !==
+    "streaming pinned OpenShell sandbox exec argument vectors without a shell" ||
+  JSON.stringify(canarySourceAcquisition?.openShell?.surfaces) !==
+    JSON.stringify([
+      "sandbox-process",
+      "sandbox-environment",
+      "sandbox-filesystem",
+      "sandbox-logs",
+    ]) ||
+  canarySourceAcquisition?.openShell?.serialization !== "forbidden" ||
+  canarySourceAcquisition?.openShell?.status !==
+    "OpenShell sandbox source backend verified; Docker-hosted execution required" ||
   !canarySourceAdapter.includes("func New(") ||
   !canarySourceAdapter.includes("func (adapter *Adapter) ValidateBinding(") ||
   !canarySourceAdapter.includes("func (adapter *Adapter) Collect(") ||
@@ -235,6 +255,24 @@ if (
   canarySourceAdapter.includes('"openshell"')
 ) {
   fail("the credential source adapter is missing or claims a concrete live backend");
+}
+if (
+  !canaryOpenShellSource.includes("func (provider *Provider) NewCredentialEvidenceSources(") ||
+  !canaryOpenShellSource.includes("type ExecEvidenceStreamRunner struct{}") ||
+  !canaryOpenShellSource.includes("exec.CommandContext(") ||
+  !canaryOpenShellSource.includes('"sandbox", "exec", "--name"') ||
+  !canaryOpenShellSource.includes('"--no-tty", "--"') ||
+  !canaryOpenShellSource.includes('"find", "/proc"') ||
+  !canaryOpenShellSource.includes('"name", "cmdline"') ||
+  !canaryOpenShellSource.includes('"name", "environ"') ||
+  !canaryOpenShellSource.includes('"find", "/", "-xdev"') ||
+  !canaryOpenShellSource.includes('"find", "/var/log"') ||
+  !canaryOpenShellSource.includes('"name", "openshell.*.log"') ||
+  !canaryOpenShellSource.includes("entry.Execution.State != \"ready\"") ||
+  !canaryOpenShellSource.includes("func (CredentialEvidenceSources) MarshalJSON(") ||
+  canaryOpenShellSource.includes('"sh", "-c"')
+) {
+  fail("the concrete OpenShell credential source backend is missing or unsafe");
 }
 const canaryEvidenceRun = credentialEvidenceContract?.evidenceRun;
 const compactCanaryEvidenceSource = canaryEvidenceSource.replaceAll(/\s/g, "");
@@ -273,7 +311,7 @@ if (
   canaryEvidenceRun?.providerCleanup?.status !==
     "provider cleanup adapter verified; live harness wiring required" ||
   canaryEvidenceRun?.status !==
-    "run, source lifecycle, and cleanup adapters verified; concrete live acquisition backends required" ||
+    "run, source lifecycle, OpenShell sandbox streams, and cleanup adapters verified; concrete Docker and runtime backends required" ||
   !canaryEvidenceSource.includes("func Run(") ||
   !canaryEvidenceSource.includes("config.Sources.ValidateBinding(") ||
   !canaryEvidenceSource.includes("config.Sources.Collect(") ||
