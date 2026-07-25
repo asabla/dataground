@@ -173,6 +173,41 @@ func TestCredentialEvidenceSourcesShareOrderAcrossCopies(t *testing.T) {
 	}
 }
 
+func TestCredentialEvidenceSourcesRejectOverlappingAndIncompleteStreams(t *testing.T) {
+	t.Parallel()
+
+	_, sources, created, streamRunner := preparedCredentialEvidenceSources(t)
+	process, err := sources.OpenSandboxProcess(
+		context.Background(),
+		credentialEvidenceRequest(created.ID, "sandbox-process"),
+	)
+	if err != nil {
+		t.Fatalf("open process: %v", err)
+	}
+	if _, err := sources.OpenSandboxEnvironment(
+		context.Background(),
+		credentialEvidenceRequest(created.ID, "sandbox-environment"),
+	); !errors.Is(err, ErrCredentialEvidenceSource) {
+		t.Fatalf("overlapping environment error = %v", err)
+	}
+	if err := process.Close(); !errors.Is(err, ErrCredentialEvidenceSource) {
+		t.Fatalf("incomplete process close error = %v", err)
+	}
+	if _, err := sources.OpenSandboxEnvironment(
+		context.Background(),
+		credentialEvidenceRequest(created.ID, "sandbox-environment"),
+	); !errors.Is(err, ErrCredentialEvidenceSource) {
+		t.Fatalf("post-failure environment error = %v", err)
+	}
+
+	streamRunner.mu.Lock()
+	callCount := len(streamRunner.calls)
+	streamRunner.mu.Unlock()
+	if callCount != 1 {
+		t.Fatalf("stream calls = %d", callCount)
+	}
+}
+
 func TestCredentialEvidenceSourcesRevalidatePrivateTarget(t *testing.T) {
 	t.Parallel()
 
@@ -241,6 +276,25 @@ func TestCredentialEvidenceSourcesRequireReadyBoundExecution(t *testing.T) {
 	streamRunner.mu.Unlock()
 	if callCount != 0 {
 		t.Fatalf("construction opened %d streams", callCount)
+	}
+}
+
+func TestCredentialEvidenceSourcesRejectExecutableDrift(t *testing.T) {
+	t.Parallel()
+
+	provider, sources, created, streamRunner := preparedCredentialEvidenceSources(t)
+	provider.binary = "other-openshell"
+	if _, err := sources.OpenSandboxProcess(
+		context.Background(),
+		credentialEvidenceRequest(created.ID, "sandbox-process"),
+	); !errors.Is(err, ErrCredentialEvidenceSource) {
+		t.Fatalf("OpenSandboxProcess() error = %v", err)
+	}
+	streamRunner.mu.Lock()
+	callCount := len(streamRunner.calls)
+	streamRunner.mu.Unlock()
+	if callCount != 0 {
+		t.Fatalf("binary drift opened %d streams", callCount)
 	}
 }
 
