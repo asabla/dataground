@@ -486,11 +486,17 @@ if (!compose.includes(profile.artifacts.gateway) || !compose.includes('"127.0.0.
   fail("Docker Compose does not match the pinned loopback gateway profile");
 }
 if (
-  !compose.includes("dataground.dev/credential-evidence-run") ||
-  !compose.includes("dataground.dev/credential-evidence-gateway") ||
-  !compose.includes("dataground.dev/credential-evidence-provider")
+  !compose.includes(
+    'dataground.dev/credential-evidence-run: "${DATAGROUND_CREDENTIAL_EVIDENCE_RUN_ID:-}"',
+  ) ||
+  !compose.includes(
+    'dataground.dev/credential-evidence-gateway: "${DATAGROUND_CREDENTIAL_EVIDENCE_GATEWAY:-}"',
+  ) ||
+  !compose.includes(
+    'dataground.dev/credential-evidence-provider: "${DATAGROUND_CREDENTIAL_EVIDENCE_PROVIDER:-}"',
+  )
 ) {
-  fail("Docker Compose is missing the run-bound credential evidence labels");
+  fail("Docker Compose is missing the exact run-bound credential evidence labels");
 }
 if (
   !gatewayConfig.includes(profile.artifacts.supervisor) ||
