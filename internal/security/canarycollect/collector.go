@@ -76,7 +76,16 @@ func Collect(ctx context.Context, config Config) (Collection, error) {
 			return collection, errors.Join(ErrAcquisition, err)
 		}
 		source, acquireErr := plan.acquire(ctx, plan.request)
-		if acquireErr != nil || source == nil {
+		if acquireErr != nil {
+			outcome := error(ErrAcquisition)
+			if source != nil {
+				if closeErr := source.Close(); closeErr != nil {
+					outcome = errors.Join(outcome, ErrSourceClose)
+				}
+			}
+			return collection, collectionError(outcome, ctx)
+		}
+		if source == nil {
 			return collection, collectionError(ErrAcquisition, ctx)
 		}
 
