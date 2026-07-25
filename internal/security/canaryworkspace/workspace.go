@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -33,13 +34,14 @@ type Config struct {
 // Workspace is a fresh, private filesystem identity for one credential
 // evidence run. Its host path and file handles never cross the boundary.
 type Workspace struct {
-	mu        sync.Mutex
-	runID     string
-	name      string
-	path      string
-	parent    *os.File
-	directory *os.File
-	removed   bool
+	mu         sync.Mutex
+	runID      string
+	name       string
+	path       string
+	parent     *os.File
+	directory  *os.File
+	removed    bool
+	cleanupErr error
 }
 
 // Open requires a pre-existing deployment-owned parent and creates exactly one
@@ -146,7 +148,7 @@ func (workspace *Workspace) Cleanup(ctx context.Context, request canaryevidence.
 	workspace.mu.Lock()
 	defer workspace.mu.Unlock()
 	if workspace.removed {
-		return nil
+		return workspace.cleanupErr
 	}
 	if err := ctx.Err(); err != nil {
 		return errors.Join(ErrWorkspaceFailure, err)
@@ -163,11 +165,11 @@ func (workspace *Workspace) Cleanup(ctx context.Context, request canaryevidence.
 		!info.IsDir() || info.Mode().Perm() != 0o700 || !ownedByCurrentUser(info) {
 		return ErrWorkspaceUnsafe
 	}
-	entries, err := os.ReadDir(workspace.path)
-	if err != nil {
+	_, err = workspace.directory.Readdirnames(1)
+	if err != nil && !errors.Is(err, io.EOF) {
 		return ErrWorkspaceFailure
 	}
-	if len(entries) != 0 {
+	if err == nil {
 		return ErrWorkspaceNotEmpty
 	}
 	if err := ctx.Err(); err != nil {
@@ -183,7 +185,8 @@ func (workspace *Workspace) Cleanup(ctx context.Context, request canaryevidence.
 		return ErrWorkspaceUncertain
 	}
 	workspace.removed = true
-	return errors.Join(workspace.directory.Close(), workspace.parent.Close())
+	workspace.cleanupErr = errors.Join(workspace.directory.Close(), workspace.parent.Close())
+	return workspace.cleanupErr
 }
 
 func (workspace *Workspace) MarshalJSON() ([]byte, error) {
