@@ -60,15 +60,17 @@ func TestSourcesUseExactDockerCommands(t *testing.T) {
 	runner.mu.Unlock()
 	expected := []dockerCall{
 		{
-			binary: "/usr/bin/docker",
+			binary:        "/usr/bin/docker",
+			includeStderr: false,
 			args: []string{
 				"inspect", "--type", "container", "--format", dockerArgumentsFormat,
 				testContainerID,
 			},
 		},
 		{
-			binary: "/usr/bin/docker",
-			args:   []string{"logs", "--timestamps", testContainerID},
+			binary:        "/usr/bin/docker",
+			includeStderr: true,
+			args:          []string{"logs", "--timestamps", testContainerID},
 		},
 	}
 	if !reflect.DeepEqual(calls, expected) {
@@ -250,7 +252,7 @@ func TestSourcesSanitizeBackendFailures(t *testing.T) {
 
 	runner := preparedRunner()
 	ambiguous := &trackedStream{Reader: strings.NewReader("sensitive source")}
-	runner.open = func(context.Context, string, ...string) (io.ReadCloser, error) {
+	runner.open = func(context.Context, bool, string, ...string) (io.ReadCloser, error) {
 		return ambiguous, errors.New("sensitive Docker failure")
 	}
 	sources := preparedSources(t, runner)
@@ -361,8 +363,9 @@ func request(surface string, resourceName string) canarysource.Request {
 }
 
 type dockerCall struct {
-	binary string
-	args   []string
+	binary        string
+	includeStderr bool
+	args          []string
 }
 
 type recordingRunner struct {
@@ -370,7 +373,7 @@ type recordingRunner struct {
 	snapshot  containerSnapshot
 	snapshots int
 	calls     []dockerCall
-	open      func(context.Context, string, ...string) (io.ReadCloser, error)
+	open      func(context.Context, bool, string, ...string) (io.ReadCloser, error)
 }
 
 func (runner *recordingRunner) Snapshot(
@@ -386,18 +389,20 @@ func (runner *recordingRunner) Snapshot(
 
 func (runner *recordingRunner) Open(
 	ctx context.Context,
+	includeStderr bool,
 	binary string,
 	args ...string,
 ) (io.ReadCloser, error) {
 	runner.mu.Lock()
 	runner.calls = append(runner.calls, dockerCall{
-		binary: binary,
-		args:   append([]string(nil), args...),
+		binary:        binary,
+		includeStderr: includeStderr,
+		args:          append([]string(nil), args...),
 	})
 	open := runner.open
 	runner.mu.Unlock()
 	if open != nil {
-		return open(ctx, binary, args...)
+		return open(ctx, includeStderr, binary, args...)
 	}
 	return io.NopCloser(strings.NewReader("safe source")), nil
 }
