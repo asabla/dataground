@@ -149,6 +149,10 @@ const canaryDockerSource = await readFile(
   resolve(root, "internal/security/canarydocker/source.go"),
   "utf8",
 );
+const canaryRuntimeSource = await readFile(
+  resolve(root, "internal/security/canaryruntime/source.go"),
+  "utf8",
+);
 const canaryEvidenceSource = await readFile(
   resolve(root, "internal/security/canaryevidence/evidence.go"),
   "utf8",
@@ -228,7 +232,7 @@ if (
     "single-use canonical collection with direct scanner handoff" ||
   canarySourceAcquisition?.serialization !== "forbidden" ||
   canarySourceAcquisition?.status !==
-    "source lifecycle plus OpenShell and Docker streams verified; concrete runtime backend required" ||
+    "all seven source backends verified; live Docker execution required" ||
   canarySourceAcquisition?.openShell?.assembly !==
     "internal/execution/openshell.NewCredentialEvidenceSources" ||
   canarySourceAcquisition?.openShell?.binding !==
@@ -255,7 +259,18 @@ if (
     JSON.stringify(["provider-arguments", "gateway-logs"]) ||
   canarySourceAcquisition?.docker?.serialization !== "forbidden" ||
   canarySourceAcquisition?.docker?.status !==
-    "Docker host source backend verified; runtime capture and live harness required" ||
+    "Docker host source backend verified; live harness required" ||
+  canarySourceAcquisition?.runtime?.assembly !== "internal/security/canaryruntime.New" ||
+  canarySourceAcquisition?.runtime?.binding !==
+    "same exact execution.RuntimeSession passed to the native runtime adapter, evidence run, and portable runtime name" ||
+  canarySourceAcquisition?.runtime?.capture !==
+    "bounded in-memory capture of complete native stderr before one scanner handoff" ||
+  canarySourceAcquisition?.runtime?.maxBytes !== 16_777_216 ||
+  canarySourceAcquisition?.runtime?.zeroization !==
+    "captured bytes cleared after scanner close or failed handoff" ||
+  canarySourceAcquisition?.runtime?.serialization !== "forbidden" ||
+  canarySourceAcquisition?.runtime?.status !==
+    "runtime-error source backend verified; live Docker execution required" ||
   !canarySourceAdapter.includes("func New(") ||
   !canarySourceAdapter.includes("func (adapter *Adapter) ValidateBinding(") ||
   !canarySourceAdapter.includes("func (adapter *Adapter) Collect(") ||
@@ -306,6 +321,18 @@ if (
 ) {
   fail("the concrete Docker credential source backend is missing or unsafe");
 }
+if (
+  !canaryRuntimeSource.includes("func New(") ||
+  !canaryRuntimeSource.includes("maxRuntimeErrorBytes = 16 << 20") ||
+  !canaryRuntimeSource.includes("execution.RuntimeSession") ||
+  !canaryRuntimeSource.includes("func (sources *Sources) Errors(") ||
+  !canaryRuntimeSource.includes("func (sources *Sources) OpenRuntimeErrors(") ||
+  !canaryRuntimeSource.includes("clear(state.capture)") ||
+  !canaryRuntimeSource.includes("func (Sources) MarshalJSON(") ||
+  canaryRuntimeSource.includes("os/exec")
+) {
+  fail("the concrete runtime credential source backend is missing or unsafe");
+}
 const canaryEvidenceRun = credentialEvidenceContract?.evidenceRun;
 const compactCanaryEvidenceSource = canaryEvidenceSource.replaceAll(/\s/g, "");
 const compactCanaryWorkspaceSource = canaryWorkspaceSource.replaceAll(/\s/g, "");
@@ -343,7 +370,7 @@ if (
   canaryEvidenceRun?.providerCleanup?.status !==
     "provider cleanup adapter verified; live harness wiring required" ||
   canaryEvidenceRun?.status !==
-    "run, OpenShell and Docker source lifecycle, and cleanup adapters verified; concrete runtime backend required" ||
+    "run, all source lifecycle, and cleanup adapters verified; live Docker execution required" ||
   !canaryEvidenceSource.includes("func Run(") ||
   !canaryEvidenceSource.includes("config.Sources.ValidateBinding(") ||
   !canaryEvidenceSource.includes("config.Sources.Collect(") ||
