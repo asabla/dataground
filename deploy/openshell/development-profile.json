@@ -168,7 +168,6 @@
             "serialization": "forbidden",
             "status": "Docker host source backend verified; live harness required"
           },
-          "status": "all seven source backends verified; live Docker execution required",
           "runtime": {
             "assembly": "internal/security/canaryruntime.New",
             "binding": "same exact execution.RuntimeSession passed to the native runtime adapter, evidence run, and portable runtime name",
@@ -177,7 +176,8 @@
             "zeroization": "captured bytes cleared after scanner close or failed handoff",
             "serialization": "forbidden",
             "status": "runtime-error source backend verified; live Docker execution required"
-          }
+          },
+          "status": "all seven source backends verified; live Docker execution required"
         }
       }
     }
