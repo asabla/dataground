@@ -140,6 +140,9 @@ func runEvidence(ctx context.Context, config Config, now func() time.Time) (Resu
 	var outcome error
 	if collectionErr != nil {
 		outcome = errors.Join(outcome, ErrCollection)
+		if err := ctx.Err(); err != nil {
+			outcome = errors.Join(outcome, err)
+		}
 	}
 	if cleanupErr != nil {
 		outcome = errors.Join(outcome, ErrCleanup)
