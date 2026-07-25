@@ -128,6 +128,15 @@ func (sources *Sources) Close() error {
 	return sources.state.config.Session.Close()
 }
 
+// Discard clears an unused capture when collection fails before reaching the
+// canonical runtime-errors surface.
+func (sources *Sources) Discard() {
+	if sources == nil || sources.state == nil {
+		return
+	}
+	sources.state.abandon()
+}
+
 func (sources *Sources) OpenRuntimeErrors(
 	ctx context.Context,
 	request canarysource.Request,
