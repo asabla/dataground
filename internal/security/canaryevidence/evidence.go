@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"regexp"
-	"slices"
 	"time"
 
 	"github.com/asabla/dataground/internal/security/canarycollect"
+	"github.com/asabla/dataground/internal/security/canarysource"
 )
 
 const (
@@ -63,7 +63,7 @@ type Config struct {
 	RunID            string
 	CanaryCommitment string
 	Resources        Resources
-	Sources          []canarycollect.Source
+	Sources          *canarysource.Adapter
 	Cleanup          Cleanup
 }
 
@@ -129,13 +129,12 @@ func runEvidence(ctx context.Context, config Config, now func() time.Time) (Resu
 	if ctx == nil || now == nil {
 		return Result{}, ErrInvalidConfiguration
 	}
-	collectionConfig, err := validate(config)
-	if err != nil {
+	if err := validate(config); err != nil {
 		return Result{}, err
 	}
 
 	startedAt := now().UTC()
-	collection, collectionErr := canarycollect.Collect(ctx, collectionConfig)
+	collection, collectionErr := config.Sources.Collect(ctx)
 	cleanupRecord, cleanupErr := cleanupResources(context.WithoutCancel(ctx), config)
 	finishedAt := now().UTC()
 
@@ -192,31 +191,29 @@ func (result Result) MarshalJSON() ([]byte, error) {
 	return json.Marshal(result.evidence)
 }
 
-func validate(config Config) (canarycollect.Config, error) {
+func validate(config Config) error {
 	if config.Cleanup.Sandbox == nil ||
 		config.Cleanup.ProviderBinding == nil ||
 		config.Cleanup.Workspace == nil ||
 		!resourceNamePattern.MatchString(config.Resources.Workspace) ||
 		config.Resources.Workspace != workspaceNamePrefix+config.RunID ||
 		config.Resources.Provider != providerNamePrefix+config.RunID {
-		return canarycollect.Config{}, ErrInvalidConfiguration
+		return ErrInvalidConfiguration
 	}
 
-	collectionConfig := canarycollect.Config{
-		RunID:            config.RunID,
-		CanaryCommitment: config.CanaryCommitment,
-		Resources: canarycollect.ResourceNames{
+	if err := config.Sources.ValidateBinding(
+		config.RunID,
+		config.CanaryCommitment,
+		canarysource.ResourceNames{
 			Gateway:  config.Resources.Gateway,
 			Sandbox:  config.Resources.Sandbox,
 			Provider: config.Resources.Provider,
 			Runtime:  config.Resources.Runtime,
 		},
-		Sources: slices.Clone(config.Sources),
+	); err != nil {
+		return ErrInvalidConfiguration
 	}
-	if err := canarycollect.ValidateConfig(collectionConfig); err != nil {
-		return canarycollect.Config{}, ErrInvalidConfiguration
-	}
-	return collectionConfig, nil
+	return nil
 }
 
 func cleanupResources(ctx context.Context, config Config) (cleanup, error) {
