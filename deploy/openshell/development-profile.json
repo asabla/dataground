@@ -120,7 +120,7 @@
           "serialization": "forbidden",
           "status": "workspace lifecycle verified; live harness wiring required"
         },
-        "status": "run, source lifecycle, OpenShell sandbox streams, and cleanup adapters verified; concrete Docker and runtime backends required",
+        "status": "run, OpenShell and Docker source lifecycle, and cleanup adapters verified; concrete runtime backend required",
         "sandboxCleanup": {
           "assembly": "internal/security/canarysandbox.New",
           "resource": "exact DataGround execution returned by the OpenShell provider",
@@ -144,20 +144,31 @@
           "handoff": "single-use canonical collection with direct scanner handoff",
           "serialization": "forbidden",
           "openShell": {
-          "assembly": "internal/execution/openshell.NewCredentialEvidenceSources",
-          "binding": "exact persisted execution, private native sandbox, and gateway endpoint",
-          "transport": "streaming pinned OpenShell sandbox exec argument vectors without a shell",
-          "versionCheck": "OpenShell 0.0.86 before acquisition",
-          "surfaces": [
-            "sandbox-process",
-            "sandbox-environment",
-            "sandbox-filesystem",
-            "sandbox-logs"
-          ],
-          "serialization": "forbidden",
-          "status": "OpenShell sandbox source backend verified; Docker-hosted execution required"
-        },
-        "status": "source lifecycle and OpenShell sandbox streams verified; concrete Docker and runtime backends required"
+            "assembly": "internal/execution/openshell.NewCredentialEvidenceSources",
+            "binding": "exact persisted execution, private native sandbox, and gateway endpoint",
+            "transport": "streaming pinned OpenShell sandbox exec argument vectors without a shell",
+            "versionCheck": "OpenShell 0.0.86 before acquisition",
+            "surfaces": [
+              "sandbox-process",
+              "sandbox-environment",
+              "sandbox-filesystem",
+              "sandbox-logs"
+            ],
+            "serialization": "forbidden",
+            "status": "OpenShell sandbox source backend verified; Docker-hosted execution required"
+          },
+          "status": "source lifecycle plus OpenShell and Docker streams verified; concrete runtime backend required",
+          "docker": {
+            "assembly": "internal/security/canarydocker.New",
+            "binding": "exact running gateway container ID, digest-pinned image, Compose project and service, and run, gateway, and provider evidence labels",
+            "transport": "streaming Docker inspect argument vectors and complete timestamped stdout and stderr logs without a shell",
+            "surfaces": [
+              "provider-arguments",
+              "gateway-logs"
+            ],
+            "serialization": "forbidden",
+            "status": "Docker host source backend verified; runtime capture and live harness required"
+          }
         }
       }
     }
