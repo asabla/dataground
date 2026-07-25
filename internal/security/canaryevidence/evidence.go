@@ -24,6 +24,7 @@ const (
 	gatewayEndpoint      = "http://127.0.0.1:8080"
 	driver               = "docker"
 	cleanupStatusRemoved = "removed"
+	workspaceNamePrefix   = "dg-canary-"
 )
 
 var (
@@ -194,7 +195,8 @@ func validate(config Config) (canarycollect.Config, error) {
 	if config.Cleanup.Sandbox == nil ||
 		config.Cleanup.ProviderBinding == nil ||
 		config.Cleanup.Workspace == nil ||
-		!resourceNamePattern.MatchString(config.Resources.Workspace) {
+		!resourceNamePattern.MatchString(config.Resources.Workspace) ||
+		config.Resources.Workspace != workspaceNamePrefix+config.RunID {
 		return canarycollect.Config{}, ErrInvalidConfiguration
 	}
 
