@@ -61,11 +61,13 @@ func TestAdapterRejectsUnboundCleanupRequests(t *testing.T) {
 
 func TestAdapterRejectsInvalidConfiguration(t *testing.T) {
 	valid := Config{RunID: testRunID, Execution: testExecution()}
+	var typedNil *providerStub
 	tests := []struct {
 		config   Config
 		provider Provider
 	}{
 		{config: valid},
+		{config: valid, provider: typedNil},
 		{config: Config{RunID: "not-a-run", Execution: testExecution()}, provider: &providerStub{}},
 		{config: Config{RunID: testRunID, Execution: execution.Execution{}}, provider: &providerStub{}},
 		{config: Config{
