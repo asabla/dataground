@@ -24,7 +24,7 @@ const (
 	gatewayEndpoint      = "http://127.0.0.1:8080"
 	driver               = "docker"
 	cleanupStatusRemoved = "removed"
-	workspaceNamePrefix   = "dg-canary-"
+	workspaceNamePrefix  = "dg-canary-"
 )
 
 var (
