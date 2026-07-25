@@ -273,6 +273,14 @@ func TestSourcesValidateConfigurationAndSerialization(t *testing.T) {
 
 	config := testConfig()
 	runner := preparedRunner()
+	var nilRunner *recordingRunner
+	if _, err := newWithRunner(
+		context.Background(),
+		config,
+		nilRunner,
+	); !errors.Is(err, ErrInvalidConfiguration) {
+		t.Fatalf("typed-nil runner error = %v", err)
+	}
 	for name, mutate := range map[string]func(*Config){
 		"run": func(config *Config) {
 			config.RunID = "invalid"
@@ -315,6 +323,55 @@ func TestSourcesValidateConfigurationAndSerialization(t *testing.T) {
 	sources := preparedSources(t, preparedRunner())
 	if _, err := json.Marshal(sources); !errors.Is(err, ErrSerialization) {
 		t.Fatalf("marshal sources error = %v", err)
+	}
+
+	var nilSources *Sources
+	if _, err := nilSources.OpenProviderArguments(
+		context.Background(),
+		request("provider-arguments", "dg-canary-provider-"+testRunID),
+	); !errors.Is(err, ErrCredentialSource) {
+		t.Fatalf("nil sources error = %v", err)
+	}
+}
+
+func TestParseSnapshotRequiresClosedMetadataShape(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig()
+	value := strings.Join([]string{
+		config.ContainerID,
+		config.GatewayImage,
+		"true",
+		gatewayService,
+		config.ComposeProject,
+		config.RunID,
+		config.GatewayName,
+		config.ProviderName,
+	}, "\n") + "\n"
+	snapshot, err := parseSnapshot(value)
+	if err != nil {
+		t.Fatalf("parseSnapshot() error = %v", err)
+	}
+	if !snapshot.matches(config) {
+		t.Fatal("parsed snapshot does not match the bound configuration")
+	}
+	for name, malformed := range map[string]string{
+		"missing": strings.TrimSuffix(value, config.ProviderName+"\n"),
+		"extra":   value + "unexpected\n",
+		"injected-label": strings.Replace(
+			value,
+			config.GatewayName,
+			config.GatewayName+"\nunexpected",
+			1,
+		),
+	} {
+		name, malformed := name, malformed
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := parseSnapshot(malformed); !errors.Is(err, ErrCredentialSource) {
+				t.Fatalf("parseSnapshot() error = %v", err)
+			}
+		})
 	}
 }
 
