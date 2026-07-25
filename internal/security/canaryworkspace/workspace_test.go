@@ -35,6 +35,9 @@ func TestWorkspaceOwnsExactLifecycle(t *testing.T) {
 	if _, err := json.Marshal(workspace); !errors.Is(err, ErrWorkspaceSerialization) {
 		t.Fatalf("Marshal() error = %v", err)
 	}
+	if _, err := json.Marshal(*workspace); !errors.Is(err, ErrWorkspaceSerialization) {
+		t.Fatalf("Marshal(value) error = %v", err)
+	}
 
 	request := canaryevidence.CleanupRequest{
 		RunID: testRunID, ResourceKind: "workspace", ResourceName: name,
