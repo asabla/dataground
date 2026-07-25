@@ -19,6 +19,10 @@ services:
         source: ./gateway.toml
         target: /etc/openshell/gateway.toml
         read_only: true
+    labels:
+      dataground.dev/credential-evidence-run: "${DATAGROUND_CREDENTIAL_EVIDENCE_RUN_ID:-}"
+      dataground.dev/credential-evidence-gateway: "${DATAGROUND_CREDENTIAL_EVIDENCE_GATEWAY:-}"
+      dataground.dev/credential-evidence-provider: "${DATAGROUND_CREDENTIAL_EVIDENCE_PROVIDER:-}"
     environment:
       OPENSHELL_GATEWAY_CONFIG: /etc/openshell/gateway.toml
       OPENSHELL_DB_URL: "sqlite:/var/lib/openshell/gateway.db?mode=rwc"
