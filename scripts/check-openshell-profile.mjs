@@ -286,9 +286,13 @@ if (
   !canaryProviderSource.includes("func (adapter *Adapter) Cleanup(") ||
   !canaryProviderSource.includes("manager.ObserveProviderBinding(") ||
   !canaryProviderSource.includes("manager.DeleteProviderBinding(") ||
+  !canaryProviderSource.includes('"dg-canary-provider-"') ||
   !canaryProviderSource.includes("func (Adapter) MarshalJSON(") ||
   canaryProviderSource.includes("os/exec") ||
   !providerBindingSource.includes("func (provider *Provider) ObserveProviderBinding(") ||
+  !providerBindingSource.includes("providerBindingMaxOutputBytes") ||
+  providerBindingSource.includes("CredentialKeys") ||
+  providerBindingSource.includes("ConfigKeys") ||
   !providerBindingSource.includes("func (provider *Provider) DeleteProviderBinding(") ||
   !providerBindingSource.includes('"provider",') ||
   !providerBindingSource.includes('"list",') ||
