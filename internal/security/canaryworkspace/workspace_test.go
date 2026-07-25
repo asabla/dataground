@@ -15,7 +15,7 @@ import (
 const testRunID = "0123456789abcdef0123456789abcdef"
 
 func TestWorkspaceOwnsExactLifecycle(t *testing.T) {
-	root := t.TempDir()
+	root := privateRoot(t)
 	workspace, err := Open(Config{Root: root, RunID: testRunID})
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestWorkspaceOwnsExactLifecycle(t *testing.T) {
 }
 
 func TestWorkspaceRejectsWrongCleanupIdentity(t *testing.T) {
-	root := t.TempDir()
+	root := privateRoot(t)
 	workspace, err := Open(Config{Root: root, RunID: testRunID})
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +81,7 @@ func TestWorkspaceRejectsWrongCleanupIdentity(t *testing.T) {
 }
 
 func TestWorkspaceCancellationDoesNotRemove(t *testing.T) {
-	root := t.TempDir()
+	root := privateRoot(t)
 	workspace, err := Open(Config{Root: root, RunID: testRunID})
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestWorkspaceCancellationDoesNotRemove(t *testing.T) {
 }
 
 func TestWorkspaceRefusesUnexpectedContent(t *testing.T) {
-	root := t.TempDir()
+	root := privateRoot(t)
 	workspace, err := Open(Config{Root: root, RunID: testRunID})
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +132,7 @@ func TestWorkspaceRefusesUnexpectedContent(t *testing.T) {
 
 func TestWorkspaceRefusesExistingOrVanishedPath(t *testing.T) {
 	t.Run("existing", func(t *testing.T) {
-		root := t.TempDir()
+		root := privateRoot(t)
 		path := filepath.Join(root, "dg-canary-"+testRunID)
 		if err := os.Mkdir(path, 0o700); err != nil {
 			t.Fatal(err)
@@ -146,7 +146,7 @@ func TestWorkspaceRefusesExistingOrVanishedPath(t *testing.T) {
 	})
 
 	t.Run("vanished", func(t *testing.T) {
-		root := t.TempDir()
+		root := privateRoot(t)
 		workspace, err := Open(Config{Root: root, RunID: testRunID})
 		if err != nil {
 			t.Fatal(err)
@@ -164,7 +164,7 @@ func TestWorkspaceRefusesExistingOrVanishedPath(t *testing.T) {
 }
 
 func TestWorkspaceRefusesReplacedPath(t *testing.T) {
-	root := t.TempDir()
+	root := privateRoot(t)
 	workspace, err := Open(Config{Root: root, RunID: testRunID})
 	if err != nil {
 		t.Fatal(err)
@@ -238,7 +238,7 @@ func TestWorkspaceRejectsUnsafeConfiguration(t *testing.T) {
 	if _, err := Open(Config{}); !errors.Is(err, ErrInvalidConfiguration) {
 		t.Fatalf("empty Open() error = %v", err)
 	}
-	root := t.TempDir()
+	root := privateRoot(t)
 	if err := os.Chmod(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestWorkspaceRejectsUnsafeConfiguration(t *testing.T) {
 }
 
 func TestWorkspaceCleanupIsConcurrentAndIdempotent(t *testing.T) {
-	root := t.TempDir()
+	root := privateRoot(t)
 	workspace, err := Open(Config{Root: root, RunID: testRunID})
 	if err != nil {
 		t.Fatal(err)
@@ -282,4 +282,13 @@ func TestWorkspaceCleanupIsConcurrentAndIdempotent(t *testing.T) {
 			t.Errorf("Cleanup() error = %v", err)
 		}
 	}
+}
+
+func privateRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return root
 }
