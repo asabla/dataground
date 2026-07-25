@@ -173,7 +173,7 @@
             "binding": "same exact execution.RuntimeSession passed to the native runtime adapter, evidence run, and portable runtime name",
             "capture": "bounded in-memory capture of complete native stderr before one scanner handoff",
             "maxBytes": 16777216,
-            "zeroization": "captured bytes cleared after scanner close or failed handoff",
+            "zeroization": "captured bytes cleared after scanner close, unusable handoff, or explicit discard",
             "serialization": "forbidden",
             "status": "runtime-error source backend verified; live Docker execution required"
           },
