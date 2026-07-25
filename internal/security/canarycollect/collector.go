@@ -63,6 +63,12 @@ type Config struct {
 	Sources          []Source
 }
 
+// ValidateConfig checks the complete collector plan without acquiring a source.
+func ValidateConfig(config Config) error {
+	_, err := validate(config)
+	return err
+}
+
 // Collection is an opaque ordered set of scanner-owned reports. Its JSON form
 // is the checks array consumed by the credential evidence contract.
 type Collection struct {
