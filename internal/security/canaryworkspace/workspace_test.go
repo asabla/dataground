@@ -160,6 +160,40 @@ func TestWorkspaceRefusesExistingOrVanishedPath(t *testing.T) {
 	})
 }
 
+func TestWorkspaceRefusesReplacedPath(t *testing.T) {
+	root := t.TempDir()
+	workspace, err := Open(Config{Root: root, RunID: testRunID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, workspace.Name())
+	original := path + "-original"
+	if err := os.Rename(path, original); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	request := canaryevidence.CleanupRequest{
+		RunID: testRunID, ResourceKind: "workspace", ResourceName: workspace.Name(),
+	}
+	if err := workspace.Cleanup(context.Background(), request); !errors.Is(err, ErrWorkspaceUnsafe) {
+		t.Fatalf("Cleanup() error = %v", err)
+	}
+	if _, err := os.Lstat(path); err != nil {
+		t.Fatalf("replacement was removed: %v", err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(original, path); err != nil {
+		t.Fatal(err)
+	}
+	if err := workspace.Cleanup(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWorkspaceRejectsUnsafeConfiguration(t *testing.T) {
 	if _, err := Open(Config{}); !errors.Is(err, ErrInvalidConfiguration) {
 		t.Fatalf("empty Open() error = %v", err)
