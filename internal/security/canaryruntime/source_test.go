@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -242,6 +243,7 @@ func TestSourcesAbortWaitingHandoffOnCompetingOpen(t *testing.T) {
 		case <-deadline:
 			t.Fatal("first handoff did not start")
 		default:
+			runtime.Gosched()
 		}
 	}
 	if _, err := sources.OpenRuntimeErrors(context.Background(), validRequest()); !errors.Is(err, ErrCredentialSource) {
