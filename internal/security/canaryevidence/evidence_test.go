@@ -114,7 +114,9 @@ func TestRunCleansUpAfterCancellationWithRunContext(t *testing.T) {
 	})
 
 	_, err := Run(ctx, config)
-	if !errors.Is(err, ErrRunIncomplete) || !errors.Is(err, ErrCollection) {
+	if !errors.Is(err, ErrRunIncomplete) ||
+		!errors.Is(err, ErrCollection) ||
+		!errors.Is(err, context.Canceled) {
 		t.Fatalf("Run() error = %v", err)
 	}
 	if cleanupCalls != 3 {
