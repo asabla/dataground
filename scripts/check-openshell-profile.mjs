@@ -190,11 +190,12 @@ if (
 ) {
   fail("the credential canary scanner must define one bounded input limit per surface");
 }
+const compactCanaryCollectorSource = canaryCollectorSource.replaceAll(/\s/g, "");
 if (
   Object.entries(surfaceMaxBytes).some(
     ([surface, limit]) =>
-      !canaryCollectorSource.includes(
-        `"${surface}":${" ".repeat(Math.max(1, 23 - surface.length))}${limit === 268_435_456 ? "256 << 20" : "16 << 20"},`,
+      !compactCanaryCollectorSource.includes(
+        `"${surface}":${limit === 268_435_456 ? "256<<20" : "16<<20"},`,
       ),
   )
 ) {
