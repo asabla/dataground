@@ -145,6 +145,10 @@ const canaryOpenShellSource = await readFile(
   resolve(root, "internal/execution/openshell/credential_evidence_source.go"),
   "utf8",
 );
+const canaryDockerSource = await readFile(
+  resolve(root, "internal/security/canarydocker/source.go"),
+  "utf8",
+);
 const canaryEvidenceSource = await readFile(
   resolve(root, "internal/security/canaryevidence/evidence.go"),
   "utf8",
@@ -224,7 +228,7 @@ if (
     "single-use canonical collection with direct scanner handoff" ||
   canarySourceAcquisition?.serialization !== "forbidden" ||
   canarySourceAcquisition?.status !==
-    "source lifecycle and OpenShell sandbox streams verified; concrete Docker and runtime backends required" ||
+    "source lifecycle plus OpenShell and Docker streams verified; concrete runtime backend required" ||
   canarySourceAcquisition?.openShell?.assembly !==
     "internal/execution/openshell.NewCredentialEvidenceSources" ||
   canarySourceAcquisition?.openShell?.binding !==
@@ -242,6 +246,17 @@ if (
   canarySourceAcquisition?.openShell?.serialization !== "forbidden" ||
   canarySourceAcquisition?.openShell?.status !==
     "OpenShell sandbox source backend verified; Docker-hosted execution required" ||
+  canarySourceAcquisition?.docker?.assembly !==
+    "internal/security/canarydocker.New" ||
+  canarySourceAcquisition?.docker?.binding !==
+    "exact running gateway container ID, digest-pinned image, Compose project and service, and run, gateway, and provider evidence labels" ||
+  canarySourceAcquisition?.docker?.transport !==
+    "streaming Docker inspect argument vectors and complete timestamped stdout and stderr logs without a shell" ||
+  JSON.stringify(canarySourceAcquisition?.docker?.surfaces) !==
+    JSON.stringify(["provider-arguments", "gateway-logs"]) ||
+  canarySourceAcquisition?.docker?.serialization !== "forbidden" ||
+  canarySourceAcquisition?.docker?.status !==
+    "Docker host source backend verified; runtime capture and live harness required" ||
   !canarySourceAdapter.includes("func New(") ||
   !canarySourceAdapter.includes("func (adapter *Adapter) ValidateBinding(") ||
   !canarySourceAdapter.includes("func (adapter *Adapter) Collect(") ||
@@ -276,6 +291,21 @@ if (
   canaryOpenShellSource.includes('"sh", "-c"')
 ) {
   fail("the concrete OpenShell credential source backend is missing or unsafe");
+}
+if (
+  !canaryDockerSource.includes("func New(") ||
+  !canaryDockerSource.includes("exec.LookPath(") ||
+  !canaryDockerSource.includes("exec.CommandContext(") ||
+  !canaryDockerSource.includes('"inspect", "--type", "container", "--format"') ||
+  !canaryDockerSource.includes('"logs", "--timestamps"') ||
+  !canaryDockerSource.includes("com.docker.compose.service") ||
+  !canaryDockerSource.includes("dataground.dev/credential-evidence-run") ||
+  !canaryDockerSource.includes("dataground.dev/credential-evidence-gateway") ||
+  !canaryDockerSource.includes("dataground.dev/credential-evidence-provider") ||
+  !canaryDockerSource.includes("func (Sources) MarshalJSON(") ||
+  canaryDockerSource.includes('"sh", "-c"')
+) {
+  fail("the concrete Docker credential source backend is missing or unsafe");
 }
 const canaryEvidenceRun = credentialEvidenceContract?.evidenceRun;
 const compactCanaryEvidenceSource = canaryEvidenceSource.replaceAll(/\s/g, "");
@@ -314,7 +344,7 @@ if (
   canaryEvidenceRun?.providerCleanup?.status !==
     "provider cleanup adapter verified; live harness wiring required" ||
   canaryEvidenceRun?.status !==
-    "run, source lifecycle, OpenShell sandbox streams, and cleanup adapters verified; concrete Docker and runtime backends required" ||
+    "run, OpenShell and Docker source lifecycle, and cleanup adapters verified; concrete runtime backend required" ||
   !canaryEvidenceSource.includes("func Run(") ||
   !canaryEvidenceSource.includes("config.Sources.ValidateBinding(") ||
   !canaryEvidenceSource.includes("config.Sources.Collect(") ||
@@ -454,6 +484,13 @@ const compose = await readFile(resolve(root, "deploy/openshell/docker-compose.ym
 const gatewayConfig = await readFile(resolve(root, "deploy/openshell/gateway.toml"), "utf8");
 if (!compose.includes(profile.artifacts.gateway) || !compose.includes('"127.0.0.1:8080:8080"')) {
   fail("Docker Compose does not match the pinned loopback gateway profile");
+}
+if (
+  !compose.includes("dataground.dev/credential-evidence-run") ||
+  !compose.includes("dataground.dev/credential-evidence-gateway") ||
+  !compose.includes("dataground.dev/credential-evidence-provider")
+) {
+  fail("Docker Compose is missing the run-bound credential evidence labels");
 }
 if (
   !gatewayConfig.includes(profile.artifacts.supervisor) ||
