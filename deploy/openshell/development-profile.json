@@ -100,7 +100,7 @@
           "sandbox-logs",
           "runtime-errors"
         ],
-        "status": "collection boundary verified; live OpenShell and Docker acquisition required"
+        "status": "collection boundary verified; run-bound acquisition adapter required"
       },
       "status": "contract verified; live evidence required",
       "evidenceRun": {
@@ -120,7 +120,7 @@
           "serialization": "forbidden",
           "status": "workspace lifecycle verified; live harness wiring required"
         },
-        "status": "run assembly and all cleanup adapters verified; live acquisition adapter required",
+        "status": "run, source lifecycle, and cleanup adapters verified; concrete live acquisition backends required",
         "sandboxCleanup": {
           "assembly": "internal/security/canarysandbox.New",
           "resource": "exact DataGround execution returned by the OpenShell provider",
@@ -136,6 +136,14 @@
           "exclusivity": "dedicated evidence gateway with no concurrent provider mutation",
           "serialization": "forbidden",
           "status": "provider cleanup adapter verified; live harness wiring required"
+        },
+        "sourceAcquisition": {
+          "assembly": "internal/security/canarysource.New",
+          "binding": "exact evidence run, canary commitment, and portable gateway, sandbox, provider, and runtime names",
+          "sourcePorts": "typed OpenShell, Docker, and runtime streams",
+          "handoff": "single-use canonical collection with direct scanner handoff",
+          "serialization": "forbidden",
+          "status": "source lifecycle verified; concrete live OpenShell and Docker backends required"
         }
       }
     }
