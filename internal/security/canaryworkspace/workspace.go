@@ -41,6 +41,7 @@ type workspaceState struct {
 	mu         sync.Mutex
 	runID      string
 	name       string
+	root       string
 	path       string
 	parent     *os.File
 	directory  *os.File
@@ -78,6 +79,15 @@ func Open(config Config) (*Workspace, error) {
 
 	name := workspacePrefix + config.RunID
 	path := filepath.Join(root, name)
+	currentRoot, err := os.Lstat(root)
+	if err != nil {
+		_ = parent.Close()
+		return nil, ErrWorkspaceFailure
+	}
+	if !os.SameFile(openedRoot, currentRoot) {
+		_ = parent.Close()
+		return nil, ErrWorkspaceUnsafe
+	}
 	if _, err := os.Lstat(path); err == nil {
 		_ = parent.Close()
 		return nil, ErrWorkspaceExists
@@ -114,6 +124,12 @@ func Open(config Config) (*Workspace, error) {
 		removeCreated()
 		return nil, ErrWorkspaceUnsafe
 	}
+	currentRoot, err = os.Lstat(root)
+	if err != nil || !os.SameFile(openedRoot, currentRoot) {
+		_ = directory.Close()
+		_ = parent.Close()
+		return nil, ErrWorkspaceUnsafe
+	}
 	if err := parent.Sync(); err != nil {
 		_ = directory.Close()
 		removeCreated()
@@ -123,6 +139,7 @@ func Open(config Config) (*Workspace, error) {
 		state: &workspaceState{
 			runID:     config.RunID,
 			name:      name,
+			root:      root,
 			path:      path,
 			parent:    parent,
 			directory: directory,
@@ -161,6 +178,18 @@ func (workspace *Workspace) Cleanup(ctx context.Context, request canaryevidence.
 	}
 	if err := ctx.Err(); err != nil {
 		return errors.Join(ErrWorkspaceFailure, err)
+	}
+	rootInfo, err := os.Lstat(state.root)
+	if errors.Is(err, os.ErrNotExist) {
+		return ErrWorkspaceUncertain
+	}
+	if err != nil {
+		return ErrWorkspaceFailure
+	}
+	openedRoot, err := state.parent.Stat()
+	if err != nil || !os.SameFile(rootInfo, openedRoot) || rootInfo.Mode()&os.ModeSymlink != 0 ||
+		!rootInfo.IsDir() || rootInfo.Mode().Perm() != 0o700 || !ownedByCurrentUser(rootInfo) {
+		return ErrWorkspaceUnsafe
 	}
 	info, err := os.Lstat(state.path)
 	if errors.Is(err, os.ErrNotExist) {
