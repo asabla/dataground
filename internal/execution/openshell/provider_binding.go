@@ -3,7 +3,6 @@ package openshell
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"regexp"
 	"strconv"
 	"time"
@@ -12,8 +11,9 @@ import (
 )
 
 const (
-	providerBindingPageSize  = 100
-	providerBindingPageLimit = 16
+	providerBindingPageSize       = 100
+	providerBindingPageLimit      = 16
+	providerBindingMaxOutputBytes = 1 << 20
 )
 
 var providerBindingNamePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$`)
@@ -64,6 +64,9 @@ func (provider *Provider) ObserveProviderBinding(
 		}
 
 		var bindings []providerBindingView
+		if len(result.Stdout) > providerBindingMaxOutputBytes {
+			return execution.ProviderBindingObservation{}, ErrProviderFailure
+		}
 		if err := json.Unmarshal(result.Stdout, &bindings); err != nil ||
 			len(bindings) > providerBindingPageSize {
 			return execution.ProviderBindingObservation{}, ErrProviderFailure
@@ -175,7 +178,4 @@ func absentProviderBinding(
 	}
 }
 
-var (
-	_ execution.ProviderBindingManager = (*Provider)(nil)
-	_                                = errors.Is
-)
+var _ execution.ProviderBindingManager = (*Provider)(nil)
