@@ -129,6 +129,10 @@ const canaryCollectorSource = await readFile(
   resolve(root, "internal/security/canarycollect/collector.go"),
   "utf8",
 );
+const canaryEvidenceSource = await readFile(
+  resolve(root, "internal/security/canaryevidence/evidence.go"),
+  "utf8",
+);
 if (
   canaryScanner?.command !== "go run ./cmd/dataground-openshell-canary-scan" ||
   canaryScanner?.schema !== "deploy/openshell/credential-canary-scan.schema.json" ||
@@ -177,6 +181,46 @@ if (
   canaryCollectorSource.includes("openshell")
 ) {
   fail("the credential source collection boundary is missing or claims live acquisition");
+}
+const canaryEvidenceRun = credentialEvidenceContract?.evidenceRun;
+if (
+  canaryEvidenceRun?.assembly !== "internal/security/canaryevidence.Run" ||
+  canaryEvidenceRun?.profileOwnership !==
+    "checked profile snapshot and dataground-openshell-canary/1.0.0 verifier identity" ||
+  JSON.stringify(canaryEvidenceRun?.cleanupOrder) !==
+    JSON.stringify(["sandbox", "provider", "workspace"]) ||
+  canaryEvidenceRun?.cleanupContext !== "cancellation-independent run-owned cleanup" ||
+  canaryEvidenceRun?.serialization !== "sealed until collection and every cleanup succeeds" ||
+  canaryEvidenceRun?.status !==
+    "run assembly verified; live acquisition and cleanup adapters required" ||
+  !canaryEvidenceSource.includes("func Run(") ||
+  !canaryEvidenceSource.includes("canarycollect.ValidateConfig(") ||
+  !canaryEvidenceSource.includes("canarycollect.Collect(") ||
+  !canaryEvidenceSource.includes("context.WithoutCancel(") ||
+  !canaryEvidenceSource.includes("if !result.complete") ||
+  !canaryEvidenceSource.includes("ErrRunIncomplete") ||
+  canaryEvidenceSource.includes("os/exec")
+) {
+  fail("the credential evidence run boundary is missing or claims live execution");
+}
+const evidenceProfileBindings = [
+  profile.source.openshell.commit,
+  profile.artifacts.gateway,
+  profile.artifacts.supervisor,
+  profile.artifacts.sandbox,
+  profile.providerProfileEvidence.codex.sha256,
+  profile.runtime.version,
+  profile.topology.gatewayEndpoint,
+  profile.topology.driver,
+  credentialEvidenceContract.verifierIdentity.name,
+  credentialEvidenceContract.verifierIdentity.version,
+];
+if (
+  evidenceProfileBindings.some(
+    (binding) => !canaryEvidenceSource.includes(JSON.stringify(binding)),
+  )
+) {
+  fail("the credential evidence run does not own the checked profile identity");
 }
 const surfaceMaxBytes = canaryScanner?.surfaceMaxBytes;
 if (
