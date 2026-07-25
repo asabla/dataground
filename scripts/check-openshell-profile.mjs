@@ -125,6 +125,10 @@ const canaryScannerReportSource = await readFile(
   resolve(root, "internal/security/canaryscan/report.go"),
   "utf8",
 );
+const canaryCollectorSource = await readFile(
+  resolve(root, "internal/security/canarycollect/collector.go"),
+  "utf8",
+);
 if (
   canaryScanner?.command !== "go run ./cmd/dataground-openshell-canary-scan" ||
   canaryScanner?.schema !== "deploy/openshell/credential-canary-scan.schema.json" ||
@@ -132,6 +136,7 @@ if (
   canaryScanner?.reportAssembly !== "internal/security/canaryscan.ScanReport" ||
   !canaryScannerCommandSource.includes("canaryscan.ScanReport(") ||
   !canaryScannerCommandSource.includes("output.HasMatches()") ||
+  !canaryScannerReportSource.includes("func ValidateReportConfig(") ||
   !canaryScannerReportSource.includes("func ScanReport(") ||
   !canaryScannerReportSource.includes("func (report Report) MarshalJSON(") ||
   canaryScannerReportSource.includes("\nfunc Scan(") ||
@@ -150,6 +155,25 @@ if (
   canaryScanner?.status !== "commitment-only scanner verified; live harness required"
 ) {
   fail("the commitment-only credential canary scanner contract is missing or unblocked");
+}
+const canaryCollector = credentialEvidenceContract?.collector;
+if (
+  canaryCollector?.assembly !== "internal/security/canarycollect.Collect" ||
+  canaryCollector?.sourceContract !==
+    "one-shot io.ReadCloser acquired from a run-owned live resource" ||
+  canaryCollector?.reportHandoff !== "direct to internal/security/canaryscan.ScanReport" ||
+  JSON.stringify(canaryCollector?.sourceOrder) !== JSON.stringify(expectedCanarySurfaces) ||
+  canaryCollector?.status !==
+    "collection boundary verified; live OpenShell and Docker acquisition required" ||
+  !canaryCollectorSource.includes("func Collect(") ||
+  !canaryCollectorSource.includes("canaryscan.ValidateReportConfig(") ||
+  !canaryCollectorSource.includes("canaryscan.ScanReport(") ||
+  !canaryCollectorSource.includes("source.Close()") ||
+  canaryCollectorSource.includes("os/exec") ||
+  canaryCollectorSource.includes("docker") ||
+  canaryCollectorSource.includes("openshell")
+) {
+  fail("the credential source collection boundary is missing or claims live acquisition");
 }
 const surfaceMaxBytes = canaryScanner?.surfaceMaxBytes;
 if (
