@@ -92,6 +92,8 @@ type credentialEvidenceSourceState struct {
 	runID    string
 	target   credentialEvidenceTarget
 	next     int
+	opening  bool
+	failed   bool
 }
 
 type credentialEvidenceTarget struct {
@@ -197,7 +199,9 @@ func (sources *CredentialEvidenceSources) open(
 
 	state := sources.state
 	state.mu.Lock()
-	if credentialEvidenceSurface(state.next) != surface ||
+	if state.failed ||
+		state.opening ||
+		credentialEvidenceSurface(state.next) != surface ||
 		request.RunID != state.runID ||
 		request.Surface != surface ||
 		request.ResourceName != state.target.executionID {
@@ -205,9 +209,11 @@ func (sources *CredentialEvidenceSources) open(
 		return nil, ErrCredentialEvidenceSource
 	}
 	state.next++
+	state.opening = true
 	state.mu.Unlock()
 
 	if err := ctx.Err(); err != nil {
+		state.finishOpen(true)
 		return nil, err
 	}
 	entry, gateway, err := state.provider.lookupExecution(
@@ -226,6 +232,7 @@ func (sources *CredentialEvidenceSources) open(
 		gateway.Gateway.ID != state.target.gatewayID ||
 		gateway.Endpoint != state.target.endpoint ||
 		state.provider.binary != state.target.binary {
+		state.finishOpen(true)
 		return nil, ErrCredentialEvidenceSource
 	}
 
@@ -245,9 +252,67 @@ func (sources *CredentialEvidenceSources) open(
 		if !isNilEvidenceValue(stream) {
 			_ = stream.Close()
 		}
+		state.finishOpen(true)
 		return nil, ErrCredentialEvidenceSource
 	}
-	return stream, nil
+	return &credentialEvidenceStream{source: stream, state: state}, nil
+}
+
+func (state *credentialEvidenceSourceState) finishOpen(failed bool) {
+	state.mu.Lock()
+	state.opening = false
+	state.failed = state.failed || failed
+	state.mu.Unlock()
+}
+
+type credentialEvidenceStream struct {
+	mu         sync.Mutex
+	source     io.ReadCloser
+	state      *credentialEvidenceSourceState
+	eof        bool
+	readFailed bool
+	closed     bool
+	closeErr   error
+}
+
+func (stream *credentialEvidenceStream) Read(buffer []byte) (int, error) {
+	count, err := stream.source.Read(buffer)
+	stream.mu.Lock()
+	switch {
+	case errors.Is(err, io.EOF):
+		stream.eof = true
+	case err != nil:
+		stream.readFailed = true
+	}
+	stream.mu.Unlock()
+	if err != nil && !errors.Is(err, io.EOF) {
+		return count, ErrCredentialEvidenceSource
+	}
+	return count, err
+}
+
+func (stream *credentialEvidenceStream) Close() error {
+	stream.mu.Lock()
+	if stream.closed {
+		err := stream.closeErr
+		stream.mu.Unlock()
+		return err
+	}
+	stream.closed = true
+	complete := stream.eof && !stream.readFailed
+	stream.mu.Unlock()
+
+	closeErr := stream.source.Close()
+	failed := !complete || closeErr != nil
+	stream.state.finishOpen(failed)
+
+	stream.mu.Lock()
+	if failed {
+		stream.closeErr = ErrCredentialEvidenceSource
+	}
+	err := stream.closeErr
+	stream.mu.Unlock()
+	return err
 }
 
 func (CredentialEvidenceSources) MarshalJSON() ([]byte, error) {
