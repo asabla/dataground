@@ -266,11 +266,11 @@ if (
   !canaryOpenShellSource.includes('"sandbox", "exec", "--name"') ||
   !canaryOpenShellSource.includes('"--no-tty", "--"') ||
   !canaryOpenShellSource.includes('"find", "/proc"') ||
-  !canaryOpenShellSource.includes('"name", "cmdline"') ||
-  !canaryOpenShellSource.includes('"name", "environ"') ||
+  !canaryOpenShellSource.includes('"-name", "cmdline"') ||
+  !canaryOpenShellSource.includes('"-name", "environ"') ||
   !canaryOpenShellSource.includes('"find", "/", "-xdev"') ||
   !canaryOpenShellSource.includes('"find", "/var/log"') ||
-  !canaryOpenShellSource.includes('"name", "openshell.*.log"') ||
+  !canaryOpenShellSource.includes('"-name", "openshell.*.log"') ||
   !canaryOpenShellSource.includes('entry.Execution.State != "ready"') ||
   !canaryOpenShellSource.includes("func (CredentialEvidenceSources) MarshalJSON(") ||
   canaryOpenShellSource.includes('"sh", "-c"')
