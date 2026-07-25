@@ -22,6 +22,7 @@ func TestAdapterCollectsExactSourcesOnce(t *testing.T) {
 
 	backend := &fakeBackend{}
 	adapter := validAdapter(t, backend)
+	copied := *adapter
 	collection, err := adapter.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("Collect() error = %v", err)
@@ -61,6 +62,9 @@ func TestAdapterCollectsExactSourcesOnce(t *testing.T) {
 	}
 	if _, err := adapter.Collect(context.Background()); !errors.Is(err, ErrAlreadyStarted) {
 		t.Fatalf("second Collect() error = %v", err)
+	}
+	if _, err := copied.Collect(context.Background()); !errors.Is(err, ErrAlreadyStarted) {
+		t.Fatalf("copied Collect() error = %v", err)
 	}
 	if _, err := json.Marshal(adapter); !errors.Is(err, ErrSerialization) {
 		t.Fatalf("marshal adapter error = %v", err)
