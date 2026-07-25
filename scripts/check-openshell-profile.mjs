@@ -103,8 +103,13 @@ if (
   credentialEvidenceSchema?.$defs?.workspaceName?.pattern !== "^dg-canary-[a-f0-9]{32}$" ||
   credentialEvidenceSchema?.properties?.cleanup?.properties?.sandbox?.$ref !==
     "#/$defs/cleanupReceipt" ||
+  evidenceRunProperties?.resources?.properties?.provider?.$ref !== "#/$defs/providerName" ||
+  credentialEvidenceSchema?.$defs?.providerName?.pattern !==
+    "^dg-canary-provider-[a-f0-9]{32}$" ||
   credentialEvidenceSchema?.properties?.cleanup?.properties?.providerBinding?.$ref !==
-    "#/$defs/cleanupReceipt" ||
+    "#/$defs/providerCleanupReceipt" ||
+  credentialEvidenceSchema?.$defs?.providerCleanupReceipt?.properties?.name?.$ref !==
+    "#/$defs/providerName" ||
   credentialEvidenceSchema?.properties?.cleanup?.properties?.workspace?.$ref !==
     "#/$defs/workspaceCleanupReceipt" ||
   credentialEvidenceSchema?.$defs?.workspaceCleanupReceipt?.properties?.name?.$ref !==
@@ -143,6 +148,14 @@ const canaryWorkspaceSource = await readFile(
 );
 const canarySandboxSource = await readFile(
   resolve(root, "internal/security/canarysandbox/cleanup.go"),
+  "utf8",
+);
+const canaryProviderSource = await readFile(
+  resolve(root, "internal/security/canaryprovider/cleanup.go"),
+  "utf8",
+);
+const providerBindingSource = await readFile(
+  resolve(root, "internal/execution/openshell/provider_binding.go"),
   "utf8",
 );
 if (
@@ -219,8 +232,18 @@ if (
   canaryEvidenceRun?.sandboxCleanup?.serialization !== "forbidden" ||
   canaryEvidenceRun?.sandboxCleanup?.status !==
     "sandbox cleanup adapter verified; live harness wiring required" ||
+  canaryEvidenceRun?.providerCleanup?.assembly !==
+    "internal/security/canaryprovider.New" ||
+  canaryEvidenceRun?.providerCleanup?.name !== "dg-canary-provider-<runID>" ||
+  canaryEvidenceRun?.providerCleanup?.resource !==
+    "exact OpenShell provider ID, name, resource version, isolation domain, and gateway" ||
+  canaryEvidenceRun?.providerCleanup?.verification !==
+    "observe exact binding, delete, then require timestamped absence" ||
+  canaryEvidenceRun?.providerCleanup?.serialization !== "forbidden" ||
+  canaryEvidenceRun?.providerCleanup?.status !==
+    "provider cleanup adapter verified; live harness wiring required" ||
   canaryEvidenceRun?.status !==
-    "run assembly, workspace cleanup, and sandbox cleanup verified; live acquisition and provider cleanup adapters required" ||
+    "run assembly and all cleanup adapters verified; live acquisition adapter required" ||
   !canaryEvidenceSource.includes("func Run(") ||
   !canaryEvidenceSource.includes("canarycollect.ValidateConfig(") ||
   !canaryEvidenceSource.includes("canarycollect.Collect(") ||
@@ -232,6 +255,12 @@ if (
   !compactCanaryEvidenceSource.includes('workspaceNamePrefix="dg-canary-"') ||
   !compactCanaryEvidenceSource.includes(
     "config.Resources.Workspace!=workspaceNamePrefix+config.RunID",
+  ) ||
+  !compactCanaryEvidenceSource.includes(
+    'providerNamePrefix="dg-canary-provider-"',
+  ) ||
+  !compactCanaryEvidenceSource.includes(
+    "config.Resources.Provider!=providerNamePrefix+config.RunID",
   ) ||
   canaryEvidenceSource.includes("os/exec") ||
   !canaryWorkspaceSource.includes("func Open(") ||
@@ -250,7 +279,21 @@ if (
   !canarySandboxSource.includes("provider.Observe(") ||
   !canarySandboxSource.includes('observation.State != "terminated"') ||
   !canarySandboxSource.includes("observation.ObservedAt.IsZero()") ||
-  !canarySandboxSource.includes("func (Adapter) MarshalJSON(")
+  !canarySandboxSource.includes("func (Adapter) MarshalJSON(") ||
+  !canaryProviderSource.includes("func New(") ||
+  !canaryProviderSource.includes("func (adapter *Adapter) Cleanup(") ||
+  !canaryProviderSource.includes("manager.ObserveProviderBinding(") ||
+  !canaryProviderSource.includes("manager.DeleteProviderBinding(") ||
+  !canaryProviderSource.includes("func (Adapter) MarshalJSON(") ||
+  canaryProviderSource.includes("os/exec") ||
+  !providerBindingSource.includes("func (provider *Provider) ObserveProviderBinding(") ||
+  !providerBindingSource.includes("func (provider *Provider) DeleteProviderBinding(") ||
+  !providerBindingSource.includes('"provider",') ||
+  !providerBindingSource.includes('"list",') ||
+  !providerBindingSource.includes('"delete", ref.Name') ||
+  !providerBindingSource.includes('"json",') ||
+  !providerBindingSource.includes("ResourceVersion") ||
+  !providerBindingSource.includes("execution.ErrStateConflict")
 ) {
   fail("the credential evidence run boundary is missing or claims live execution");
 }
