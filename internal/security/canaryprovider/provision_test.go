@@ -113,7 +113,7 @@ func TestProvisionRejectsInvalidConfiguration(t *testing.T) {
 func TestProvisionSanitizesEntropyAndProviderFailures(t *testing.T) {
 	t.Parallel()
 
-	for name, entropy, creator := range map[string]struct {
+	for name, testCase := range map[string]struct {
 		entropy io.Reader
 		creator *fakeProvisioner
 	}{
@@ -126,10 +126,15 @@ func TestProvisionSanitizesEntropyAndProviderFailures(t *testing.T) {
 			creator: &fakeProvisioner{err: errors.New("sensitive provider payload")},
 		},
 	} {
-		name, entropy, creator := name, entropy.entropy, creator.creator
+		name, testCase := name, testCase
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			_, err := provisionWithEntropy(context.Background(), validProvisionConfig(), creator, entropy)
+			_, err := provisionWithEntropy(
+				context.Background(),
+				validProvisionConfig(),
+				testCase.creator,
+				testCase.entropy,
+			)
 			if !errors.Is(err, ErrProvisioning) {
 				t.Fatalf("Provision() error = %v", err)
 			}
