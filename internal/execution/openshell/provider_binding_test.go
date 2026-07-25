@@ -133,9 +133,9 @@ func TestProviderBindingFailuresAreSanitized(t *testing.T) {
 	t.Parallel()
 
 	for name, result := range map[string]scriptedResult{
-		"command":   {err: errors.New("sensitive command payload")},
-		"json":      {result: CommandResult{Stdout: []byte(`[{"name":"secret"`)}},
-		"oversized": {result: CommandResult{Stdout: []byte(strings.Repeat("x", providerBindingMaxOutputBytes+1))}},
+		"command":	{err: errors.New("sensitive command payload")},
+		"json":	{result: CommandResult{Stdout: []byte(`[{"name":"secret"`)}},
+		"oversized":	{result: CommandResult{Stdout: []byte(strings.Repeat("x", providerBindingMaxOutputBytes+1))}},
 	} {
 		name, result := name, result
 		t.Run(name, func(t *testing.T) {
