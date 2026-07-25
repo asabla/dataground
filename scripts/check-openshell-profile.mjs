@@ -169,8 +169,16 @@ const canaryProviderSource = await readFile(
   resolve(root, "internal/security/canaryprovider/cleanup.go"),
   "utf8",
 );
+const canaryProviderProvisionSource = await readFile(
+  resolve(root, "internal/security/canaryprovider/provision.go"),
+  "utf8",
+);
 const providerBindingSource = await readFile(
   resolve(root, "internal/execution/openshell/provider_binding.go"),
+  "utf8",
+);
+const providerBindingCreateSource = await readFile(
+  resolve(root, "internal/execution/openshell/provider_binding_create.go"),
   "utf8",
 );
 if (
@@ -359,6 +367,21 @@ if (
   canaryEvidenceRun?.sandboxCleanup?.serialization !== "forbidden" ||
   canaryEvidenceRun?.sandboxCleanup?.status !==
     "sandbox cleanup adapter verified; live harness wiring required" ||
+  canaryEvidenceRun?.providerProvisioning?.assembly !==
+    "internal/security/canaryprovider.Provision" ||
+  canaryEvidenceRun?.providerProvisioning?.name !== "dg-canary-provider-<runID>" ||
+  canaryEvidenceRun?.providerProvisioning?.profile !== "codex" ||
+  JSON.stringify(canaryEvidenceRun?.providerProvisioning?.credentials) !==
+    JSON.stringify(["access_token", "refresh_token", "account_id", "id_token"]) ||
+  canaryEvidenceRun?.providerProvisioning?.canary !==
+    "32-byte cryptographic entropy encoded as the structured canary and cleared after provider creation" ||
+  canaryEvidenceRun?.providerProvisioning?.transport !==
+    "pinned OpenShell 0.0.86 provider create with bare credential keys and an isolated child environment" ||
+  canaryEvidenceRun?.providerProvisioning?.recovery !==
+    "require pre-create absence then credential-safe exact identity observation on the dedicated evidence gateway" ||
+  canaryEvidenceRun?.providerProvisioning?.serialization !== "forbidden" ||
+  canaryEvidenceRun?.providerProvisioning?.status !==
+    "provider provisioning verified; live harness wiring required" ||
   canaryEvidenceRun?.providerCleanup?.assembly !== "internal/security/canaryprovider.New" ||
   canaryEvidenceRun?.providerCleanup?.name !== "dg-canary-provider-<runID>" ||
   canaryEvidenceRun?.providerCleanup?.resource !==
@@ -371,7 +394,7 @@ if (
   canaryEvidenceRun?.providerCleanup?.status !==
     "provider cleanup adapter verified; live harness wiring required" ||
   canaryEvidenceRun?.status !==
-    "run, all source lifecycle, and cleanup adapters verified; live Docker execution required" ||
+    "provider provisioning, run, all source lifecycle, and cleanup adapters verified; live Docker execution required" ||
   !canaryEvidenceSource.includes("func Run(") ||
   !canaryEvidenceSource.includes("config.Sources.ValidateBinding(") ||
   !canaryEvidenceSource.includes("config.Sources.Collect(") ||
@@ -413,9 +436,26 @@ if (
   !canaryProviderSource.includes('"dg-canary-provider-"') ||
   !canaryProviderSource.includes("func (Adapter) MarshalJSON(") ||
   canaryProviderSource.includes("os/exec") ||
+  !canaryProviderProvisionSource.includes("func Provision(") ||
+  !canaryProviderProvisionSource.includes("rand.Reader") ||
+  !canaryProviderProvisionSource.includes("io.ReadFull(") ||
+  !canaryProviderProvisionSource.includes('"dataground-canary-v1:"') ||
+  !canaryProviderProvisionSource.includes("clear(canary)") ||
+  !canaryProviderProvisionSource.includes("CreateCredentialEvidenceProvider(") ||
+  !canaryProviderProvisionSource.includes("func (Provisioned) MarshalJSON(") ||
+  canaryProviderProvisionSource.includes("os/exec") ||
+  !providerBindingCreateSource.includes(
+    "func (provider *Provider) CreateCredentialEvidenceProvider(",
+  ) ||
+  !providerBindingCreateSource.includes("provider.Check(ctx)") ||
+  !providerBindingCreateSource.includes("observeProviderBindingName(") ||
+  !providerBindingCreateSource.includes('"provider",') ||
+  !providerBindingCreateSource.includes('"create",') ||
+  !providerBindingCreateSource.includes('"--credential", key') ||
+  !providerBindingCreateSource.includes("command.Env = make(") ||
+  providerBindingCreateSource.includes('"sh", "-c"') ||
   !providerBindingSource.includes("func (provider *Provider) ObserveProviderBinding(") ||
   !providerBindingSource.includes("providerBindingMaxOutputBytes") ||
-  providerBindingSource.includes("CredentialKeys") ||
   providerBindingSource.includes("ConfigKeys") ||
   !providerBindingSource.includes("func (provider *Provider) DeleteProviderBinding(") ||
   !providerBindingSource.includes('"provider",') ||
