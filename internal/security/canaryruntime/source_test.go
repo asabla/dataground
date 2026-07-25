@@ -16,6 +16,25 @@ import (
 
 const testRunID = "0123456789abcdef0123456789abcdef"
 
+func TestSourcesProxyExactRuntimeSession(t *testing.T) {
+	t.Parallel()
+
+	session := newFakeSession("stderr")
+	sources := validSources(t, session)
+	if sources.Input() != session.input {
+		t.Fatal("Input() did not preserve the exact session stream")
+	}
+	if sources.Output() != session.output {
+		t.Fatal("Output() did not preserve the exact session stream")
+	}
+	if err := sources.Wait(); err != nil || session.waits != 1 {
+		t.Fatalf("Wait() error = %v, calls = %d", err, session.waits)
+	}
+	if err := sources.Close(); err != nil || session.closes != 1 {
+		t.Fatalf("Close() error = %v, calls = %d", err, session.closes)
+	}
+}
+
 func TestSourcesCaptureExactRuntimeErrorsOnce(t *testing.T) {
 	t.Parallel()
 
@@ -315,6 +334,8 @@ type fakeSession struct {
 	input  io.WriteCloser
 	output io.ReadCloser
 	errors io.ReadCloser
+	waits  int
+	closes int
 }
 
 func newFakeSession(stderr string) *fakeSession {
@@ -328,8 +349,12 @@ func newFakeSession(stderr string) *fakeSession {
 func (session *fakeSession) Input() io.WriteCloser { return session.input }
 func (session *fakeSession) Output() io.ReadCloser { return session.output }
 func (session *fakeSession) Errors() io.ReadCloser { return session.errors }
-func (*fakeSession) Wait() error                   { return nil }
+func (session *fakeSession) Wait() error {
+	session.waits++
+	return nil
+}
 func (session *fakeSession) Close() error {
+	session.closes++
 	return errors.Join(session.input.Close(), session.output.Close(), session.errors.Close())
 }
 
