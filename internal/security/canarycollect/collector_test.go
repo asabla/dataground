@@ -1,0 +1,279 @@
+package canarycollect
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"io"
+	"strings"
+	"testing"
+)
+
+const testCanary = "dataground-canary-v1:ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_a-b-cD"
+
+func TestCollectOwnsCanonicalDirectHandoff(t *testing.T) {
+	t.Parallel()
+
+	order := make([]string, 0, len(surfaceOrder))
+	closes := make(map[string]int, len(surfaceOrder))
+	config := validConfig(func(surface string) (io.ReadCloser, error) {
+		order = append(order, surface)
+		return &trackedReadCloser{
+			Reader: strings.NewReader("safe " + surface),
+			close: func() { closes[surface]++ },
+		}, nil
+	})
+
+	collection, err := Collect(context.Background(), config)
+	if err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	if strings.Join(order, ",") != strings.Join(surfaceOrder, ",") {
+		t.Fatalf("Collect() order = %v", order)
+	}
+	for _, surface := range surfaceOrder {
+		if closes[surface] != 1 {
+			t.Fatalf("Collect() closes[%q] = %d", surface, closes[surface])
+		}
+	}
+
+	encoded, err := json.Marshal(collection)
+	if err != nil {
+		t.Fatalf("marshal collection: %v", err)
+	}
+	var reports []map[string]any
+	if err := json.Unmarshal(encoded, &reports); err != nil {
+		t.Fatalf("decode collection: %v", err)
+	}
+	if len(reports) != len(surfaceOrder) {
+		t.Fatalf("collection report count = %d", len(reports))
+	}
+	if bytes.Contains(encoded, []byte("safe ")) {
+		t.Fatalf("collection retained source content: %s", encoded)
+	}
+	for index, report := range reports {
+		if report["surface"] != surfaceOrder[index] || report["status"] != "clear" {
+			t.Fatalf("collection report %d = %v", index, report)
+		}
+	}
+}
+
+func TestCollectRejectsCompletePlanDriftBeforeAcquisition(t *testing.T) {
+	t.Parallel()
+
+	for name, mutate := range map[string]func(*Config){
+		"missing source": func(config *Config) {
+			config.Sources = config.Sources[:len(config.Sources)-1]
+		},
+		"duplicate source": func(config *Config) {
+			config.Sources[1].Surface = config.Sources[0].Surface
+		},
+		"extra limit": func(config *Config) {
+			config.Limits["host-environment"] = 1024
+		},
+		"invalid resource": func(config *Config) {
+			config.Resources.Sandbox = "Invalid Sandbox"
+		},
+		"invalid run": func(config *Config) {
+			config.RunID = ""
+		},
+	} {
+		name, mutate := name, mutate
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			acquisitions := 0
+			config := validConfig(func(string) (io.ReadCloser, error) {
+				acquisitions++
+				return io.NopCloser(strings.NewReader("safe")), nil
+			})
+			mutate(&config)
+			collection, err := Collect(context.Background(), config)
+			if !errors.Is(err, ErrInvalidConfiguration) {
+				t.Fatalf("Collect() error = %v, want ErrInvalidConfiguration", err)
+			}
+			if acquisitions != 0 {
+				t.Fatalf("Collect() acquired %d sources", acquisitions)
+			}
+			assertReportCount(t, collection, 0)
+		})
+	}
+}
+
+func TestCollectSanitizesAcquisitionFailure(t *testing.T) {
+	t.Parallel()
+
+	acquired := 0
+	config := validConfig(func(surface string) (io.ReadCloser, error) {
+		acquired++
+		if surface == "sandbox-environment" {
+			return nil, errors.New("sensitive upstream payload")
+		}
+		return io.NopCloser(strings.NewReader("safe")), nil
+	})
+
+	collection, err := Collect(context.Background(), config)
+	if !errors.Is(err, ErrAcquisition) {
+		t.Fatalf("Collect() error = %v, want ErrAcquisition", err)
+	}
+	if strings.Contains(err.Error(), "sensitive") {
+		t.Fatalf("Collect() leaked acquisition error: %v", err)
+	}
+	if acquired != 2 {
+		t.Fatalf("Collect() acquisitions = %d", acquired)
+	}
+	assertReportCount(t, collection, 1)
+}
+
+func TestCollectRetainsIncompleteBoundReport(t *testing.T) {
+	t.Parallel()
+
+	readErr := errors.New("sensitive reader failure")
+	config := validConfig(func(surface string) (io.ReadCloser, error) {
+		if surface == "sandbox-process" {
+			return &errorReadCloser{
+				Reader: &bytesErrorReader{content: []byte("partial source"), err: readErr},
+			}, nil
+		}
+		return io.NopCloser(strings.NewReader("safe")), nil
+	})
+
+	collection, err := Collect(context.Background(), config)
+	if !errors.Is(err, ErrScan) {
+		t.Fatalf("Collect() error = %v, want ErrScan", err)
+	}
+	if strings.Contains(err.Error(), "sensitive") {
+		t.Fatalf("Collect() leaked scan error: %v", err)
+	}
+	encoded, marshalErr := json.Marshal(collection)
+	if marshalErr != nil {
+		t.Fatalf("marshal collection: %v", marshalErr)
+	}
+	var reports []map[string]any
+	if unmarshalErr := json.Unmarshal(encoded, &reports); unmarshalErr != nil {
+		t.Fatalf("decode collection: %v", unmarshalErr)
+	}
+	if len(reports) != 1 || reports[0]["status"] != "incomplete" {
+		t.Fatalf("partial collection = %v", reports)
+	}
+	if bytes.Contains(encoded, []byte("partial source")) {
+		t.Fatalf("partial collection retained source content: %s", encoded)
+	}
+}
+
+func TestCollectFailsOnCanaryAndCloseUncertainty(t *testing.T) {
+	t.Parallel()
+
+	for name, opener := range map[string]func(string) (io.ReadCloser, error){
+		"canary": func(surface string) (io.ReadCloser, error) {
+			content := "safe"
+			if surface == "sandbox-process" {
+				content = testCanary
+			}
+			return io.NopCloser(strings.NewReader(content)), nil
+		},
+		"close": func(surface string) (io.ReadCloser, error) {
+			return &errorReadCloser{
+				Reader:   strings.NewReader("safe"),
+				closeErr: errors.New("sensitive close failure"),
+			}, nil
+		},
+	} {
+		name, opener := name, opener
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			collection, err := Collect(context.Background(), validConfig(opener))
+			if name == "canary" && !errors.Is(err, ErrCanaryDetected) {
+				t.Fatalf("Collect() error = %v, want ErrCanaryDetected", err)
+			}
+			if name == "close" && !errors.Is(err, ErrSourceClose) {
+				t.Fatalf("Collect() error = %v, want ErrSourceClose", err)
+			}
+			if strings.Contains(err.Error(), "sensitive") {
+				t.Fatalf("Collect() leaked close error: %v", err)
+			}
+			assertReportCount(t, collection, 1)
+		})
+	}
+}
+
+func validConfig(opener func(string) (io.ReadCloser, error)) Config {
+	sources := make([]Source, 0, len(surfaceOrder))
+	limits := make(map[string]int64, len(surfaceOrder))
+	for _, surface := range surfaceOrder {
+		surface := surface
+		sources = append(sources, Source{
+			Surface: surface,
+			Acquire: func(context.Context) (io.ReadCloser, error) {
+				return opener(surface)
+			},
+		})
+		limits[surface] = 1024
+	}
+	digest := sha256.Sum256([]byte(testCanary))
+	return Config{
+		RunID:            "0123456789abcdef0123456789abcdef",
+		CanaryCommitment: "sha256:" + hex.EncodeToString(digest[:]),
+		Resources: ResourceNames{
+			Gateway:  "dataground-gateway",
+			Sandbox:  "sandbox-credential-check",
+			Provider: "provider-credential-check",
+			Runtime:  "runtime-invocation",
+		},
+		Limits:  limits,
+		Sources: sources,
+	}
+}
+
+func assertReportCount(t *testing.T, collection Collection, want int) {
+	t.Helper()
+
+	encoded, err := json.Marshal(collection)
+	if err != nil {
+		t.Fatalf("marshal collection: %v", err)
+	}
+	var reports []json.RawMessage
+	if err := json.Unmarshal(encoded, &reports); err != nil {
+		t.Fatalf("decode collection: %v", err)
+	}
+	if len(reports) != want {
+		t.Fatalf("collection report count = %d, want %d", len(reports), want)
+	}
+}
+
+type trackedReadCloser struct {
+	io.Reader
+	close func()
+}
+
+func (source *trackedReadCloser) Close() error {
+	source.close()
+	return nil
+}
+
+type errorReadCloser struct {
+	io.Reader
+	closeErr error
+}
+
+func (source *errorReadCloser) Close() error {
+	return source.closeErr
+}
+
+type bytesErrorReader struct {
+	content []byte
+	err     error
+	read    bool
+}
+
+func (reader *bytesErrorReader) Read(buffer []byte) (int, error) {
+	if reader.read {
+		return 0, io.EOF
+	}
+	reader.read = true
+	return copy(buffer, reader.content), reader.err
+}
