@@ -76,6 +76,29 @@ func TestSourcesCaptureExactRuntimeErrorsOnce(t *testing.T) {
 	}
 }
 
+func TestSourcesCaptureEmptyRuntimeErrors(t *testing.T) {
+	t.Parallel()
+
+	sources := validSources(t, newFakeSession(""))
+	stream := sources.Errors()
+	if _, err := io.Copy(io.Discard, stream); err != nil {
+		t.Fatalf("drain empty runtime stderr: %v", err)
+	}
+	if err := stream.Close(); err != nil {
+		t.Fatalf("close empty runtime stderr: %v", err)
+	}
+	evidence, err := sources.OpenRuntimeErrors(context.Background(), validRequest())
+	if err != nil {
+		t.Fatalf("OpenRuntimeErrors() error = %v", err)
+	}
+	if inspected, err := io.ReadAll(evidence); err != nil || len(inspected) != 0 {
+		t.Fatalf("empty evidence = %q, error = %v", inspected, err)
+	}
+	if err := evidence.Close(); err != nil {
+		t.Fatalf("close empty evidence: %v", err)
+	}
+}
+
 func TestNewRejectsInvalidConfiguration(t *testing.T) {
 	t.Parallel()
 
