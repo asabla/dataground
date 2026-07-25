@@ -86,6 +86,21 @@
           "runtime-errors": "runtime"
         }
       },
+      "collector": {
+        "assembly": "internal/security/canarycollect.Collect",
+        "sourceContract": "one-shot io.ReadCloser acquired from a run-owned live resource",
+        "reportHandoff": "direct to internal/security/canaryscan.ScanReport",
+        "sourceOrder": [
+          "sandbox-process",
+          "sandbox-environment",
+          "sandbox-filesystem",
+          "provider-arguments",
+          "gateway-logs",
+          "sandbox-logs",
+          "runtime-errors"
+        ],
+        "status": "collection boundary verified; live OpenShell and Docker acquisition required"
+      },
       "status": "contract verified; live evidence required"
     }
   },
