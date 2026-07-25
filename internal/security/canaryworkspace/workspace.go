@@ -34,6 +34,10 @@ type Config struct {
 // Workspace is a fresh, private filesystem identity for one credential
 // evidence run. Its host path and file handles never cross the boundary.
 type Workspace struct {
+	state *workspaceState
+}
+
+type workspaceState struct {
 	mu         sync.Mutex
 	runID      string
 	name       string
@@ -116,56 +120,61 @@ func Open(config Config) (*Workspace, error) {
 		return nil, ErrWorkspaceFailure
 	}
 	return &Workspace{
-		runID:     config.RunID,
-		name:      name,
-		path:      path,
-		parent:    parent,
-		directory: directory,
+		state: &workspaceState{
+			runID:     config.RunID,
+			name:      name,
+			path:      path,
+			parent:    parent,
+			directory: directory,
+		},
 	}, nil
 }
 
 func (workspace *Workspace) Name() string {
-	if workspace == nil {
+	if workspace == nil || workspace.state == nil {
 		return ""
 	}
-	return workspace.name
+	return workspace.state.name
 }
 
 // Cleanup returns a canary-evidence cleanup adapter that accepts only the
 // exact run-owned workspace identity. A missing workspace is safe only after
 // this instance recorded a successful removal.
 func (workspace *Workspace) Cleanup(ctx context.Context, request canaryevidence.CleanupRequest) error {
-	if workspace == nil || ctx == nil ||
-		request.RunID != workspace.runID ||
+	if workspace == nil || workspace.state == nil || ctx == nil {
+		return ErrInvalidConfiguration
+	}
+	state := workspace.state
+	if request.RunID != state.runID ||
 		request.ResourceKind != "workspace" ||
-		request.ResourceName != workspace.name {
+		request.ResourceName != state.name {
 		return ErrInvalidConfiguration
 	}
 	if err := ctx.Err(); err != nil {
 		return errors.Join(ErrWorkspaceFailure, err)
 	}
 
-	workspace.mu.Lock()
-	defer workspace.mu.Unlock()
-	if workspace.removed {
-		return workspace.cleanupErr
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.removed {
+		return state.cleanupErr
 	}
 	if err := ctx.Err(); err != nil {
 		return errors.Join(ErrWorkspaceFailure, err)
 	}
-	info, err := os.Lstat(workspace.path)
+	info, err := os.Lstat(state.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return ErrWorkspaceUncertain
 	}
 	if err != nil {
 		return ErrWorkspaceFailure
 	}
-	opened, err := workspace.directory.Stat()
+	opened, err := state.directory.Stat()
 	if err != nil || !os.SameFile(info, opened) || info.Mode()&os.ModeSymlink != 0 ||
 		!info.IsDir() || info.Mode().Perm() != 0o700 || !ownedByCurrentUser(info) {
 		return ErrWorkspaceUnsafe
 	}
-	_, err = workspace.directory.Readdirnames(1)
+	_, err = state.directory.Readdirnames(1)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return ErrWorkspaceFailure
 	}
@@ -175,25 +184,25 @@ func (workspace *Workspace) Cleanup(ctx context.Context, request canaryevidence.
 	if err := ctx.Err(); err != nil {
 		return errors.Join(ErrWorkspaceFailure, err)
 	}
-	if err := os.Remove(workspace.path); err != nil {
+	if err := os.Remove(state.path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return ErrWorkspaceUncertain
 		}
 		return ErrWorkspaceFailure
 	}
-	if err := workspace.parent.Sync(); err != nil {
+	if err := state.parent.Sync(); err != nil {
 		return ErrWorkspaceUncertain
 	}
-	workspace.removed = true
-	workspace.cleanupErr = errors.Join(workspace.directory.Close(), workspace.parent.Close())
-	return workspace.cleanupErr
+	state.removed = true
+	state.cleanupErr = errors.Join(state.directory.Close(), state.parent.Close())
+	return state.cleanupErr
 }
 
-func (workspace *Workspace) MarshalJSON() ([]byte, error) {
+func (Workspace) MarshalJSON() ([]byte, error) {
 	return nil, ErrWorkspaceSerialization
 }
 
 var (
-	_ json.Marshaler             = (*Workspace)(nil)
+	_ json.Marshaler             = Workspace{}
 	_ canaryevidence.CleanupFunc = (&Workspace{}).Cleanup
 )
