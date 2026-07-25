@@ -11,9 +11,12 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/asabla/dataground/internal/execution"
 )
+
+const credentialProviderRecoveryTimeout = 30 * time.Second
 
 var credentialEvidenceProviderNamePattern = regexp.MustCompile(
 	"^dg-canary-provider-[a-f0-9]{32}$",
@@ -90,7 +93,9 @@ func (provider *Provider) CreateCredentialEvidenceProvider(
 	for _, key := range keys {
 		args = append(args, "--credential", key)
 	}
-	result, createErr := provider.credentialProvider.RunWithCredentials(
+	// A command result is not authoritative: success still requires exact
+	// observation, while failure may be a lost acknowledgement.
+	result, _ := provider.credentialProvider.RunWithCredentials(
 		ctx,
 		provider.binary,
 		credentials,
@@ -102,8 +107,13 @@ func (provider *Provider) CreateCredentialEvidenceProvider(
 	}
 	clear(result.Stdout)
 
+	recoveryCtx, cancelRecovery := context.WithTimeout(
+		context.WithoutCancel(ctx),
+		credentialProviderRecoveryTimeout,
+	)
+	defer cancelRecovery()
 	binding, exists, _, observeErr := provider.observeProviderBindingName(
-		ctx,
+		recoveryCtx,
 		request.IsolationDomainID,
 		request.GatewayID,
 		request.Name,
@@ -117,12 +127,9 @@ func (provider *Provider) CreateCredentialEvidenceProvider(
 	if !validCreatedCredentialProvider(binding, keys) {
 		return execution.ProviderBinding{}, execution.ErrStateConflict
 	}
-	if createErr != nil || result.ExitCode != 0 {
-		// The deterministic name was absent before creation and is now bound to
-		// the exact expected metadata. On the dedicated evidence gateway this
-		// is the only safe lost-acknowledgement recovery signal.
-	}
-
+	// The deterministic name was absent before creation and is now bound to
+	// the exact expected metadata. On the dedicated evidence gateway this is
+	// authoritative even when the command acknowledgement was lost.
 	return execution.ProviderBinding{
 		IsolationDomainID: request.IsolationDomainID,
 		GatewayID:         request.GatewayID,
