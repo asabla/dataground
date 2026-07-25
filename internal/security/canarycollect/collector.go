@@ -18,6 +18,16 @@ var (
 	ErrCollectionIncomplete = errors.New("credential source collection is incomplete")
 )
 
+var surfaceLimits = map[string]int64{
+	"sandbox-process":     16 << 20,
+	"sandbox-environment": 16 << 20,
+	"sandbox-filesystem":  256 << 20,
+	"provider-arguments":  16 << 20,
+	"gateway-logs":        256 << 20,
+	"sandbox-logs":        256 << 20,
+	"runtime-errors":      16 << 20,
+}
+
 var surfaceOrder = []string{
 	"sandbox-process",
 	"sandbox-environment",
@@ -50,7 +60,6 @@ type Config struct {
 	RunID            string
 	CanaryCommitment string
 	Resources        ResourceNames
-	Limits           map[string]int64
 	Sources          []Source
 }
 
@@ -125,7 +134,7 @@ type sourcePlan struct {
 }
 
 func validate(config Config) ([]sourcePlan, error) {
-	if len(config.Sources) != len(surfaceOrder) || len(config.Limits) != len(surfaceOrder) {
+	if len(config.Sources) != len(surfaceOrder) {
 		return nil, ErrInvalidConfiguration
 	}
 
@@ -146,8 +155,7 @@ func validate(config Config) ([]sourcePlan, error) {
 	plans := make([]sourcePlan, 0, len(surfaceOrder))
 	for _, surface := range surfaceOrder {
 		acquire, ok := sources[surface]
-		limit, hasLimit := config.Limits[surface]
-		if !ok || !hasLimit {
+		if !ok {
 			return nil, ErrInvalidConfiguration
 		}
 		resource := resourceName(config.Resources, surface)
@@ -156,7 +164,7 @@ func validate(config Config) ([]sourcePlan, error) {
 			RunID:            config.RunID,
 			ResourceName:     resource,
 			CanaryCommitment: config.CanaryCommitment,
-			MaxBytes:         limit,
+			MaxBytes:         surfaceLimits[surface],
 		}
 		if err := canaryscan.ValidateReportConfig(report); err != nil {
 			return nil, ErrInvalidConfiguration
