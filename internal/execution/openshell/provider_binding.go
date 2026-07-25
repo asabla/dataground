@@ -19,9 +19,11 @@ const (
 var providerBindingNamePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$`)
 
 type providerBindingView struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	ResourceVersion uint64 `json:"resource_version"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Type            string   `json:"type"`
+	CredentialKeys  []string `json:"credential_keys"`
+	ResourceVersion uint64   `json:"resource_version"`
 }
 
 // ObserveProviderBinding reads credential-safe provider metadata from the exact
@@ -37,9 +39,50 @@ func (provider *Provider) ObserveProviderBinding(
 	if err := ctx.Err(); err != nil {
 		return execution.ProviderBindingObservation{}, err
 	}
-	gateway, err := provider.executionContext(ctx, ref.IsolationDomainID, ref.GatewayID)
+
+	binding, exists, observedAt, err := provider.observeProviderBindingName(
+		ctx,
+		ref.IsolationDomainID,
+		ref.GatewayID,
+		ref.Name,
+	)
 	if err != nil {
 		return execution.ProviderBindingObservation{}, err
+	}
+	if !exists {
+		return absentProviderBinding(ref, observedAt), nil
+	}
+	return execution.ProviderBindingObservation{
+		IsolationDomainID: ref.IsolationDomainID,
+		GatewayID:         ref.GatewayID,
+		ID:                binding.ID,
+		Name:              binding.Name,
+		ResourceVersion:   binding.ResourceVersion,
+		Exists:            true,
+		ObservedAt:        observedAt,
+	}, nil
+}
+
+func (provider *Provider) observeProviderBindingName(
+	ctx context.Context,
+	isolationDomainID string,
+	gatewayID string,
+	name string,
+) (providerBindingView, bool, time.Time, error) {
+	if provider == nil ||
+		ctx == nil ||
+		isolationDomainID == "" ||
+		gatewayID == "" ||
+		len(name) > 64 ||
+		!providerBindingNamePattern.MatchString(name) {
+		return providerBindingView{}, false, time.Time{}, execution.ErrStateConflict
+	}
+	if err := ctx.Err(); err != nil {
+		return providerBindingView{}, false, time.Time{}, err
+	}
+	gateway, err := provider.executionContext(ctx, isolationDomainID, gatewayID)
+	if err != nil {
+		return providerBindingView{}, false, time.Time{}, err
 	}
 
 	for page := 0; page < providerBindingPageLimit; page++ {
@@ -60,46 +103,40 @@ func (provider *Provider) ObserveProviderBinding(
 			)...,
 		)
 		if runErr != nil || result.ExitCode != 0 {
-			return execution.ProviderBindingObservation{}, ErrProviderFailure
+			return providerBindingView{}, false, time.Time{}, ErrProviderFailure
 		}
 
 		var bindings []providerBindingView
 		if len(result.Stdout) > providerBindingMaxOutputBytes {
-			return execution.ProviderBindingObservation{}, ErrProviderFailure
+			return providerBindingView{}, false, time.Time{}, ErrProviderFailure
 		}
 		if err := json.Unmarshal(result.Stdout, &bindings); err != nil ||
 			len(bindings) > providerBindingPageSize {
-			return execution.ProviderBindingObservation{}, ErrProviderFailure
+			return providerBindingView{}, false, time.Time{}, ErrProviderFailure
 		}
+
 		var match *providerBindingView
 		for index := range bindings {
-			if bindings[index].Name != ref.Name {
+			if bindings[index].Name != name {
 				continue
 			}
 			if match != nil {
-				return execution.ProviderBindingObservation{}, ErrProviderFailure
+				return providerBindingView{}, false, time.Time{}, ErrProviderFailure
 			}
 			match = &bindings[index]
 		}
+		observedAt := provider.now().UTC()
 		if match != nil {
 			if match.ID == "" || match.ResourceVersion == 0 {
-				return execution.ProviderBindingObservation{}, ErrProviderFailure
+				return providerBindingView{}, false, time.Time{}, ErrProviderFailure
 			}
-			return execution.ProviderBindingObservation{
-				IsolationDomainID: ref.IsolationDomainID,
-				GatewayID:         ref.GatewayID,
-				ID:                match.ID,
-				Name:              match.Name,
-				ResourceVersion:   match.ResourceVersion,
-				Exists:            true,
-				ObservedAt:        provider.now().UTC(),
-			}, nil
+			return *match, true, observedAt, nil
 		}
 		if len(bindings) < providerBindingPageSize {
-			return absentProviderBinding(ref, provider.now().UTC()), nil
+			return providerBindingView{}, false, observedAt, nil
 		}
 	}
-	return execution.ProviderBindingObservation{}, ErrProviderFailure
+	return providerBindingView{}, false, time.Time{}, ErrProviderFailure
 }
 
 // DeleteProviderBinding removes only the binding that still has the exact
