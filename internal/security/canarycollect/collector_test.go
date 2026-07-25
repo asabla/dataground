@@ -19,11 +19,15 @@ func TestCollectOwnsCanonicalDirectHandoff(t *testing.T) {
 
 	order := make([]string, 0, len(surfaceOrder))
 	closes := make(map[string]int, len(surfaceOrder))
-	config := validConfig(func(surface string) (io.ReadCloser, error) {
-		order = append(order, surface)
+	config := validConfig(func(request SourceRequest) (io.ReadCloser, error) {
+		order = append(order, request.Surface)
+		if request.RunID != "0123456789abcdef0123456789abcdef" ||
+			request.ResourceName != resourceName(configResources(), request.Surface) {
+			t.Fatalf("acquisition request = %+v", request)
+		}
 		return &trackedReadCloser{
-			Reader: strings.NewReader("safe " + surface),
-			close: func() { closes[surface]++ },
+			Reader: strings.NewReader("safe " + request.Surface),
+			close: func() { closes[request.Surface]++ },
 		}, nil
 	})
 
@@ -86,7 +90,7 @@ func TestCollectRejectsCompletePlanDriftBeforeAcquisition(t *testing.T) {
 			t.Parallel()
 
 			acquisitions := 0
-			config := validConfig(func(string) (io.ReadCloser, error) {
+			config := validConfig(func(SourceRequest) (io.ReadCloser, error) {
 				acquisitions++
 				return io.NopCloser(strings.NewReader("safe")), nil
 			})
@@ -103,13 +107,32 @@ func TestCollectRejectsCompletePlanDriftBeforeAcquisition(t *testing.T) {
 	}
 }
 
+func TestCollectRejectsCancellationBeforeAcquisition(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	acquisitions := 0
+	collection, err := Collect(ctx, validConfig(func(SourceRequest) (io.ReadCloser, error) {
+		acquisitions++
+		return io.NopCloser(strings.NewReader("safe")), nil
+	}))
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, ErrAcquisition) {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	if acquisitions != 0 {
+		t.Fatalf("Collect() acquired %d sources", acquisitions)
+	}
+	assertReportCount(t, collection, 0)
+}
+
 func TestCollectSanitizesAcquisitionFailure(t *testing.T) {
 	t.Parallel()
 
 	acquired := 0
-	config := validConfig(func(surface string) (io.ReadCloser, error) {
+	config := validConfig(func(request SourceRequest) (io.ReadCloser, error) {
 		acquired++
-		if surface == "sandbox-environment" {
+		if request.Surface == "sandbox-environment" {
 			return nil, errors.New("sensitive upstream payload")
 		}
 		return io.NopCloser(strings.NewReader("safe")), nil
@@ -132,8 +155,8 @@ func TestCollectRetainsIncompleteBoundReport(t *testing.T) {
 	t.Parallel()
 
 	readErr := errors.New("sensitive reader failure")
-	config := validConfig(func(surface string) (io.ReadCloser, error) {
-		if surface == "sandbox-process" {
+	config := validConfig(func(request SourceRequest) (io.ReadCloser, error) {
+		if request.Surface == "sandbox-process" {
 			return &errorReadCloser{
 				Reader: &bytesErrorReader{content: []byte("partial source"), err: readErr},
 			}, nil
@@ -167,15 +190,15 @@ func TestCollectRetainsIncompleteBoundReport(t *testing.T) {
 func TestCollectFailsOnCanaryAndCloseUncertainty(t *testing.T) {
 	t.Parallel()
 
-	for name, opener := range map[string]func(string) (io.ReadCloser, error){
-		"canary": func(surface string) (io.ReadCloser, error) {
+	for name, opener := range map[string]func(SourceRequest) (io.ReadCloser, error){
+		"canary": func(request SourceRequest) (io.ReadCloser, error) {
 			content := "safe"
-			if surface == "sandbox-process" {
+			if request.Surface == "sandbox-process" {
 				content = testCanary
 			}
 			return io.NopCloser(strings.NewReader(content)), nil
 		},
-		"close": func(surface string) (io.ReadCloser, error) {
+		"close": func(SourceRequest) (io.ReadCloser, error) {
 			return &errorReadCloser{
 				Reader:   strings.NewReader("safe"),
 				closeErr: errors.New("sensitive close failure"),
@@ -201,15 +224,15 @@ func TestCollectFailsOnCanaryAndCloseUncertainty(t *testing.T) {
 	}
 }
 
-func validConfig(opener func(string) (io.ReadCloser, error)) Config {
+func validConfig(opener func(SourceRequest) (io.ReadCloser, error)) Config {
 	sources := make([]Source, 0, len(surfaceOrder))
 	limits := make(map[string]int64, len(surfaceOrder))
 	for _, surface := range surfaceOrder {
 		surface := surface
 		sources = append(sources, Source{
 			Surface: surface,
-			Acquire: func(context.Context) (io.ReadCloser, error) {
-				return opener(surface)
+			Acquire: func(_ context.Context, request SourceRequest) (io.ReadCloser, error) {
+				return opener(request)
 			},
 		})
 		limits[surface] = 1024
@@ -218,14 +241,18 @@ func validConfig(opener func(string) (io.ReadCloser, error)) Config {
 	return Config{
 		RunID:            "0123456789abcdef0123456789abcdef",
 		CanaryCommitment: "sha256:" + hex.EncodeToString(digest[:]),
-		Resources: ResourceNames{
-			Gateway:  "dataground-gateway",
-			Sandbox:  "sandbox-credential-check",
-			Provider: "provider-credential-check",
-			Runtime:  "runtime-invocation",
-		},
+		Resources: configResources(),
 		Limits:  limits,
 		Sources: sources,
+	}
+}
+
+func configResources() ResourceNames {
+	return ResourceNames{
+		Gateway:  "dataground-gateway",
+		Sandbox:  "sandbox-credential-check",
+		Provider: "provider-credential-check",
+		Runtime:  "runtime-invocation",
 	}
 }
 
