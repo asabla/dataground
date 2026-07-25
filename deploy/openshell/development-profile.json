@@ -120,7 +120,7 @@
           "serialization": "forbidden",
           "status": "workspace lifecycle verified; live harness wiring required"
         },
-        "status": "run, all source lifecycle, and cleanup adapters verified; live Docker execution required",
+        "status": "provider provisioning, run, all source lifecycle, and cleanup adapters verified; live Docker execution required",
         "sandboxCleanup": {
           "assembly": "internal/security/canarysandbox.New",
           "resource": "exact DataGround execution returned by the OpenShell provider",
@@ -178,6 +178,22 @@
             "status": "runtime-error source backend verified; live Docker execution required"
           },
           "status": "all seven source backends verified; live Docker execution required"
+        },
+        "providerProvisioning": {
+          "assembly": "internal/security/canaryprovider.Provision",
+          "name": "dg-canary-provider-<runID>",
+          "profile": "codex",
+          "credentials": [
+            "access_token",
+            "refresh_token",
+            "account_id",
+            "id_token"
+          ],
+          "canary": "32-byte cryptographic entropy encoded as the structured canary and cleared after provider creation",
+          "transport": "pinned OpenShell 0.0.86 provider create with bare credential keys and an isolated child environment",
+          "recovery": "require pre-create absence then credential-safe exact identity observation on the dedicated evidence gateway",
+          "serialization": "forbidden",
+          "status": "provider provisioning verified; live harness wiring required"
         }
       }
     }
