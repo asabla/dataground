@@ -181,6 +181,9 @@ func TestRunRejectsInvalidPlanBeforeCollectionOrCleanup(t *testing.T) {
 		"workspace": func(config *Config) {
 			config.Resources.Workspace = "Invalid Workspace"
 		},
+		"unbound workspace": func(config *Config) {
+			config.Resources.Workspace = "dg-canary-fedcba9876543210fedcba9876543210"
+		},
 		"cleanup": func(config *Config) {
 			config.Cleanup.Workspace = nil
 		},
@@ -255,7 +258,7 @@ func validConfig(cleanup CleanupFunc) Config {
 		Sandbox:   "sandbox-credential-check",
 		Provider:  "provider-credential-check",
 		Runtime:   "runtime-invocation",
-		Workspace: "credential-check-workspace",
+		Workspace: "dg-canary-0123456789abcdef0123456789abcdef",
 	}
 	surfaces := []string{
 		"sandbox-process",
