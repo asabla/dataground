@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"regexp"
 	"sync"
 
@@ -47,7 +48,7 @@ type adapterState struct {
 // New binds cleanup to one run and the exact persisted DataGround execution.
 // The execution ID is the only sandbox identity exposed to evidence.
 func New(config Config, provider Provider) (*Adapter, error) {
-	if provider == nil ||
+	if isNilProvider(provider) ||
 		!runIDPattern.MatchString(config.RunID) ||
 		config.Execution.IsolationDomainID == "" ||
 		!resourceNamePattern.MatchString(config.Execution.ID) ||
@@ -120,6 +121,19 @@ func cleanupError(ctx context.Context) error {
 		return errors.Join(ErrCleanupFailure, err)
 	}
 	return ErrCleanupFailure
+}
+
+func isNilProvider(provider Provider) bool {
+	if provider == nil {
+		return true
+	}
+	value := reflect.ValueOf(provider)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
 }
 
 func (Adapter) MarshalJSON() ([]byte, error) {
