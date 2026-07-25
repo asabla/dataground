@@ -220,9 +220,7 @@ const evidenceProfileBindings = [
   credentialEvidenceContract.verifierIdentity.version,
 ];
 if (
-  evidenceProfileBindings.some(
-    (binding) => !canaryEvidenceSource.includes(JSON.stringify(binding)),
-  )
+  evidenceProfileBindings.some((binding) => !canaryEvidenceSource.includes(JSON.stringify(binding)))
 ) {
   fail("the credential evidence run does not own the checked profile identity");
 }
