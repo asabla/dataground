@@ -246,8 +246,7 @@ if (
   canarySourceAcquisition?.openShell?.serialization !== "forbidden" ||
   canarySourceAcquisition?.openShell?.status !==
     "OpenShell sandbox source backend verified; live Docker execution required" ||
-  canarySourceAcquisition?.docker?.assembly !==
-    "internal/security/canarydocker.New" ||
+  canarySourceAcquisition?.docker?.assembly !== "internal/security/canarydocker.New" ||
   canarySourceAcquisition?.docker?.binding !==
     "exact running gateway container ID, digest-pinned image, Compose project and service, and run, gateway, and provider evidence labels" ||
   canarySourceAcquisition?.docker?.transport !==
