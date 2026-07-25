@@ -222,7 +222,7 @@
   },
   "blockers": [
     "Run the profile on a host with Docker Engine or Docker Desktop.",
-    "Configure a Codex provider through OpenShell and prove provider secrets are not process-readable.",
+    "Run the owned temporary Codex provider and seven-source harness against the pinned Docker topology and prove provider secrets are not process-readable.",
     "Publish and certify a tagged Rosetta v1 build, authenticated transport profile, stable error taxonomy, compatibility policy, and signed conformance fixtures before production materialization."
   ]
 }
