@@ -36,22 +36,34 @@ func TestCredentialEvidenceSourcesUseExactPinnedCommands(t *testing.T) {
 		{
 			surface: "sandbox-process",
 			open:    sources.OpenSandboxProcess,
-			command: credentialEvidenceCommand("sandbox-process"),
+			command: []string{
+				"find", "/proc", "-mindepth", "2", "-maxdepth", "2", "-type", "f",
+				"-name", "cmdline", "-readable", "-exec", "cat", "--", "{}", "+",
+			},
 		},
 		{
 			surface: "sandbox-environment",
 			open:    sources.OpenSandboxEnvironment,
-			command: credentialEvidenceCommand("sandbox-environment"),
+			command: []string{
+				"find", "/proc", "-mindepth", "2", "-maxdepth", "2", "-type", "f",
+				"-name", "environ", "-readable", "-exec", "cat", "--", "{}", "+",
+			},
 		},
 		{
 			surface: "sandbox-filesystem",
 			open:    sources.OpenSandboxFilesystem,
-			command: credentialEvidenceCommand("sandbox-filesystem"),
+			command: []string{
+				"find", "/", "-xdev", "-type", "f", "-readable",
+				"-exec", "cat", "--", "{}", "+",
+			},
 		},
 		{
 			surface: "sandbox-logs",
 			open:    sources.OpenSandboxLogs,
-			command: credentialEvidenceCommand("sandbox-logs"),
+			command: []string{
+				"find", "/var/log", "-maxdepth", "1", "-type", "f",
+				"-name", "openshell.*.log", "-readable", "-exec", "cat", "--", "{}", "+",
+			},
 		},
 	}
 	for _, test := range tests {
