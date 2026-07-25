@@ -99,12 +99,17 @@ if (
   evidenceCheckSchema?.properties?.inputCommitment?.pattern !== "^sha256:[a-f0-9]{64}$" ||
   JSON.stringify(Object.keys(evidenceRunProperties?.resources?.properties ?? {}).sort()) !==
     JSON.stringify(["gateway", "provider", "runtime", "sandbox", "workspace"]) ||
+  evidenceRunProperties?.resources?.properties?.workspace?.$ref !== "#/$defs/workspaceName" ||
+  credentialEvidenceSchema?.$defs?.workspaceName?.pattern !==
+    "^dg-canary-[a-f0-9]{32}$" ||
   credentialEvidenceSchema?.properties?.cleanup?.properties?.sandbox?.$ref !==
     "#/$defs/cleanupReceipt" ||
   credentialEvidenceSchema?.properties?.cleanup?.properties?.providerBinding?.$ref !==
     "#/$defs/cleanupReceipt" ||
   credentialEvidenceSchema?.properties?.cleanup?.properties?.workspace?.$ref !==
-    "#/$defs/cleanupReceipt" ||
+    "#/$defs/workspaceCleanupReceipt" ||
+  credentialEvidenceSchema?.$defs?.workspaceCleanupReceipt?.properties?.name?.$ref !==
+    "#/$defs/workspaceName" ||
   evidenceRunProperties?.startedAt?.format !== "date-time" ||
   evidenceRunProperties?.startedAt?.pattern !== "Z$" ||
   evidenceRunProperties?.finishedAt?.format !== "date-time" ||
@@ -188,6 +193,7 @@ if (
 }
 const canaryEvidenceRun = credentialEvidenceContract?.evidenceRun;
 const compactCanaryEvidenceSource = canaryEvidenceSource.replaceAll(/\s/g, "");
+const compactCanaryWorkspaceSource = canaryWorkspaceSource.replaceAll(/\s/g, "");
 if (
   canaryEvidenceRun?.assembly !== "internal/security/canaryevidence.Run" ||
   canaryEvidenceRun?.profileOwnership !==
@@ -220,6 +226,9 @@ if (
   !canaryWorkspaceSource.includes("os.Mkdir(") ||
   !canaryWorkspaceSource.includes("os.Remove(") ||
   !canaryWorkspaceSource.includes("parent.Sync()") ||
+  !compactCanaryWorkspaceSource.includes('constworkspacePrefix="dg-canary-"') ||
+  !canaryWorkspaceSource.includes("regexp.MustCompile(`^[a-f0-9]{32}$`)") ||
+  !canaryWorkspaceSource.includes('request.ResourceKind != "workspace"') ||
   canaryWorkspaceSource.includes("os.MkdirAll(") ||
   canaryWorkspaceSource.includes("os.RemoveAll(")
 ) {
