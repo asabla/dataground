@@ -239,6 +239,8 @@ if (
     "exact OpenShell provider ID, name, resource version, isolation domain, and gateway" ||
   canaryEvidenceRun?.providerCleanup?.verification !==
     "observe exact binding, delete, then require timestamped absence" ||
+  canaryEvidenceRun?.providerCleanup?.exclusivity !==
+    "dedicated evidence gateway with no concurrent provider mutation" ||
   canaryEvidenceRun?.providerCleanup?.serialization !== "forbidden" ||
   canaryEvidenceRun?.providerCleanup?.status !==
     "provider cleanup adapter verified; live harness wiring required" ||
