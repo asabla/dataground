@@ -100,8 +100,7 @@ if (
   JSON.stringify(Object.keys(evidenceRunProperties?.resources?.properties ?? {}).sort()) !==
     JSON.stringify(["gateway", "provider", "runtime", "sandbox", "workspace"]) ||
   evidenceRunProperties?.resources?.properties?.workspace?.$ref !== "#/$defs/workspaceName" ||
-  credentialEvidenceSchema?.$defs?.workspaceName?.pattern !==
-    "^dg-canary-[a-f0-9]{32}$" ||
+  credentialEvidenceSchema?.$defs?.workspaceName?.pattern !== "^dg-canary-[a-f0-9]{32}$" ||
   credentialEvidenceSchema?.properties?.cleanup?.properties?.sandbox?.$ref !==
     "#/$defs/cleanupReceipt" ||
   credentialEvidenceSchema?.properties?.cleanup?.properties?.providerBinding?.$ref !==
@@ -202,11 +201,9 @@ if (
     JSON.stringify(["sandbox", "provider", "workspace"]) ||
   canaryEvidenceRun?.cleanupContext !== "cancellation-independent run-owned cleanup" ||
   canaryEvidenceRun?.serialization !== "sealed until collection and every cleanup succeeds" ||
-  canaryEvidenceRun?.workspaceCleanup?.assembly !==
-    "internal/security/canaryworkspace.Open" ||
+  canaryEvidenceRun?.workspaceCleanup?.assembly !== "internal/security/canaryworkspace.Open" ||
   canaryEvidenceRun?.workspaceCleanup?.name !== "dg-canary-<runID>" ||
-  canaryEvidenceRun?.workspaceCleanup?.parent !==
-    "pre-existing owner-only mode-0700 directory" ||
+  canaryEvidenceRun?.workspaceCleanup?.parent !== "pre-existing owner-only mode-0700 directory" ||
   canaryEvidenceRun?.workspaceCleanup?.serialization !== "forbidden" ||
   canaryEvidenceRun?.workspaceCleanup?.status !==
     "workspace lifecycle verified; live harness wiring required" ||
