@@ -52,9 +52,32 @@ func TestRunOwnsFinalEvidenceAndCleanup(t *testing.T) {
 		runRecord["canaryCommitment"] != config.CanaryCommitment {
 		t.Fatalf("run = %v", runRecord)
 	}
+	resourcesRecord := runRecord["resources"].(map[string]any)
+	if len(resourcesRecord) != 5 ||
+		resourcesRecord["gateway"] != config.Resources.Gateway ||
+		resourcesRecord["sandbox"] != config.Resources.Sandbox ||
+		resourcesRecord["provider"] != config.Resources.Provider ||
+		resourcesRecord["runtime"] != config.Resources.Runtime ||
+		resourcesRecord["workspace"] != config.Resources.Workspace {
+		t.Fatalf("resources = %v", resourcesRecord)
+	}
 	verifierRecord := runRecord["verifier"].(map[string]any)
 	if verifierRecord["name"] != verifierName || verifierRecord["version"] != verifierVersion {
 		t.Fatalf("verifier = %v", verifierRecord)
+	}
+	profileRecord := record["profile"].(map[string]any)
+	if len(profileRecord) != 8 ||
+		profileRecord["openshellCommit"] != openshellCommit ||
+		profileRecord["providerProfileSourceSHA256"] != providerProfileSHA ||
+		profileRecord["runtimeVersion"] != runtimeVersion {
+		t.Fatalf("profile = %v", profileRecord)
+	}
+	cleanupRecord := record["cleanup"].(map[string]any)
+	for _, field := range []string{"sandbox", "providerBinding", "workspace"} {
+		receipt := cleanupRecord[field].(map[string]any)
+		if len(receipt) != 2 || receipt["status"] != cleanupStatusRemoved {
+			t.Fatalf("cleanup %s = %v", field, receipt)
+		}
 	}
 	if len(cleanupRequests) != 3 ||
 		cleanupRequests[0].ResourceKind != "sandbox" ||
