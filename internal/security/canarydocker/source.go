@@ -40,7 +40,12 @@ var (
 	imagePattern       = regexp.MustCompile(`^[a-z0-9][a-z0-9./:_-]*@sha256:[0-9a-f]{64}$`)
 )
 
-const dockerMetadataFormat = `{{.Id}}{{println}}{{.Config.Image}}{{println}}{{.State.Running}}{{println}}{{index .Config.Labels "com.docker.compose.service"}}{{println}}{{index .Config.Labels "com.docker.compose.project"}}{{println}}{{index .Config.Labels "dataground.dev/credential-evidence-run"}}{{println}}{{index .Config.Labels "dataground.dev/credential-evidence-gateway"}}{{println}}{{index .Config.Labels "dataground.dev/credential-evidence-provider"}}`
+const dockerMetadataFormat = `{{.Id}}{{println}}{{.Config.Image}}{{println}}{{.State.Running}}{{println}}{{index .Config.Labels "` +
+	composeServiceLabel + `"}}{{println}}{{index .Config.Labels "` +
+	composeProjectLabel + `"}}{{println}}{{index .Config.Labels "` +
+	runLabel + `"}}{{println}}{{index .Config.Labels "` +
+	gatewayLabel + `"}}{{println}}{{index .Config.Labels "` +
+	providerLabel + `"}}`
 
 const dockerArgumentsFormat = `{{json .Path}}{{println}}{{json .Args}}`
 
@@ -80,7 +85,7 @@ type containerSnapshot struct {
 
 type dockerRunner interface {
 	Snapshot(context.Context, string, string) (containerSnapshot, error)
-	Open(context.Context, string, ...string) (io.ReadCloser, error)
+	Open(context.Context, bool, string, ...string) (io.ReadCloser, error)
 }
 
 func New(ctx context.Context, config Config) (*Sources, error) {
@@ -194,7 +199,7 @@ func (sources *Sources) open(
 		state.finish(true)
 		return nil, ErrCredentialSource
 	}
-	stream, err := runner.Open(ctx, config.DockerBinary, args...)
+	stream, err := runner.Open(ctx, surface == "gateway-logs", config.DockerBinary, args...)
 	if err != nil || isNil(stream) {
 		if !isNil(stream) {
 			_ = stream.Close()
@@ -313,6 +318,7 @@ func (execDockerRunner) Snapshot(
 
 func (execDockerRunner) Open(
 	ctx context.Context,
+	includeStderr bool,
 	binary string,
 	args ...string,
 ) (io.ReadCloser, error) {
@@ -323,7 +329,9 @@ func (execDockerRunner) Open(
 	reader, writer := io.Pipe()
 	command := exec.CommandContext(commandContext, binary, args...)
 	command.Stdout = writer
-	command.Stderr = writer
+	if includeStderr {
+		command.Stderr = writer
+	}
 	if err := command.Start(); err != nil {
 		cancel()
 		_ = reader.Close()
