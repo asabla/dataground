@@ -204,7 +204,10 @@ function representativeEvidence() {
     })),
     cleanup: {
       sandbox: { name: "sandbox-credential-check", status: "removed" },
-      providerBinding: { name: "dg-canary-provider-0123456789abcdef0123456789abcdef", status: "removed" },
+      providerBinding: {
+        name: "dg-canary-provider-0123456789abcdef0123456789abcdef",
+        status: "removed",
+      },
       workspace: {
         name: "dg-canary-0123456789abcdef0123456789abcdef",
         status: "removed",
