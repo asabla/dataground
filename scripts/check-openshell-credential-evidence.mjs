@@ -49,6 +49,8 @@ const expectedProfile = {
 };
 const expectedScanLimits = profile.providerProfileEvidence.contract.scanner.surfaceMaxBytes;
 const expectedVerifierIdentity = profile.providerProfileEvidence.contract.verifierIdentity;
+const workspaceNameTemplate =
+  profile.providerProfileEvidence.contract.evidenceRun.workspaceCleanup.name;
 
 function verifyEvidence(evidence) {
   const failures = [];
@@ -100,6 +102,11 @@ function verifyEvidence(evidence) {
     evidence.cleanup.workspace.name !== evidence.run.resources.workspace
   ) {
     failures.push("cleanup must bind to the resources owned by the evidence run");
+  }
+
+  const expectedWorkspaceName = workspaceNameTemplate.replace("<runID>", evidence.run.id);
+  if (evidence.run.resources.workspace !== expectedWorkspaceName) {
+    failures.push("verifier workspace must be derived from the evidence run");
   }
 
   if (
@@ -158,7 +165,7 @@ function representativeEvidence() {
         sandbox: "sandbox-credential-check",
         provider: "provider-credential-check",
         runtime: "runtime-invocation",
-        workspace: "credential-check-workspace",
+        workspace: "dg-canary-0123456789abcdef0123456789abcdef",
       },
       startedAt: "2026-07-24T12:00:00.000Z",
       finishedAt: "2026-07-24T12:01:00.000Z",
@@ -192,7 +199,10 @@ function representativeEvidence() {
     cleanup: {
       sandbox: { name: "sandbox-credential-check", status: "removed" },
       providerBinding: { name: "provider-credential-check", status: "removed" },
-      workspace: { name: "credential-check-workspace", status: "removed" },
+      workspace: {
+        name: "dg-canary-0123456789abcdef0123456789abcdef",
+        status: "removed",
+      },
     },
     result: "passed",
   };
@@ -364,6 +374,24 @@ function runSelfTest() {
         cleanup: {
           ...valid.cleanup,
           sandbox: { ...valid.cleanup.sandbox, status: "unknown" },
+        },
+      },
+      false,
+    ],
+    [
+      "unbound workspace identity",
+      {
+        ...valid,
+        run: {
+          ...valid.run,
+          resources: { ...valid.run.resources, workspace: "dg-canary-fedcba9876543210fedcba9876543210" },
+        },
+        cleanup: {
+          ...valid.cleanup,
+          workspace: {
+            ...valid.cleanup.workspace,
+            name: "dg-canary-fedcba9876543210fedcba9876543210",
+          },
         },
       },
       false,
