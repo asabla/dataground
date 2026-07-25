@@ -120,7 +120,14 @@
           "serialization": "forbidden",
           "status": "workspace lifecycle verified; live harness wiring required"
         },
-        "status": "run assembly and workspace cleanup verified; live acquisition and OpenShell cleanup adapters required"
+        "status": "run assembly, workspace cleanup, and sandbox cleanup verified; live acquisition and provider cleanup adapters required",
+        "sandboxCleanup": {
+          "assembly": "internal/security/canarysandbox.New",
+          "resource": "exact DataGround execution returned by the OpenShell provider",
+          "verification": "terminate then observe the exact execution as terminated",
+          "serialization": "forbidden",
+          "status": "sandbox cleanup adapter verified; live harness wiring required"
+        }
       }
     }
   },
