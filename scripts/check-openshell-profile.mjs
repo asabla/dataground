@@ -169,6 +169,8 @@ if (
   !canaryCollectorSource.includes("canaryscan.ValidateReportConfig(") ||
   !canaryCollectorSource.includes("canaryscan.ScanReport(") ||
   !canaryCollectorSource.includes("source.Close()") ||
+  !canaryCollectorSource.includes("if !collection.complete") ||
+  !canaryCollectorSource.includes("ErrCollectionIncomplete") ||
   canaryCollectorSource.includes("os/exec") ||
   canaryCollectorSource.includes("docker") ||
   canaryCollectorSource.includes("openshell")
