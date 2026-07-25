@@ -245,7 +245,7 @@ if (
     ]) ||
   canarySourceAcquisition?.openShell?.serialization !== "forbidden" ||
   canarySourceAcquisition?.openShell?.status !==
-    "OpenShell sandbox source backend verified; Docker-hosted execution required" ||
+    "OpenShell sandbox source backend verified; live Docker execution required" ||
   canarySourceAcquisition?.docker?.assembly !==
     "internal/security/canarydocker.New" ||
   canarySourceAcquisition?.docker?.binding !==
