@@ -183,6 +183,7 @@ if (
   fail("the credential source collection boundary is missing or claims live acquisition");
 }
 const canaryEvidenceRun = credentialEvidenceContract?.evidenceRun;
+const compactCanaryEvidenceSource = canaryEvidenceSource.replaceAll(/\s/g, "");
 if (
   canaryEvidenceRun?.assembly !== "internal/security/canaryevidence.Run" ||
   canaryEvidenceRun?.profileOwnership !==
@@ -199,8 +200,8 @@ if (
   !canaryEvidenceSource.includes("context.WithoutCancel(") ||
   !canaryEvidenceSource.includes("if !result.complete") ||
   !canaryEvidenceSource.includes("ErrRunIncomplete") ||
-  !canaryEvidenceSource.includes('Result:  "passed"') ||
-  !canaryEvidenceSource.includes('cleanupStatusRemoved = "removed"') ||
+  !compactCanaryEvidenceSource.includes('Result:"passed"') ||
+  !compactCanaryEvidenceSource.includes('cleanupStatusRemoved="removed"') ||
   canaryEvidenceSource.includes("os/exec")
 ) {
   fail("the credential evidence run boundary is missing or claims live execution");
