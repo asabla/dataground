@@ -44,13 +44,14 @@ type Runner interface {
 }
 
 type Config struct {
-	Binary           string
-	ExpectedVersion  string
-	PolicyWorkspace  *PolicyWorkspace
-	ExportWorkspace  *ExportWorkspace
-	Now              func() time.Time
-	StateStore       execution.StateStore
-	ProviderProfiles *execution.ProviderProfileRegistry
+	Binary                   string
+	ExpectedVersion          string
+	PolicyWorkspace          *PolicyWorkspace
+	ExportWorkspace          *ExportWorkspace
+	Now                      func() time.Time
+	StateStore               execution.StateStore
+	ProviderProfiles         *execution.ProviderProfileRegistry
+	CredentialProviderRunner CredentialProviderRunner
 }
 
 // Provider is the development OpenShell adapter. Gateway and sandbox
@@ -63,7 +64,8 @@ type Provider struct {
 	exports   *ExportWorkspace
 	now       func() time.Time
 	store     execution.StateStore
-	profiles  *execution.ProviderProfileRegistry
+	profiles           *execution.ProviderProfileRegistry
+	credentialProvider CredentialProviderRunner
 }
 
 func New(config Config, runner Runner) *Provider {
@@ -82,9 +84,13 @@ func New(config Config, runner Runner) *Provider {
 	if store == nil {
 		store = execution.NewMemoryStateStore()
 	}
+	credentialProvider := config.CredentialProviderRunner
+	if credentialProvider == nil {
+		credentialProvider = ExecCredentialProviderRunner{}
+	}
 	return &Provider{
 		runner: runner, binary: binary, expected: config.ExpectedVersion, workspace: config.PolicyWorkspace, exports: config.ExportWorkspace,
-		now: now, store: store, profiles: config.ProviderProfiles,
+		now: now, store: store, profiles: config.ProviderProfiles, credentialProvider: credentialProvider,
 	}
 }
 
