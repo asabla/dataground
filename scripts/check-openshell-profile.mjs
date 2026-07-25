@@ -141,6 +141,10 @@ const canaryWorkspaceSource = await readFile(
   resolve(root, "internal/security/canaryworkspace/workspace.go"),
   "utf8",
 );
+const canarySandboxSource = await readFile(
+  resolve(root, "internal/security/canarysandbox/cleanup.go"),
+  "utf8",
+);
 if (
   canaryScanner?.command !== "go run ./cmd/dataground-openshell-canary-scan" ||
   canaryScanner?.schema !== "deploy/openshell/credential-canary-scan.schema.json" ||
@@ -207,8 +211,16 @@ if (
   canaryEvidenceRun?.workspaceCleanup?.serialization !== "forbidden" ||
   canaryEvidenceRun?.workspaceCleanup?.status !==
     "workspace lifecycle verified; live harness wiring required" ||
+  canaryEvidenceRun?.sandboxCleanup?.assembly !== "internal/security/canarysandbox.New" ||
+  canaryEvidenceRun?.sandboxCleanup?.resource !==
+    "exact DataGround execution returned by the OpenShell provider" ||
+  canaryEvidenceRun?.sandboxCleanup?.verification !==
+    "terminate then observe the exact execution as terminated" ||
+  canaryEvidenceRun?.sandboxCleanup?.serialization !== "forbidden" ||
+  canaryEvidenceRun?.sandboxCleanup?.status !==
+    "sandbox cleanup adapter verified; live harness wiring required" ||
   canaryEvidenceRun?.status !==
-    "run assembly and workspace cleanup verified; live acquisition and OpenShell cleanup adapters required" ||
+    "run assembly, workspace cleanup, and sandbox cleanup verified; live acquisition and provider cleanup adapters required" ||
   !canaryEvidenceSource.includes("func Run(") ||
   !canaryEvidenceSource.includes("canarycollect.ValidateConfig(") ||
   !canaryEvidenceSource.includes("canarycollect.Collect(") ||
@@ -231,7 +243,13 @@ if (
   !canaryWorkspaceSource.includes("regexp.MustCompile(`^[a-f0-9]{32}$`)") ||
   !canaryWorkspaceSource.includes('request.ResourceKind != "workspace"') ||
   canaryWorkspaceSource.includes("os.MkdirAll(") ||
-  canaryWorkspaceSource.includes("os.RemoveAll(")
+  canaryWorkspaceSource.includes("os.RemoveAll(") ||
+  !canarySandboxSource.includes("func New(") ||
+  !canarySandboxSource.includes("func (adapter *Adapter) Cleanup(") ||
+  !canarySandboxSource.includes("provider.Terminate(") ||
+  !canarySandboxSource.includes("provider.Observe(") ||
+  !canarySandboxSource.includes('observation.State != "terminated"') ||
+  !canarySandboxSource.includes("func (Adapter) MarshalJSON(")
 ) {
   fail("the credential evidence run boundary is missing or claims live execution");
 }
