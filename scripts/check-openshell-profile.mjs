@@ -220,6 +220,10 @@ if (
   !canaryEvidenceSource.includes("ErrRunIncomplete") ||
   !compactCanaryEvidenceSource.includes('Result:"passed"') ||
   !compactCanaryEvidenceSource.includes('cleanupStatusRemoved="removed"') ||
+  !compactCanaryEvidenceSource.includes('workspaceNamePrefix="dg-canary-"') ||
+  !compactCanaryEvidenceSource.includes(
+    "config.Resources.Workspace!=workspaceNamePrefix+config.RunID",
+  ) ||
   canaryEvidenceSource.includes("os/exec") ||
   !canaryWorkspaceSource.includes("func Open(") ||
   !canaryWorkspaceSource.includes("func (workspace *Workspace) Cleanup(") ||
