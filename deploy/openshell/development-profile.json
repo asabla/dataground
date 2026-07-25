@@ -102,7 +102,19 @@
         ],
         "status": "collection boundary verified; live OpenShell and Docker acquisition required"
       },
-      "status": "contract verified; live evidence required"
+      "status": "contract verified; live evidence required",
+      "evidenceRun": {
+        "assembly": "internal/security/canaryevidence.Run",
+        "profileOwnership": "checked profile snapshot and dataground-openshell-canary/1.0.0 verifier identity",
+        "cleanupOrder": [
+          "sandbox",
+          "provider",
+          "workspace"
+        ],
+        "cleanupContext": "cancellation-independent run-owned cleanup",
+        "serialization": "sealed until collection and every cleanup succeeds",
+        "status": "run assembly verified; live acquisition and cleanup adapters required"
+      }
     }
   },
   "runtime": {
