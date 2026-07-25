@@ -155,9 +155,8 @@
               "sandbox-logs"
             ],
             "serialization": "forbidden",
-            "status": "OpenShell sandbox source backend verified; Docker-hosted execution required"
+            "status": "OpenShell sandbox source backend verified; live Docker execution required"
           },
-          "status": "source lifecycle plus OpenShell and Docker streams verified; concrete runtime backend required",
           "docker": {
             "assembly": "internal/security/canarydocker.New",
             "binding": "exact running gateway container ID, digest-pinned image, Compose project and service, and run, gateway, and provider evidence labels",
@@ -168,7 +167,8 @@
             ],
             "serialization": "forbidden",
             "status": "Docker host source backend verified; runtime capture and live harness required"
-          }
+          },
+          "status": "source lifecycle plus OpenShell and Docker streams verified; concrete runtime backend required"
         }
       }
     }
