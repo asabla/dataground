@@ -285,6 +285,18 @@ func dockerEnvironment(runID string, names canaryharness.ResourceNames) []string
 	)
 }
 
+func pathsOverlap(left string, right string) bool {
+	for _, pair := range [][2]string{{left, right}, {right, left}} {
+		relative, err := filepath.Rel(pair[0], pair[1])
+		if err == nil &&
+			(relative == "." ||
+				(relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)))) {
+			return true
+		}
+	}
+	return false
+}
+
 func resolveBinary(value string) (string, error) {
 	if value == "" {
 		return "", ErrInvalidConfiguration
