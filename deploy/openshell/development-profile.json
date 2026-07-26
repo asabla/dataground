@@ -110,7 +110,7 @@
       "status": "contract and launcher verified; live evidence required",
       "evidenceRun": {
         "assembly": "internal/security/canaryevidence.Run",
-        "profileOwnership": "checked profile snapshot and dataground-openshell-canary/1.0.0 verifier identity",
+        "profileOwnership": "checked profile snapshot, topology digests, and dataground-openshell-canary/2.0.0 verifier identity",
         "cleanupOrder": [
           "sandbox",
           "provider",
