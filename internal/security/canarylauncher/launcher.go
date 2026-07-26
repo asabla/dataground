@@ -25,23 +25,23 @@ import (
 
 const (
 	runtimeCapability = "codex.app-server"
-	readyTimeout = 5 * time.Minute
+	readyTimeout      = 5 * time.Minute
 	readyPollInterval = time.Second
 )
 
 var (
 	ErrInvalidConfiguration = errors.New("invalid credential evidence launcher configuration")
-	ErrTopologyDrift = errors.New("credential evidence topology does not match the checked profile")
-	ErrLaunch = errors.New("credential evidence launch failed")
-	ErrSerialization = errors.New("credential evidence launcher cannot be serialized")
-	runIDPattern = regexp.MustCompile("^[a-f0-9]{32}$")
+	ErrTopologyDrift        = errors.New("credential evidence topology does not match the checked profile")
+	ErrLaunch               = errors.New("credential evidence launch failed")
+	ErrSerialization        = errors.New("credential evidence launcher cannot be serialized")
+	runIDPattern            = regexp.MustCompile("^[a-f0-9]{32}$")
 )
 
 type Config struct {
-	RepositoryRoot string
-	WorkspaceRoot string
+	RepositoryRoot  string
+	WorkspaceRoot   string
 	OpenShellBinary string
-	DockerBinary string
+	DockerBinary    string
 }
 
 // Run starts one isolated Docker topology, creates the provider-bound sandbox,
@@ -88,15 +88,15 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 	}
 
 	workspace, err := canaryworkspace.Open(canaryworkspace.Config{
-		Root: resolved.workspaceRoot,
+		Root:  resolved.workspaceRoot,
 		RunID: runID,
 	})
 	if err != nil {
 		return canaryevidence.Result{}, ErrLaunch
 	}
 	state := cleanupState{
-		runID: runID,
-		names: names,
+		runID:     runID,
+		names:     names,
 		workspace: workspace,
 	}
 	defer func() {
@@ -144,10 +144,10 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 	}
 	store := execution.NewMemoryStateStore()
 	provider := openshell.New(openshell.Config{
-		Binary: resolved.openShellBinary,
-		ExpectedVersion: canaryprofile.OpenShellVersion,
-		PolicyWorkspace: policyWorkspace,
-		StateStore: store,
+		Binary:           resolved.openShellBinary,
+		ExpectedVersion:  canaryprofile.OpenShellVersion,
+		PolicyWorkspace:  policyWorkspace,
+		StateStore:       store,
 		ProviderProfiles: profiles,
 	}, openshell.ExecRunner{Environment: openShellEnvironment()})
 	if err := provider.Check(ctx); err != nil {
@@ -158,10 +158,10 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 	operationID := "dg-canary-operation-" + runID
 	if _, err := provider.RegisterGateway(ctx, execution.GatewayRegistration{
 		IsolationDomainID: isolationDomainID,
-		ID: names.Gateway,
-		Endpoint: canaryprofile.GatewayEndpoint,
-		Driver: canaryprofile.Driver,
-		Capabilities: []string{runtimeCapability},
+		ID:                names.Gateway,
+		Endpoint:          canaryprofile.GatewayEndpoint,
+		Driver:            canaryprofile.Driver,
+		Capabilities:      []string{runtimeCapability},
 	}); err != nil {
 		return canaryevidence.Result{}, launchError(ctx)
 	}
@@ -169,9 +169,9 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 	provisioned, err := canaryprovider.Provision(
 		ctx,
 		canaryprovider.ProvisionConfig{
-			RunID: runID,
+			RunID:             runID,
 			IsolationDomainID: isolationDomainID,
-			GatewayID: names.Gateway,
+			GatewayID:         names.Gateway,
 		},
 		provider,
 	)
@@ -179,7 +179,7 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 		return canaryevidence.Result{}, launchError(ctx)
 	}
 	providerCleanup, err := canaryprovider.New(canaryprovider.Config{
-		RunID: runID,
+		RunID:   runID,
 		Binding: provisioned.Binding(),
 	}, provider)
 	if err != nil {
@@ -188,21 +188,21 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 	state.provider = providerCleanup
 
 	placement, err := provider.SelectGateway(ctx, execution.PlacementRequest{
-		IsolationDomainID: isolationDomainID,
-		OperationID: operationID,
+		IsolationDomainID:    isolationDomainID,
+		OperationID:          operationID,
 		RequiredCapabilities: []string{runtimeCapability},
 	})
 	if err != nil {
 		return canaryevidence.Result{}, launchError(ctx)
 	}
 	executionValue, err := provider.Create(ctx, execution.CreateRequest{
-		Placement: placement,
+		Placement:         placement,
 		IsolationDomainID: isolationDomainID,
-		OperationID: operationID,
-		Image: canaryprofile.SandboxImage,
-		Policy: policy,
-		PolicyDigest: "sha256:" + canaryprofile.PolicySHA256,
-		ProviderProfiles: []string{names.Provider},
+		OperationID:       operationID,
+		Image:             canaryprofile.SandboxImage,
+		Policy:            policy,
+		PolicyDigest:      "sha256:" + canaryprofile.PolicySHA256,
+		ProviderProfiles:  []string{names.Provider},
 	})
 	if err != nil {
 		recoveryExecution, recoveryErr := store.GetExecutionByOperation(
@@ -212,7 +212,7 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 		)
 		if recoveryErr == nil {
 			if cleanup, cleanupErr := canarysandbox.New(canarysandbox.Config{
-				RunID: runID,
+				RunID:     runID,
 				Execution: recoveryExecution,
 			}, provider); cleanupErr == nil {
 				state.sandbox = cleanup
@@ -222,7 +222,7 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 		return canaryevidence.Result{}, launchError(ctx)
 	}
 	sandboxCleanup, err := canarysandbox.New(canarysandbox.Config{
-		RunID: runID,
+		RunID:     runID,
 		Execution: executionValue,
 	}, provider)
 	if err != nil {
@@ -241,7 +241,7 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 			RunID: runID,
 			Execution: execution.ExecutionRef{
 				IsolationDomainID: executionValue.IsolationDomainID,
-				ID: executionValue.ID,
+				ID:                executionValue.ID,
 			},
 		},
 	)
@@ -251,15 +251,15 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 
 	session, err := provider.StartRuntime(ctx, execution.ExecutionRef{
 		IsolationDomainID: executionValue.IsolationDomainID,
-		ID: executionValue.ID,
+		ID:                executionValue.ID,
 	})
 	if err != nil {
 		return canaryevidence.Result{}, launchError(ctx)
 	}
 	runtimeSources, err := canaryruntime.New(canaryruntime.Config{
-		RunID: runID,
+		RunID:       runID,
 		RuntimeName: names.Runtime,
-		Session: session,
+		Session:     session,
 	})
 	if err != nil {
 		_ = session.Close()
@@ -271,26 +271,26 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 	}
 
 	dockerSources, err := canarydocker.New(ctx, canarydocker.Config{
-		RunID: runID,
-		GatewayName: names.Gateway,
-		ProviderName: names.Provider,
-		ContainerID: containerID,
-		GatewayImage: canaryprofile.GatewayImage,
+		RunID:          runID,
+		GatewayName:    names.Gateway,
+		ProviderName:   names.Provider,
+		ContainerID:    containerID,
+		GatewayImage:   canaryprofile.GatewayImage,
 		ComposeProject: host.project,
-		DockerBinary: resolved.dockerBinary,
+		DockerBinary:   resolved.dockerBinary,
 	})
 	if err != nil {
 		return canaryevidence.Result{}, launchError(ctx)
 	}
 	harness, err := canaryharness.New(canaryharness.Config{
-		RunID: runID,
-		Provider: provider,
+		RunID:       runID,
+		Provider:    provider,
 		Provisioned: provisioned,
-		Execution: executionValue,
-		Workspace: workspace,
-		OpenShell: openShellSources,
-		Docker: dockerSources,
-		Runtime: runtimeSources,
+		Execution:   executionValue,
+		Workspace:   workspace,
+		OpenShell:   openShellSources,
+		Docker:      dockerSources,
+		Runtime:     runtimeSources,
 	})
 	if err != nil {
 		return canaryevidence.Result{}, ErrLaunch
@@ -306,12 +306,12 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 }
 
 type resolvedConfig struct {
-	workspaceRoot string
-	composeFile string
-	gatewayConfig string
-	policyFile string
+	workspaceRoot   string
+	composeFile     string
+	gatewayConfig   string
+	policyFile      string
 	openShellBinary string
-	dockerBinary string
+	dockerBinary    string
 }
 
 func resolveConfig(config Config) (resolvedConfig, error) {
@@ -351,12 +351,12 @@ func resolveConfig(config Config) (resolvedConfig, error) {
 		return resolvedConfig{}, err
 	}
 	return resolvedConfig{
-		workspaceRoot: filepath.Clean(workspaceRoot),
-		composeFile: filepath.Join(repositoryRoot, filepath.FromSlash(canaryprofile.ComposePath)),
-		gatewayConfig: filepath.Join(repositoryRoot, filepath.FromSlash(canaryprofile.GatewayConfigPath)),
-		policyFile: filepath.Join(repositoryRoot, filepath.FromSlash(canaryprofile.PolicyPath)),
+		workspaceRoot:   filepath.Clean(workspaceRoot),
+		composeFile:     filepath.Join(repositoryRoot, filepath.FromSlash(canaryprofile.ComposePath)),
+		gatewayConfig:   filepath.Join(repositoryRoot, filepath.FromSlash(canaryprofile.GatewayConfigPath)),
+		policyFile:      filepath.Join(repositoryRoot, filepath.FromSlash(canaryprofile.PolicyPath)),
 		openShellBinary: openShellBinary,
-		dockerBinary: dockerBinary,
+		dockerBinary:    dockerBinary,
 	}, nil
 }
 
@@ -374,7 +374,7 @@ func waitForReady(
 	defer ticker.Stop()
 	ref := execution.ExecutionRef{
 		IsolationDomainID: value.IsolationDomainID,
-		ID: value.ID,
+		ID:                value.ID,
 	}
 	for {
 		observation, err := provider.Observe(readyCtx, ref)
@@ -408,16 +408,16 @@ func newRunID() (string, error) {
 }
 
 type cleanupState struct {
-	runID string
-	names canaryharness.ResourceNames
-	runtime *canaryruntime.Sources
-	sandboxName string
-	sandbox *canarysandbox.Adapter
-	provider *canaryprovider.Adapter
-	workspace *canaryworkspace.Workspace
+	runID           string
+	names           canaryharness.ResourceNames
+	runtime         *canaryruntime.Sources
+	sandboxName     string
+	sandbox         *canarysandbox.Adapter
+	provider        *canaryprovider.Adapter
+	workspace       *canaryworkspace.Workspace
 	policyWorkspace *openshell.PolicyWorkspace
-	host *composeHost
-	topology *topologyWorkspace
+	host            *composeHost
+	topology        *topologyWorkspace
 }
 
 func (state *cleanupState) cleanup() error {
@@ -435,7 +435,7 @@ func (state *cleanupState) cleanup() error {
 	}
 	if state.sandbox != nil {
 		if err := state.sandbox.Cleanup(ctx, canaryevidence.CleanupRequest{
-			RunID: state.runID,
+			RunID:        state.runID,
 			ResourceKind: "sandbox",
 			ResourceName: state.sandboxName,
 		}); err != nil {
@@ -444,7 +444,7 @@ func (state *cleanupState) cleanup() error {
 	}
 	if state.provider != nil {
 		if err := state.provider.Cleanup(ctx, canaryevidence.CleanupRequest{
-			RunID: state.runID,
+			RunID:        state.runID,
 			ResourceKind: "provider",
 			ResourceName: state.names.Provider,
 		}); err != nil {
@@ -453,7 +453,7 @@ func (state *cleanupState) cleanup() error {
 	}
 	if state.workspace != nil {
 		if err := state.workspace.Cleanup(ctx, canaryevidence.CleanupRequest{
-			RunID: state.runID,
+			RunID:        state.runID,
 			ResourceKind: "workspace",
 			ResourceName: state.names.Workspace,
 		}); err != nil {
