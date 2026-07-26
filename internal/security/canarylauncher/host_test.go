@@ -16,17 +16,17 @@ const testRunID = "0123456789abcdef0123456789abcdef"
 
 type hostCommandCall struct {
 	environment []string
-	binary string
-	args []string
+	binary      string
+	args        []string
 }
 
 type hostCommandResult struct {
 	output string
-	err error
+	err    error
 }
 
 type fakeCommandRunner struct {
-	calls []hostCommandCall
+	calls   []hostCommandCall
 	results []hostCommandResult
 }
 
@@ -38,8 +38,8 @@ func (runner *fakeCommandRunner) Run(
 ) ([]byte, error) {
 	runner.calls = append(runner.calls, hostCommandCall{
 		environment: append([]string(nil), environment...),
-		binary: binary,
-		args: append([]string(nil), args...),
+		binary:      binary,
+		args:        append([]string(nil), args...),
 	})
 	if len(runner.results) == 0 {
 		return nil, errors.New("unexpected command")
