@@ -9,10 +9,14 @@ import (
 	"github.com/asabla/dataground/internal/execution"
 )
 
-type ExecRunner struct{}
+type ExecRunner struct {
+	// Environment is an optional complete child environment. Nil preserves the
+	// existing process environment; a non-nil slice is copied for every command.
+	Environment []string
+}
 
 func (ExecRunner) Run(ctx context.Context, binary string, args ...string) (CommandResult, error) {
-	command := exec.CommandContext(ctx, binary, args...)
+	command := runner.command(ctx, binary, args...)
 	var stdout bytes.Buffer
 	command.Stdout = &stdout
 	err := command.Run()
@@ -24,7 +28,7 @@ func (ExecRunner) Run(ctx context.Context, binary string, args ...string) (Comma
 }
 
 func (ExecRunner) Start(ctx context.Context, binary string, args ...string) (execution.RuntimeSession, error) {
-	command := exec.CommandContext(ctx, binary, args...)
+	command := runner.command(ctx, binary, args...)
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -41,6 +45,14 @@ func (ExecRunner) Start(ctx context.Context, binary string, args ...string) (exe
 		return nil, err
 	}
 	return &processSession{command: command, stdin: stdin, stdout: stdout, stderr: stderr}, nil
+}
+
+func (runner ExecRunner) command(ctx context.Context, binary string, args ...string) *exec.Cmd {
+	command := exec.CommandContext(ctx, binary, args...)
+	if runner.Environment != nil {
+		command.Env = append([]string(nil), runner.Environment...)
+	}
+	return command
 }
 
 type processSession struct {
