@@ -239,6 +239,7 @@ func (Harness) MarshalJSON() ([]byte, error) {
 }
 
 var (
-	_ json.Marshaler = Config{}
-	_ json.Marshaler = Harness{}
+	_ json.Marshaler              = Config{}
+	_ json.Marshaler              = Harness{}
+	_ canarysource.RuntimeSources = (*runtimeBoundary)(nil)
 )
