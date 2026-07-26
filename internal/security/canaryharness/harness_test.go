@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/asabla/dataground/internal/execution"
@@ -116,6 +118,39 @@ func TestHarnessRejectsIdentityDrift(t *testing.T) {
 	}
 }
 
+func TestHarnessDiscardsRuntimeCaptureWhenCompositionFails(t *testing.T) {
+	config := validConfig(t)
+	names, err := NamesForRun(testRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeSources, err := canaryruntime.New(canaryruntime.Config{
+		RunID:       testRunID,
+		RuntimeName: names.Runtime,
+		Session:     &fakeSession{errors: "captured runtime diagnostics"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := runtimeSources.Errors()
+	if _, err := io.ReadAll(stream); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Close(); err != nil {
+		t.Fatal(err)
+	}
+	config.Runtime = runtimeSources
+	config.Execution.State = "provisioning"
+	if _, err := New(config); !errors.Is(err, ErrInvalidConfiguration) {
+		t.Fatalf("New() error = %v", err)
+	}
+	if _, err := runtimeSources.OpenRuntimeErrors(context.Background(), canarysource.Request{
+		RunID: testRunID, Surface: "runtime-errors", ResourceName: names.Runtime,
+	}); !errors.Is(err, canaryruntime.ErrCredentialSource) {
+		t.Fatalf("OpenRuntimeErrors() error = %v", err)
+	}
+}
+
 func TestHarnessRejectsInvalidRunNamesAndSerialization(t *testing.T) {
 	if _, err := NamesForRun("not-a-run"); !errors.Is(err, ErrInvalidConfiguration) {
 		t.Fatalf("NamesForRun() error = %v", err)
@@ -153,6 +188,31 @@ func TestHarnessDoesNotConsumeCancelledStart(t *testing.T) {
 		t.Fatalf("retry after pre-start cancellation: %v", err)
 	}
 }
+
+type fakeSession struct {
+	errors string
+}
+
+func (*fakeSession) Input() io.WriteCloser {
+	return nopWriteCloser{Writer: io.Discard}
+}
+
+func (*fakeSession) Output() io.ReadCloser {
+	return io.NopCloser(strings.NewReader(""))
+}
+
+func (session *fakeSession) Errors() io.ReadCloser {
+	return io.NopCloser(strings.NewReader(session.errors))
+}
+
+func (*fakeSession) Wait() error  { return nil }
+func (*fakeSession) Close() error { return nil }
+
+type nopWriteCloser struct {
+	io.Writer
+}
+
+func (nopWriteCloser) Close() error { return nil }
 
 func validConfig(t *testing.T) Config {
 	t.Helper()
