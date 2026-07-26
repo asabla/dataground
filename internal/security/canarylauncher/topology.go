@@ -12,17 +12,17 @@ import (
 const topologyDirectoryPrefix = "dg-canary-topology-"
 
 type topologyWorkspace struct {
-	mu sync.Mutex
-	root string
-	path string
-	composePath string
-	gatewayPath string
-	parent *os.File
-	directory *os.File
+	mu            sync.Mutex
+	root          string
+	path          string
+	composePath   string
+	gatewayPath   string
+	parent        *os.File
+	directory     *os.File
 	directoryInfo os.FileInfo
-	composeInfo os.FileInfo
-	gatewayInfo os.FileInfo
-	removed bool
+	composeInfo   os.FileInfo
+	gatewayInfo   os.FileInfo
+	removed       bool
 }
 
 func openTopologyWorkspace(
@@ -70,12 +70,12 @@ func openTopologyWorkspace(
 		return nil, ErrLaunch
 	}
 	workspace := &topologyWorkspace{
-		root: root,
-		path: path,
-		composePath: filepath.Join(path, "docker-compose.yml"),
-		gatewayPath: filepath.Join(path, "gateway.toml"),
-		parent: parent,
-		directory: directory,
+		root:          root,
+		path:          path,
+		composePath:   filepath.Join(path, "docker-compose.yml"),
+		gatewayPath:   filepath.Join(path, "gateway.toml"),
+		parent:        parent,
+		directory:     directory,
 		directoryInfo: directoryInfo,
 	}
 	workspace.composeInfo, err = writeTopologyFile(workspace.composePath, compose)
