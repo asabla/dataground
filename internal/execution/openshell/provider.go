@@ -186,6 +186,19 @@ func (provider *Provider) Create(ctx context.Context, request execution.CreateRe
 		return execution.Execution{}, err
 	}
 	defer func() { _ = cleanup() }()
+	created := execution.Execution{
+		IsolationDomainID: request.IsolationDomainID, ID: executionID,
+		GatewayID: gateway.Gateway.ID, State: "provisioning",
+	}
+	if err := provider.rememberExecution(
+		ctx,
+		created,
+		request.Placement.ID,
+		request.OperationID,
+		sandbox,
+	); err != nil {
+		return execution.Execution{}, err
+	}
 	args := provider.gatewayArgs(endpoint, "sandbox", "create", "--name", sandbox, "--from", request.Image,
 		"--policy", policyPath, "--no-auto-providers", "--approval-mode", "manual",
 		"--label", managedLabel+"=true", "--label", operationLabel+"="+shortDigest(request.OperationID),
@@ -228,13 +241,6 @@ func (provider *Provider) Create(ctx context.Context, request execution.CreateRe
 			return execution.Execution{}, observeErr
 		}
 		return execution.Execution{}, ErrProviderFailure
-	}
-	created := execution.Execution{
-		IsolationDomainID: request.IsolationDomainID, ID: executionID,
-		GatewayID: gateway.Gateway.ID, State: "provisioning",
-	}
-	if err := provider.rememberExecution(ctx, created, request.Placement.ID, request.OperationID, sandbox); err != nil {
-		return execution.Execution{}, err
 	}
 	return created, nil
 }
@@ -439,9 +445,19 @@ func (provider *Provider) lookupExecution(ctx context.Context, ref execution.Exe
 }
 
 func (provider *Provider) rememberExecution(ctx context.Context, value execution.Execution, placementID, operationID, sandbox string) error {
-	return provider.store.SaveExecution(ctx, execution.ExecutionRecord{
+	if err := provider.store.SaveExecution(ctx, execution.ExecutionRecord{
 		Execution: value, PlacementID: placementID, OperationID: operationID, SandboxName: sandbox,
-	})
+	}); err != nil {
+		return err
+	}
+	return provider.store.UpdateExecutionState(
+		ctx,
+		execution.ExecutionRef{
+			IsolationDomainID: value.IsolationDomainID,
+			ID:                value.ID,
+		},
+		value.State,
+	)
 }
 
 func (provider *Provider) observeByName(
