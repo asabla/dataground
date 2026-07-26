@@ -3,7 +3,9 @@ package canarylauncher
 import (
 	"bytes"
 	"context"
-	"errors"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"io"
 	"net/http"
 	"os"
