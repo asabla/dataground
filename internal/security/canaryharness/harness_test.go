@@ -199,6 +199,42 @@ func TestRuntimeBoundaryClosesBeforeScanningOnce(t *testing.T) {
 	}
 }
 
+func TestRuntimeBoundarySanitizesCloseFailure(t *testing.T) {
+	names, err := NamesForRun(testRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := &fakeSession{errors: "captured runtime diagnostics", closeErr: errors.New("native detail")}
+	runtimeSources, err := canaryruntime.New(canaryruntime.Config{
+		RunID: testRunID, RuntimeName: names.Runtime, Session: session,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	drain := runtimeSources.Errors()
+	if _, err := io.ReadAll(drain); err != nil {
+		t.Fatal(err)
+	}
+	if err := drain.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	boundary := &runtimeBoundary{runtime: runtimeSources}
+	request := canarysource.Request{
+		RunID: testRunID, Surface: "runtime-errors", ResourceName: names.Runtime,
+	}
+	_, err = boundary.OpenRuntimeErrors(context.Background(), request)
+	if !errors.Is(err, canaryruntime.ErrCredentialSource) ||
+		errors.Is(err, session.closeErr) ||
+		err.Error() == session.closeErr.Error() {
+		t.Fatalf("OpenRuntimeErrors() error = %v", err)
+	}
+	_, _ = boundary.OpenRuntimeErrors(context.Background(), request)
+	if session.closeCalls != 1 {
+		t.Fatalf("runtime Close() calls = %d", session.closeCalls)
+	}
+}
+
 func TestHarnessRejectsInvalidRunNamesAndSerialization(t *testing.T) {
 	if _, err := NamesForRun("not-a-run"); !errors.Is(err, ErrInvalidConfiguration) {
 		t.Fatalf("NamesForRun() error = %v", err)
@@ -240,6 +276,7 @@ func TestHarnessDoesNotConsumeCancelledStart(t *testing.T) {
 type fakeSession struct {
 	errors     string
 	closeCalls int
+	closeErr   error
 }
 
 func (*fakeSession) Input() io.WriteCloser {
@@ -258,7 +295,7 @@ func (*fakeSession) Wait() error { return nil }
 
 func (session *fakeSession) Close() error {
 	session.closeCalls++
-	return nil
+	return session.closeErr
 }
 
 type nopWriteCloser struct {
