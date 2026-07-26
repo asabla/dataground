@@ -63,7 +63,7 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 	if err != nil {
 		return canaryevidence.Result{}, err
 	}
-	clear(composeContent)
+	defer clear(composeContent)
 	gatewayContent, err := readVerifiedFile(
 		resolved.gatewayConfig,
 		canaryprofile.GatewayConfigSHA256,
@@ -71,7 +71,7 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 	if err != nil {
 		return canaryevidence.Result{}, err
 	}
-	clear(gatewayContent)
+	defer clear(gatewayContent)
 	policy, err := readVerifiedFile(resolved.policyFile, canaryprofile.PolicySHA256)
 	if err != nil {
 		return canaryevidence.Result{}, err
@@ -103,6 +103,17 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 		_ = state.cleanup()
 	}()
 
+	topology, err := openTopologyWorkspace(
+		resolved.workspaceRoot,
+		runID,
+		composeContent,
+		gatewayContent,
+	)
+	if err != nil {
+		return canaryevidence.Result{}, ErrLaunch
+	}
+	state.topology = topology
+
 	policyWorkspace, err := openshell.OpenPolicyWorkspace(
 		filepath.Join(resolved.workspaceRoot, ".policy"),
 	)
@@ -115,7 +126,7 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 		runID,
 		names,
 		resolved.dockerBinary,
-		resolved.composeFile,
+		topology.ComposePath(),
 		execCommandRunner{},
 	)
 	if err != nil {
@@ -406,6 +417,7 @@ type cleanupState struct {
 	workspace *canaryworkspace.Workspace
 	policyWorkspace *openshell.PolicyWorkspace
 	host *composeHost
+	topology *topologyWorkspace
 }
 
 func (state *cleanupState) cleanup() error {
@@ -455,6 +467,11 @@ func (state *cleanupState) cleanup() error {
 	}
 	if state.host != nil {
 		if err := state.host.Stop(ctx); err != nil {
+			outcome = errors.Join(outcome, ErrLaunch)
+		}
+	}
+	if state.topology != nil {
+		if err := state.topology.Cleanup(ctx); err != nil {
 			outcome = errors.Join(outcome, ErrLaunch)
 		}
 	}
