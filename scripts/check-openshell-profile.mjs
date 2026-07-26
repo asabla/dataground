@@ -195,6 +195,14 @@ const canaryLauncherHostSource = await readFile(
   resolve(root, "internal/security/canarylauncher/host.go"),
   "utf8",
 );
+const canaryLauncherTopologySource = await readFile(
+  resolve(root, "internal/security/canarylauncher/topology.go"),
+  "utf8",
+);
+const openShellRunnerSource = await readFile(
+  resolve(root, "internal/execution/openshell/runner.go"),
+  "utf8",
+);
 const canaryLauncherCommandSource = await readFile(
   resolve(root, "cmd/dataground-openshell-canary/main.go"),
   "utf8",
@@ -437,9 +445,13 @@ if (
   canaryEvidenceRun?.launcher?.command !==
     "go run ./cmd/dataground-openshell-canary --workspace-root <owner-only-mode-0700-directory>" ||
   canaryEvidenceRun?.launcher?.topologyBinding !==
-    "exact checked SHA-256 of Docker Compose and gateway configuration before mutation" ||
+    "exact checked SHA-256 of Docker Compose and gateway configuration frozen into a private run-owned directory before mutation" ||
   canaryEvidenceRun?.launcher?.gatewayLifecycle !==
-    "fresh run-derived Compose project and named volume with absence-verified teardown" ||
+    "fresh run-derived Compose project and named volume with container and volume absence verification" ||
+  canaryEvidenceRun?.launcher?.environment !==
+    "allowlisted Docker and OpenShell child environments; provider canary isolated separately" ||
+  canaryEvidenceRun?.launcher?.recovery !==
+    "persist the deterministic sandbox route before native create, then clean sandbox, provider, verifier workspace, gateway, volume, and frozen topology" ||
   canaryEvidenceRun?.launcher?.composition !==
     "repository-owned provider provisioning, provider-bound sandbox, wrapped Codex client, seven source backends, and closed harness" ||
   canaryEvidenceRun?.launcher?.output !==
@@ -469,6 +481,10 @@ if (
   !canaryEvidenceSource.includes("canaryprofile.Current()") ||
   !canaryLauncherSource.includes("func Run(") ||
   !canaryLauncherSource.includes("readVerifiedFile(") ||
+  !canaryLauncherSource.includes("openTopologyWorkspace(") ||
+  !canaryLauncherSource.includes("topology.ComposePath()") ||
+  !canaryLauncherSource.includes("state.topology.Cleanup(ctx)") ||
+  !canaryLauncherSource.includes("openshell.ExecRunner{Environment: openShellEnvironment()}") ||
   !canaryLauncherSource.includes("canaryprovider.Provision(") ||
   !canaryLauncherSource.includes("provider.Create(") ||
   !canaryLauncherSource.includes("provider.StartRuntime(") ||
@@ -479,6 +495,18 @@ if (
   !canaryLauncherHostSource.includes('"compose"') ||
   !canaryLauncherHostSource.includes('"down"') ||
   !canaryLauncherHostSource.includes('"--volumes"') ||
+  !canaryLauncherHostSource.includes('"ps"') ||
+  !canaryLauncherHostSource.includes('"--all"') ||
+  !canaryLauncherHostSource.includes('"volume"') ||
+  !canaryLauncherHostSource.includes('"label=com.docker.compose.project="') ||
+  !canaryLauncherHostSource.includes("openShellEnvironment()") ||
+  canaryLauncherHostSource.includes("os.Environ()") ||
+  !canaryLauncherTopologySource.includes("func openTopologyWorkspace(") ||
+  !canaryLauncherTopologySource.includes("os.O_CREATE|os.O_EXCL|os.O_WRONLY") ||
+  !canaryLauncherTopologySource.includes("os.SameFile(") ||
+  !canaryLauncherTopologySource.includes("func (workspace *topologyWorkspace) Cleanup(") ||
+  !openShellRunnerSource.includes("Environment []string") ||
+  !openShellRunnerSource.includes("command.Env = append(") ||
   !canaryLauncherHostSource.includes("DATAGROUND_CREDENTIAL_EVIDENCE_RUN_ID") ||
   !canaryLauncherHostSource.includes("DATAGROUND_CREDENTIAL_EVIDENCE_GATEWAY") ||
   !canaryLauncherHostSource.includes("DATAGROUND_CREDENTIAL_EVIDENCE_PROVIDER") ||
