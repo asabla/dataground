@@ -8,21 +8,11 @@ import (
 	"time"
 
 	"github.com/asabla/dataground/internal/security/canarycollect"
+	"github.com/asabla/dataground/internal/security/canaryprofile"
 	"github.com/asabla/dataground/internal/security/canarysource"
 )
 
 const (
-	schemaVersion        = "dataground.dev.openshell-credential-non-exposure-evidence/v1"
-	verifierName         = "dataground-openshell-canary"
-	verifierVersion      = "1.0.0"
-	openshellCommit      = "d556748771c41cbbd4e4dd7cd9030c798afe2b7d"
-	gatewayImage         = "ghcr.io/nvidia/openshell/gateway@sha256:e21f520a0678ba3cfe749957338b5fa78c75e8e52de13e4559ccbb582f781a0b"
-	supervisorImage      = "ghcr.io/nvidia/openshell/supervisor@sha256:a15222ac18c1afd0ee51b9dda785a29067c13f61a2002a29d41f691f5e817f19"
-	sandboxImage         = "ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e"
-	providerProfileSHA   = "d9c7f48d96916dcaca319e396d75e30ff6ad3bf2474f38f54ab37f37cabbca8f"
-	runtimeVersion       = "0.117.0"
-	gatewayEndpoint      = "http://127.0.0.1:8080"
-	driver               = "docker"
 	cleanupStatusRemoved = "removed"
 	workspaceNamePrefix  = "dg-canary-"
 	providerNamePrefix   = "dg-canary-provider-"
@@ -92,6 +82,8 @@ type profile struct {
 	RuntimeVersion              string `json:"runtimeVersion"`
 	GatewayEndpoint             string `json:"gatewayEndpoint"`
 	Driver                      string `json:"driver"`
+	ComposeSHA256               string `json:"composeSHA256"`
+	GatewayConfigSHA256         string `json:"gatewayConfigSHA256"`
 }
 
 type run struct {
@@ -155,25 +147,28 @@ func runEvidence(ctx context.Context, config Config, now func() time.Time) (Resu
 		return Result{}, errors.Join(ErrRunIncomplete, outcome)
 	}
 
+	profileIdentity := canaryprofile.Current()
 	return Result{
 		evidence: evidence{
-			SchemaVersion: schemaVersion,
+			SchemaVersion: canaryprofile.SchemaVersion,
 			Profile: profile{
-				OpenShellCommit:             openshellCommit,
-				GatewayImage:                gatewayImage,
-				SupervisorImage:             supervisorImage,
-				SandboxImage:                sandboxImage,
-				ProviderProfileSourceSHA256: providerProfileSHA,
-				RuntimeVersion:              runtimeVersion,
-				GatewayEndpoint:             gatewayEndpoint,
-				Driver:                      driver,
+				OpenShellCommit:             profileIdentity.OpenShellCommit,
+				GatewayImage:                profileIdentity.GatewayImage,
+				SupervisorImage:             profileIdentity.SupervisorImage,
+				SandboxImage:                profileIdentity.SandboxImage,
+				ProviderProfileSourceSHA256: profileIdentity.ProviderProfileSHA256,
+				RuntimeVersion:              profileIdentity.RuntimeVersion,
+				GatewayEndpoint:             profileIdentity.GatewayEndpoint,
+				Driver:                      profileIdentity.Driver,
+				ComposeSHA256:               profileIdentity.ComposeSHA256,
+				GatewayConfigSHA256:         profileIdentity.GatewayConfigSHA256,
 			},
 			Run: run{
 				ID:               config.RunID,
 				Resources:        config.Resources,
 				StartedAt:        startedAt.Format(time.RFC3339Nano),
 				FinishedAt:       finishedAt.Format(time.RFC3339Nano),
-				Verifier:         verifier{Name: verifierName, Version: verifierVersion},
+				Verifier:         verifier{Name: canaryprofile.VerifierName, Version: canaryprofile.VerifierVersion},
 				CanaryCommitment: config.CanaryCommitment,
 			},
 			Checks:  collection,
