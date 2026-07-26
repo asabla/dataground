@@ -213,12 +213,14 @@
         "launcher": {
           "assembly": "internal/security/canarylauncher.Run",
           "command": "go run ./cmd/dataground-openshell-canary --workspace-root <owner-only-mode-0700-directory>",
-          "topologyBinding": "exact checked SHA-256 of Docker Compose and gateway configuration before mutation",
-          "gatewayLifecycle": "fresh run-derived Compose project and named volume with absence-verified teardown",
+          "topologyBinding": "exact checked SHA-256 of Docker Compose and gateway configuration frozen into a private run-owned directory before mutation",
+          "gatewayLifecycle": "fresh run-derived Compose project and named volume with container and volume absence verification",
           "composition": "repository-owned provider provisioning, provider-bound sandbox, wrapped Codex client, seven source backends, and closed harness",
           "output": "evidence JSON on stdout only after complete run cleanup and gateway teardown",
           "serialization": "configuration forbidden",
-          "status": "launcher implementation verified; live Docker execution required"
+          "status": "launcher implementation verified; live Docker execution required",
+          "environment": "allowlisted Docker and OpenShell child environments; provider canary isolated separately",
+          "recovery": "persist the deterministic sandbox route before native create, then clean sandbox, provider, verifier workspace, gateway, volume, and frozen topology"
         }
       }
     }
