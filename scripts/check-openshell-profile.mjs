@@ -602,7 +602,9 @@ const evidenceProfileBindings = [
   credentialEvidenceContract.verifierIdentity.version,
 ];
 if (
-  evidenceProfileBindings.some((binding) => !canaryProfileSource.includes(JSON.stringify(binding))) ||
+  evidenceProfileBindings.some(
+    (binding) => !canaryProfileSource.includes(JSON.stringify(binding)),
+  ) ||
   !canaryEvidenceSource.includes("canaryprofile.Current()") ||
   !canaryLauncherSource.includes("canaryprofile.ComposeSHA256") ||
   !canaryLauncherSource.includes("canaryprofile.GatewayConfigSHA256")
@@ -675,8 +677,7 @@ const compose = await readFile(resolve(root, "deploy/openshell/docker-compose.ym
 const gatewayConfig = await readFile(resolve(root, "deploy/openshell/gateway.toml"), "utf8");
 if (
   createHash("sha256").update(compose).digest("hex") !== profile.topology.composeSHA256 ||
-  createHash("sha256").update(gatewayConfig).digest("hex") !==
-    profile.topology.gatewayConfigSHA256
+  createHash("sha256").update(gatewayConfig).digest("hex") !== profile.topology.gatewayConfigSHA256
 ) {
   fail("the Docker topology does not match its recorded content digests");
 }
