@@ -46,6 +46,8 @@ const expectedProfile = {
   runtimeVersion: profile.runtime.version,
   gatewayEndpoint: profile.topology.gatewayEndpoint,
   driver: profile.topology.driver,
+  composeSHA256: profile.topology.composeSHA256,
+  gatewayConfigSHA256: profile.topology.gatewayConfigSHA256,
 };
 const expectedScanLimits = profile.providerProfileEvidence.contract.scanner.surfaceMaxBytes;
 const expectedVerifierIdentity = profile.providerProfileEvidence.contract.verifierIdentity;
@@ -162,7 +164,7 @@ function verifyEvidence(evidence) {
 
 function representativeEvidence() {
   return {
-    schemaVersion: "dataground.dev.openshell-credential-non-exposure-evidence/v1",
+    schemaVersion: "dataground.dev.openshell-credential-non-exposure-evidence/v2",
     profile: structuredClone(expectedProfile),
     run: {
       id: "0123456789abcdef0123456789abcdef",
