@@ -465,12 +465,14 @@ func (state *cleanupState) cleanup() error {
 			outcome = errors.Join(outcome, ErrLaunch)
 		}
 	}
+	hostRemoved := true
 	if state.host != nil {
 		if err := state.host.Stop(ctx); err != nil {
+			hostRemoved = false
 			outcome = errors.Join(outcome, ErrLaunch)
 		}
 	}
-	if state.topology != nil {
+	if state.topology != nil && hostRemoved {
 		if err := state.topology.Cleanup(ctx); err != nil {
 			outcome = errors.Join(outcome, ErrLaunch)
 		}
