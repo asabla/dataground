@@ -331,7 +331,7 @@ func resolveConfig(config Config) (resolvedConfig, error) {
 		return resolvedConfig{}, ErrInvalidConfiguration
 	}
 	workspaceRoot, err = filepath.EvalSymlinks(workspaceRoot)
-	if err != nil {
+	if err != nil || pathsOverlap(repositoryRoot, workspaceRoot) {
 		return resolvedConfig{}, ErrInvalidConfiguration
 	}
 	openShellBinary := config.OpenShellBinary
