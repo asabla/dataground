@@ -131,10 +131,12 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 	if err != nil {
 		return canaryevidence.Result{}, ErrLaunch
 	}
+	store := execution.NewMemoryStateStore()
 	provider := openshell.New(openshell.Config{
 		Binary: resolved.openShellBinary,
 		ExpectedVersion: canaryprofile.OpenShellVersion,
 		PolicyWorkspace: policyWorkspace,
+		StateStore: store,
 		ProviderProfiles: profiles,
 	}, openshell.ExecRunner{Environment: openShellEnvironment()})
 	if err := provider.Check(ctx); err != nil {
@@ -192,6 +194,20 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 		ProviderProfiles: []string{names.Provider},
 	})
 	if err != nil {
+		recoveryExecution, recoveryErr := store.GetExecutionByOperation(
+			context.Background(),
+			isolationDomainID,
+			operationID,
+		)
+		if recoveryErr == nil {
+			if cleanup, cleanupErr := canarysandbox.New(canarysandbox.Config{
+				RunID: runID,
+				Execution: recoveryExecution,
+			}, provider); cleanupErr == nil {
+				state.sandbox = cleanup
+				state.sandboxName = recoveryExecution.ID
+			}
+		}
 		return canaryevidence.Result{}, launchError(ctx)
 	}
 	sandboxCleanup, err := canarysandbox.New(canarysandbox.Config{
