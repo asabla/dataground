@@ -168,6 +168,21 @@ func TestLauncherEnvironmentsExcludeUnrelatedSecrets(t *testing.T) {
 	}
 }
 
+func TestPathsOverlapRejectsNestedLauncherState(t *testing.T) {
+	root := t.TempDir()
+	for _, candidate := range []string{
+		root,
+		filepath.Join(root, "state"),
+	} {
+		if !pathsOverlap(root, candidate) {
+			t.Fatalf("overlap was not detected for %q", candidate)
+		}
+	}
+	if pathsOverlap(filepath.Join(root, "repository"), filepath.Join(root, "state")) {
+		t.Fatal("disjoint sibling paths were rejected")
+	}
+}
+
 func TestReadVerifiedFileRejectsContentAndSymlinkDrift(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "topology")
 	content := []byte("checked topology\n")
