@@ -686,13 +686,13 @@ if (!compose.includes(profile.artifacts.gateway) || !compose.includes('"127.0.0.
 }
 if (
   !compose.includes(
-    'dataground.dev/credential-evidence-run: "${DATAGROUND_CREDENTIAL_EVIDENCE_RUN_ID:-}"',
+    `dataground.dev/credential-evidence-run: "\${DATAGROUND_CREDENTIAL_EVIDENCE_RUN_ID:-}"`,
   ) ||
   !compose.includes(
-    'dataground.dev/credential-evidence-gateway: "${DATAGROUND_CREDENTIAL_EVIDENCE_GATEWAY:-}"',
+    `dataground.dev/credential-evidence-gateway: "\${DATAGROUND_CREDENTIAL_EVIDENCE_GATEWAY:-}"`,
   ) ||
   !compose.includes(
-    'dataground.dev/credential-evidence-provider: "${DATAGROUND_CREDENTIAL_EVIDENCE_PROVIDER:-}"',
+    `dataground.dev/credential-evidence-provider: "\${DATAGROUND_CREDENTIAL_EVIDENCE_PROVIDER:-}"`,
   )
 ) {
   fail("Docker Compose is missing the exact run-bound credential evidence labels");
