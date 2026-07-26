@@ -249,6 +249,17 @@ func waitForGateway(ctx context.Context) error {
 	}
 }
 
+func openShellEnvironment() []string {
+	keys := [...]string{"HOME", "PATH", "XDG_CONFIG_HOME"}
+	environment := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if value, exists := os.LookupEnv(key); exists {
+			environment = append(environment, key+"="+value)
+		}
+	}
+	return environment
+}
+
 func dockerEnvironment(runID string, names canaryharness.ResourceNames) []string {
 	keys := [...]string{
 		"DOCKER_CERT_PATH",
