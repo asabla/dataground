@@ -21,11 +21,11 @@ import (
 )
 
 const (
-	maxTopologyFileBytes = 1 << 20
+	maxTopologyFileBytes  = 1 << 20
 	maxCommandOutputBytes = 64 << 10
-	gatewayReadyTimeout  = 2 * time.Minute
-	gatewayPollInterval  = 500 * time.Millisecond
-	gatewayStopTimeout   = 1 * time.Minute
+	gatewayReadyTimeout   = 2 * time.Minute
+	gatewayPollInterval   = 500 * time.Millisecond
+	gatewayStopTimeout    = 1 * time.Minute
 )
 
 var containerIDPattern = regexp.MustCompile("^[a-f0-9]{64}$")
@@ -88,12 +88,12 @@ func newComposeHost(
 		return nil, ErrInvalidConfiguration
 	}
 	return &composeHost{
-		runner: runner,
-		binary: dockerBinary,
+		runner:      runner,
+		binary:      dockerBinary,
 		composeFile: composeFile,
-		project: "dg_canary_" + runID,
+		project:     "dg_canary_" + runID,
 		environment: dockerEnvironment(runID, names),
-		wait: waitForGateway,
+		wait:        waitForGateway,
 	}, nil
 }
 
@@ -356,7 +356,7 @@ func constantTimeEqual(left string, right string) bool {
 }
 
 type boundedBuffer struct {
-	buffer bytes.Buffer
+	buffer    bytes.Buffer
 	remaining int
 }
 
