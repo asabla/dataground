@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/asabla/dataground/internal/security/canaryprofile"
 	"github.com/asabla/dataground/internal/security/canarysource"
 )
 
@@ -40,7 +41,7 @@ func TestRunOwnsFinalEvidenceAndCleanup(t *testing.T) {
 	if err := json.Unmarshal(encoded, &record); err != nil {
 		t.Fatalf("decode evidence: %v", err)
 	}
-	if record["schemaVersion"] != schemaVersion || record["result"] != "passed" {
+	if record["schemaVersion"] != canaryprofile.SchemaVersion || record["result"] != "passed" {
 		t.Fatalf("unexpected final evidence = %v", record)
 	}
 	checks, ok := record["checks"].([]any)
@@ -62,14 +63,17 @@ func TestRunOwnsFinalEvidenceAndCleanup(t *testing.T) {
 		t.Fatalf("resources = %v", resourcesRecord)
 	}
 	verifierRecord := runRecord["verifier"].(map[string]any)
-	if verifierRecord["name"] != verifierName || verifierRecord["version"] != verifierVersion {
+	if verifierRecord["name"] != canaryprofile.VerifierName ||
+		verifierRecord["version"] != canaryprofile.VerifierVersion {
 		t.Fatalf("verifier = %v", verifierRecord)
 	}
 	profileRecord := record["profile"].(map[string]any)
-	if len(profileRecord) != 8 ||
-		profileRecord["openshellCommit"] != openshellCommit ||
-		profileRecord["providerProfileSourceSHA256"] != providerProfileSHA ||
-		profileRecord["runtimeVersion"] != runtimeVersion {
+	if len(profileRecord) != 10 ||
+		profileRecord["openshellCommit"] != canaryprofile.OpenShellCommit ||
+		profileRecord["providerProfileSourceSHA256"] != canaryprofile.ProviderProfileSHA256 ||
+		profileRecord["runtimeVersion"] != canaryprofile.RuntimeVersion ||
+		profileRecord["composeSHA256"] != canaryprofile.ComposeSHA256 ||
+		profileRecord["gatewayConfigSHA256"] != canaryprofile.GatewayConfigSHA256 {
 		t.Fatalf("profile = %v", profileRecord)
 	}
 	cleanupRecord := record["cleanup"].(map[string]any)
