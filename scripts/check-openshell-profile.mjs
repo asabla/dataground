@@ -72,14 +72,14 @@ if (
   credentialEvidenceContract?.schema !==
     "deploy/openshell/credential-non-exposure-evidence.schema.json" ||
   credentialEvidenceContract?.schemaVersion !==
-    "dataground.dev.openshell-credential-non-exposure-evidence/v1" ||
+    "dataground.dev.openshell-credential-non-exposure-evidence/v2" ||
   credentialEvidenceContract?.verifier !==
     "pnpm openshell:credential-evidence:check <evidence.json>" ||
   JSON.stringify(Object.keys(credentialEvidenceContract?.verifierIdentity ?? {}).sort()) !==
     JSON.stringify(["name", "version"]) ||
   credentialEvidenceContract?.verifierIdentity?.name !== "dataground-openshell-canary" ||
-  credentialEvidenceContract?.verifierIdentity?.version !== "1.0.0" ||
-  credentialEvidenceContract?.status !== "contract verified; live evidence required"
+  credentialEvidenceContract?.verifierIdentity?.version !== "2.0.0" ||
+  credentialEvidenceContract?.status !== "contract and launcher verified; live evidence required"
 ) {
   fail("the credential non-exposure evidence contract is missing or unblocked");
 }
@@ -94,6 +94,12 @@ const evidenceCheckSchema = credentialEvidenceSchema?.properties?.checks?.items;
 if (
   credentialEvidenceSchema?.properties?.schemaVersion?.const !==
     credentialEvidenceContract?.schemaVersion ||
+  !credentialEvidenceSchema?.properties?.profile?.required?.includes("composeSHA256") ||
+  !credentialEvidenceSchema?.properties?.profile?.required?.includes("gatewayConfigSHA256") ||
+  credentialEvidenceSchema?.properties?.profile?.properties?.composeSHA256?.$ref !==
+    "#/$defs/sha256" ||
+  credentialEvidenceSchema?.properties?.profile?.properties?.gatewayConfigSHA256?.$ref !==
+    "#/$defs/sha256" ||
   evidenceRunProperties?.id?.pattern !== "^[a-f0-9]{32}$" ||
   !evidenceCheckSchema?.required?.includes("inputCommitment") ||
   evidenceCheckSchema?.properties?.inputCommitment?.pattern !== "^sha256:[a-f0-9]{64}$" ||
@@ -177,6 +183,22 @@ const canaryHarnessSource = await readFile(
   resolve(root, "internal/security/canaryharness/harness.go"),
   "utf8",
 );
+const canaryProfileSource = await readFile(
+  resolve(root, "internal/security/canaryprofile/profile.go"),
+  "utf8",
+);
+const canaryLauncherSource = await readFile(
+  resolve(root, "internal/security/canarylauncher/launcher.go"),
+  "utf8",
+);
+const canaryLauncherHostSource = await readFile(
+  resolve(root, "internal/security/canarylauncher/host.go"),
+  "utf8",
+);
+const canaryLauncherCommandSource = await readFile(
+  resolve(root, "cmd/dataground-openshell-canary/main.go"),
+  "utf8",
+);
 const providerBindingSource = await readFile(
   resolve(root, "internal/execution/openshell/provider_binding.go"),
   "utf8",
@@ -208,7 +230,7 @@ if (
   canaryScanner?.resourceNameFormat !== "portable lowercase identifier" ||
   JSON.stringify(canaryScanner?.surfaceResourceKinds) !==
     JSON.stringify(expectedSurfaceResourceKinds) ||
-  canaryScanner?.status !== "commitment-only scanner verified; live harness required"
+  canaryScanner?.status !== "commitment-only scanner verified; live Docker execution required"
 ) {
   fail("the commitment-only credential canary scanner contract is missing or unblocked");
 }
@@ -221,7 +243,7 @@ if (
   canaryCollector?.limitOwnership !== "collector-owned exact profile limits" ||
   JSON.stringify(canaryCollector?.sourceOrder) !== JSON.stringify(expectedCanarySurfaces) ||
   canaryCollector?.status !==
-    "collection and run-bound acquisition verified; live Docker execution required" ||
+    "collection, acquisition, and launcher wiring verified; live Docker execution required" ||
   !canaryCollectorSource.includes("func Collect(") ||
   !canaryCollectorSource.includes("canaryscan.ValidateReportConfig(") ||
   !canaryCollectorSource.includes("canaryscan.ScanReport(") ||
@@ -244,7 +266,7 @@ if (
     "single-use canonical collection with direct scanner handoff" ||
   canarySourceAcquisition?.serialization !== "forbidden" ||
   canarySourceAcquisition?.status !==
-    "all seven source backends and closed composition verified; live Docker execution required" ||
+    "all seven source backends and launcher wiring verified; live Docker execution required" ||
   canarySourceAcquisition?.openShell?.assembly !==
     "internal/execution/openshell.NewCredentialEvidenceSources" ||
   canarySourceAcquisition?.openShell?.binding !==
@@ -261,7 +283,7 @@ if (
     ]) ||
   canarySourceAcquisition?.openShell?.serialization !== "forbidden" ||
   canarySourceAcquisition?.openShell?.status !==
-    "OpenShell sandbox source backend and closed composition verified; live Docker execution required" ||
+    "OpenShell sandbox source backend and launcher wiring verified; live Docker execution required" ||
   canarySourceAcquisition?.docker?.assembly !== "internal/security/canarydocker.New" ||
   canarySourceAcquisition?.docker?.binding !==
     "exact running gateway container ID, digest-pinned image, Compose project and service, and run, gateway, and provider evidence labels" ||
@@ -271,7 +293,7 @@ if (
     JSON.stringify(["provider-arguments", "gateway-logs"]) ||
   canarySourceAcquisition?.docker?.serialization !== "forbidden" ||
   canarySourceAcquisition?.docker?.status !==
-    "Docker host source backend and closed composition verified; live Docker execution required" ||
+    "Docker host source backend and launcher wiring verified; live Docker execution required" ||
   canarySourceAcquisition?.runtime?.assembly !== "internal/security/canaryruntime.New" ||
   canarySourceAcquisition?.runtime?.binding !==
     "same exact execution.RuntimeSession passed to the native runtime adapter, evidence run, and portable runtime name" ||
@@ -282,7 +304,7 @@ if (
     "captured bytes cleared after scanner close, unusable handoff, or explicit discard" ||
   canarySourceAcquisition?.runtime?.serialization !== "forbidden" ||
   canarySourceAcquisition?.runtime?.status !==
-    "runtime-error source backend and closed composition verified; live Docker execution required" ||
+    "runtime-error source backend and launcher wiring verified; live Docker execution required" ||
   !canarySourceAdapter.includes("func New(") ||
   !canarySourceAdapter.includes("func (adapter *Adapter) ValidateBinding(") ||
   !canarySourceAdapter.includes("func (adapter *Adapter) Collect(") ||
@@ -353,7 +375,7 @@ const compactCanaryHarnessSource = canaryHarnessSource.replaceAll(/\s/g, "");
 if (
   canaryEvidenceRun?.assembly !== "internal/security/canaryevidence.Run" ||
   canaryEvidenceRun?.profileOwnership !==
-    "checked profile snapshot and dataground-openshell-canary/1.0.0 verifier identity" ||
+    "checked profile snapshot, topology digests, and dataground-openshell-canary/2.0.0 verifier identity" ||
   JSON.stringify(canaryEvidenceRun?.cleanupOrder) !==
     JSON.stringify(["sandbox", "provider", "workspace"]) ||
   canaryEvidenceRun?.cleanupContext !== "cancellation-independent run-owned cleanup" ||
@@ -363,7 +385,7 @@ if (
   canaryEvidenceRun?.workspaceCleanup?.parent !== "pre-existing owner-only mode-0700 directory" ||
   canaryEvidenceRun?.workspaceCleanup?.serialization !== "forbidden" ||
   canaryEvidenceRun?.workspaceCleanup?.status !==
-    "workspace lifecycle and closed composition verified; live Docker execution required" ||
+    "workspace lifecycle and launcher wiring verified; live Docker execution required" ||
   canaryEvidenceRun?.sandboxCleanup?.assembly !== "internal/security/canarysandbox.New" ||
   canaryEvidenceRun?.sandboxCleanup?.resource !==
     "exact DataGround execution returned by the OpenShell provider" ||
@@ -371,7 +393,7 @@ if (
     "terminate then require a timestamped exact terminal observation" ||
   canaryEvidenceRun?.sandboxCleanup?.serialization !== "forbidden" ||
   canaryEvidenceRun?.sandboxCleanup?.status !==
-    "sandbox cleanup and closed composition verified; live Docker execution required" ||
+    "sandbox cleanup and launcher wiring verified; live Docker execution required" ||
   canaryEvidenceRun?.providerProvisioning?.assembly !==
     "internal/security/canaryprovider.Provision" ||
   canaryEvidenceRun?.providerProvisioning?.name !== "dg-canary-provider-<runID>" ||
@@ -386,7 +408,7 @@ if (
     "require pre-create absence then credential-safe exact identity observation on the dedicated evidence gateway" ||
   canaryEvidenceRun?.providerProvisioning?.serialization !== "forbidden" ||
   canaryEvidenceRun?.providerProvisioning?.status !==
-    "provider provisioning and closed composition verified; Docker-hosted launcher required" ||
+    "provider provisioning, closed composition, and launcher wiring verified; live Docker execution required" ||
   canaryEvidenceRun?.providerCleanup?.assembly !== "internal/security/canaryprovider.New" ||
   canaryEvidenceRun?.providerCleanup?.name !== "dg-canary-provider-<runID>" ||
   canaryEvidenceRun?.providerCleanup?.resource !==
@@ -397,7 +419,7 @@ if (
     "dedicated evidence gateway with no concurrent provider mutation" ||
   canaryEvidenceRun?.providerCleanup?.serialization !== "forbidden" ||
   canaryEvidenceRun?.providerCleanup?.status !==
-    "provider cleanup and closed composition verified; live Docker execution required" ||
+    "provider cleanup and launcher wiring verified; live Docker execution required" ||
   canaryEvidenceRun?.composition?.assembly !== "internal/security/canaryharness.New" ||
   canaryEvidenceRun?.composition?.binding !==
     "exact run-derived portable names, provisioned provider binding and commitment, ready execution, verifier workspace, and concrete OpenShell, Docker, and runtime backends" ||
@@ -410,9 +432,23 @@ if (
     "close the exact wrapped session once after the first six live surfaces and before runtime-error acquisition" ||
   canaryEvidenceRun?.composition?.serialization !== "forbidden" ||
   canaryEvidenceRun?.composition?.status !==
-    "closed run composition verified; Docker-hosted launcher and live execution required" ||
+    "closed run and launcher composition verified; live Docker execution required" ||
+  canaryEvidenceRun?.launcher?.assembly !== "internal/security/canarylauncher.Run" ||
+  canaryEvidenceRun?.launcher?.command !==
+    "go run ./cmd/dataground-openshell-canary --workspace-root <owner-only-mode-0700-directory>" ||
+  canaryEvidenceRun?.launcher?.topologyBinding !==
+    "exact checked SHA-256 of Docker Compose and gateway configuration before mutation" ||
+  canaryEvidenceRun?.launcher?.gatewayLifecycle !==
+    "fresh run-derived Compose project and named volume with absence-verified teardown" ||
+  canaryEvidenceRun?.launcher?.composition !==
+    "repository-owned provider provisioning, provider-bound sandbox, wrapped Codex client, seven source backends, and closed harness" ||
+  canaryEvidenceRun?.launcher?.output !==
+    "evidence JSON on stdout only after complete run cleanup and gateway teardown" ||
+  canaryEvidenceRun?.launcher?.serialization !== "configuration forbidden" ||
+  canaryEvidenceRun?.launcher?.status !==
+    "launcher implementation verified; live Docker execution required" ||
   canaryEvidenceRun?.status !==
-    "provider provisioning, run, source lifecycle, cleanup, and closed composition verified; Docker-hosted launcher and live execution required" ||
+    "provider provisioning, run, source lifecycle, cleanup, closed composition, and launcher verified; live Docker execution required" ||
   !canaryEvidenceSource.includes("func Run(") ||
   !canaryEvidenceSource.includes("config.Sources.ValidateBinding(") ||
   !canaryEvidenceSource.includes("config.Sources.Collect(") ||
@@ -430,6 +466,25 @@ if (
     "config.Resources.Provider!=providerNamePrefix+config.RunID",
   ) ||
   canaryEvidenceSource.includes("os/exec") ||
+  !canaryEvidenceSource.includes("canaryprofile.Current()") ||
+  !canaryLauncherSource.includes("func Run(") ||
+  !canaryLauncherSource.includes("readVerifiedFile(") ||
+  !canaryLauncherSource.includes("canaryprovider.Provision(") ||
+  !canaryLauncherSource.includes("provider.Create(") ||
+  !canaryLauncherSource.includes("provider.StartRuntime(") ||
+  !canaryLauncherSource.includes("codex.New(runtimeSources)") ||
+  !canaryLauncherSource.includes("canaryharness.New(") ||
+  !canaryLauncherSource.includes("harness.Run(ctx)") ||
+  !canaryLauncherSource.includes("func (Config) MarshalJSON(") ||
+  !canaryLauncherHostSource.includes('"compose"') ||
+  !canaryLauncherHostSource.includes('"down"') ||
+  !canaryLauncherHostSource.includes('"--volumes"') ||
+  !canaryLauncherHostSource.includes("DATAGROUND_CREDENTIAL_EVIDENCE_RUN_ID") ||
+  !canaryLauncherHostSource.includes("DATAGROUND_CREDENTIAL_EVIDENCE_GATEWAY") ||
+  !canaryLauncherHostSource.includes("DATAGROUND_CREDENTIAL_EVIDENCE_PROVIDER") ||
+  !canaryLauncherCommandSource.includes("canarylauncher.Run(") ||
+  canaryLauncherSource.includes('"sh", "-c"') ||
+  canaryLauncherHostSource.includes('"sh", "-c"') ||
   !canaryWorkspaceSource.includes("func Open(") ||
   !canaryWorkspaceSource.includes("func (workspace *Workspace) Cleanup(") ||
   !canaryWorkspaceSource.includes("os.Mkdir(") ||
@@ -513,11 +568,16 @@ const evidenceProfileBindings = [
   profile.runtime.version,
   profile.topology.gatewayEndpoint,
   profile.topology.driver,
+  profile.topology.composeSHA256,
+  profile.topology.gatewayConfigSHA256,
   credentialEvidenceContract.verifierIdentity.name,
   credentialEvidenceContract.verifierIdentity.version,
 ];
 if (
-  evidenceProfileBindings.some((binding) => !canaryEvidenceSource.includes(JSON.stringify(binding)))
+  evidenceProfileBindings.some((binding) => !canaryProfileSource.includes(JSON.stringify(binding))) ||
+  !canaryEvidenceSource.includes("canaryprofile.Current()") ||
+  !canaryLauncherSource.includes("canaryprofile.ComposeSHA256") ||
+  !canaryLauncherSource.includes("canaryprofile.GatewayConfigSHA256")
 ) {
   fail("the credential evidence run does not own the checked profile identity");
 }
@@ -585,6 +645,13 @@ if (
 
 const compose = await readFile(resolve(root, "deploy/openshell/docker-compose.yml"), "utf8");
 const gatewayConfig = await readFile(resolve(root, "deploy/openshell/gateway.toml"), "utf8");
+if (
+  createHash("sha256").update(compose).digest("hex") !== profile.topology.composeSHA256 ||
+  createHash("sha256").update(gatewayConfig).digest("hex") !==
+    profile.topology.gatewayConfigSHA256
+) {
+  fail("the Docker topology does not match its recorded content digests");
+}
 if (!compose.includes(profile.artifacts.gateway) || !compose.includes('"127.0.0.1:8080:8080"')) {
   fail("Docker Compose does not match the pinned loopback gateway profile");
 }
@@ -606,6 +673,13 @@ if (
   !gatewayConfig.includes(profile.artifacts.sandbox)
 ) {
   fail("gateway configuration does not match the pinned supervisor and sandbox images");
+}
+if (
+  !compose.includes("- gateway-state:/var/lib/openshell") ||
+  !compose.includes("volumes:\n  gateway-state:") ||
+  compose.includes("source: /var/lib/openshell")
+) {
+  fail("the credential evidence gateway must use a project-scoped named volume");
 }
 if (
   compose.includes(":latest") ||
