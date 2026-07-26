@@ -67,6 +67,7 @@ type composeHost struct {
 	composeFile string
 	project     string
 	environment []string
+	wait        func(context.Context) error
 	active      bool
 	removed     bool
 }
@@ -92,6 +93,7 @@ func newComposeHost(
 		composeFile: composeFile,
 		project: "dg_canary_" + runID,
 		environment: dockerEnvironment(runID, names),
+		wait: waitForGateway,
 	}, nil
 }
 
@@ -104,6 +106,7 @@ func (host *composeHost) Start(ctx context.Context) (string, error) {
 		host.mu.Unlock()
 		return "", ErrLaunch
 	}
+	host.active = true
 	host.mu.Unlock()
 
 	_, err := host.runner.Run(
@@ -122,11 +125,7 @@ func (host *composeHost) Start(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", ErrLaunch
 	}
-	host.mu.Lock()
-	host.active = true
-	host.mu.Unlock()
-
-	if err := waitForGateway(ctx); err != nil {
+	if err := host.wait(ctx); err != nil {
 		return "", ErrLaunch
 	}
 	output, err := host.runner.Run(
@@ -168,7 +167,7 @@ func (host *composeHost) Stop(ctx context.Context) error {
 	}
 	host.mu.Unlock()
 
-	_, err := host.runner.Run(
+	_, _ = host.runner.Run(
 		ctx,
 		host.environment,
 		host.binary,
@@ -181,7 +180,34 @@ func (host *composeHost) Stop(ctx context.Context) error {
 		"--volumes",
 		"--remove-orphans",
 	)
-	if err != nil {
+	containers, containerErr := host.runner.Run(
+		ctx,
+		host.environment,
+		host.binary,
+		"compose",
+		"--project-name",
+		host.project,
+		"--file",
+		host.composeFile,
+		"ps",
+		"--all",
+		"--quiet",
+	)
+	volumes, volumeErr := host.runner.Run(
+		ctx,
+		host.environment,
+		host.binary,
+		"volume",
+		"ls",
+		"--filter",
+		"label=com.docker.compose.project="+host.project,
+		"--quiet",
+	)
+	containersRemain := strings.TrimSpace(string(containers)) != ""
+	volumesRemain := strings.TrimSpace(string(volumes)) != ""
+	clear(containers)
+	clear(volumes)
+	if containerErr != nil || volumeErr != nil || containersRemain || volumesRemain {
 		return ErrLaunch
 	}
 	host.mu.Lock()
