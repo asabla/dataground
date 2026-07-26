@@ -373,7 +373,7 @@ func TestCreatePersistsPrivateRouteBeforeAmbiguousMutation(t *testing.T) {
 	}
 	record, err := provider.store.GetExecution(context.Background(), execution.ExecutionRef{
 		IsolationDomainID: request.IsolationDomainID,
-		ID: derivedID("exe", request.IsolationDomainID+":"+request.OperationID),
+		ID:                derivedID("exe", request.IsolationDomainID+":"+request.OperationID),
 	})
 	if err != nil {
 		t.Fatalf("persisted execution route: %v", err)
