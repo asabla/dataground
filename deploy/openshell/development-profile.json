@@ -200,7 +200,7 @@
           "binding": "exact run-derived portable names, provisioned provider binding and commitment, ready execution, verifier workspace, and concrete OpenShell, Docker, and runtime backends",
           "components": "repository-owned source adapter plus sandbox, provider, and workspace cleanup adapters",
           "singleUse": "shared irreversible state across harness copies",
-          "runtimeRecovery": "discard unused runtime capture after every attempted run",
+          "runtimeRecovery": "discard rejected or unused runtime capture during composition and after every attempted run",
           "serialization": "forbidden",
           "status": "closed run composition verified; Docker-hosted launcher and live execution required"
         }
