@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"regexp"
 	"sync"
 
@@ -84,6 +85,29 @@ type state struct {
 	started bool
 }
 
+type runtimeBoundary struct {
+	once    sync.Once
+	runtime *canaryruntime.Sources
+	err     error
+}
+
+func (boundary *runtimeBoundary) OpenRuntimeErrors(
+	ctx context.Context,
+	request canarysource.Request,
+) (io.ReadCloser, error) {
+	if boundary == nil || boundary.runtime == nil || ctx == nil {
+		return nil, canaryruntime.ErrCredentialSource
+	}
+	boundary.once.Do(func() {
+		boundary.err = boundary.runtime.Close()
+	})
+	if boundary.err != nil {
+		boundary.runtime.Discard()
+		return nil, canaryruntime.ErrCredentialSource
+	}
+	return boundary.runtime.OpenRuntimeErrors(ctx, request)
+}
+
 // New closes the composition boundary around the provisioned provider,
 // ready execution, verifier workspace, seven source backends, and cleanup ports.
 func New(config Config) (*Harness, error) {
@@ -144,7 +168,7 @@ func New(config Config) (*Harness, error) {
 		},
 		OpenShell: config.OpenShell,
 		Docker:    config.Docker,
-		Runtime:   config.Runtime,
+		Runtime:   &runtimeBoundary{runtime: config.Runtime},
 	})
 	if err != nil {
 		return nil, ErrInvalidConfiguration
