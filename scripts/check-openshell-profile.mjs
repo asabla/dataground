@@ -407,6 +407,8 @@ if (
     "shared irreversible state across harness copies" ||
   canaryEvidenceRun?.composition?.runtimeRecovery !==
     "discard rejected or unused runtime capture during composition and after every attempted run" ||
+  canaryEvidenceRun?.composition?.runtimeTransition !==
+    "close the exact wrapped session once after the first six live surfaces and before runtime-error acquisition" ||
   canaryEvidenceRun?.composition?.serialization !== "forbidden" ||
   canaryEvidenceRun?.composition?.status !==
     "closed run composition verified; Docker-hosted launcher and live execution required" ||
@@ -468,6 +470,7 @@ if (
   !canaryHarnessSource.includes("canaryprovider.New(") ||
   !canaryHarnessSource.includes("canarysource.New(") ||
   !canaryHarnessSource.includes("canaryevidence.Run") ||
+  !canaryHarnessSource.includes("boundary.runtime.Close()") ||
   !canaryHarnessSource.includes("config.Runtime.Discard()") ||
   !canaryHarnessSource.includes("state.runtime.Discard()") ||
   !canaryHarnessSource.includes('config.Execution.State != "ready"') ||
