@@ -30,7 +30,8 @@
     "tokens:generate": "pnpm --filter @dataground/tokens build",
     "typecheck": "pnpm --filter @dataground/ui typecheck && pnpm --filter @dataground/workbench typecheck",
     "verify": "pnpm run format:check && pnpm run lint && pnpm run contracts:check && pnpm run contracts:generate:check && pnpm run openshell:profile:check && pnpm run openshell:credential-evidence:check --self-test && pnpm run s3:profile:check && pnpm run tokens:check && pnpm run typecheck && pnpm run test && pnpm run build",
-    "openshell:credential-evidence:check": "node scripts/check-openshell-credential-evidence.mjs"
+    "openshell:credential-evidence:check": "node scripts/check-openshell-credential-evidence.mjs",
+    "openshell:credential-evidence:run": "go run ./cmd/dataground-openshell-canary"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.4",
