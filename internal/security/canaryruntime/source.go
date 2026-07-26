@@ -54,6 +54,8 @@ type state struct {
 	abandoned    bool
 	sourceAbort  chan struct{}
 	abortOnce    sync.Once
+	closeOnce    sync.Once
+	closeErr     error
 }
 
 func New(config Config) (*Sources, error) {
@@ -125,7 +127,11 @@ func (sources *Sources) Close() error {
 	if sources == nil || sources.state == nil {
 		return ErrCredentialSource
 	}
-	return sources.state.config.Session.Close()
+	state := sources.state
+	state.closeOnce.Do(func() {
+		state.closeErr = state.config.Session.Close()
+	})
+	return state.closeErr
 }
 
 // Discard clears an unused capture when collection fails before reaching the
