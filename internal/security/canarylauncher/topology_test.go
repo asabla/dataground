@@ -10,7 +10,7 @@ import (
 )
 
 func TestTopologyWorkspaceFreezesAndRemovesExactInputs(t *testing.T) {
-	root := t.TempDir()
+	root := topologyRoot(t)
 	compose := []byte("services: {}\n")
 	gateway := []byte("[openshell]\nversion = 1\n")
 	workspace, err := openTopologyWorkspace(root, testRunID, compose, gateway)
@@ -46,7 +46,7 @@ func TestTopologyWorkspaceFreezesAndRemovesExactInputs(t *testing.T) {
 }
 
 func TestTopologyWorkspaceRejectsReplacementDuringCleanup(t *testing.T) {
-	root := t.TempDir()
+	root := topologyRoot(t)
 	workspace, err := openTopologyWorkspace(
 		root,
 		testRunID,
@@ -73,4 +73,13 @@ func TestTopologyWorkspaceRejectsReplacementDuringCleanup(t *testing.T) {
 	if err != nil || string(content) != "do not remove" {
 		t.Fatalf("replacement target changed = %q, %v", content, err)
 	}
+}
+
+func topologyRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return root
 }
