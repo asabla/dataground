@@ -202,7 +202,8 @@
           "singleUse": "shared irreversible state across harness copies",
           "runtimeRecovery": "discard rejected or unused runtime capture during composition and after every attempted run",
           "serialization": "forbidden",
-          "status": "closed run composition verified; Docker-hosted launcher and live execution required"
+          "status": "closed run composition verified; Docker-hosted launcher and live execution required",
+          "runtimeTransition": "close the exact wrapped session once after the first six live surfaces and before runtime-error acquisition"
         }
       }
     }
