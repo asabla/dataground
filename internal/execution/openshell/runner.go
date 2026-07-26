@@ -15,7 +15,7 @@ type ExecRunner struct {
 	Environment []string
 }
 
-func (ExecRunner) Run(ctx context.Context, binary string, args ...string) (CommandResult, error) {
+func (runner ExecRunner) Run(ctx context.Context, binary string, args ...string) (CommandResult, error) {
 	command := runner.command(ctx, binary, args...)
 	var stdout bytes.Buffer
 	command.Stdout = &stdout
@@ -27,7 +27,7 @@ func (ExecRunner) Run(ctx context.Context, binary string, args ...string) (Comma
 	return result, err
 }
 
-func (ExecRunner) Start(ctx context.Context, binary string, args ...string) (execution.RuntimeSession, error) {
+func (runner ExecRunner) Start(ctx context.Context, binary string, args ...string) (execution.RuntimeSession, error) {
 	command := runner.command(ctx, binary, args...)
 	stdin, err := command.StdinPipe()
 	if err != nil {
