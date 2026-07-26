@@ -14,6 +14,7 @@ import (
 	"github.com/asabla/dataground/internal/security/canaryevidence"
 	"github.com/asabla/dataground/internal/security/canaryprovider"
 	"github.com/asabla/dataground/internal/security/canaryruntime"
+	"github.com/asabla/dataground/internal/security/canarysource"
 	"github.com/asabla/dataground/internal/security/canaryworkspace"
 )
 
@@ -210,18 +211,8 @@ func validConfig(t *testing.T) Config {
 	}
 }
 
-func structResourceNames(config canaryevidence.Config) struct {
-	Gateway  string
-	Sandbox  string
-	Provider string
-	Runtime  string
-} {
-	return struct {
-		Gateway  string
-		Sandbox  string
-		Provider string
-		Runtime  string
-	}{
+func structResourceNames(config canaryevidence.Config) canarysource.ResourceNames {
+	return canarysource.ResourceNames{
 		Gateway:  config.Resources.Gateway,
 		Sandbox:  config.Resources.Sandbox,
 		Provider: config.Resources.Provider,
