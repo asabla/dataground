@@ -348,6 +348,23 @@ func TestEvidenceStreamRequiresCompleteReadAndClearsContent(t *testing.T) {
 	}
 }
 
+func TestRuntimeCloseIsSharedAcrossCopies(t *testing.T) {
+	t.Parallel()
+
+	session := newFakeSession("")
+	sources := validSources(t, session)
+	copyOfSources := *sources
+	if err := sources.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if err := copyOfSources.Close(); err != nil {
+		t.Fatalf("copied Close() error = %v", err)
+	}
+	if session.closes != 1 {
+		t.Fatalf("native Close() calls = %d", session.closes)
+	}
+}
+
 func validSources(t *testing.T, session *fakeSession) *Sources {
 	t.Helper()
 
