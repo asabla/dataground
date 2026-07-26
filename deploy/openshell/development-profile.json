@@ -100,7 +100,7 @@
           "sandbox-logs",
           "runtime-errors"
         ],
-        "status": "collection boundary verified; run-bound acquisition adapter required"
+        "status": "collection and run-bound acquisition verified; live Docker execution required"
       },
       "status": "contract verified; live evidence required",
       "evidenceRun": {
@@ -118,15 +118,15 @@
           "name": "dg-canary-<runID>",
           "parent": "pre-existing owner-only mode-0700 directory",
           "serialization": "forbidden",
-          "status": "workspace lifecycle verified; live harness wiring required"
+          "status": "workspace lifecycle and closed composition verified; live Docker execution required"
         },
-        "status": "provider provisioning, run, all source lifecycle, and cleanup adapters verified; live Docker execution required",
+        "status": "provider provisioning, run, source lifecycle, cleanup, and closed composition verified; Docker-hosted launcher and live execution required",
         "sandboxCleanup": {
           "assembly": "internal/security/canarysandbox.New",
           "resource": "exact DataGround execution returned by the OpenShell provider",
           "verification": "terminate then require a timestamped exact terminal observation",
           "serialization": "forbidden",
-          "status": "sandbox cleanup adapter verified; live harness wiring required"
+          "status": "sandbox cleanup and closed composition verified; live Docker execution required"
         },
         "providerCleanup": {
           "assembly": "internal/security/canaryprovider.New",
@@ -135,7 +135,7 @@
           "verification": "observe exact binding, delete, then require timestamped absence",
           "exclusivity": "dedicated evidence gateway with no concurrent provider mutation",
           "serialization": "forbidden",
-          "status": "provider cleanup adapter verified; live harness wiring required"
+          "status": "provider cleanup and closed composition verified; live Docker execution required"
         },
         "sourceAcquisition": {
           "assembly": "internal/security/canarysource.New",
@@ -155,7 +155,7 @@
               "sandbox-logs"
             ],
             "serialization": "forbidden",
-            "status": "OpenShell sandbox source backend verified; live Docker execution required"
+            "status": "OpenShell sandbox source backend and closed composition verified; live Docker execution required"
           },
           "docker": {
             "assembly": "internal/security/canarydocker.New",
@@ -166,7 +166,7 @@
               "gateway-logs"
             ],
             "serialization": "forbidden",
-            "status": "Docker host source backend verified; live harness required"
+            "status": "Docker host source backend and closed composition verified; live Docker execution required"
           },
           "runtime": {
             "assembly": "internal/security/canaryruntime.New",
@@ -175,9 +175,9 @@
             "maxBytes": 16777216,
             "zeroization": "captured bytes cleared after scanner close, unusable handoff, or explicit discard",
             "serialization": "forbidden",
-            "status": "runtime-error source backend verified; live Docker execution required"
+            "status": "runtime-error source backend and closed composition verified; live Docker execution required"
           },
-          "status": "all seven source backends verified; live Docker execution required"
+          "status": "all seven source backends and closed composition verified; live Docker execution required"
         },
         "providerProvisioning": {
           "assembly": "internal/security/canaryprovider.Provision",
@@ -193,7 +193,16 @@
           "transport": "pinned OpenShell 0.0.86 provider create with bare credential keys and an isolated child environment",
           "recovery": "require pre-create absence then credential-safe exact identity observation on the dedicated evidence gateway",
           "serialization": "forbidden",
-          "status": "provider provisioning verified; live harness wiring required"
+          "status": "provider provisioning and closed composition verified; Docker-hosted launcher required"
+        },
+        "composition": {
+          "assembly": "internal/security/canaryharness.New",
+          "binding": "exact run-derived portable names, provisioned provider binding and commitment, ready execution, verifier workspace, and concrete OpenShell, Docker, and runtime backends",
+          "components": "repository-owned source adapter plus sandbox, provider, and workspace cleanup adapters",
+          "singleUse": "shared irreversible state across harness copies",
+          "runtimeRecovery": "discard unused runtime capture after every attempted run",
+          "serialization": "forbidden",
+          "status": "closed run composition verified; Docker-hosted launcher and live execution required"
         }
       }
     }
