@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"os"
 	"path/filepath"
 	"regexp"
 	"time"
@@ -203,6 +202,7 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 		return canaryevidence.Result{}, ErrLaunch
 	}
 	state.sandbox = sandboxCleanup
+	state.sandboxName = executionValue.ID
 
 	executionValue, err = waitForReady(ctx, provider, executionValue)
 	if err != nil {
@@ -384,6 +384,7 @@ type cleanupState struct {
 	runID string
 	names canaryharness.ResourceNames
 	runtime *canaryruntime.Sources
+	sandboxName string
 	sandbox *canarysandbox.Adapter
 	provider *canaryprovider.Adapter
 	workspace *canaryworkspace.Workspace
@@ -408,7 +409,7 @@ func (state *cleanupState) cleanup() error {
 		if err := state.sandbox.Cleanup(ctx, canaryevidence.CleanupRequest{
 			RunID: state.runID,
 			ResourceKind: "sandbox",
-			ResourceName: state.names.Sandbox,
+			ResourceName: state.sandboxName,
 		}); err != nil {
 			outcome = errors.Join(outcome, ErrLaunch)
 		}
@@ -456,4 +457,3 @@ func (Config) MarshalJSON() ([]byte, error) {
 }
 
 var _ json.Marshaler = Config{}
-var _ = os.ErrNotExist
