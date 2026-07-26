@@ -360,6 +360,31 @@ func TestCreateRecordsSuccessfulEffectWhenPolicyCleanupFails(t *testing.T) {
 	}
 }
 
+func TestCreatePersistsPrivateRouteBeforeAmbiguousMutation(t *testing.T) {
+	runner := &scriptedRunner{results: []scriptedResult{
+		{result: CommandResult{Stdout: []byte("[]")}},
+		{err: context.DeadlineExceeded},
+		{err: context.DeadlineExceeded},
+	}}
+	provider, _, placement, policy, policyDigest := preparedProvider(t, runner)
+	request := createRequest(placement, policy, policyDigest)
+	if _, err := provider.Create(context.Background(), request); !errors.Is(err, ErrProviderFailure) {
+		t.Fatalf("Create() error = %v", err)
+	}
+	record, err := provider.store.GetExecution(context.Background(), execution.ExecutionRef{
+		IsolationDomainID: request.IsolationDomainID,
+		ID: derivedID("exe", request.IsolationDomainID+":"+request.OperationID),
+	})
+	if err != nil {
+		t.Fatalf("persisted execution route: %v", err)
+	}
+	if record.Execution.State != "provisioning" ||
+		record.OperationID != request.OperationID ||
+		record.SandboxName != sandboxName(request.IsolationDomainID, request.OperationID) {
+		t.Fatalf("persisted execution route = %#v", record)
+	}
+}
+
 func TestCreateRejectsConflictingRetryFingerprint(t *testing.T) {
 	runner := &scriptedRunner{results: []scriptedResult{
 		{result: CommandResult{Stdout: []byte("[]")}},
