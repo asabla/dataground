@@ -136,7 +136,7 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 		ExpectedVersion: canaryprofile.OpenShellVersion,
 		PolicyWorkspace: policyWorkspace,
 		ProviderProfiles: profiles,
-	}, openshell.ExecRunner{})
+	}, openshell.ExecRunner{Environment: openShellEnvironment()})
 	if err := provider.Check(ctx); err != nil {
 		return canaryevidence.Result{}, launchError(ctx)
 	}
