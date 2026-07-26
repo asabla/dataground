@@ -403,8 +403,7 @@ if (
     "exact run-derived portable names, provisioned provider binding and commitment, ready execution, verifier workspace, and concrete OpenShell, Docker, and runtime backends" ||
   canaryEvidenceRun?.composition?.components !==
     "repository-owned source adapter plus sandbox, provider, and workspace cleanup adapters" ||
-  canaryEvidenceRun?.composition?.singleUse !==
-    "shared irreversible state across harness copies" ||
+  canaryEvidenceRun?.composition?.singleUse !== "shared irreversible state across harness copies" ||
   canaryEvidenceRun?.composition?.runtimeRecovery !==
     "discard rejected or unused runtime capture during composition and after every attempted run" ||
   canaryEvidenceRun?.composition?.runtimeTransition !==
