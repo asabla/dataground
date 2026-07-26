@@ -87,6 +87,13 @@ type state struct {
 // New closes the composition boundary around the provisioned provider,
 // ready execution, verifier workspace, seven source backends, and cleanup ports.
 func New(config Config) (*Harness, error) {
+	discardRuntime := config.Runtime != nil
+	defer func() {
+		if discardRuntime {
+			config.Runtime.Discard()
+		}
+	}()
+
 	names, err := NamesForRun(config.RunID)
 	if err != nil ||
 		config.Provider == nil ||
@@ -143,7 +150,7 @@ func New(config Config) (*Harness, error) {
 		return nil, ErrInvalidConfiguration
 	}
 
-	return &Harness{state: &state{
+	harness := &Harness{state: &state{
 		config: canaryevidence.Config{
 			RunID:            config.RunID,
 			CanaryCommitment: commitment,
@@ -162,7 +169,9 @@ func New(config Config) (*Harness, error) {
 			},
 		},
 		runtime: config.Runtime,
-	}}, nil
+	}}
+	discardRuntime = false
+	return harness, nil
 }
 
 // Run performs the single live collection and always discards any runtime
