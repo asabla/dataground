@@ -31,7 +31,7 @@ func TestTopologyWorkspaceFreezesAndRemovesExactInputs(t *testing.T) {
 			t.Fatalf("topology file mode = %v, %v", info, err)
 		}
 	}
-	if _, err := json.Marshal(*workspace); !errors.Is(err, ErrSerialization) {
+	if _, err := json.Marshal(workspace); !errors.Is(err, ErrSerialization) {
 		t.Fatalf("MarshalJSON() error = %v", err)
 	}
 	if err := workspace.Cleanup(context.Background()); err != nil {
