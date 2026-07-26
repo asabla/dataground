@@ -151,6 +151,54 @@ func TestHarnessDiscardsRuntimeCaptureWhenCompositionFails(t *testing.T) {
 	}
 }
 
+func TestRuntimeBoundaryClosesBeforeScanningOnce(t *testing.T) {
+	names, err := NamesForRun(testRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := &fakeSession{errors: "captured runtime diagnostics"}
+	runtimeSources, err := canaryruntime.New(canaryruntime.Config{
+		RunID: testRunID, RuntimeName: names.Runtime, Session: session,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	drain := runtimeSources.Errors()
+	if _, err := io.ReadAll(drain); err != nil {
+		t.Fatal(err)
+	}
+	if err := drain.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	boundary := &runtimeBoundary{runtime: runtimeSources}
+	request := canarysource.Request{
+		RunID: testRunID, Surface: "runtime-errors", ResourceName: names.Runtime,
+	}
+	source, err := boundary.OpenRuntimeErrors(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadAll(source); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if session.closeCalls != 1 {
+		t.Fatalf("runtime Close() calls = %d", session.closeCalls)
+	}
+	if _, err := boundary.OpenRuntimeErrors(context.Background(), request); !errors.Is(
+		err,
+		canaryruntime.ErrCredentialSource,
+	) {
+		t.Fatalf("second OpenRuntimeErrors() error = %v", err)
+	}
+	if session.closeCalls != 1 {
+		t.Fatalf("runtime Close() calls after retry = %d", session.closeCalls)
+	}
+}
+
 func TestHarnessRejectsInvalidRunNamesAndSerialization(t *testing.T) {
 	if _, err := NamesForRun("not-a-run"); !errors.Is(err, ErrInvalidConfiguration) {
 		t.Fatalf("NamesForRun() error = %v", err)
@@ -190,7 +238,8 @@ func TestHarnessDoesNotConsumeCancelledStart(t *testing.T) {
 }
 
 type fakeSession struct {
-	errors string
+	errors     string
+	closeCalls int
 }
 
 func (*fakeSession) Input() io.WriteCloser {
@@ -205,8 +254,12 @@ func (session *fakeSession) Errors() io.ReadCloser {
 	return io.NopCloser(strings.NewReader(session.errors))
 }
 
-func (*fakeSession) Wait() error  { return nil }
-func (*fakeSession) Close() error { return nil }
+func (*fakeSession) Wait() error { return nil }
+
+func (session *fakeSession) Close() error {
+	session.closeCalls++
+	return nil
+}
 
 type nopWriteCloser struct {
 	io.Writer
