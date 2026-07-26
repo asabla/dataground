@@ -197,8 +197,8 @@ func (workspace *topologyWorkspace) removePartial() {
 	_ = workspace.parent.Close()
 }
 
-func (topologyWorkspace) MarshalJSON() ([]byte, error) {
+func (*topologyWorkspace) MarshalJSON() ([]byte, error) {
 	return nil, ErrSerialization
 }
 
-var _ json.Marshaler = topologyWorkspace{}
+var _ json.Marshaler = (*topologyWorkspace)(nil)
