@@ -304,7 +304,14 @@
         "artifact-export": "supported",
         "runtime-artifact-events": "unsupported"
       },
-      "status": "evidence contract defined; live record required"
+      "status": "evidence contract defined; live record required",
+      "resourceNames": {
+        "gateway": "dg-runtime-gateway-<runID>",
+        "sandbox": "dg-runtime-sandbox-<runID>",
+        "provider": "dg-runtime-provider-<runID>",
+        "runtime": "dg-runtime-session-<runID>",
+        "workspace": "dg-runtime-<runID>"
+      }
     }
   },
   "capabilities": {
