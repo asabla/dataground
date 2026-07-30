@@ -143,6 +143,28 @@ func TestLiveCasesFailClosed(t *testing.T) {
 		}
 	})
 
+	t.Run("overlapping calls poison the run", func(t *testing.T) {
+		scenario := &blockingLiveScenario{
+			liveScenario: &liveScenario{},
+			entered:      make(chan struct{}),
+			release:      make(chan struct{}),
+		}
+		cases := newTestLiveCases(t, scenario)
+		firstResult := make(chan error, 1)
+		go func() {
+			_, err := cases.Run(context.Background(), testLiveRequest(CheckGatewayReady))
+			firstResult <- err
+		}()
+		<-scenario.entered
+		if _, err := cases.Run(context.Background(), testLiveRequest(CheckSandboxReady)); !errors.Is(err, ErrLiveCaseOrder) {
+			t.Fatalf("overlapping Run() error = %v", err)
+		}
+		close(scenario.release)
+		if err := <-firstResult; !errors.Is(err, ErrLiveCaseOrder) {
+			t.Fatalf("first Run() after overlap error = %v", err)
+		}
+	})
+
 	t.Run("configuration cannot be serialized", func(t *testing.T) {
 		cases := newTestLiveCases(t, &liveScenario{})
 		if _, err := json.Marshal(cases); !errors.Is(err, ErrSerialization) {
@@ -159,6 +181,25 @@ type liveScenario struct {
 	fail    error
 	invalid bool
 	replay  bool
+}
+
+type blockingLiveScenario struct {
+	*liveScenario
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (scenario *blockingLiveScenario) GatewayReady(
+	ctx context.Context,
+	binding LiveBinding,
+) (LiveReceipt, error) {
+	close(scenario.entered)
+	select {
+	case <-ctx.Done():
+		return LiveReceipt{}, ctx.Err()
+	case <-scenario.release:
+	}
+	return scenario.liveScenario.GatewayReady(ctx, binding)
 }
 
 func (scenario *liveScenario) ValidateBinding(binding LiveBinding) error {
