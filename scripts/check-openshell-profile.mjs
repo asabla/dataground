@@ -865,7 +865,7 @@ if (
     "credential non-exposure certified for the pinned development profile" ||
   profile.capabilities?.credentialNonExposure !== "certified for pinned development profile" ||
   profile.capabilities?.realSandboxInvocation !==
-    "v2 evidence producer defined; live certification blocked" ||
+    "v2 evidence producer and live case backend defined; concrete scenario driver and live certification blocked" ||
   JSON.stringify(profile.blockers) !== JSON.stringify(expectedRemainingBlockers)
 ) {
   fail("the accepted credential evidence claim or remaining blockers are inconsistent");
