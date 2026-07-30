@@ -264,13 +264,13 @@
           },
           "then": {
             "properties": {
-              "evidence": { "minItems": 1 },
+              "evidence": { "type": "array", "minItems": 1 },
               "reasonCode": { "const": null }
             }
           },
           "else": {
             "properties": {
-              "evidence": { "maxItems": 0 },
+              "evidence": { "type": "array", "maxItems": 0 },
               "reasonCode": { "type": "string" }
             }
           }
