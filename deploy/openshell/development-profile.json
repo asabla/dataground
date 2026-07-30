@@ -57,11 +57,11 @@
     },
     "contract": {
       "schema": "deploy/openshell/credential-non-exposure-evidence.schema.json",
-      "schemaVersion": "dataground.dev.openshell-credential-non-exposure-evidence/v2",
+      "schemaVersion": "dataground.dev.openshell-credential-non-exposure-evidence/v3",
       "verifier": "pnpm openshell:credential-evidence:check <evidence.json>",
       "verifierIdentity": {
         "name": "dataground-openshell-canary",
-        "version": "2.0.0"
+        "version": "3.0.0"
       },
       "scanner": {
         "command": "go run ./cmd/dataground-openshell-canary-scan",
@@ -92,6 +92,20 @@
           "gateway-logs": "gateway",
           "sandbox-logs": "sandbox",
           "runtime-errors": "runtime"
+        },
+        "filesystemExcludedRoots": [
+          "/proc",
+          "/sys"
+        ],
+        "filesystemTraversal": "all mounted filesystems except exact virtual kernel roots; regular files only; no symlink traversal",
+        "surfaceMinimumInspectedBytes": {
+          "sandbox-process": 1,
+          "sandbox-environment": 1,
+          "sandbox-filesystem": 1,
+          "provider-arguments": 1,
+          "gateway-logs": 1,
+          "sandbox-logs": 0,
+          "runtime-errors": 0
         }
       },
       "collector": {
@@ -113,7 +127,7 @@
       "status": "contract and launcher verified; live evidence required",
       "evidenceRun": {
         "assembly": "internal/security/canaryevidence.Run",
-        "profileOwnership": "checked profile snapshot, topology digests, and dataground-openshell-canary/2.0.0 verifier identity",
+        "profileOwnership": "checked profile snapshot, topology digests, and dataground-openshell-canary/3.0.0 verifier identity",
         "cleanupOrder": [
           "sandbox",
           "provider",
