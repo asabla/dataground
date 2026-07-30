@@ -92,10 +92,10 @@ func NewConcreteScenario(config ScenarioConfig) (*ConcreteScenario, error) {
 		return nil, ErrScenarioConfiguration
 	}
 	return &ConcreteScenario{state: &scenarioState{
-		request: ProbeRequest{RunID: config.RunID, Resources: namesForRun(config.RunID)},
+		request:  ProbeRequest{RunID: config.RunID, Resources: namesForRun(config.RunID)},
 		provider: config.Provider,
-		runtime: config.Runtime,
-		proofs: make(map[[sha256.Size]byte]struct{}, len(requiredChecks)),
+		runtime:  config.Runtime,
+		proofs:   make(map[[sha256.Size]byte]struct{}, len(requiredChecks)),
 	}}, nil
 }
 
