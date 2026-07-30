@@ -108,6 +108,7 @@ func TestLiveCaseRunnerFailsClosed(t *testing.T) {
 	}{
 		{name: "out of order", cases: &liveCases{base: base}, first: CheckSandboxReady, want: ErrCaseBinding},
 		{name: "native failure sanitized", cases: &liveCases{base: base, failAt: CheckGatewayReady}, first: CheckGatewayReady, want: ErrCase},
+		{name: "native exposure", cases: &liveCases{base: base, exposeAt: CheckGatewayReady}, first: CheckGatewayReady, want: ErrObservation},
 	}
 	for _, test := range tests {
 		test := test
@@ -164,5 +165,42 @@ func TestLiveCaseRunnerRejectsBindingReplay(t *testing.T) {
 	}
 	if err := runner.ValidateBinding(runID, resources); !errors.Is(err, ErrCaseBinding) {
 		t.Fatalf("second ValidateBinding() error = %v", err)
+	}
+}
+
+func TestLiveCaseRunnerCompletesOwnedEvidenceRun(t *testing.T) {
+	t.Parallel()
+	runID := "0123456789abcdef0123456789abcdef"
+	resources := namesForRun(runID)
+	base := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
+	runner, err := NewLiveCaseRunner(runID, resources, &liveCases{base: base})
+	if err != nil {
+		t.Fatalf("NewLiveCaseRunner() error = %v", err)
+	}
+	cleanup := func(context.Context, CleanupRequest) error { return nil }
+	run, err := newEvidenceRun(Config{
+		RunID: runID,
+		Provenance: Provenance{
+			SourceCommit: "0123456789abcdef0123456789abcdef01234567",
+			WorkflowRunID: 42,
+		},
+		Cases: runner,
+		Cleanup: Cleanup{
+			Sandbox: cleanup, ProviderBinding: cleanup, Workspace: cleanup,
+		},
+	}, clock(base, base.Add(time.Minute)))
+	if err != nil {
+		t.Fatalf("newEvidenceRun() error = %v", err)
+	}
+	result, err := run.Execute(context.Background())
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	encoded, err := result.MarshalJSON()
+	if err != nil {
+		t.Fatalf("MarshalJSON() error = %v", err)
+	}
+	if len(encoded) == 0 {
+		t.Fatal("MarshalJSON() returned empty evidence")
 	}
 }
