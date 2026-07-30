@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v1.json",
+  "title": "DataGround OpenShell runtime conformance evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "profile", "run", "checks", "capabilities", "cleanup", "result"],
+  "properties": {
+    "schemaVersion": {
+      "const": "dataground.dev.openshell-runtime-conformance-evidence/v1"
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "openshellCommit",
+        "gatewayImage",
+        "supervisorImage",
+        "sandboxImage",
+        "runtimeVersion",
+        "runtimeSchemaCanonicalSHA256",
+        "credentialEvidenceSHA256",
+        "gatewayEndpoint",
+        "driver",
+        "composeSHA256",
+        "gatewayConfigSHA256"
+      ],
+      "properties": {
+        "openshellCommit": { "$ref": "#/$defs/commit" },
+        "gatewayImage": { "$ref": "#/$defs/imageDigest" },
+        "supervisorImage": { "$ref": "#/$defs/imageDigest" },
+        "sandboxImage": { "$ref": "#/$defs/imageDigest" },
+        "runtimeVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "runtimeSchemaCanonicalSHA256": { "$ref": "#/$defs/sha256" },
+        "credentialEvidenceSHA256": { "$ref": "#/$defs/sha256" },
+        "gatewayEndpoint": { "const": "http://127.0.0.1:8080" },
+        "driver": { "const": "docker" },
+        "composeSHA256": { "$ref": "#/$defs/sha256" },
+        "gatewayConfigSHA256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "resources", "startedAt", "finishedAt", "verifier"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["gateway", "sandbox", "provider", "runtime", "workspace"],
+          "properties": {
+            "gateway": { "$ref": "#/$defs/resourceName" },
+            "sandbox": { "$ref": "#/$defs/resourceName" },
+            "provider": { "$ref": "#/$defs/providerName" },
+            "runtime": { "$ref": "#/$defs/resourceName" },
+            "workspace": { "$ref": "#/$defs/workspaceName" }
+          }
+        },
+        "startedAt": { "$ref": "#/$defs/timestamp" },
+        "finishedAt": { "$ref": "#/$defs/timestamp" },
+        "verifier": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "version"],
+          "properties": {
+            "name": { "const": "dataground-openshell-runtime-conformance" },
+            "version": { "const": "1.0.0" }
+          }
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "items": { "$ref": "#/$defs/check" }
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 13,
+      "maxItems": 13,
+      "items": { "$ref": "#/$defs/capability" }
+    },
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sandbox", "providerBinding", "workspace"],
+      "properties": {
+        "sandbox": { "$ref": "#/$defs/cleanupResource" },
+        "providerBinding": { "$ref": "#/$defs/cleanupResource" },
+        "workspace": { "$ref": "#/$defs/cleanupResource" }
+      }
+    },
+    "result": { "const": "passed" }
+  },
+  "$defs": {
+    "commit": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "imageDigest": {
+      "type": "string",
+      "pattern": "^[a-z0-9.-]+(?:/[a-z0-9._-]+)+@sha256:[a-f0-9]{64}$"
+    },
+    "resourceName": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "providerName": {
+      "type": "string",
+      "pattern": "^dg-runtime-provider-[a-f0-9]{32}$"
+    },
+    "workspaceName": {
+      "type": "string",
+      "pattern": "^dg-runtime-[a-f0-9]{32}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "status",
+        "startedAt",
+        "finishedAt",
+        "observationCommitment",
+        "nativeProtocolExposed",
+        "upstreamEndpointExposed"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "gateway-ready",
+            "sandbox-ready",
+            "initialize",
+            "turn-success",
+            "event-normalization",
+            "interrupt",
+            "command-approval",
+            "file-change-approval",
+            "artifact-export",
+            "sandbox-teardown"
+          ]
+        },
+        "status": { "const": "passed" },
+        "startedAt": { "$ref": "#/$defs/timestamp" },
+        "finishedAt": { "$ref": "#/$defs/timestamp" },
+        "observationCommitment": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "nativeProtocolExposed": { "const": false },
+        "upstreamEndpointExposed": { "const": false }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "classification", "evidence", "reasonCode"],
+      "properties": {
+        "name": {
+          "enum": [
+            "text",
+            "item-activity",
+            "interrupt",
+            "command-approval",
+            "file-change-approval",
+            "question",
+            "permission-escalation",
+            "rich-item-delta",
+            "usage",
+            "resume",
+            "steer",
+            "artifact-export",
+            "runtime-artifact-events"
+          ]
+        },
+        "classification": {
+          "enum": ["supported", "unsupported", "blocked"]
+        },
+        "evidence": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "gateway-ready",
+              "sandbox-ready",
+              "initialize",
+              "turn-success",
+              "event-normalization",
+              "interrupt",
+              "command-approval",
+              "file-change-approval",
+              "artifact-export",
+              "sandbox-teardown"
+            ]
+          }
+        },
+        "reasonCode": {
+          "type": ["string", "null"],
+          "enum": [
+            null,
+            "ADAPTER_UNSUPPORTED",
+            "DURABLE_INTERACTION_UNIMPLEMENTED",
+            "NATIVE_PROTOCOL_UNCERTIFIED"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "classification": { "const": "supported" } },
+            "required": ["classification"]
+          },
+          "then": {
+            "properties": {
+              "evidence": { "minItems": 1 },
+              "reasonCode": { "const": null }
+            }
+          },
+          "else": {
+            "properties": {
+              "evidence": { "maxItems": 0 },
+              "reasonCode": { "type": "string" }
+            }
+          }
+        }
+      ]
+    },
+    "cleanupResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status"],
+      "properties": {
+        "name": { "$ref": "#/$defs/resourceName" },
+        "status": { "const": "removed" }
+      }
+    }
+  }
+}
