@@ -14,7 +14,92 @@ import (
 	"github.com/asabla/dataground/internal/security/canarysource"
 )
 
-const credentialEvidenceOpenShellVersion = "0.0.86"
+const (
+	credentialEvidenceOpenShellVersion  = "0.0.86"
+	credentialEvidenceFilesystemProgram = `"use strict";
+const fs = require("node:fs");
+const path = require("node:path");
+const root = "/";
+const rootDevice = fs.statSync(root).dev;
+const pending = [root];
+const buffer = Buffer.alloc(64 * 1024);
+const ignorableCodes = new Set(["EACCES", "EPERM", "ENOENT", "ENOTDIR", "ELOOP"]);
+
+function isIgnorable(error) {
+	return error !== null && typeof error === "object" && ignorableCodes.has(error.code);
+}
+
+function copyFile(file) {
+	let descriptor;
+	try {
+		descriptor = fs.openSync(file, "r");
+		for (;;) {
+			const count = fs.readSync(descriptor, buffer, 0, buffer.length, null);
+			if (count === 0) {
+				return;
+			}
+			let written = 0;
+			while (written < count) {
+				written += fs.writeSync(1, buffer, written, count - written);
+			}
+		}
+	} catch (error) {
+		if (!isIgnorable(error)) {
+			throw error;
+		}
+	} finally {
+		if (descriptor !== undefined) {
+			try {
+				fs.closeSync(descriptor);
+			} catch (error) {
+				if (!isIgnorable(error)) {
+					throw error;
+				}
+			}
+		}
+	}
+}
+
+while (pending.length > 0) {
+	const directory = pending.pop();
+	let entries;
+	try {
+		entries = fs.readdirSync(directory, { withFileTypes: true });
+	} catch (error) {
+		if (!isIgnorable(error)) {
+			throw error;
+		}
+		continue;
+	}
+	entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+	const children = [];
+	for (const entry of entries) {
+		const candidate = path.join(directory, entry.name);
+		let stat;
+		try {
+			stat = fs.lstatSync(candidate);
+		} catch (error) {
+			if (!isIgnorable(error)) {
+				throw error;
+			}
+			continue;
+		}
+		if (stat.dev === rootDevice) {
+			children.push({ path: candidate, stat });
+		}
+	}
+	for (const child of children) {
+		if (child.stat.isFile()) {
+			copyFile(child.path);
+		}
+	}
+	for (let index = children.length - 1; index >= 0; index--) {
+		if (children[index].stat.isDirectory()) {
+			pending.push(children[index].path);
+		}
+	}
+}`
+)
 
 var (
 	ErrCredentialEvidenceSource        = errors.New("credential evidence source operation failed")
@@ -28,18 +113,15 @@ func credentialEvidenceCommand(surface string) []string {
 	case "sandbox-process":
 		return []string{
 			"find", "/proc", "-mindepth", "2", "-maxdepth", "2", "-type", "f",
-			"-name", "cmdline", "-readable", "-exec", "cat", "--", "{}", "+",
+			"-name", "cmdline", "-readable", "-exec", "cat", "--", "{}", ";",
 		}
 	case "sandbox-environment":
 		return []string{
 			"find", "/proc", "-mindepth", "2", "-maxdepth", "2", "-type", "f",
-			"-name", "environ", "-readable", "-exec", "cat", "--", "{}", "+",
+			"-name", "environ", "-readable", "-exec", "cat", "--", "{}", ";",
 		}
 	case "sandbox-filesystem":
-		return []string{
-			"find", "/", "-xdev", "-type", "f", "-readable",
-			"-exec", "cat", "--", "{}", "+",
-		}
+		return []string{"node", "-e", credentialEvidenceFilesystemProgram}
 	case "sandbox-logs":
 		return []string{
 			"find", "/var/log", "-maxdepth", "1", "-type", "f",

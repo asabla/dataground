@@ -23,15 +23,18 @@
   },
   "topology": {
     "gatewayEndpoint": "http://127.0.0.1:8080",
-    "healthEndpoint": "http://127.0.0.1:8081",
+    "healthEndpoint": "http://127.0.0.1:8081/readyz",
     "driver": "docker",
     "tls": false,
     "scope": "loopback development only",
     "composeFile": "deploy/openshell/docker-compose.yml",
-    "composeSHA256": "3cb3c9bfdba656c24cefb53baf65097c231a9a0e950630c5a4a6f6c1a83bd731",
+    "composeSHA256": "c20a9475cfd62db222a3c1b64c9e7dd26cbed31ea311cc623120f58c87aeb5ee",
     "gatewayConfigFile": "deploy/openshell/gateway.toml",
-    "gatewayConfigSHA256": "f34f9bc33c5e3e777b6b22c14c22f4a6d474e0af717e7989c45ec5d0f8ea2da9",
-    "gatewayState": "unique run-derived Compose project and named volume removed before evidence release"
+    "gatewayConfigSHA256": "c2e2a4ec201edac242e47f28f49dba9ec8b4b520bf1969574f3d173441aa3830",
+    "gatewayState": "unique run-derived same-path bind directory removed before evidence release",
+    "gatewayAuthentication": "fresh run-scoped Ed25519 signing keys mounted read-only and removed with the frozen topology",
+    "gatewayUserAuthentication": "unauthenticated CLI calls accepted only on the dedicated loopback plaintext gateway; sandbox supervisors require run-scoped JWTs",
+    "gatewayNetwork": "gateway container shares the Docker host network namespace so the driver-owned sandbox bridge listener is host-reachable while control and health remain loopback-only"
   },
   "artifacts": {
     "gateway": "ghcr.io/nvidia/openshell/gateway@sha256:e21f520a0678ba3cfe749957338b5fa78c75e8e52de13e4559ccbb582f781a0b",
@@ -215,6 +218,7 @@
           "command": "go run ./cmd/dataground-openshell-canary --workspace-root <owner-only-mode-0700-directory>",
           "topologyBinding": "exact checked SHA-256 of Docker Compose and gateway configuration frozen into a private run-owned directory before mutation",
           "gatewayLifecycle": "fresh run-derived Compose project and named volume with container and volume absence verification",
+          "gatewayAuthentication": "fresh non-serializable Ed25519 keypair and identifier generated inside the private topology workspace, mounted read-only, and removed before evidence release",
           "composition": "repository-owned provider provisioning, provider-bound sandbox, wrapped Codex client, seven source backends, and closed harness",
           "output": "evidence JSON on stdout only after complete run cleanup and gateway teardown",
           "serialization": "configuration forbidden",

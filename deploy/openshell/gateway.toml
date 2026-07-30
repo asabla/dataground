@@ -9,6 +9,16 @@ log_level = "info"
 compute_drivers = ["docker"]
 disable_tls = true
 
+[openshell.gateway.auth]
+allow_unauthenticated_users = true
+
+[openshell.gateway.gateway_jwt]
+signing_key_path = "/run/dataground-credential-evidence/gateway-jwt/signing.pem"
+public_key_path = "/run/dataground-credential-evidence/gateway-jwt/public.pem"
+kid_path = "/run/dataground-credential-evidence/gateway-jwt/kid"
+gateway_id = "dataground-credential-evidence"
+ttl_secs = 0
+
 [openshell.drivers.docker]
 default_image = "ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e"
 supervisor_image = "ghcr.io/nvidia/openshell/supervisor@sha256:a15222ac18c1afd0ee51b9dda785a29067c13f61a2002a29d41f691f5e817f19"
