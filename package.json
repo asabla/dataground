@@ -29,10 +29,11 @@
     "tokens:check": "pnpm --filter @dataground/tokens check",
     "tokens:generate": "pnpm --filter @dataground/tokens build",
     "typecheck": "pnpm --filter @dataground/ui typecheck && pnpm --filter @dataground/workbench typecheck",
-    "verify": "pnpm run format:check && pnpm run lint && pnpm run contracts:check && pnpm run contracts:generate:check && pnpm run openshell:profile:check && pnpm run openshell:credential-evidence:check --self-test && pnpm run openshell:credential-evidence:accepted:check && pnpm run s3:profile:check && pnpm run tokens:check && pnpm run typecheck && pnpm run test && pnpm run build",
+    "verify": "pnpm run format:check && pnpm run lint && pnpm run contracts:check && pnpm run contracts:generate:check && pnpm run openshell:profile:check && pnpm run openshell:credential-evidence:check --self-test && pnpm run openshell:credential-evidence:accepted:check && pnpm run openshell:runtime-evidence:check --self-test && pnpm run s3:profile:check && pnpm run tokens:check && pnpm run typecheck && pnpm run test && pnpm run build",
     "openshell:credential-evidence:check": "node scripts/check-openshell-credential-evidence.mjs",
     "openshell:credential-evidence:run": "go run ./cmd/dataground-openshell-canary",
-    "openshell:credential-evidence:accepted:check": "node scripts/check-openshell-credential-evidence.mjs deploy/openshell/evidence/openshell-credential-non-exposure-v3.json"
+    "openshell:credential-evidence:accepted:check": "node scripts/check-openshell-credential-evidence.mjs deploy/openshell/evidence/openshell-credential-non-exposure-v3.json",
+    "openshell:runtime-evidence:check": "node scripts/check-openshell-runtime-evidence.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.4",
