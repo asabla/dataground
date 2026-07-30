@@ -10,6 +10,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/asabla/dataground/internal/security/canaryscan"
 )
 
 const testCanary = "dataground-canary-v1:ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_a-b-cD"
@@ -146,6 +148,9 @@ func TestCollectSanitizesAcquisitionFailure(t *testing.T) {
 	if !errors.Is(err, ErrAcquisition) {
 		t.Fatalf("Collect() error = %v, want ErrAcquisition", err)
 	}
+	if surface := FailureSurfaceOf(err); surface != "sandbox-environment" {
+		t.Fatalf("Collect() failure surface = %q", surface)
+	}
 	if strings.Contains(err.Error(), "sensitive") {
 		t.Fatalf("Collect() leaked acquisition error: %v", err)
 	}
@@ -156,6 +161,23 @@ func TestCollectSanitizesAcquisitionFailure(t *testing.T) {
 		t.Fatalf("Collect() ambiguous source closes = %d", ambiguousCloses)
 	}
 	assertReportCount(t, collection, 1)
+}
+
+func TestScanFailurePreservesOnlySafeInputLimit(t *testing.T) {
+	t.Parallel()
+
+	limited := scanFailure(canaryscan.ErrInputLimit)
+	if !errors.Is(limited, ErrScan) || !errors.Is(limited, ErrScanInputLimit) {
+		t.Fatalf("scanFailure(ErrInputLimit) = %v", limited)
+	}
+
+	sensitive := errors.New("sensitive scanner failure")
+	generic := scanFailure(sensitive)
+	if !errors.Is(generic, ErrScan) ||
+		errors.Is(generic, ErrScanInputLimit) ||
+		strings.Contains(generic.Error(), "sensitive") {
+		t.Fatalf("scanFailure(sensitive) = %v", generic)
+	}
 }
 
 func TestCollectRetainsIncompleteBoundReport(t *testing.T) {

@@ -45,7 +45,16 @@ if (
 }
 if (
   profile.topology?.driver !== "docker" ||
-  profile.topology?.gatewayEndpoint !== "http://127.0.0.1:8080"
+  profile.topology?.gatewayEndpoint !== "http://127.0.0.1:8080" ||
+  profile.topology?.healthEndpoint !== "http://127.0.0.1:8081/readyz" ||
+  profile.topology?.gatewayState !==
+    "unique run-derived same-path bind directory removed before evidence release" ||
+  profile.topology?.gatewayAuthentication !==
+    "fresh run-scoped Ed25519 signing keys mounted read-only and removed with the frozen topology" ||
+  profile.topology?.gatewayUserAuthentication !==
+    "unauthenticated CLI calls accepted only on the dedicated loopback plaintext gateway; sandbox supervisors require run-scoped JWTs" ||
+  profile.topology?.gatewayNetwork !==
+    "gateway container shares the Docker host network namespace so the driver-owned sandbox bridge listener is host-reachable while control and health remain loopback-only"
 ) {
   fail("the initial topology must remain the loopback Docker profile");
 }
@@ -330,7 +339,7 @@ if (
 }
 if (
   !canaryOpenShellSource.includes("func (provider *Provider) NewCredentialEvidenceSources(") ||
-  !canaryOpenShellSource.includes('credentialEvidenceOpenShellVersion = "0.0.86"') ||
+  !canaryOpenShellSource.includes('credentialEvidenceOpenShellVersion  = "0.0.86"') ||
   !canaryOpenShellSource.includes("provider.Check(ctx)") ||
   !canaryOpenShellSource.includes("type ExecEvidenceStreamRunner struct{}") ||
   !canaryOpenShellSource.includes("exec.CommandContext(") ||
@@ -339,7 +348,15 @@ if (
   !canaryOpenShellSource.includes('"find", "/proc"') ||
   !canaryOpenShellSource.includes('"-name", "cmdline"') ||
   !canaryOpenShellSource.includes('"-name", "environ"') ||
-  !canaryOpenShellSource.includes('"find", "/", "-xdev"') ||
+  !canaryOpenShellSource.includes('credentialEvidenceFilesystemProgram = `"use strict";') ||
+  !canaryOpenShellSource.includes("const rootDevice = fs.statSync(root).dev;") ||
+  !canaryOpenShellSource.includes("const buffer = Buffer.alloc(64 * 1024);") ||
+  !canaryOpenShellSource.includes("stat.dev === rootDevice") ||
+  !canaryOpenShellSource.includes("fs.writeSync(1, buffer") ||
+  !canaryOpenShellSource.includes('"node", "-e", credentialEvidenceFilesystemProgram') ||
+  canaryOpenShellSource.includes("child_process") ||
+  canaryOpenShellSource.includes("process.env") ||
+  canaryOpenShellSource.includes("process.argv") ||
   !canaryOpenShellSource.includes('"find", "/var/log"') ||
   !canaryOpenShellSource.includes('"-name", "openshell.*.log"') ||
   !canaryOpenShellSource.includes('entry.Execution.State != "ready"') ||
@@ -448,6 +465,8 @@ if (
     "exact checked SHA-256 of Docker Compose and gateway configuration frozen into a private run-owned directory before mutation" ||
   canaryEvidenceRun?.launcher?.gatewayLifecycle !==
     "fresh run-derived Compose project and named volume with container and volume absence verification" ||
+  canaryEvidenceRun?.launcher?.gatewayAuthentication !==
+    "fresh non-serializable Ed25519 keypair and identifier generated inside the private topology workspace, mounted read-only, and removed before evidence release" ||
   canaryEvidenceRun?.launcher?.environment !==
     "allowlisted Docker and OpenShell child environments; provider canary isolated separately" ||
   canaryEvidenceRun?.launcher?.recovery !==
@@ -483,6 +502,7 @@ if (
   !canaryLauncherSource.includes("readVerifiedFile(") ||
   !canaryLauncherSource.includes("openTopologyWorkspace(") ||
   !canaryLauncherSource.includes("topology.ComposePath()") ||
+  !canaryLauncherSource.includes("topology.JWTPath()") ||
   !canaryLauncherSource.includes("state.topology.Cleanup(ctx)") ||
   !canaryLauncherSource.includes("openshell.ExecRunner{Environment: openShellEnvironment()}") ||
   !canaryLauncherSource.includes("canaryprovider.Provision(") ||
@@ -502,6 +522,9 @@ if (
   !canaryLauncherHostSource.includes("openShellEnvironment()") ||
   canaryLauncherHostSource.includes("os.Environ()") ||
   !canaryLauncherTopologySource.includes("func openTopologyWorkspace(") ||
+  !canaryLauncherTopologySource.includes("func writeGatewayJWT(") ||
+  !canaryLauncherTopologySource.includes("ed25519.GenerateKey(rand.Reader)") ||
+  !canaryLauncherTopologySource.includes("x509.MarshalPKCS8PrivateKey(") ||
   !canaryLauncherTopologySource.includes("os.O_CREATE|os.O_EXCL|os.O_WRONLY") ||
   !canaryLauncherTopologySource.includes("os.SameFile(") ||
   !canaryLauncherTopologySource.includes("func (workspace *topologyWorkspace) Cleanup(") ||
@@ -510,6 +533,7 @@ if (
   !canaryLauncherHostSource.includes("DATAGROUND_CREDENTIAL_EVIDENCE_RUN_ID") ||
   !canaryLauncherHostSource.includes("DATAGROUND_CREDENTIAL_EVIDENCE_GATEWAY") ||
   !canaryLauncherHostSource.includes("DATAGROUND_CREDENTIAL_EVIDENCE_PROVIDER") ||
+  !canaryLauncherHostSource.includes("DATAGROUND_CREDENTIAL_EVIDENCE_JWT_PATH") ||
   !canaryLauncherCommandSource.includes("canarylauncher.Run(") ||
   canaryLauncherSource.includes('"sh", "-c"') ||
   canaryLauncherHostSource.includes('"sh", "-c"') ||
@@ -607,7 +631,9 @@ if (
   ) ||
   !canaryEvidenceSource.includes("canaryprofile.Current()") ||
   !canaryLauncherSource.includes("canaryprofile.ComposeSHA256") ||
-  !canaryLauncherSource.includes("canaryprofile.GatewayConfigSHA256")
+  !canaryLauncherSource.includes("canaryprofile.GatewayConfigSHA256") ||
+  !canaryProfileSource.includes(JSON.stringify(profile.topology.healthEndpoint)) ||
+  !canaryLauncherHostSource.includes("canaryprofile.HealthEndpoint")
 ) {
   fail("the credential evidence run does not own the checked profile identity");
 }
@@ -681,7 +707,7 @@ if (
 ) {
   fail("the Docker topology does not match its recorded content digests");
 }
-if (!compose.includes(profile.artifacts.gateway) || !compose.includes('"127.0.0.1:8080:8080"')) {
+if (!compose.includes(profile.artifacts.gateway) || !compose.includes("network_mode: host")) {
   fail("Docker Compose does not match the pinned loopback gateway profile");
 }
 if (
@@ -699,16 +725,39 @@ if (
 }
 if (
   !gatewayConfig.includes(profile.artifacts.supervisor) ||
-  !gatewayConfig.includes(profile.artifacts.sandbox)
+  !gatewayConfig.includes(profile.artifacts.sandbox) ||
+  !gatewayConfig.includes('bind_address = "127.0.0.1:8080"') ||
+  !gatewayConfig.includes('health_bind_address = "127.0.0.1:8081"') ||
+  !gatewayConfig.includes("[openshell.gateway.auth]") ||
+  !gatewayConfig.includes("allow_unauthenticated_users = true") ||
+  !gatewayConfig.includes("[openshell.gateway.gateway_jwt]") ||
+  !gatewayConfig.includes(
+    'signing_key_path = "/run/dataground-credential-evidence/gateway-jwt/signing.pem"',
+  ) ||
+  !gatewayConfig.includes(
+    'public_key_path = "/run/dataground-credential-evidence/gateway-jwt/public.pem"',
+  ) ||
+  !gatewayConfig.includes('kid_path = "/run/dataground-credential-evidence/gateway-jwt/kid"') ||
+  !gatewayConfig.includes('gateway_id = "dataground-credential-evidence"') ||
+  !gatewayConfig.includes("ttl_secs = 0")
 ) {
   fail("gateway configuration does not match the pinned supervisor and sandbox images");
 }
 if (
-  !compose.includes("- gateway-state:/var/lib/openshell") ||
-  !compose.includes("volumes:\n  gateway-state:") ||
-  compose.includes("source: /var/lib/openshell")
+  !compose.includes(`source: "\${DATAGROUND_CREDENTIAL_EVIDENCE_STATE_PATH:?required}"`) ||
+  !compose.includes(`target: "\${DATAGROUND_CREDENTIAL_EVIDENCE_STATE_PATH:?required}"`) ||
+  !compose.includes(`source: "\${DATAGROUND_CREDENTIAL_EVIDENCE_JWT_PATH:?required}"`) ||
+  !compose.includes("target: /run/dataground-credential-evidence/gateway-jwt") ||
+  !compose.includes(
+    `user: "\${DATAGROUND_CREDENTIAL_EVIDENCE_UID:?required}:\${DATAGROUND_CREDENTIAL_EVIDENCE_GID:?required}"`,
+  ) ||
+  !compose.includes(`- "\${DATAGROUND_CREDENTIAL_EVIDENCE_DOCKER_GID:?required}"`) ||
+  compose.includes('"127.0.0.1:8080:8080"') ||
+  compose.includes('"127.0.0.1:8081:8081"') ||
+  compose.includes("gateway-state:/var/lib/openshell") ||
+  compose.includes("volumes:\n  gateway-state:")
 ) {
-  fail("the credential evidence gateway must use a project-scoped named volume");
+  fail("the credential evidence gateway must use exact run-owned same-path bind state");
 }
 if (
   compose.includes(":latest") ||
@@ -719,6 +768,51 @@ if (
 }
 if (!Array.isArray(profile.blockers) || profile.blockers.length === 0) {
   fail("incomplete live certification blockers must be explicit");
+}
+
+const credentialEvidenceWorkflow = await readFile(
+  resolve(root, ".github/workflows/openshell-credential-evidence.yml"),
+  "utf8",
+);
+const expectedCredentialEvidenceWorkflowBindings = [
+  "runs-on: ubuntu-24.04",
+  "permissions:\n  contents: read",
+  "OPENSHELL_VERSION: v0.0.86",
+  "OPENSHELL_PACKAGE: openshell_0.0.86-1_amd64.deb",
+  "OPENSHELL_PACKAGE_SHA256: 3e757ca2f1e855d6e3bcc328fbd69e0441a9a6d01dfe14902f525185dd55ada4",
+  "NVIDIA/OpenShell/releases/download/$OPENSHELL_VERSION",
+  "sha256sum --check --strict -",
+  'dpkg-deb --extract "$package" "$cli_root"',
+  "OPENSHELL_CLI=%s",
+  '--openshell-binary "$OPENSHELL_CLI"',
+  "go run ./cmd/dataground-openshell-canary",
+  "pnpm openshell:credential-evidence:check",
+  "if: always()",
+  "--filter label=com.docker.compose.project",
+  '--filter "ancestor=$image"',
+  ".dataground-policy-workspace.lock",
+  "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+  "if-no-files-found: error",
+  "if: success()",
+];
+const cleanupStep = credentialEvidenceWorkflow.indexOf("- name: Require complete resource removal");
+const uploadStep = credentialEvidenceWorkflow.indexOf("- name: Upload verified evidence");
+if (
+  expectedCredentialEvidenceWorkflowBindings.some(
+    (binding) => !credentialEvidenceWorkflow.includes(binding),
+  ) ||
+  credentialEvidenceWorkflow.includes("pull_request_target:") ||
+  credentialEvidenceWorkflow.includes("contents: write") ||
+  credentialEvidenceWorkflow.includes("secrets:") ||
+  credentialEvidenceWorkflow.includes("install.sh") ||
+  credentialEvidenceWorkflow.includes("apt-get") ||
+  credentialEvidenceWorkflow.includes("systemctl") ||
+  credentialEvidenceWorkflow.includes("gateway add") ||
+  cleanupStep < 0 ||
+  uploadStep < 0 ||
+  cleanupStep > uploadStep
+) {
+  fail("the live credential evidence workflow is missing or unsafe");
 }
 
 if (failures.length > 0) {

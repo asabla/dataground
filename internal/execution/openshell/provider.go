@@ -20,22 +20,107 @@ import (
 )
 
 const (
-	managedLabel   = "dataground.managed"
-	operationLabel = "dataground.operation"
-	isolationLabel = "dataground.isolation"
-	executionLabel = "dataground.execution"
-	createLabel    = "dataground.create"
+	managedLabel                    = "dataground.managed"
+	operationLabel                  = "dataground.operation"
+	isolationLabel                  = "dataground.isolation"
+	executionLabel                  = "dataground.execution"
+	createLabel                     = "dataground.create"
+	createFingerprintLength         = 63
+	providerProfilesSetting         = "providers_v2_enabled"
+	providerSettingsRecoveryTimeout = 10 * time.Second
 )
 
 var (
-	ErrNoGateway        = execution.ErrNoGateway
-	ErrExecutionMissing = execution.ErrExecutionMissing
-	ErrProviderFailure  = errors.New("execution provider operation failed")
+	ErrNoGateway                    = execution.ErrNoGateway
+	ErrExecutionMissing             = execution.ErrExecutionMissing
+	ErrProviderFailure              = errors.New("execution provider operation failed")
+	ErrProviderObservation          = errors.New("execution provider observation failed")
+	ErrProviderSettingsObservation  = errors.New("execution provider settings observation failed")
+	ErrProviderSettingsMutation     = errors.New("execution provider settings mutation failed")
+	ErrProviderSettingsVerification = errors.New("execution provider settings verification failed")
+)
+
+type NativeFailureClass string
+
+const (
+	NativeFailureUnknown              NativeFailureClass = "unknown"
+	NativeFailurePermission           NativeFailureClass = "permission"
+	NativeFailureMissing              NativeFailureClass = "missing-path"
+	NativeFailureImage                NativeFailureClass = "image"
+	NativeFailureSupervisor           NativeFailureClass = "supervisor"
+	NativeFailureProvider             NativeFailureClass = "provider"
+	NativeFailurePolicy               NativeFailureClass = "policy"
+	NativeFailureNetwork              NativeFailureClass = "network"
+	NativeFailureTimeout              NativeFailureClass = "timeout"
+	NativeFailureOverflow             NativeFailureClass = "diagnostic-overflow"
+	NativeFailureArgument             NativeFailureClass = "argument"
+	NativeFailureArgumentGateway      NativeFailureClass = "argument-gateway"
+	NativeFailureArgumentName         NativeFailureClass = "argument-name"
+	NativeFailureArgumentImage        NativeFailureClass = "argument-image"
+	NativeFailureArgumentPolicy       NativeFailureClass = "argument-policy"
+	NativeFailureArgumentAutoProvider NativeFailureClass = "argument-auto-provider"
+	NativeFailureArgumentApproval     NativeFailureClass = "argument-approval"
+	NativeFailureArgumentLabel        NativeFailureClass = "argument-label"
+	NativeFailureArgumentProvider     NativeFailureClass = "argument-provider"
+	NativeFailureArgumentCommand      NativeFailureClass = "argument-command"
+	NativeFailureAuth                 NativeFailureClass = "authentication"
+	NativeFailureConflict             NativeFailureClass = "conflict"
+	NativeFailureStorage              NativeFailureClass = "storage"
+	NativeFailureDriver               NativeFailureClass = "compute-driver"
 )
 
 type CommandResult struct {
-	Stdout   []byte
-	ExitCode int
+	Stdout       []byte
+	ExitCode     int
+	FailureClass NativeFailureClass
+	FailureHint  string
+}
+
+type nativeCommandError struct {
+	class NativeFailureClass
+	hint  string
+}
+
+func (err *nativeCommandError) Error() string {
+	return ErrProviderFailure.Error()
+}
+
+func (err *nativeCommandError) Unwrap() error {
+	return ErrProviderFailure
+}
+
+func NativeFailureHintOf(err error) string {
+	var native *nativeCommandError
+	if errors.As(err, &native) {
+		return native.hint
+	}
+	return ""
+}
+
+func NativeFailureClassOf(err error) NativeFailureClass {
+	var native *nativeCommandError
+	if errors.As(err, &native) {
+		return native.class
+	}
+	return NativeFailureUnknown
+}
+
+func IsNativeCommandFailure(err error) bool {
+	var native *nativeCommandError
+	return errors.As(err, &native)
+}
+
+func nativeCommandFailure(result CommandResult, causes ...error) error {
+	class := result.FailureClass
+	if class == "" {
+		class = NativeFailureUnknown
+	}
+	joined := []error{
+		ErrProviderFailure,
+		&nativeCommandError{class: class, hint: result.FailureHint},
+	}
+	joined = append(joined, causes...)
+	return errors.Join(joined...)
 }
 
 type Runner interface {
@@ -109,6 +194,103 @@ func (provider *Provider) Check(ctx context.Context) error {
 	return nil
 }
 
+type gatewaySettingsView struct {
+	Scope    string            `json:"scope"`
+	Settings map[string]string `json:"settings"`
+}
+
+// EnableProviderProfiles owns the pinned gateway-global opt-in required before
+// a provider-bound sandbox can be created. The dedicated evidence gateway is
+// observed before mutation and again on a cancellation-independent recovery
+// context so a lost acknowledgement never permits an unsafe retry.
+func (provider *Provider) EnableProviderProfiles(
+	ctx context.Context,
+	isolationDomainID string,
+	gatewayID string,
+) error {
+	if ctx == nil {
+		return ErrProviderFailure
+	}
+	if err := ctx.Err(); err != nil {
+		return errors.Join(ErrProviderFailure, err)
+	}
+	gateway, err := provider.executionContext(ctx, isolationDomainID, gatewayID)
+	if err != nil {
+		return err
+	}
+	enabled, err := provider.providerProfilesEnabled(ctx, gateway.Endpoint)
+	if err != nil {
+		return err
+	}
+	if enabled {
+		return nil
+	}
+
+	result, runErr := provider.runner.Run(
+		ctx,
+		provider.binary,
+		provider.gatewayArgs(
+			gateway.Endpoint,
+			"settings",
+			"set",
+			"--global",
+			"--key",
+			providerProfilesSetting,
+			"--value",
+			"true",
+			"--yes",
+		)...,
+	)
+	clear(result.Stdout)
+
+	recoveryCtx, cancel := context.WithTimeout(
+		context.Background(),
+		providerSettingsRecoveryTimeout,
+	)
+	defer cancel()
+	enabled, observeErr := provider.providerProfilesEnabled(recoveryCtx, gateway.Endpoint)
+	if observeErr == nil && enabled {
+		return nil
+	}
+	if runErr != nil || result.ExitCode != 0 {
+		return errors.Join(ErrProviderSettingsMutation, nativeCommandFailure(result))
+	}
+	if observeErr != nil {
+		return observeErr
+	}
+	return errors.Join(ErrProviderFailure, ErrProviderSettingsVerification)
+}
+
+func (provider *Provider) providerProfilesEnabled(
+	ctx context.Context,
+	endpoint string,
+) (bool, error) {
+	result, runErr := provider.runner.Run(
+		ctx,
+		provider.binary,
+		provider.gatewayArgs(
+			endpoint,
+			"settings",
+			"get",
+			"--global",
+			"--json",
+		)...,
+	)
+	if runErr != nil || result.ExitCode != 0 {
+		clear(result.Stdout)
+		return false, errors.Join(ErrProviderSettingsObservation, nativeCommandFailure(result))
+	}
+	var settings gatewaySettingsView
+	err := json.Unmarshal(result.Stdout, &settings)
+	clear(result.Stdout)
+	if err != nil ||
+		settings.Scope != "global" ||
+		settings.Settings == nil {
+		return false, errors.Join(ErrProviderFailure, ErrProviderSettingsObservation)
+	}
+	return settings.Settings[providerProfilesSetting] == "true", nil
+}
+
 func (provider *Provider) RegisterGateway(ctx context.Context, registration execution.GatewayRegistration) (execution.Gateway, error) {
 	if registration.IsolationDomainID == "" || registration.ID == "" || registration.Driver == "" {
 		return execution.Gateway{}, errors.New("isolation domain, gateway id, and driver are required")
@@ -167,10 +349,7 @@ func (provider *Provider) Create(ctx context.Context, request execution.CreateRe
 		ctx, request.IsolationDomainID, endpoint, sandbox, executionID, request.Placement.GatewayID, createFingerprint,
 	)
 	if observeErr != nil {
-		if errors.Is(observeErr, execution.ErrStateConflict) {
-			return execution.Execution{}, observeErr
-		}
-		return execution.Execution{}, ErrProviderFailure
+		return execution.Execution{}, observeErr
 	}
 	if found {
 		if err := provider.rememberExecution(ctx, observed, request.Placement.ID, request.OperationID, sandbox); err != nil {
@@ -200,7 +379,7 @@ func (provider *Provider) Create(ctx context.Context, request execution.CreateRe
 		return execution.Execution{}, err
 	}
 	args := provider.gatewayArgs(endpoint, "sandbox", "create", "--name", sandbox, "--from", request.Image,
-		"--policy", policyPath, "--no-auto-providers", "--approval-mode", "manual",
+		"--policy", policyPath, "--keep", "--no-auto-providers", "--approval-mode", "manual",
 		"--label", managedLabel+"=true", "--label", operationLabel+"="+shortDigest(request.OperationID),
 		"--label", isolationLabel+"="+shortDigest(request.IsolationDomainID), "--label", executionLabel+"="+executionID,
 		"--label", createLabel+"="+createFingerprint)
@@ -221,7 +400,7 @@ func (provider *Provider) Create(ctx context.Context, request execution.CreateRe
 			}
 		}
 		if runErr != nil || result.ExitCode != 0 {
-			return execution.Execution{}, errors.Join(ErrProviderFailure, cleanupErr)
+			return execution.Execution{}, nativeCommandFailure(result, cleanupErr)
 		}
 		return execution.Execution{}, cleanupErr
 	}
@@ -232,6 +411,9 @@ func (provider *Provider) Create(ctx context.Context, request execution.CreateRe
 			ctx, request.IsolationDomainID, endpoint, sandbox, executionID, request.Placement.GatewayID, createFingerprint,
 		)
 		if observeErr == nil && found {
+			if observed.State == "error" || observed.State == "deleting" || observed.State == "unknown" {
+				return execution.Execution{}, nativeCommandFailure(result)
+			}
 			if err := provider.rememberExecution(ctx, observed, request.Placement.ID, request.OperationID, sandbox); err != nil {
 				return execution.Execution{}, err
 			}
@@ -240,7 +422,7 @@ func (provider *Provider) Create(ctx context.Context, request execution.CreateRe
 		if errors.Is(observeErr, execution.ErrStateConflict) {
 			return execution.Execution{}, observeErr
 		}
-		return execution.Execution{}, ErrProviderFailure
+		return execution.Execution{}, nativeCommandFailure(result)
 	}
 	return created, nil
 }
@@ -471,11 +653,17 @@ func (provider *Provider) observeByName(
 ) (execution.Execution, bool, error) {
 	result, err := provider.runner.Run(ctx, provider.binary, provider.gatewayArgs(endpoint, "sandbox", "list", "--selector", managedLabel+"=true", "--output", "json")...)
 	if err != nil || result.ExitCode != 0 {
-		return execution.Execution{}, false, ErrProviderFailure
+		return execution.Execution{}, false, errors.Join(
+			ErrProviderObservation,
+			nativeCommandFailure(result),
+		)
 	}
 	items, err := parseSandboxes(result.Stdout)
 	if err != nil {
-		return execution.Execution{}, false, err
+		return execution.Execution{}, false, errors.Join(
+			ErrProviderFailure,
+			ErrProviderObservation,
+		)
 	}
 	for _, item := range items {
 		if item.Name == sandbox {
@@ -506,7 +694,7 @@ func fingerprintCreate(request execution.CreateRequest, providerProfiles []strin
 		ProviderProfiles:  providerProfiles,
 	})
 	digest := sha256.Sum256(encoded)
-	return hex.EncodeToString(digest[:])
+	return hex.EncodeToString(digest[:])[:createFingerprintLength]
 }
 
 func (provider *Provider) gatewayArgs(endpoint string, args ...string) []string {

@@ -12,8 +12,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/asabla/dataground/internal/security/canaryharness"
@@ -77,6 +79,11 @@ func newComposeHost(
 	names canaryharness.ResourceNames,
 	dockerBinary string,
 	composeFile string,
+	statePath string,
+	jwtPath string,
+	userID int,
+	groupID int,
+	dockerGroupID int,
 	runner commandRunner,
 ) (*composeHost, error) {
 	if !runIDPattern.MatchString(runID) ||
@@ -84,6 +91,13 @@ func newComposeHost(
 		names.Provider == "" ||
 		dockerBinary == "" ||
 		composeFile == "" ||
+		statePath == "" ||
+		!filepath.IsAbs(statePath) ||
+		jwtPath == "" ||
+		!filepath.IsAbs(jwtPath) ||
+		userID < 0 ||
+		groupID < 0 ||
+		dockerGroupID < 0 ||
 		runner == nil {
 		return nil, ErrInvalidConfiguration
 	}
@@ -92,8 +106,16 @@ func newComposeHost(
 		binary:      dockerBinary,
 		composeFile: composeFile,
 		project:     "dg_canary_" + runID,
-		environment: dockerEnvironment(runID, names),
-		wait:        waitForGateway,
+		environment: dockerEnvironment(
+			runID,
+			names,
+			statePath,
+			jwtPath,
+			userID,
+			groupID,
+			dockerGroupID,
+		),
+		wait: waitForGateway,
 	}, nil
 }
 
@@ -218,6 +240,10 @@ func (host *composeHost) Stop(ctx context.Context) error {
 }
 
 func waitForGateway(ctx context.Context) error {
+	return waitForGatewayEndpoint(ctx, canaryprofile.HealthEndpoint)
+}
+
+func waitForGatewayEndpoint(ctx context.Context, endpoint string) error {
 	readyCtx, cancel := context.WithTimeout(ctx, gatewayReadyTimeout)
 	defer cancel()
 	client := &http.Client{
@@ -229,7 +255,7 @@ func waitForGateway(ctx context.Context) error {
 	ticker := time.NewTicker(gatewayPollInterval)
 	defer ticker.Stop()
 	for {
-		request, err := http.NewRequestWithContext(readyCtx, http.MethodGet, canaryprofile.HealthEndpoint, nil)
+		request, err := http.NewRequestWithContext(readyCtx, http.MethodGet, endpoint, nil)
 		if err != nil {
 			return ErrLaunch
 		}
@@ -260,7 +286,15 @@ func openShellEnvironment() []string {
 	return environment
 }
 
-func dockerEnvironment(runID string, names canaryharness.ResourceNames) []string {
+func dockerEnvironment(
+	runID string,
+	names canaryharness.ResourceNames,
+	statePath string,
+	jwtPath string,
+	userID int,
+	groupID int,
+	dockerGroupID int,
+) []string {
 	keys := [...]string{
 		"DOCKER_CERT_PATH",
 		"DOCKER_CONFIG",
@@ -271,7 +305,7 @@ func dockerEnvironment(runID string, names canaryharness.ResourceNames) []string
 		"PATH",
 		"XDG_CONFIG_HOME",
 	}
-	environment := make([]string, 0, len(keys)+3)
+	environment := make([]string, 0, len(keys)+7)
 	for _, key := range keys {
 		if value, exists := os.LookupEnv(key); exists {
 			environment = append(environment, key+"="+value)
@@ -282,7 +316,35 @@ func dockerEnvironment(runID string, names canaryharness.ResourceNames) []string
 		"DATAGROUND_CREDENTIAL_EVIDENCE_RUN_ID="+runID,
 		"DATAGROUND_CREDENTIAL_EVIDENCE_GATEWAY="+names.Gateway,
 		"DATAGROUND_CREDENTIAL_EVIDENCE_PROVIDER="+names.Provider,
+		"DATAGROUND_CREDENTIAL_EVIDENCE_STATE_PATH="+statePath,
+		"DATAGROUND_CREDENTIAL_EVIDENCE_JWT_PATH="+jwtPath,
+		"DATAGROUND_CREDENTIAL_EVIDENCE_UID="+strconv.Itoa(userID),
+		"DATAGROUND_CREDENTIAL_EVIDENCE_GID="+strconv.Itoa(groupID),
+		"DATAGROUND_CREDENTIAL_EVIDENCE_DOCKER_GID="+strconv.Itoa(dockerGroupID),
 	)
+}
+
+func dockerProcessIdentity() (int, int, int, error) {
+	info, err := os.Stat("/var/run/docker.sock")
+	stat, ok := infoSystemStat(info)
+	if err != nil || !ok || info.Mode()&os.ModeSocket == 0 {
+		return 0, 0, 0, ErrInvalidConfiguration
+	}
+	userID := os.Getuid()
+	groupID := os.Getgid()
+	dockerGroupID := int(stat.Gid)
+	if userID < 0 || groupID < 0 || dockerGroupID < 0 {
+		return 0, 0, 0, ErrInvalidConfiguration
+	}
+	return userID, groupID, dockerGroupID, nil
+}
+
+func infoSystemStat(info os.FileInfo) (*syscall.Stat_t, bool) {
+	if info == nil {
+		return nil, false
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return stat, ok
 }
 
 func pathsOverlap(left string, right string) bool {

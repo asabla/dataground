@@ -13,10 +13,31 @@ var (
 	ErrInvalidConfiguration = errors.New("invalid credential source collection configuration")
 	ErrAcquisition          = errors.New("credential source acquisition failed")
 	ErrScan                 = errors.New("credential source scan failed")
+	ErrScanInputLimit       = errors.New("credential source scan input limit exceeded")
 	ErrCanaryDetected       = errors.New("credential canary detected")
 	ErrSourceClose          = errors.New("credential source close failed")
 	ErrCollectionIncomplete = errors.New("credential source collection is incomplete")
 )
+
+type sourceFailure struct {
+	surface string
+}
+
+func (failure *sourceFailure) Error() string {
+	return ErrAcquisition.Error()
+}
+
+func FailureSurfaceOf(err error) string {
+	var failure *sourceFailure
+	if errors.As(err, &failure) {
+		return failure.surface
+	}
+	return ""
+}
+
+func sourceError(surface string, err error) error {
+	return errors.Join(err, &sourceFailure{surface: surface})
+}
 
 var surfaceLimits = map[string]int64{
 	"sandbox-process":     16 << 20,
@@ -88,7 +109,7 @@ func Collect(ctx context.Context, config Config) (Collection, error) {
 	collection := Collection{reports: make([]canaryscan.Report, 0, len(plans))}
 	for _, plan := range plans {
 		if err := ctx.Err(); err != nil {
-			return collection, errors.Join(ErrAcquisition, err)
+			return collection, sourceError(plan.report.Surface, errors.Join(ErrAcquisition, err))
 		}
 		source, acquireErr := plan.acquire(ctx, plan.request)
 		if acquireErr != nil {
@@ -98,10 +119,10 @@ func Collect(ctx context.Context, config Config) (Collection, error) {
 					outcome = errors.Join(outcome, ErrSourceClose)
 				}
 			}
-			return collection, collectionError(outcome, ctx)
+			return collection, collectionError(sourceError(plan.report.Surface, outcome), ctx)
 		}
 		if source == nil {
-			return collection, collectionError(ErrAcquisition, ctx)
+			return collection, collectionError(sourceError(plan.report.Surface, ErrAcquisition), ctx)
 		}
 
 		report, scanErr := canaryscan.ScanReport(ctx, source, plan.report)
@@ -111,7 +132,7 @@ func Collect(ctx context.Context, config Config) (Collection, error) {
 		var outcome error
 		switch {
 		case scanErr != nil:
-			outcome = ErrScan
+			outcome = scanFailure(scanErr)
 		case report.HasMatches():
 			outcome = ErrCanaryDetected
 		}
@@ -119,11 +140,18 @@ func Collect(ctx context.Context, config Config) (Collection, error) {
 			outcome = errors.Join(outcome, ErrSourceClose)
 		}
 		if outcome != nil {
-			return collection, collectionError(outcome, ctx)
+			return collection, collectionError(sourceError(plan.report.Surface, outcome), ctx)
 		}
 	}
 	collection.complete = true
 	return collection, nil
+}
+
+func scanFailure(err error) error {
+	if errors.Is(err, canaryscan.ErrInputLimit) {
+		return errors.Join(ErrScan, ErrScanInputLimit)
+	}
+	return ErrScan
 }
 
 func (collection Collection) MarshalJSON() ([]byte, error) {

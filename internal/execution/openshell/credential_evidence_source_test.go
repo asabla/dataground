@@ -38,7 +38,7 @@ func TestCredentialEvidenceSourcesUseExactPinnedCommands(t *testing.T) {
 			open:    sources.OpenSandboxProcess,
 			command: []string{
 				"find", "/proc", "-mindepth", "2", "-maxdepth", "2", "-type", "f",
-				"-name", "cmdline", "-readable", "-exec", "cat", "--", "{}", "+",
+				"-name", "cmdline", "-readable", "-exec", "cat", "--", "{}", ";",
 			},
 		},
 		{
@@ -46,16 +46,13 @@ func TestCredentialEvidenceSourcesUseExactPinnedCommands(t *testing.T) {
 			open:    sources.OpenSandboxEnvironment,
 			command: []string{
 				"find", "/proc", "-mindepth", "2", "-maxdepth", "2", "-type", "f",
-				"-name", "environ", "-readable", "-exec", "cat", "--", "{}", "+",
+				"-name", "environ", "-readable", "-exec", "cat", "--", "{}", ";",
 			},
 		},
 		{
 			surface: "sandbox-filesystem",
 			open:    sources.OpenSandboxFilesystem,
-			command: []string{
-				"find", "/", "-xdev", "-type", "f", "-readable",
-				"-exec", "cat", "--", "{}", "+",
-			},
+			command: []string{"node", "-e", credentialEvidenceFilesystemProgram},
 		},
 		{
 			surface: "sandbox-logs",
@@ -104,6 +101,27 @@ func TestCredentialEvidenceSourcesUseExactPinnedCommands(t *testing.T) {
 	}
 	if record.SandboxName == created.ID || !strings.HasPrefix(record.SandboxName, "dg-") {
 		t.Fatalf("test did not exercise private native routing: %q", record.SandboxName)
+	}
+}
+
+func TestCredentialEvidenceFilesystemProgramIsFixedAndBounded(t *testing.T) {
+	t.Parallel()
+
+	for _, required := range []string{
+		`const rootDevice = fs.statSync(root).dev;`,
+		`const buffer = Buffer.alloc(64 * 1024);`,
+		`const ignorableCodes = new Set(["EACCES", "EPERM", "ENOENT", "ENOTDIR", "ELOOP"]);`,
+		`stat.dev === rootDevice`,
+		`fs.writeSync(1, buffer`,
+	} {
+		if !strings.Contains(credentialEvidenceFilesystemProgram, required) {
+			t.Fatalf("filesystem program is missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"child_process", "process.env", "process.argv", "eval(", "spawn("} {
+		if strings.Contains(credentialEvidenceFilesystemProgram, forbidden) {
+			t.Fatalf("filesystem program contains %q", forbidden)
+		}
 	}
 }
 

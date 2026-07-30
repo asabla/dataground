@@ -68,6 +68,22 @@ type inertWriteCloser struct{ io.Writer }
 
 func (inertWriteCloser) Close() error { return nil }
 
+func TestCreateFingerprintFitsOpenShellLabelValue(t *testing.T) {
+	request := execution.CreateRequest{
+		IsolationDomainID: "iso-test",
+		OperationID:       "operation-test",
+		Image:             "example.invalid/sandbox@sha256:" + strings.Repeat("a", 64),
+		PolicyDigest:      strings.Repeat("b", 64),
+	}
+	fingerprint := fingerprintCreate(request, []string{"codex"})
+	if len(fingerprint) != createFingerprintLength {
+		t.Fatalf("create fingerprint length = %d, want %d", len(fingerprint), createFingerprintLength)
+	}
+	if _, err := hex.DecodeString(fingerprint + "0"); err != nil {
+		t.Fatalf("create fingerprint is not hexadecimal: %q", fingerprint)
+	}
+}
+
 func TestGatewaySelectionIsDeterministicAndDrainAware(t *testing.T) {
 	provider := New(Config{}, &scriptedRunner{})
 	context := context.Background()
@@ -222,7 +238,9 @@ func TestCreateUsesArgumentVectorAndNoCredentialValues(t *testing.T) {
 		t.Fatalf("unexpected create result or calls: %#v %#v", created, runner.calls)
 	}
 	createArgs := runner.calls[1].args
-	if !containsSequence(createArgs, "--provider", "codex") || !containsSequence(createArgs, "--", "true") {
+	if !containsSequence(createArgs, "--provider", "codex") ||
+		!containsSequence(createArgs, "--keep") ||
+		!containsSequence(createArgs, "--", "true") {
 		t.Fatalf("missing certified create arguments: %#v", createArgs)
 	}
 	joined := strings.Join(createArgs, " ")
@@ -304,6 +322,25 @@ func TestCreateObservesAfterLostAcknowledgement(t *testing.T) {
 	}
 	if _, err := os.Stat(materializedPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("policy survived ambiguous create recovery: %v", err)
+	}
+}
+
+func TestCreateRejectsObservedTerminalFailure(t *testing.T) {
+	runner := &scriptedRunner{results: []scriptedResult{
+		{result: CommandResult{Stdout: []byte("[]")}},
+		{result: CommandResult{FailureClass: NativeFailureDriver}, err: errors.New("create failed")},
+		{result: CommandResult{}},
+	}}
+	provider, _, placement, policy, policyDigest := preparedProvider(t, runner)
+	request := createRequest(placement, policy, policyDigest)
+	fingerprint := fingerprintCreate(request, request.ProviderProfiles)
+	runner.results[2].result.Stdout = []byte(`[{"name":"` +
+		sandboxName(request.IsolationDomainID, request.OperationID) +
+		`","phase":"Error","labels":{"` + createLabel + `":"` + fingerprint + `"}}]`)
+
+	_, err := provider.Create(context.Background(), request)
+	if NativeFailureClassOf(err) != NativeFailureDriver {
+		t.Fatalf("terminal create recovery error = %v", err)
 	}
 }
 
@@ -413,8 +450,8 @@ func TestCreateRejectsConflictingRetryFingerprint(t *testing.T) {
 func TestCreateDoesNotRepeatWhenPriorStateCannotBeObserved(t *testing.T) {
 	runner := &scriptedRunner{results: []scriptedResult{{err: context.DeadlineExceeded}}}
 	provider, _, placement, policy, policyDigest := preparedProvider(t, runner)
-	if _, err := provider.Create(context.Background(), createRequest(placement, policy, policyDigest)); !errors.Is(err, ErrProviderFailure) {
-		t.Fatalf("unobservable prior state did not fail closed: %v", err)
+	if _, err := provider.Create(context.Background(), createRequest(placement, policy, policyDigest)); !errors.Is(err, ErrProviderFailure) || !errors.Is(err, ErrProviderObservation) || !IsNativeCommandFailure(err) {
+		t.Fatalf("unobservable prior state did not retain its sanitized cause: %v", err)
 	}
 	if len(runner.calls) != 1 || containsSequence(runner.calls[0].args, "sandbox", "create") {
 		t.Fatalf("create was attempted after observation failure: %#v", runner.calls)

@@ -12,13 +12,13 @@ const (
 	ProviderProfileSHA256 = "d9c7f48d96916dcaca319e396d75e30ff6ad3bf2474f38f54ab37f37cabbca8f"
 	RuntimeVersion        = "0.117.0"
 	GatewayEndpoint       = "http://127.0.0.1:8080"
-	HealthEndpoint        = "http://127.0.0.1:8081"
+	HealthEndpoint        = "http://127.0.0.1:8081/readyz"
 	Driver                = "docker"
 
 	ComposePath         = "deploy/openshell/docker-compose.yml"
-	ComposeSHA256       = "3cb3c9bfdba656c24cefb53baf65097c231a9a0e950630c5a4a6f6c1a83bd731"
+	ComposeSHA256       = "c20a9475cfd62db222a3c1b64c9e7dd26cbed31ea311cc623120f58c87aeb5ee"
 	GatewayConfigPath   = "deploy/openshell/gateway.toml"
-	GatewayConfigSHA256 = "f34f9bc33c5e3e777b6b22c14c22f4a6d474e0af717e7989c45ec5d0f8ea2da9"
+	GatewayConfigSHA256 = "c2e2a4ec201edac242e47f28f49dba9ec8b4b520bf1969574f3d173441aa3830"
 	PolicyPath          = "deploy/openshell/policies/deny-all.yaml"
 	PolicySHA256        = "a193c3421b98a1640aa099d91b528beaee91af2a14980ba423ac3050c40649a9"
 )

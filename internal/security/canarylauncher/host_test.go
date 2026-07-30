@@ -3,6 +3,9 @@ package canarylauncher
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/asabla/dataground/internal/security/canaryharness"
+	"github.com/asabla/dataground/internal/security/canaryprofile"
 )
 
 const testRunID = "0123456789abcdef0123456789abcdef"
@@ -49,6 +53,47 @@ func (runner *fakeCommandRunner) Run(
 	return []byte(result.output), result.err
 }
 
+func TestFailureStageIsClosedAndPreservesLaunchIdentity(t *testing.T) {
+	err := launchError(context.Background(), FailureStageProviderCheck)
+	if stage := StageOf(err); stage != FailureStageProviderCheck {
+		t.Fatalf("StageOf() = %q", stage)
+	}
+	if err.Error() != ErrLaunch.Error() {
+		t.Fatalf("error text = %q", err.Error())
+	}
+	if !errors.Is(err, ErrLaunch) {
+		t.Fatal("staged error lost launch identity")
+	}
+}
+
+func TestGatewayReadinessUsesCheckedReadyRoute(t *testing.T) {
+	checked, err := url.Parse(canaryprofile.HealthEndpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checked.Path != "/readyz" {
+		t.Fatalf("checked health path = %q", checked.Path)
+	}
+
+	requests := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests <- request.URL.Path
+		if request.URL.Path != "/readyz" {
+			http.NotFound(writer, request)
+			return
+		}
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	if err := waitForGatewayEndpoint(context.Background(), server.URL+"/readyz"); err != nil {
+		t.Fatalf("waitForGatewayEndpoint() error = %v", err)
+	}
+	if path := <-requests; path != "/readyz" {
+		t.Fatalf("requested health path = %q", path)
+	}
+}
+
 func TestComposeHostUsesRunBoundProjectAndObservesTeardown(t *testing.T) {
 	names, err := canaryharness.NamesForRun(testRunID)
 	if err != nil {
@@ -67,6 +112,11 @@ func TestComposeHostUsesRunBoundProjectAndObservesTeardown(t *testing.T) {
 		names,
 		"/usr/bin/docker",
 		"/repository/deploy/openshell/docker-compose.yml",
+		"/workspace/gateway-state",
+		"/workspace/gateway-jwt",
+		1000,
+		1000,
+		999,
 		runner,
 	)
 	if err != nil {
@@ -129,6 +179,11 @@ func TestComposeHostOwnsAmbiguousStartForCleanup(t *testing.T) {
 		names,
 		"/usr/bin/docker",
 		"/repository/deploy/openshell/docker-compose.yml",
+		"/workspace/gateway-state",
+		"/workspace/gateway-jwt",
+		1000,
+		1000,
+		999,
 		runner,
 	)
 	if err != nil {
@@ -152,7 +207,10 @@ func TestLauncherEnvironmentsExcludeUnrelatedSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	docker := strings.Join(dockerEnvironment(testRunID, names), "\n")
+	docker := strings.Join(
+		dockerEnvironment(testRunID, names, "/workspace/gateway-state", "/workspace/gateway-jwt", 1000, 1000, 999),
+		"\n",
+	)
 	openShell := strings.Join(openShellEnvironment(), "\n")
 	if strings.Contains(docker, "must-not-cross") || strings.Contains(openShell, "must-not-cross") {
 		t.Fatal("unrelated secret crossed into a child environment")
@@ -161,6 +219,11 @@ func TestLauncherEnvironmentsExcludeUnrelatedSecrets(t *testing.T) {
 		"DATAGROUND_CREDENTIAL_EVIDENCE_RUN_ID=" + testRunID,
 		"DATAGROUND_CREDENTIAL_EVIDENCE_GATEWAY=" + names.Gateway,
 		"DATAGROUND_CREDENTIAL_EVIDENCE_PROVIDER=" + names.Provider,
+		"DATAGROUND_CREDENTIAL_EVIDENCE_STATE_PATH=/workspace/gateway-state",
+		"DATAGROUND_CREDENTIAL_EVIDENCE_JWT_PATH=/workspace/gateway-jwt",
+		"DATAGROUND_CREDENTIAL_EVIDENCE_UID=1000",
+		"DATAGROUND_CREDENTIAL_EVIDENCE_GID=1000",
+		"DATAGROUND_CREDENTIAL_EVIDENCE_DOCKER_GID=999",
 	} {
 		if !strings.Contains(docker, expected) {
 			t.Fatalf("Docker environment is missing %q", expected)

@@ -4,13 +4,23 @@ services:
     image: ghcr.io/nvidia/openshell/gateway@sha256:e21f520a0678ba3cfe749957338b5fa78c75e8e52de13e4559ccbb582f781a0b
     restart: unless-stopped
     command: []
-    user: "0"
-    ports:
-      - "127.0.0.1:8080:8080"
-      - "127.0.0.1:8081:8081"
+    user: "${DATAGROUND_CREDENTIAL_EVIDENCE_UID:?required}:${DATAGROUND_CREDENTIAL_EVIDENCE_GID:?required}"
+    group_add:
+      - "${DATAGROUND_CREDENTIAL_EVIDENCE_DOCKER_GID:?required}"
+    network_mode: host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - gateway-state:/var/lib/openshell
+      - type: bind
+        source: "${DATAGROUND_CREDENTIAL_EVIDENCE_STATE_PATH:?required}"
+        target: "${DATAGROUND_CREDENTIAL_EVIDENCE_STATE_PATH:?required}"
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${DATAGROUND_CREDENTIAL_EVIDENCE_JWT_PATH:?required}"
+        target: /run/dataground-credential-evidence/gateway-jwt
+        read_only: true
+        bind:
+          create_host_path: false
       - type: bind
         source: ./gateway.toml
         target: /etc/openshell/gateway.toml
@@ -21,9 +31,6 @@ services:
       dataground.dev/credential-evidence-provider: "${DATAGROUND_CREDENTIAL_EVIDENCE_PROVIDER:-}"
     environment:
       OPENSHELL_GATEWAY_CONFIG: /etc/openshell/gateway.toml
-      OPENSHELL_DB_URL: "sqlite:/var/lib/openshell/gateway.db?mode=rwc"
-      XDG_DATA_HOME: /var/lib/openshell
-      HOME: /var/lib/openshell
-
-volumes:
-  gateway-state:
+      OPENSHELL_DB_URL: "sqlite:${DATAGROUND_CREDENTIAL_EVIDENCE_STATE_PATH:?required}/gateway.db?mode=rwc"
+      XDG_DATA_HOME: "${DATAGROUND_CREDENTIAL_EVIDENCE_STATE_PATH:?required}"
+      HOME: "${DATAGROUND_CREDENTIAL_EVIDENCE_STATE_PATH:?required}"

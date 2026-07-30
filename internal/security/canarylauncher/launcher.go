@@ -13,6 +13,7 @@ import (
 	"github.com/asabla/dataground/internal/execution"
 	"github.com/asabla/dataground/internal/execution/openshell"
 	"github.com/asabla/dataground/internal/runtime/codex"
+	"github.com/asabla/dataground/internal/security/canarycollect"
 	"github.com/asabla/dataground/internal/security/canarydocker"
 	"github.com/asabla/dataground/internal/security/canaryevidence"
 	"github.com/asabla/dataground/internal/security/canaryharness"
@@ -27,6 +28,65 @@ const (
 	runtimeCapability = "codex.app-server"
 	readyTimeout      = 5 * time.Minute
 	readyPollInterval = time.Second
+)
+
+type FailureStage string
+
+const (
+	FailureStageConfiguration                     FailureStage = "configuration"
+	FailureStageGateway                           FailureStage = "gateway"
+	FailureStageProviderCheck                     FailureStage = "provider-check"
+	FailureStageProviderRegistration              FailureStage = "provider-registration"
+	FailureStageProviderSettingsObservation       FailureStage = "provider-settings-observation"
+	FailureStageProviderSettingsMutation          FailureStage = "provider-settings-mutation"
+	FailureStageProviderSettingsVerification      FailureStage = "provider-settings-verification"
+	FailureStageProviderProvision                 FailureStage = "provider-provision"
+	FailureStageProviderBinding                   FailureStage = "provider-binding"
+	FailureStagePlacement                         FailureStage = "placement"
+	FailureStageSandboxCreate                     FailureStage = "sandbox-create"
+	FailureStageSandboxCreatePermission           FailureStage = "sandbox-create-permission"
+	FailureStageSandboxCreateMissing              FailureStage = "sandbox-create-missing-path"
+	FailureStageSandboxCreateImage                FailureStage = "sandbox-create-image"
+	FailureStageSandboxCreateSupervisor           FailureStage = "sandbox-create-supervisor"
+	FailureStageSandboxCreateProvider             FailureStage = "sandbox-create-provider"
+	FailureStageSandboxCreateObservation          FailureStage = "sandbox-create-observation"
+	FailureStageSandboxCreatePolicy               FailureStage = "sandbox-create-policy"
+	FailureStageSandboxCreateNetwork              FailureStage = "sandbox-create-network"
+	FailureStageSandboxCreateTimeout              FailureStage = "sandbox-create-timeout"
+	FailureStageSandboxCreateOverflow             FailureStage = "sandbox-create-diagnostic-overflow"
+	FailureStageSandboxCreateArgument             FailureStage = "sandbox-create-argument"
+	FailureStageSandboxCreateArgumentGateway      FailureStage = "sandbox-create-argument-gateway"
+	FailureStageSandboxCreateArgumentName         FailureStage = "sandbox-create-argument-name"
+	FailureStageSandboxCreateArgumentImage        FailureStage = "sandbox-create-argument-image"
+	FailureStageSandboxCreateArgumentPolicy       FailureStage = "sandbox-create-argument-policy"
+	FailureStageSandboxCreateArgumentAutoProvider FailureStage = "sandbox-create-argument-auto-provider"
+	FailureStageSandboxCreateArgumentApproval     FailureStage = "sandbox-create-argument-approval"
+	FailureStageSandboxCreateArgumentLabel        FailureStage = "sandbox-create-argument-label"
+	FailureStageSandboxCreateArgumentProvider     FailureStage = "sandbox-create-argument-provider"
+	FailureStageSandboxCreateArgumentCommand      FailureStage = "sandbox-create-argument-command"
+	FailureStageSandboxCreateAuth                 FailureStage = "sandbox-create-authentication"
+	FailureStageSandboxCreateConflict             FailureStage = "sandbox-create-conflict"
+	FailureStageSandboxCreateStorage              FailureStage = "sandbox-create-storage"
+	FailureStageSandboxCreateDriver               FailureStage = "sandbox-create-compute-driver"
+	FailureStageSandboxReady                      FailureStage = "sandbox-readiness"
+	FailureStageSandboxReadyError                 FailureStage = "sandbox-readiness-error"
+	FailureStageSandboxReadyTerminal              FailureStage = "sandbox-readiness-terminal"
+	FailureStageSandboxReadyTimeout               FailureStage = "sandbox-readiness-timeout"
+	FailureStageSourceBinding                     FailureStage = "source-binding"
+	FailureStageRuntime                           FailureStage = "runtime"
+	FailureStageDockerSourceBinding               FailureStage = "collection-docker-source-binding"
+	FailureStageHarnessComposition                FailureStage = "collection-harness-composition"
+	FailureStageHarnessRun                        FailureStage = "collection-harness-run"
+	FailureStageHarnessCleanup                    FailureStage = "collection-cleanup"
+	FailureStageSandboxProcess                    FailureStage = "collection-sandbox-process"
+	FailureStageSandboxEnvironment                FailureStage = "collection-sandbox-environment"
+	FailureStageSandboxFilesystem                 FailureStage = "collection-sandbox-filesystem"
+	FailureStageProviderArguments                 FailureStage = "collection-provider-arguments"
+	FailureStageGatewayLogs                       FailureStage = "collection-gateway-logs"
+	FailureStageSandboxLogs                       FailureStage = "collection-sandbox-logs"
+	FailureStageRuntimeErrors                     FailureStage = "collection-runtime-errors"
+	FailureStageCleanup                           FailureStage = "cleanup"
+	FailureStageSerialization                     FailureStage = "serialization"
 )
 
 var (
@@ -122,11 +182,20 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 	}
 	state.policyWorkspace = policyWorkspace
 
+	userID, groupID, dockerGroupID, err := dockerProcessIdentity()
+	if err != nil {
+		return canaryevidence.Result{}, launchError(ctx, FailureStageGateway)
+	}
 	host, err := newComposeHost(
 		runID,
 		names,
 		resolved.dockerBinary,
 		topology.ComposePath(),
+		topology.StatePath(),
+		topology.JWTPath(),
+		userID,
+		groupID,
+		dockerGroupID,
 		execCommandRunner{},
 	)
 	if err != nil {
@@ -135,7 +204,7 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 	state.host = host
 	containerID, err := host.Start(ctx)
 	if err != nil {
-		return canaryevidence.Result{}, launchError(ctx)
+		return canaryevidence.Result{}, launchError(ctx, FailureStageGateway)
 	}
 
 	profiles, err := execution.NewProviderProfileRegistry([]string{names.Provider})
@@ -151,7 +220,7 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 		ProviderProfiles: profiles,
 	}, openshell.ExecRunner{Environment: openShellEnvironment()})
 	if err := provider.Check(ctx); err != nil {
-		return canaryevidence.Result{}, launchError(ctx)
+		return canaryevidence.Result{}, launchError(ctx, FailureStageProviderCheck)
 	}
 
 	isolationDomainID := "dg-canary-domain-" + runID
@@ -163,7 +232,14 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 		Driver:            canaryprofile.Driver,
 		Capabilities:      []string{runtimeCapability},
 	}); err != nil {
-		return canaryevidence.Result{}, launchError(ctx)
+		return canaryevidence.Result{}, launchError(ctx, FailureStageProviderRegistration)
+	}
+	if err := provider.EnableProviderProfiles(
+		ctx,
+		isolationDomainID,
+		names.Gateway,
+	); err != nil {
+		return canaryevidence.Result{}, launchError(ctx, providerSettingsStage(err))
 	}
 
 	provisioned, err := canaryprovider.Provision(
@@ -176,14 +252,14 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 		provider,
 	)
 	if err != nil {
-		return canaryevidence.Result{}, launchError(ctx)
+		return canaryevidence.Result{}, launchError(ctx, FailureStageProviderProvision)
 	}
 	providerCleanup, err := canaryprovider.New(canaryprovider.Config{
 		RunID:   runID,
 		Binding: provisioned.Binding(),
 	}, provider)
 	if err != nil {
-		return canaryevidence.Result{}, ErrLaunch
+		return canaryevidence.Result{}, launchError(ctx, FailureStageProviderBinding)
 	}
 	state.provider = providerCleanup
 
@@ -193,7 +269,7 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 		RequiredCapabilities: []string{runtimeCapability},
 	})
 	if err != nil {
-		return canaryevidence.Result{}, launchError(ctx)
+		return canaryevidence.Result{}, launchError(ctx, FailureStagePlacement)
 	}
 	executionValue, err := provider.Create(ctx, execution.CreateRequest{
 		Placement:         placement,
@@ -219,21 +295,21 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 				state.sandboxName = recoveryExecution.ID
 			}
 		}
-		return canaryevidence.Result{}, launchError(ctx)
+		return canaryevidence.Result{}, launchError(ctx, sandboxCreateStage(err))
 	}
 	sandboxCleanup, err := canarysandbox.New(canarysandbox.Config{
 		RunID:     runID,
 		Execution: executionValue,
 	}, provider)
 	if err != nil {
-		return canaryevidence.Result{}, ErrLaunch
+		return canaryevidence.Result{}, launchError(ctx, FailureStageSandboxCreate)
 	}
 	state.sandbox = sandboxCleanup
 	state.sandboxName = executionValue.ID
 
 	executionValue, err = waitForReady(ctx, provider, executionValue)
 	if err != nil {
-		return canaryevidence.Result{}, launchError(ctx)
+		return canaryevidence.Result{}, launchError(ctx, sandboxReadinessStage(err))
 	}
 	openShellSources, err := provider.NewCredentialEvidenceSources(
 		ctx,
@@ -246,7 +322,7 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 		},
 	)
 	if err != nil {
-		return canaryevidence.Result{}, launchError(ctx)
+		return canaryevidence.Result{}, launchError(ctx, FailureStageSourceBinding)
 	}
 
 	session, err := provider.StartRuntime(ctx, execution.ExecutionRef{
@@ -254,7 +330,7 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 		ID:                executionValue.ID,
 	})
 	if err != nil {
-		return canaryevidence.Result{}, launchError(ctx)
+		return canaryevidence.Result{}, launchError(ctx, FailureStageRuntime)
 	}
 	runtimeSources, err := canaryruntime.New(canaryruntime.Config{
 		RunID:       runID,
@@ -263,11 +339,11 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 	})
 	if err != nil {
 		_ = session.Close()
-		return canaryevidence.Result{}, ErrLaunch
+		return canaryevidence.Result{}, launchError(ctx, FailureStageRuntime)
 	}
 	state.runtime = runtimeSources
 	if _, err := codex.New(runtimeSources); err != nil {
-		return canaryevidence.Result{}, ErrLaunch
+		return canaryevidence.Result{}, launchError(ctx, FailureStageRuntime)
 	}
 
 	dockerSources, err := canarydocker.New(ctx, canarydocker.Config{
@@ -280,7 +356,7 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 		DockerBinary:   resolved.dockerBinary,
 	})
 	if err != nil {
-		return canaryevidence.Result{}, launchError(ctx)
+		return canaryevidence.Result{}, launchError(ctx, FailureStageDockerSourceBinding)
 	}
 	harness, err := canaryharness.New(canaryharness.Config{
 		RunID:       runID,
@@ -293,14 +369,14 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 		Runtime:     runtimeSources,
 	})
 	if err != nil {
-		return canaryevidence.Result{}, ErrLaunch
+		return canaryevidence.Result{}, launchError(ctx, FailureStageHarnessComposition)
 	}
 	result, err := harness.Run(ctx)
 	if err != nil {
-		return canaryevidence.Result{}, launchError(ctx)
+		return canaryevidence.Result{}, launchError(ctx, harnessRunStage(err))
 	}
 	if err := state.cleanup(); err != nil {
-		return canaryevidence.Result{}, ErrLaunch
+		return canaryevidence.Result{}, launchError(ctx, FailureStageCleanup)
 	}
 	return result, nil
 }
@@ -360,6 +436,154 @@ func resolveConfig(config Config) (resolvedConfig, error) {
 	}, nil
 }
 
+func harnessRunStage(err error) FailureStage {
+	if errors.Is(err, canaryevidence.ErrCleanup) {
+		return FailureStageHarnessCleanup
+	}
+	surface := canarycollect.FailureSurfaceOf(err)
+	stage := FailureStageHarnessRun
+	switch surface {
+	case "sandbox-process":
+		stage = FailureStageSandboxProcess
+	case "sandbox-environment":
+		stage = FailureStageSandboxEnvironment
+	case "sandbox-filesystem":
+		stage = FailureStageSandboxFilesystem
+	case "provider-arguments":
+		stage = FailureStageProviderArguments
+	case "gateway-logs":
+		stage = FailureStageGatewayLogs
+	case "sandbox-logs":
+		stage = FailureStageSandboxLogs
+	case "runtime-errors":
+		stage = FailureStageRuntimeErrors
+	default:
+		stage = FailureStageHarnessRun
+	}
+	return collectionFailureStage(stage, err)
+}
+
+func collectionFailureStage(stage FailureStage, err error) FailureStage {
+	if stage == FailureStageHarnessRun {
+		return stage
+	}
+	switch {
+	case errors.Is(err, canarycollect.ErrCanaryDetected):
+		return FailureStage(string(stage) + "-canary-detected")
+	case errors.Is(err, canarycollect.ErrScanInputLimit):
+		return FailureStage(string(stage) + "-input-limit")
+	case errors.Is(err, canarycollect.ErrSourceClose):
+		return FailureStage(string(stage) + "-source-close")
+	default:
+		return stage
+	}
+}
+
+func providerSettingsStage(err error) FailureStage {
+	switch {
+	case errors.Is(err, openshell.ErrProviderSettingsMutation):
+		return FailureStageProviderSettingsMutation
+	case errors.Is(err, openshell.ErrProviderSettingsVerification):
+		return FailureStageProviderSettingsVerification
+	default:
+		return FailureStageProviderSettingsObservation
+	}
+}
+
+func sandboxCreateStage(err error) FailureStage {
+	if errors.Is(err, execution.ErrStateConflict) {
+		return FailureStageSandboxCreateConflict
+	}
+	if errors.Is(err, openshell.ErrProviderObservation) {
+		return FailureStageSandboxCreateObservation
+	}
+	if errors.Is(err, openshell.ErrPolicyWorkspaceUnavailable) ||
+		errors.Is(err, openshell.ErrPolicyWorkspaceBusy) ||
+		errors.Is(err, openshell.ErrPolicyWorkspaceUnsafe) ||
+		errors.Is(err, openshell.ErrPolicyWorkspaceFailure) {
+		return FailureStageSandboxCreatePolicy
+	}
+	class := openshell.NativeFailureClassOf(err)
+	if class == openshell.NativeFailureUnknown &&
+		errors.Is(err, openshell.ErrProviderFailure) &&
+		!openshell.IsNativeCommandFailure(err) {
+		return FailureStageSandboxCreateProvider
+	}
+	switch class {
+	case openshell.NativeFailurePermission:
+		return FailureStageSandboxCreatePermission
+	case openshell.NativeFailureMissing:
+		return FailureStageSandboxCreateMissing
+	case openshell.NativeFailureImage:
+		return FailureStageSandboxCreateImage
+	case openshell.NativeFailureSupervisor:
+		return FailureStageSandboxCreateSupervisor
+	case openshell.NativeFailureProvider:
+		return FailureStageSandboxCreateProvider
+	case openshell.NativeFailurePolicy:
+		return FailureStageSandboxCreatePolicy
+	case openshell.NativeFailureNetwork:
+		return FailureStageSandboxCreateNetwork
+	case openshell.NativeFailureTimeout:
+		return FailureStageSandboxCreateTimeout
+	case openshell.NativeFailureOverflow:
+		return FailureStageSandboxCreateOverflow
+	case openshell.NativeFailureArgument:
+		return FailureStageSandboxCreateArgument
+	case openshell.NativeFailureArgumentGateway:
+		return FailureStageSandboxCreateArgumentGateway
+	case openshell.NativeFailureArgumentName:
+		return FailureStageSandboxCreateArgumentName
+	case openshell.NativeFailureArgumentImage:
+		return FailureStageSandboxCreateArgumentImage
+	case openshell.NativeFailureArgumentPolicy:
+		return FailureStageSandboxCreateArgumentPolicy
+	case openshell.NativeFailureArgumentAutoProvider:
+		return FailureStageSandboxCreateArgumentAutoProvider
+	case openshell.NativeFailureArgumentApproval:
+		return FailureStageSandboxCreateArgumentApproval
+	case openshell.NativeFailureArgumentLabel:
+		return FailureStageSandboxCreateArgumentLabel
+	case openshell.NativeFailureArgumentProvider:
+		return FailureStageSandboxCreateArgumentProvider
+	case openshell.NativeFailureArgumentCommand:
+		return FailureStageSandboxCreateArgumentCommand
+	case openshell.NativeFailureAuth:
+		return FailureStageSandboxCreateAuth
+	case openshell.NativeFailureConflict:
+		return FailureStageSandboxCreateConflict
+	case openshell.NativeFailureStorage:
+		return FailureStageSandboxCreateStorage
+	case openshell.NativeFailureDriver:
+		return FailureStageSandboxCreateDriver
+	default:
+		return FailureStageSandboxCreate
+	}
+}
+
+type sandboxReadinessError struct {
+	state string
+}
+
+func (err *sandboxReadinessError) Error() string {
+	return ErrLaunch.Error()
+}
+
+func sandboxReadinessStage(err error) FailureStage {
+	var readiness *sandboxReadinessError
+	if !errors.As(err, &readiness) {
+		return FailureStageSandboxReady
+	}
+	switch readiness.state {
+	case "error":
+		return FailureStageSandboxReadyError
+	case "deleting", "failed", "terminated":
+		return FailureStageSandboxReadyTerminal
+	default:
+		return FailureStageSandboxReadyTimeout
+	}
+}
+
 func waitForReady(
 	ctx context.Context,
 	provider *openshell.Provider,
@@ -376,21 +600,23 @@ func waitForReady(
 		IsolationDomainID: value.IsolationDomainID,
 		ID:                value.ID,
 	}
+	lastState := value.State
 	for {
 		observation, err := provider.Observe(readyCtx, ref)
 		if err != nil {
 			return execution.Execution{}, ErrLaunch
 		}
+		lastState = observation.State
 		switch observation.State {
 		case "ready":
 			value.State = "ready"
 			return value, nil
-		case "failed", "terminated":
-			return execution.Execution{}, ErrLaunch
+		case "error", "deleting", "failed", "terminated", "unknown":
+			return execution.Execution{}, &sandboxReadinessError{state: observation.State}
 		}
 		select {
 		case <-readyCtx.Done():
-			return execution.Execution{}, ErrLaunch
+			return execution.Execution{}, &sandboxReadinessError{state: lastState}
 		case <-ticker.C:
 		}
 	}
@@ -480,11 +706,36 @@ func (state *cleanupState) cleanup() error {
 	return outcome
 }
 
-func launchError(ctx context.Context) error {
+type stagedLaunchError struct {
+	stage FailureStage
+	cause error
+}
+
+func (err *stagedLaunchError) Error() string {
+	return ErrLaunch.Error()
+}
+
+func (err *stagedLaunchError) Unwrap() []error {
+	return []error{ErrLaunch, err.cause}
+}
+
+func launchError(ctx context.Context, stage FailureStage) error {
+	cause := ErrLaunch
 	if err := ctx.Err(); err != nil {
-		return errors.Join(ErrLaunch, err)
+		cause = err
 	}
-	return ErrLaunch
+	return &stagedLaunchError{stage: stage, cause: cause}
+}
+
+func StageOf(err error) FailureStage {
+	var staged *stagedLaunchError
+	if errors.As(err, &staged) {
+		return staged.stage
+	}
+	if errors.Is(err, ErrSerialization) {
+		return FailureStageSerialization
+	}
+	return FailureStageConfiguration
 }
 
 func (Config) MarshalJSON() ([]byte, error) {

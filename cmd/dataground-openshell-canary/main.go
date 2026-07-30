@@ -20,23 +20,23 @@ func main() {
 	flag.StringVar(&config.DockerBinary, "docker-binary", "docker", "Docker CLI executable")
 	flag.Parse()
 	if flag.NArg() != 0 || config.WorkspaceRoot == "" {
-		fail()
+		fail(canarylauncher.FailureStageConfiguration)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	result, err := canarylauncher.Run(ctx, config)
 	if err != nil {
-		fail()
+		fail(canarylauncher.StageOf(err))
 	}
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetEscapeHTML(true)
 	if err := encoder.Encode(result); err != nil {
-		fail()
+		fail(canarylauncher.FailureStageSerialization)
 	}
 }
 
-func fail() {
-	_, _ = fmt.Fprintln(os.Stderr, "credential evidence run failed")
+func fail(stage canarylauncher.FailureStage) {
+	_, _ = fmt.Fprintf(os.Stderr, "credential evidence run failed at %s stage\n", stage)
 	os.Exit(1)
 }
