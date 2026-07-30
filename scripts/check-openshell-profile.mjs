@@ -1029,6 +1029,7 @@ if (
   !runtimeLiveCaseSource.includes("func NewLiveCaseRunner(") ||
   !runtimeLiveCaseSource.includes("func (runner *LiveCaseRunner) ValidateBinding(") ||
   !runtimeLiveCaseSource.includes("func (runner *LiveCaseRunner) Run(") ||
+  !runtimeLiveCaseSource.includes("func (*LiveCaseRunner) MarshalJSON(") ||
   !runtimeLiveCaseSource.includes("dataground.dev/openshell-runtime-case/v1") ||
   !runtimeLiveCaseSource.includes("ErrCaseReplay") ||
   runtimeLiveCaseSource.includes("os/exec") ||
