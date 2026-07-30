@@ -106,7 +106,10 @@
           "gateway-logs": 1,
           "sandbox-logs": 0,
           "runtime-errors": 0
-        }
+        },
+        "filesystemRequiredFiles": [
+          "/etc/os-release"
+        ]
       },
       "collector": {
         "assembly": "internal/security/canarycollect.Collect",
