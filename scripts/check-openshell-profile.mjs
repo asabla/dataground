@@ -936,6 +936,11 @@ const runtimeEvidenceProfileSource = await readFile(
   resolve(root, "internal/execution/runtimeevidence/profile.go"),
   "utf8",
 );
+const runtimeLiveCaseSource = await readFile(
+  resolve(root, "internal/execution/runtimeevidence/live.go"),
+  "utf8",
+);
+const runtimeLiveCaseBackend = runtimeProducer?.liveCaseBackend;
 if (
   runtimeConformance?.schema !== "deploy/openshell/runtime-conformance-evidence.schema.json" ||
   runtimeConformance?.schemaVersion !==
@@ -949,7 +954,8 @@ if (
   JSON.stringify(runtimeConformance?.resourceNames) !==
     JSON.stringify(expectedRuntimeResourceNames) ||
   JSON.stringify(runtimeConformance?.provenance) !== JSON.stringify(expectedRuntimeProvenance) ||
-  runtimeConformance?.status !== "v2 evidence producer defined; live record required" ||
+  runtimeConformance?.status !==
+    "v2 evidence producer and live case backend defined; live record required" ||
   runtimeEvidenceSchema?.properties?.schemaVersion?.const !== runtimeConformance.schemaVersion ||
   runtimeEvidenceSchema?.properties?.checks?.minItems !== expectedRuntimeChecks.length ||
   runtimeEvidenceSchema?.properties?.checks?.maxItems !== expectedRuntimeChecks.length ||
@@ -997,13 +1003,31 @@ if (
   runtimeProducer?.execution !== "(*runtimeevidence.EvidenceRun).Execute" ||
   runtimeProducer?.binding !==
     "checked profile and verifier, source commit and workflow-run inputs, producer-owned workflow and artifact identity, run-derived resources, canonical case order, capabilities, cleanup, and result" ||
-  runtimeProducer?.caseRunner !== "run-bound port; concrete live backend required" ||
+  runtimeProducer?.caseRunner !==
+    "internal/execution/runtimeevidence.NewLiveCases; concrete typed live scenario required" ||
+  runtimeLiveCaseBackend?.assembly !== "internal/execution/runtimeevidence.NewLiveCases" ||
+  runtimeLiveCaseBackend?.binding !==
+    "exact run-derived portable gateway, sandbox, provider, runtime, and workspace identities" ||
+  runtimeLiveCaseBackend?.dispatch !== "twelve typed scenario methods in canonical profile order" ||
+  runtimeLiveCaseBackend?.observationProof !==
+    "fixed 32-byte SHA-256 supplied by the exact live scenario; raw observations are not retained" ||
+  runtimeLiveCaseBackend?.observationCommitment !==
+    "four-byte length-prefixed SHA-256 over the v1 domain, run, case, resources, UTC interval, and observation proof" ||
+  runtimeLiveCaseBackend?.observationCommitmentDomain !==
+    "dataground.openshell-runtime-live-observation/v1" ||
+  runtimeLiveCaseBackend?.concurrency !==
+    "one in-flight case; overlap, order drift, cancellation, backend failure, invalid receipts, and proof replay are terminal" ||
+  runtimeLiveCaseBackend?.completion !==
+    "atomic backend finalization after the twelfth case and before cleanup" ||
+  runtimeLiveCaseBackend?.serialization !== "forbidden" ||
+  runtimeLiveCaseBackend?.status !==
+    "implemented; concrete OpenShell and Codex scenario driver required" ||
   JSON.stringify(runtimeProducer?.cleanupOrder) !==
     JSON.stringify(["sandbox", "providerBinding", "workspace"]) ||
   runtimeProducer?.serialization !==
     "run forbidden; result only after every case and cleanup succeeds" ||
   runtimeProducer?.status !==
-    "closed assembler implemented; live case backends and launcher required" ||
+    "closed assembler and run-bound live case backend implemented; concrete OpenShell and Codex scenario driver and launcher required" ||
   runtimeProducerProfileBindings.some(
     (binding) => !runtimeEvidenceProfileSource.includes(JSON.stringify(binding)),
   ) ||
@@ -1017,6 +1041,16 @@ if (
   !runtimeEvidenceSource.includes("namesForRun(state.config.RunID)") ||
   !runtimeEvidenceSource.includes("Capabilities: capabilities()") ||
   !runtimeEvidenceSource.includes("previousFinishedAt := startedAt") ||
+  !runtimeEvidenceSource.includes("FinalizeBinding(config.RunID, resources)") ||
+  !runtimeLiveCaseSource.includes("func NewLiveCases(") ||
+  !runtimeLiveCaseSource.includes("type LiveScenario interface") ||
+  !runtimeLiveCaseSource.includes("func (cases *LiveCases) FinalizeBinding(") ||
+  !runtimeLiveCaseSource.includes("liveObservationCommitmentDomain") ||
+  !runtimeLiveCaseSource.includes("writeLiveCommitmentPart") ||
+  !runtimeLiveCaseSource.includes("ErrLiveCaseReplay") ||
+  runtimeLiveCaseSource.includes("os/exec") ||
+  runtimeLiveCaseSource.includes('"docker"') ||
+  runtimeLiveCaseSource.includes('"openshell"') ||
   runtimeEvidenceSource.includes("os/exec") ||
   runtimeEvidenceSource.includes('"docker"') ||
   runtimeEvidenceSource.includes('"openshell"') ||
@@ -1027,7 +1061,7 @@ if (
       !runtimeEvidenceSource.includes(`unsupported("${reason}")`),
   )
 ) {
-  fail("the runtime evidence producer is missing, mutable, or claims a concrete live backend");
+  fail("the runtime evidence producer or live case backend is missing, mutable, or overclaims a concrete scenario");
 }
 
 const credentialEvidenceWorkflow = await readFile(
