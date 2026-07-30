@@ -92,6 +92,9 @@ func (runner *LiveCaseRunner) Run(ctx context.Context, request CheckRequest) (Ob
 	if err != nil {
 		return Observation{}, ErrCase
 	}
+	if ctx.Err() != nil {
+		return Observation{}, ErrCase
+	}
 	if err := validateCaseReceipt(receipt); err != nil {
 		return Observation{}, err
 	}
@@ -148,7 +151,8 @@ func (runner *LiveCaseRunner) run(ctx context.Context, name CheckName) (CaseRece
 func validateCaseReceipt(receipt CaseReceipt) error {
 	if receipt.StartedAt.IsZero() || receipt.FinishedAt.IsZero() ||
 		receipt.FinishedAt.Before(receipt.StartedAt) ||
-		!commitmentPattern.MatchString(receipt.PayloadSHA256) {
+		!commitmentPattern.MatchString(receipt.PayloadSHA256) ||
+		receipt.NativeProtocolExposed || receipt.UpstreamEndpointExposed {
 		return ErrObservation
 	}
 	return nil
