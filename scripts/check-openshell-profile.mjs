@@ -865,7 +865,7 @@ if (
     "credential non-exposure certified for the pinned development profile" ||
   profile.capabilities?.credentialNonExposure !== "certified for pinned development profile" ||
   profile.capabilities?.realSandboxInvocation !==
-    "v2 evidence contract defined; live certification blocked" ||
+    "v2 evidence producer defined; live certification blocked" ||
   JSON.stringify(profile.blockers) !== JSON.stringify(expectedRemainingBlockers)
 ) {
   fail("the accepted credential evidence claim or remaining blockers are inconsistent");
@@ -902,6 +902,15 @@ const expectedRuntimeClassifications = {
   "artifact-export": "supported",
   "runtime-artifact-events": "unsupported",
 };
+const expectedRuntimeReasonCodes = {
+  question: "ADAPTER_UNSUPPORTED",
+  "permission-escalation": "ADAPTER_UNSUPPORTED",
+  "rich-item-delta": "ADAPTER_UNSUPPORTED",
+  usage: "ADAPTER_UNSUPPORTED",
+  resume: "DURABLE_INTERACTION_UNIMPLEMENTED",
+  steer: "DURABLE_INTERACTION_UNIMPLEMENTED",
+  "runtime-artifact-events": "NATIVE_PROTOCOL_UNCERTIFIED",
+};
 const expectedRuntimeResourceNames = {
   gateway: "dg-runtime-gateway-<runID>",
   sandbox: "dg-runtime-sandbox-<runID>",
@@ -918,6 +927,15 @@ const runtimeEvidenceSchema = JSON.parse(
   await readFile(resolve(root, runtimeConformance?.schema ?? ""), "utf8"),
 );
 const runtimeProvenanceSchema = runtimeEvidenceSchema?.properties?.run?.properties?.provenance;
+const runtimeProducer = runtimeConformance?.producer;
+const runtimeEvidenceSource = await readFile(
+  resolve(root, "internal/execution/runtimeevidence/evidence.go"),
+  "utf8",
+);
+const runtimeEvidenceProfileSource = await readFile(
+  resolve(root, "internal/execution/runtimeevidence/profile.go"),
+  "utf8",
+);
 if (
   runtimeConformance?.schema !== "deploy/openshell/runtime-conformance-evidence.schema.json" ||
   runtimeConformance?.schemaVersion !==
@@ -931,7 +949,7 @@ if (
   JSON.stringify(runtimeConformance?.resourceNames) !==
     JSON.stringify(expectedRuntimeResourceNames) ||
   JSON.stringify(runtimeConformance?.provenance) !== JSON.stringify(expectedRuntimeProvenance) ||
-  runtimeConformance?.status !== "v2 evidence contract defined; live record required" ||
+  runtimeConformance?.status !== "v2 evidence producer defined; live record required" ||
   runtimeEvidenceSchema?.properties?.schemaVersion?.const !== runtimeConformance.schemaVersion ||
   runtimeEvidenceSchema?.properties?.checks?.minItems !== expectedRuntimeChecks.length ||
   runtimeEvidenceSchema?.properties?.checks?.maxItems !== expectedRuntimeChecks.length ||
@@ -955,6 +973,61 @@ if (
   runtimeEvidenceSchema?.properties?.result?.const !== "passed"
 ) {
   fail("the runtime conformance evidence contract is missing or inconsistent");
+}
+const runtimeProducerProfileBindings = [
+  runtimeConformance.schemaVersion,
+  profile.source.openshell.commit,
+  profile.artifacts.gateway,
+  profile.artifacts.supervisor,
+  profile.artifacts.sandbox,
+  profile.runtime.version,
+  profile.runtime.schemaEvidence.canonicalSHA256,
+  profile.providerProfileEvidence.contract.acceptedEvidence.sha256,
+  profile.topology.gatewayEndpoint,
+  profile.topology.driver,
+  profile.topology.composeSHA256,
+  profile.topology.gatewayConfigSHA256,
+  runtimeConformance.verifierIdentity.name,
+  runtimeConformance.verifierIdentity.version,
+  runtimeConformance.provenance.workflow,
+  runtimeConformance.provenance.artifactName,
+];
+if (
+  runtimeProducer?.assembly !== "internal/execution/runtimeevidence.New" ||
+  runtimeProducer?.execution !== "(*runtimeevidence.EvidenceRun).Execute" ||
+  runtimeProducer?.binding !==
+    "checked profile and verifier, source commit and workflow-run inputs, producer-owned workflow and artifact identity, run-derived resources, canonical case order, capabilities, cleanup, and result" ||
+  runtimeProducer?.caseRunner !== "run-bound port; concrete live backend required" ||
+  JSON.stringify(runtimeProducer?.cleanupOrder) !==
+    JSON.stringify(["sandbox", "providerBinding", "workspace"]) ||
+  runtimeProducer?.serialization !==
+    "run forbidden; result only after every case and cleanup succeeds" ||
+  runtimeProducer?.status !==
+    "closed assembler implemented; live case backends and launcher required" ||
+  runtimeProducerProfileBindings.some(
+    (binding) => !runtimeEvidenceProfileSource.includes(JSON.stringify(binding)),
+  ) ||
+  !runtimeEvidenceSource.includes("func New(") ||
+  !runtimeEvidenceSource.includes("func (run *EvidenceRun) Execute(") ||
+  !runtimeEvidenceSource.includes("func (EvidenceRun) MarshalJSON(") ||
+  !runtimeEvidenceSource.includes("func (result Result) MarshalJSON(") ||
+  !runtimeEvidenceSource.includes("context.WithoutCancel(ctx)") ||
+  !runtimeEvidenceSource.includes("ErrAlreadyStarted") ||
+  !runtimeEvidenceSource.includes("ErrRunIncomplete") ||
+  !runtimeEvidenceSource.includes("namesForRun(state.config.RunID)") ||
+  !runtimeEvidenceSource.includes("Capabilities: capabilities()") ||
+  !runtimeEvidenceSource.includes("previousFinishedAt := startedAt") ||
+  runtimeEvidenceSource.includes("os/exec") ||
+  runtimeEvidenceSource.includes('"docker"') ||
+  runtimeEvidenceSource.includes('"openshell"') ||
+  !runtimeEvidenceProfileSource.includes("func currentProfile() profile") ||
+  Object.entries(expectedRuntimeReasonCodes).some(
+    ([name, reason]) =>
+      !runtimeEvidenceSource.includes(`Name: "${name}"`) ||
+      !runtimeEvidenceSource.includes(`unsupported("${reason}")`),
+  )
+) {
+  fail("the runtime evidence producer is missing, mutable, or claims a concrete live backend");
 }
 
 const credentialEvidenceWorkflow = await readFile(
