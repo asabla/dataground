@@ -308,7 +308,7 @@
         "artifact-export": "supported",
         "runtime-artifact-events": "unsupported"
       },
-      "status": "v2 evidence producer and live case backend defined; live record required",
+      "status": "v2 evidence producer, live case backend, and scenario driver defined; live record required",
       "resourceNames": {
         "gateway": "dg-runtime-gateway-<runID>",
         "sandbox": "dg-runtime-sandbox-<runID>",
@@ -324,7 +324,7 @@
         "assembly": "internal/execution/runtimeevidence.New",
         "execution": "(*runtimeevidence.EvidenceRun).Execute",
         "binding": "checked profile and verifier, source commit and workflow-run inputs, producer-owned workflow and artifact identity, run-derived resources, canonical case order, capabilities, cleanup, and result",
-        "caseRunner": "internal/execution/runtimeevidence.NewLiveCases; concrete typed live scenario required",
+        "caseRunner": "internal/execution/runtimeevidence.NewLiveCases with runtimeevidence.NewConcreteScenario",
         "liveCaseBackend": {
           "assembly": "internal/execution/runtimeevidence.NewLiveCases",
           "binding": "exact run-derived portable gateway, sandbox, provider, runtime, and workspace identities",
@@ -335,7 +335,7 @@
           "concurrency": "one in-flight case; overlap, order drift, cancellation, backend failure, invalid receipts, and proof replay are terminal",
           "completion": "atomic backend finalization after the twelfth case and before cleanup",
           "serialization": "forbidden",
-          "status": "implemented; concrete OpenShell and Codex scenario driver required",
+          "status": "implemented; repository-owned concrete scenario required",
           "exposure": "each receipt must attest completed inspection; native-protocol or upstream-endpoint exposure fails before commitment"
         },
         "cleanupOrder": [
@@ -344,7 +344,18 @@
           "workspace"
         ],
         "serialization": "run forbidden; result only after every case and cleanup succeeds",
-        "status": "closed assembler and run-bound live case backend implemented; concrete OpenShell and Codex scenario driver and launcher required"
+        "status": "closed assembler, live case backend, and scenario driver implemented; concrete probe ports and launcher required",
+        "scenarioDriver": {
+          "assembly": "internal/execution/runtimeevidence.NewConcreteScenario",
+          "binding": "exact run-derived portable resources with separate provider lifecycle and Codex runtime probe ports",
+          "dispatch": "four provider lifecycle probes and eight runtime protocol probes in canonical evidence order",
+          "assertions": "one closed assertion shape per case; assertion substitution and extra claims fail closed",
+          "exposure": "each probe must attest inspection without native-protocol or upstream-endpoint exposure",
+          "concurrency": "single-use ordered state; overlap, cancellation, probe failure, binding drift, invalid assertions, and proof replay are terminal",
+          "errors": "native probe errors are replaced by stable scenario errors",
+          "serialization": "forbidden",
+          "status": "implemented; concrete Docker/OpenShell and Codex probe ports and launcher required"
+        }
       }
     }
   },
@@ -352,7 +363,7 @@
     "gatewayPlacement": "adapter conformance tested",
     "sandboxLifecycle": "adapter conformance tested",
     "codexAppServerStdio": "adapter conformance tested",
-    "realSandboxInvocation": "v2 evidence producer and live case backend defined; concrete scenario driver and live certification blocked",
+    "realSandboxInvocation": "v2 evidence producer, live case backend, and scenario driver defined; concrete probes and live certification blocked",
     "credentialNonExposure": "certified for pinned development profile",
     "rosettaMaterialization": "blocked"
   },
