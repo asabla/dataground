@@ -214,11 +214,11 @@ func TestLiveCasesFailClosed(t *testing.T) {
 const testRunID = "0123456789abcdef0123456789abcdef"
 
 type liveScenario struct {
-	base    time.Time
-	calls   []CheckName
-	fail    error
-	invalid bool
-	replay  bool
+	base        time.Time
+	calls       []CheckName
+	fail        error
+	invalid     bool
+	replay      bool
 	uninspected bool
 	exposed     bool
 }
