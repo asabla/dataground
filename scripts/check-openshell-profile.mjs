@@ -898,6 +898,13 @@ const expectedRuntimeClassifications = {
   "artifact-export": "supported",
   "runtime-artifact-events": "unsupported",
 };
+const expectedRuntimeResourceNames = {
+  gateway: "dg-runtime-gateway-<runID>",
+  sandbox: "dg-runtime-sandbox-<runID>",
+  provider: "dg-runtime-provider-<runID>",
+  runtime: "dg-runtime-session-<runID>",
+  workspace: "dg-runtime-<runID>",
+};
 const runtimeConformance = profile.runtime?.conformance;
 const runtimeEvidenceSchema = JSON.parse(
   await readFile(resolve(root, runtimeConformance?.schema ?? ""), "utf8"),
@@ -914,6 +921,8 @@ if (
   JSON.stringify(runtimeConformance?.requiredChecks) !== JSON.stringify(expectedRuntimeChecks) ||
   JSON.stringify(runtimeConformance?.capabilityClassifications) !==
     JSON.stringify(expectedRuntimeClassifications) ||
+  JSON.stringify(runtimeConformance?.resourceNames) !==
+    JSON.stringify(expectedRuntimeResourceNames) ||
   runtimeConformance?.status !== "evidence contract defined; live record required" ||
   runtimeEvidenceSchema?.properties?.schemaVersion?.const !==
     runtimeConformance.schemaVersion ||
