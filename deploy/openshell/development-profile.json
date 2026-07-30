@@ -268,17 +268,55 @@
       "file": "codex_app_server_protocol.v2.schemas.json",
       "canonicalization": "recursive object-key ordering followed by compact JSON serialization without a trailing newline",
       "canonicalSHA256": "0668eee0081dc5b643ecc7821938ad174f3d532a313a092f387fed3b469876ea"
+    },
+    "conformance": {
+      "schema": "deploy/openshell/runtime-conformance-evidence.schema.json",
+      "schemaVersion": "dataground.dev.openshell-runtime-conformance-evidence/v1",
+      "verifier": "pnpm openshell:runtime-evidence:check <evidence.json>",
+      "verifierIdentity": {
+        "name": "dataground-openshell-runtime-conformance",
+        "version": "1.0.0"
+      },
+      "requiredChecks": [
+        "gateway-ready",
+        "sandbox-ready",
+        "initialize",
+        "turn-success",
+        "event-normalization",
+        "interrupt",
+        "command-approval",
+        "file-change-approval",
+        "artifact-export",
+        "sandbox-teardown"
+      ],
+      "capabilityClassifications": {
+        "text": "supported",
+        "item-activity": "supported",
+        "interrupt": "supported",
+        "command-approval": "supported",
+        "file-change-approval": "supported",
+        "question": "unsupported",
+        "permission-escalation": "unsupported",
+        "rich-item-delta": "unsupported",
+        "usage": "unsupported",
+        "resume": "unsupported",
+        "steer": "unsupported",
+        "artifact-export": "supported",
+        "runtime-artifact-events": "unsupported"
+      },
+      "status": "evidence contract defined; live record required"
     }
   },
   "capabilities": {
     "gatewayPlacement": "adapter conformance tested",
     "sandboxLifecycle": "adapter conformance tested",
     "codexAppServerStdio": "adapter conformance tested",
-    "realSandboxInvocation": "blocked",
+    "realSandboxInvocation": "evidence contract defined; live certification blocked",
     "credentialNonExposure": "certified for pinned development profile",
     "rosettaMaterialization": "blocked"
   },
   "blockers": [
+    "Capture, verify, and incorporate complete Docker-hosted OpenShell and Codex runtime conformance evidence for the pinned development profile.",
     "Publish and certify a tagged Rosetta v1 build, authenticated transport profile, stable error taxonomy, compatibility policy, and signed conformance fixtures before production materialization."
   ]
 }
