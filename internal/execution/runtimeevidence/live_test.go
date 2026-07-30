@@ -2,6 +2,7 @@ package runtimeevidence
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -202,5 +203,34 @@ func TestLiveCaseRunnerCompletesOwnedEvidenceRun(t *testing.T) {
 	}
 	if len(encoded) == 0 {
 		t.Fatal("MarshalJSON() returned empty evidence")
+	}
+}
+
+func TestLiveCaseRunnerCannotSerializeOrContinueAfterFailure(t *testing.T) {
+	t.Parallel()
+	runID := "0123456789abcdef0123456789abcdef"
+	resources := namesForRun(runID)
+	runner, err := NewLiveCaseRunner(runID, resources, &liveCases{
+		base: time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC),
+		failAt: CheckGatewayReady,
+	})
+	if err != nil {
+		t.Fatalf("NewLiveCaseRunner() error = %v", err)
+	}
+	if _, err := json.Marshal(runner); !errors.Is(err, ErrSerialization) {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if err := runner.ValidateBinding(runID, resources); err != nil {
+		t.Fatalf("ValidateBinding() error = %v", err)
+	}
+	if _, err := runner.Run(context.Background(), CheckRequest{
+		RunID: runID, Name: CheckGatewayReady, Resources: resources,
+	}); !errors.Is(err, ErrCase) {
+		t.Fatalf("first Run() error = %v", err)
+	}
+	if _, err := runner.Run(context.Background(), CheckRequest{
+		RunID: runID, Name: CheckSandboxReady, Resources: resources,
+	}); !errors.Is(err, ErrCaseBinding) {
+		t.Fatalf("second Run() error = %v", err)
 	}
 }
