@@ -74,7 +74,7 @@ openshell --gateway-endpoint http://127.0.0.1:8080 sandbox create \
 
 Stop the local gateway with `docker compose -f deploy/openshell/docker-compose.yml down`. This removes the gateway container but leaves OpenShell state under `/var/lib/openshell`; do not delete that directory as part of routine cleanup.
 
-## Adapter behavior and remaining gate
+## Adapter behavior and remaining gates
 
 The development adapter registers gateways, selects only active gateways with required capabilities, reserves deterministic placements, creates deterministic sandboxes, observes ambiguous creation and termination before repetition, starts Codex app-server through non-TTY stdio, retrieves logs, exports files, terminates sandboxes, and lists managed orphans. It invokes the OpenShell binary directly with an argument vector rather than through a shell. Gateway endpoints and native sandbox names remain in protected provider state; returned resources and runtime sessions cannot serialize them.
 
