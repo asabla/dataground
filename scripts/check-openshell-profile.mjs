@@ -865,7 +865,7 @@ if (
     "credential non-exposure certified for the pinned development profile" ||
   profile.capabilities?.credentialNonExposure !== "certified for pinned development profile" ||
   profile.capabilities?.realSandboxInvocation !==
-    "v2 evidence producer and live case backend defined; concrete scenario driver and live certification blocked" ||
+    "v2 evidence producer, live case backend, and scenario driver defined; concrete probes and live certification blocked" ||
   JSON.stringify(profile.blockers) !== JSON.stringify(expectedRemainingBlockers)
 ) {
   fail("the accepted credential evidence claim or remaining blockers are inconsistent");
@@ -940,6 +940,11 @@ const runtimeLiveCaseSource = await readFile(
   resolve(root, "internal/execution/runtimeevidence/live.go"),
   "utf8",
 );
+const runtimeScenarioSource = await readFile(
+  resolve(root, "internal/execution/runtimeevidence/scenario.go"),
+  "utf8",
+);
+const runtimeScenarioDriver = runtimeProducer?.scenarioDriver;
 const runtimeLiveCaseBackend = runtimeProducer?.liveCaseBackend;
 if (
   runtimeConformance?.schema !== "deploy/openshell/runtime-conformance-evidence.schema.json" ||
@@ -955,7 +960,7 @@ if (
     JSON.stringify(expectedRuntimeResourceNames) ||
   JSON.stringify(runtimeConformance?.provenance) !== JSON.stringify(expectedRuntimeProvenance) ||
   runtimeConformance?.status !==
-    "v2 evidence producer and live case backend defined; live record required" ||
+    "v2 evidence producer, live case backend, and scenario driver defined; live record required" ||
   runtimeEvidenceSchema?.properties?.schemaVersion?.const !== runtimeConformance.schemaVersion ||
   runtimeEvidenceSchema?.properties?.checks?.minItems !== expectedRuntimeChecks.length ||
   runtimeEvidenceSchema?.properties?.checks?.maxItems !== expectedRuntimeChecks.length ||
@@ -1004,7 +1009,7 @@ if (
   runtimeProducer?.binding !==
     "checked profile and verifier, source commit and workflow-run inputs, producer-owned workflow and artifact identity, run-derived resources, canonical case order, capabilities, cleanup, and result" ||
   runtimeProducer?.caseRunner !==
-    "internal/execution/runtimeevidence.NewLiveCases; concrete typed live scenario required" ||
+    "internal/execution/runtimeevidence.NewLiveCases with runtimeevidence.NewConcreteScenario" ||
   runtimeLiveCaseBackend?.assembly !== "internal/execution/runtimeevidence.NewLiveCases" ||
   runtimeLiveCaseBackend?.binding !==
     "exact run-derived portable gateway, sandbox, provider, runtime, and workspace identities" ||
@@ -1023,13 +1028,30 @@ if (
     "atomic backend finalization after the twelfth case and before cleanup" ||
   runtimeLiveCaseBackend?.serialization !== "forbidden" ||
   runtimeLiveCaseBackend?.status !==
-    "implemented; concrete OpenShell and Codex scenario driver required" ||
+    "implemented; repository-owned concrete scenario required" ||
+  runtimeScenarioDriver?.assembly !==
+    "internal/execution/runtimeevidence.NewConcreteScenario" ||
+  runtimeScenarioDriver?.binding !==
+    "exact run-derived portable resources with separate provider lifecycle and Codex runtime probe ports" ||
+  runtimeScenarioDriver?.dispatch !==
+    "four provider lifecycle probes and eight runtime protocol probes in canonical evidence order" ||
+  runtimeScenarioDriver?.assertions !==
+    "one closed assertion shape per case; assertion substitution and extra claims fail closed" ||
+  runtimeScenarioDriver?.exposure !==
+    "each probe must attest inspection without native-protocol or upstream-endpoint exposure" ||
+  runtimeScenarioDriver?.concurrency !==
+    "single-use ordered state; overlap, cancellation, probe failure, binding drift, invalid assertions, and proof replay are terminal" ||
+  runtimeScenarioDriver?.errors !==
+    "native probe errors are replaced by stable scenario errors" ||
+  runtimeScenarioDriver?.serialization !== "forbidden" ||
+  runtimeScenarioDriver?.status !==
+    "implemented; concrete Docker/OpenShell and Codex probe ports and launcher required" ||
   JSON.stringify(runtimeProducer?.cleanupOrder) !==
     JSON.stringify(["sandbox", "providerBinding", "workspace"]) ||
   runtimeProducer?.serialization !==
     "run forbidden; result only after every case and cleanup succeeds" ||
   runtimeProducer?.status !==
-    "closed assembler and run-bound live case backend implemented; concrete OpenShell and Codex scenario driver and launcher required" ||
+    "closed assembler, live case backend, and scenario driver implemented; concrete probe ports and launcher required" ||
   runtimeProducerProfileBindings.some(
     (binding) => !runtimeEvidenceProfileSource.includes(JSON.stringify(binding)),
   ) ||
@@ -1053,6 +1075,15 @@ if (
   !runtimeLiveCaseSource.includes("!receipt.NativeProtocolExposed") ||
   !runtimeLiveCaseSource.includes("!receipt.UpstreamEndpointExposed") ||
   !runtimeLiveCaseSource.includes("ErrLiveCaseReplay") ||
+  !runtimeScenarioSource.includes("func NewConcreteScenario(") ||
+  !runtimeScenarioSource.includes("type ProviderProbes interface") ||
+  !runtimeScenarioSource.includes("type RuntimeProbes interface") ||
+  !runtimeScenarioSource.includes("func validProbeResult(") ||
+  !runtimeScenarioSource.includes("ErrScenarioReplay") ||
+  !runtimeScenarioSource.includes("func (ConcreteScenario) MarshalJSON(") ||
+  runtimeScenarioSource.includes("os/exec") ||
+  runtimeScenarioSource.includes('"docker"') ||
+  runtimeScenarioSource.includes('"openshell"') ||
   runtimeLiveCaseSource.includes("os/exec") ||
   runtimeLiveCaseSource.includes('"docker"') ||
   runtimeLiveCaseSource.includes('"openshell"') ||
