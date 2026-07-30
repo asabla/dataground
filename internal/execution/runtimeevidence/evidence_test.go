@@ -120,6 +120,9 @@ func TestNewRejectsInvalidPlanBeforeCaseExecutionOrCleanup(t *testing.T) {
 		"run ID": func(config *Config) { config.RunID = "invalid" },
 		"source commit": func(config *Config) { config.Provenance.SourceCommit = "invalid" },
 		"workflow run": func(config *Config) { config.Provenance.WorkflowRunID = 0 },
+		"unsafe workflow run": func(config *Config) {
+			config.Provenance.WorkflowRunID = maxSafeInteger + 1
+		},
 		"case runner": func(config *Config) { config.Cases = nil },
 		"cleanup": func(config *Config) { config.Cleanup.Workspace = nil },
 	} {
@@ -218,6 +221,26 @@ func TestExecuteUsesNonCanceledCleanupContext(t *testing.T) {
 	}
 	if cleanups != 3 {
 		t.Fatalf("cleanup calls = %d", cleanups)
+	}
+}
+
+func TestExecuteRejectsCancellationEvenWhenCaseRunnerIgnoresIt(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	base := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
+	run, err := newEvidenceRun(
+		validConfig(&caseRunner{base: base}, successfulCleanup),
+		clock(base, base.Add(time.Minute)),
+	)
+	if err != nil {
+		t.Fatalf("newEvidenceRun() error = %v", err)
+	}
+
+	if _, err := run.Execute(ctx); !errors.Is(err, ErrRunIncomplete) ||
+		!errors.Is(err, context.Canceled) {
+		t.Fatalf("Execute() error = %v", err)
 	}
 }
 
