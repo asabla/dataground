@@ -53,7 +53,7 @@
     "codex": {
       "source": "providers/codex.yaml",
       "sha256": "d9c7f48d96916dcaca319e396d75e30ff6ad3bf2474f38f54ab37f37cabbca8f",
-      "status": "development candidate; live credential non-exposure proof required"
+      "status": "credential non-exposure certified for the pinned development profile"
     },
     "contract": {
       "schema": "deploy/openshell/credential-non-exposure-evidence.schema.json",
@@ -81,7 +81,7 @@
           "sandbox-logs": 268435456,
           "runtime-errors": 16777216
         },
-        "status": "commitment-only scanner verified; live Docker execution required",
+        "status": "commitment-only scanner and accepted live Docker execution verified",
         "runIDFormat": "32-character lowercase hexadecimal nonce",
         "resourceNameFormat": "portable lowercase identifier",
         "surfaceResourceKinds": {
@@ -125,9 +125,9 @@
           "sandbox-logs",
           "runtime-errors"
         ],
-        "status": "collection, acquisition, and launcher wiring verified; live Docker execution required"
+        "status": "collection, acquisition, launcher wiring, and accepted live Docker execution verified"
       },
-      "status": "contract and launcher verified; live evidence required",
+      "status": "coverage-qualified v3 evidence incorporated and verified",
       "evidenceRun": {
         "assembly": "internal/security/canaryevidence.Run",
         "profileOwnership": "checked profile snapshot, topology digests, and dataground-openshell-canary/3.0.0 verifier identity",
@@ -143,15 +143,15 @@
           "name": "dg-canary-<runID>",
           "parent": "pre-existing owner-only mode-0700 directory",
           "serialization": "forbidden",
-          "status": "workspace lifecycle and launcher wiring verified; live Docker execution required"
+          "status": "workspace lifecycle, launcher wiring, and accepted live Docker execution verified"
         },
-        "status": "provider provisioning, run, source lifecycle, cleanup, closed composition, and launcher verified; live Docker execution required",
+        "status": "provider provisioning, run, source lifecycle, cleanup, closed composition, launcher, and accepted live Docker execution verified",
         "sandboxCleanup": {
           "assembly": "internal/security/canarysandbox.New",
           "resource": "exact DataGround execution returned by the OpenShell provider",
           "verification": "terminate then require a timestamped exact terminal observation",
           "serialization": "forbidden",
-          "status": "sandbox cleanup and launcher wiring verified; live Docker execution required"
+          "status": "sandbox cleanup, launcher wiring, and accepted live Docker execution verified"
         },
         "providerCleanup": {
           "assembly": "internal/security/canaryprovider.New",
@@ -160,7 +160,7 @@
           "verification": "observe exact binding, delete, then require timestamped absence",
           "exclusivity": "dedicated evidence gateway with no concurrent provider mutation",
           "serialization": "forbidden",
-          "status": "provider cleanup and launcher wiring verified; live Docker execution required"
+          "status": "provider cleanup, launcher wiring, and accepted live Docker execution verified"
         },
         "sourceAcquisition": {
           "assembly": "internal/security/canarysource.New",
@@ -180,7 +180,7 @@
               "sandbox-logs"
             ],
             "serialization": "forbidden",
-            "status": "OpenShell sandbox source backend and launcher wiring verified; live Docker execution required"
+            "status": "OpenShell sandbox source backend, launcher wiring, and accepted live Docker execution verified"
           },
           "docker": {
             "assembly": "internal/security/canarydocker.New",
@@ -191,7 +191,7 @@
               "gateway-logs"
             ],
             "serialization": "forbidden",
-            "status": "Docker host source backend and launcher wiring verified; live Docker execution required"
+            "status": "Docker host source backend, launcher wiring, and accepted live Docker execution verified"
           },
           "runtime": {
             "assembly": "internal/security/canaryruntime.New",
@@ -200,9 +200,9 @@
             "maxBytes": 16777216,
             "zeroization": "captured bytes cleared after scanner close, unusable handoff, or explicit discard",
             "serialization": "forbidden",
-            "status": "runtime-error source backend and launcher wiring verified; live Docker execution required"
+            "status": "runtime-error source backend, launcher wiring, and accepted live Docker execution verified"
           },
-          "status": "all seven source backends and launcher wiring verified; live Docker execution required"
+          "status": "all seven source backends, launcher wiring, and accepted live Docker execution verified"
         },
         "providerProvisioning": {
           "assembly": "internal/security/canaryprovider.Provision",
@@ -218,7 +218,7 @@
           "transport": "pinned OpenShell 0.0.86 provider create with bare credential keys and an isolated child environment",
           "recovery": "require pre-create absence then credential-safe exact identity observation on the dedicated evidence gateway",
           "serialization": "forbidden",
-          "status": "provider provisioning, closed composition, and launcher wiring verified; live Docker execution required"
+          "status": "provider provisioning, closed composition, launcher wiring, and accepted live Docker execution verified"
         },
         "composition": {
           "assembly": "internal/security/canaryharness.New",
@@ -227,7 +227,7 @@
           "singleUse": "shared irreversible state across harness copies",
           "runtimeRecovery": "discard rejected or unused runtime capture during composition and after every attempted run",
           "serialization": "forbidden",
-          "status": "closed run and launcher composition verified; live Docker execution required",
+          "status": "closed run, launcher composition, and accepted live Docker execution verified",
           "runtimeTransition": "close the exact wrapped session once after the first six live surfaces and before runtime-error acquisition"
         },
         "launcher": {
@@ -239,10 +239,20 @@
           "composition": "repository-owned provider provisioning, provider-bound sandbox, wrapped Codex client, seven source backends, and closed harness",
           "output": "evidence JSON on stdout only after complete run cleanup and gateway teardown",
           "serialization": "configuration forbidden",
-          "status": "launcher implementation verified; live Docker execution required",
+          "status": "launcher implementation and accepted live Docker execution verified",
           "environment": "allowlisted Docker and OpenShell child environments; provider canary isolated separately",
           "recovery": "persist the deterministic sandbox route before native create, then clean sandbox, provider, verifier workspace, gateway, volume, and frozen topology"
         }
+      },
+      "acceptedEvidence": {
+        "file": "deploy/openshell/evidence/openshell-credential-non-exposure-v3.json",
+        "sha256": "684e8e9e8b859e0822c8f287201d137a88abcad501f7b9f94ffac9c9aa9414e3",
+        "runID": "641b1588e015d28e4d9c09176f5f6c3a",
+        "workflow": ".github/workflows/openshell-credential-evidence.yml",
+        "workflowRunID": 30568233656,
+        "headCommit": "65447454052b27c608531963f1141fb4776d58eb",
+        "artifactID": 8769719427,
+        "artifactArchiveDigest": "sha256:5ab0a4aaa121caeccf62d5f77166549daef7f523fd465bea2981ddd1e4e097cf"
       }
     }
   },
@@ -265,11 +275,10 @@
     "sandboxLifecycle": "adapter conformance tested",
     "codexAppServerStdio": "adapter conformance tested",
     "realSandboxInvocation": "blocked",
-    "credentialNonExposure": "blocked",
+    "credentialNonExposure": "certified for pinned development profile",
     "rosettaMaterialization": "blocked"
   },
   "blockers": [
-    "Execute the owned launcher on a host with Docker Engine or Docker Desktop and publish a verifier-accepted credential non-exposure record.",
     "Publish and certify a tagged Rosetta v1 build, authenticated transport profile, stable error taxonomy, compatibility policy, and signed conformance fixtures before production materialization."
   ]
 }
