@@ -42,7 +42,7 @@
     "run": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "resources", "startedAt", "finishedAt", "verifier"],
+      "required": ["id", "resources", "startedAt", "finishedAt", "verifier", "provenance"],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
         "resources": {
@@ -66,6 +66,29 @@
           "properties": {
             "name": { "const": "dataground-openshell-runtime-conformance" },
             "version": { "const": "1.0.0" }
+          }
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sourceCommit",
+            "workflow",
+            "workflowRunID",
+            "artifactName",
+            "artifactID",
+            "artifactArchiveDigest"
+          ],
+          "properties": {
+            "sourceCommit": { "$ref": "#/$defs/commit" },
+            "workflow": { "const": ".github/workflows/openshell-runtime-conformance.yml" },
+            "workflowRunID": { "type": "integer", "minimum": 1 },
+            "artifactName": { "const": "openshell-runtime-conformance" },
+            "artifactID": { "type": "integer", "minimum": 1 },
+            "artifactArchiveDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
           }
         }
       }
