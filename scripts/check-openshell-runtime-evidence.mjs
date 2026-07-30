@@ -42,6 +42,13 @@ const expectedEvidence = {
   "file-change-approval": ["file-change-approval"],
   "artifact-export": ["artifact-export"],
 };
+const expectedResourceNames = {
+  gateway: "dg-runtime-gateway-<runID>",
+  sandbox: "dg-runtime-sandbox-<runID>",
+  provider: "dg-runtime-provider-<runID>",
+  runtime: "dg-runtime-session-<runID>",
+  workspace: "dg-runtime-<runID>",
+};
 
 const [profile, schema] = await Promise.all([readJSON(profilePath), readJSON(schemaPath)]);
 const contract = profile.runtime?.conformance;
@@ -81,7 +88,8 @@ function verifyEvidence(evidence) {
   if (
     contract?.schemaVersion !== evidence.schemaVersion ||
     contract?.verifierIdentity?.name !== evidence.run.verifier.name ||
-    contract?.verifierIdentity?.version !== evidence.run.verifier.version
+    contract?.verifierIdentity?.version !== evidence.run.verifier.version ||
+    JSON.stringify(contract?.resourceNames) !== JSON.stringify(expectedResourceNames)
   ) {
     failures.push("evidence does not use the checked-in runtime verifier contract");
   }
@@ -156,11 +164,14 @@ function verifyEvidence(evidence) {
     }
   }
 
-  const expectedProvider = `dg-runtime-provider-${evidence.run.id}`;
-  const expectedWorkspace = `dg-runtime-${evidence.run.id}`;
+  const names = Object.fromEntries(
+    Object.entries(expectedResourceNames).map(([kind, template]) => [
+      kind,
+      template.replace("<runID>", evidence.run.id),
+    ]),
+  );
   if (
-    evidence.run.resources.provider !== expectedProvider ||
-    evidence.run.resources.workspace !== expectedWorkspace ||
+    Object.entries(names).some(([kind, expected]) => evidence.run.resources[kind] !== expected) ||
     evidence.cleanup.sandbox.name !== evidence.run.resources.sandbox ||
     evidence.cleanup.providerBinding.name !== evidence.run.resources.provider ||
     evidence.cleanup.workspace.name !== evidence.run.resources.workspace
@@ -187,10 +198,10 @@ function representativeEvidence() {
     run: {
       id,
       resources: {
-        gateway: "dataground-gateway",
-        sandbox: "sandbox-runtime-check",
+        gateway: `dg-runtime-gateway-${id}`,
+        sandbox: `dg-runtime-sandbox-${id}`,
         provider: `dg-runtime-provider-${id}`,
-        runtime: "runtime-invocation",
+        runtime: `dg-runtime-session-${id}`,
         workspace: `dg-runtime-${id}`,
       },
       startedAt: "2026-07-30T12:00:00.000Z",
@@ -205,7 +216,7 @@ function representativeEvidence() {
       reasonCode: classification === "supported" ? null : "ADAPTER_UNSUPPORTED",
     })),
     cleanup: {
-      sandbox: { name: "sandbox-runtime-check", status: "removed" },
+      sandbox: { name: `dg-runtime-sandbox-${id}`, status: "removed" },
       providerBinding: { name: `dg-runtime-provider-${id}`, status: "removed" },
       workspace: { name: `dg-runtime-${id}`, status: "removed" },
     },
