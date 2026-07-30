@@ -350,8 +350,11 @@ if (
   !canaryOpenShellSource.includes('"-name", "environ"') ||
   !canaryOpenShellSource.includes('credentialEvidenceFilesystemProgram = `"use strict";') ||
   !canaryOpenShellSource.includes('const excludedDirectories = new Set(["/proc", "/sys"]);') ||
+  !canaryOpenShellSource.includes('const requiredFiles = ["/etc/os-release"];') ||
   !canaryOpenShellSource.includes("const buffer = Buffer.alloc(64 * 1024);") ||
   !canaryOpenShellSource.includes("excludedDirectories.has(candidate)") ||
+  !canaryOpenShellSource.includes("copyFile(file, true)") ||
+  !canaryOpenShellSource.includes("traversedFiles === 0 || copiedBytes === 0") ||
   canaryOpenShellSource.includes("rootDevice") ||
   canaryOpenShellSource.includes("stat.dev ===") ||
   !canaryOpenShellSource.includes("fs.writeSync(1, buffer") ||
@@ -665,6 +668,7 @@ if (
 const surfaceMinimumInspectedBytes = canaryScanner?.surfaceMinimumInspectedBytes;
 if (
   JSON.stringify(canaryScanner?.filesystemExcludedRoots) !== JSON.stringify(["/proc", "/sys"]) ||
+  JSON.stringify(canaryScanner?.filesystemRequiredFiles) !== JSON.stringify(["/etc/os-release"]) ||
   canaryScanner?.filesystemTraversal !==
     "all mounted filesystems except exact virtual kernel roots; regular files only; no symlink traversal" ||
   typeof surfaceMinimumInspectedBytes !== "object" ||
@@ -673,9 +677,7 @@ if (
     JSON.stringify([...expectedCanarySurfaces].sort()) ||
   Object.entries(surfaceMinimumInspectedBytes).some(
     ([surface, minimum]) =>
-      !Number.isSafeInteger(minimum) ||
-      minimum < 0 ||
-      minimum > surfaceMaxBytes[surface],
+      !Number.isSafeInteger(minimum) || minimum < 0 || minimum > surfaceMaxBytes[surface],
   )
 ) {
   fail("the credential scanner coverage contract must be explicit and bounded per surface");
