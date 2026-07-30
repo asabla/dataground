@@ -936,6 +936,10 @@ const runtimeEvidenceProfileSource = await readFile(
   resolve(root, "internal/execution/runtimeevidence/profile.go"),
   "utf8",
 );
+const runtimeLiveCaseSource = await readFile(
+  resolve(root, "internal/execution/runtimeevidence/live.go"),
+  "utf8",
+);
 if (
   runtimeConformance?.schema !== "deploy/openshell/runtime-conformance-evidence.schema.json" ||
   runtimeConformance?.schemaVersion !==
@@ -997,13 +1001,14 @@ if (
   runtimeProducer?.execution !== "(*runtimeevidence.EvidenceRun).Execute" ||
   runtimeProducer?.binding !==
     "checked profile and verifier, source commit and workflow-run inputs, producer-owned workflow and artifact identity, run-derived resources, canonical case order, capabilities, cleanup, and result" ||
-  runtimeProducer?.caseRunner !== "run-bound port; concrete live backend required" ||
+  runtimeProducer?.caseRunner !==
+    "internal/execution/runtimeevidence.NewLiveCaseRunner; typed run-bound live probes required" ||
   JSON.stringify(runtimeProducer?.cleanupOrder) !==
     JSON.stringify(["sandbox", "providerBinding", "workspace"]) ||
   runtimeProducer?.serialization !==
     "run forbidden; result only after every case and cleanup succeeds" ||
   runtimeProducer?.status !==
-    "closed assembler implemented; live case backends and launcher required" ||
+    "closed assembler and typed case orchestration implemented; concrete probes and launcher required" ||
   runtimeProducerProfileBindings.some(
     (binding) => !runtimeEvidenceProfileSource.includes(JSON.stringify(binding)),
   ) ||
@@ -1021,13 +1026,19 @@ if (
   runtimeEvidenceSource.includes('"docker"') ||
   runtimeEvidenceSource.includes('"openshell"') ||
   !runtimeEvidenceProfileSource.includes("func currentProfile() profile") ||
+  !runtimeLiveCaseSource.includes("func NewLiveCaseRunner(") ||
+  !runtimeLiveCaseSource.includes("func (runner *LiveCaseRunner) ValidateBinding(") ||
+  !runtimeLiveCaseSource.includes("func (runner *LiveCaseRunner) Run(") ||
+  !runtimeLiveCaseSource.includes("dataground.dev/openshell-runtime-case/v1") ||
+  !runtimeLiveCaseSource.includes("ErrCaseReplay") ||
+  runtimeLiveCaseSource.includes("os/exec") ||
   Object.entries(expectedRuntimeReasonCodes).some(
     ([name, reason]) =>
       !runtimeEvidenceSource.includes(`Name: "${name}"`) ||
       !runtimeEvidenceSource.includes(`unsupported("${reason}")`),
   )
 ) {
-  fail("the runtime evidence producer is missing, mutable, or claims a concrete live backend");
+  fail("the runtime evidence producer or typed case orchestration is missing, mutable, or overclaims a concrete live probe");
 }
 
 const credentialEvidenceWorkflow = await readFile(
