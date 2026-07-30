@@ -113,9 +113,6 @@ func (cases *LiveCases) Run(ctx context.Context, request CheckRequest) (Observat
 	if cases == nil || cases.state == nil || ctx == nil {
 		return Observation{}, ErrLiveCaseConfiguration
 	}
-	if err := ctx.Err(); err != nil {
-		return Observation{}, errors.Join(ErrLiveCaseBackend, err)
-	}
 
 	state := cases.state
 	state.mu.Lock()
@@ -139,6 +136,10 @@ func (cases *LiveCases) Run(ctx context.Context, request CheckRequest) (Observat
 	scenario := state.scenario
 	state.mu.Unlock()
 
+	if err := ctx.Err(); err != nil {
+		state.fail()
+		return Observation{}, errors.Join(ErrLiveCaseBackend, err)
+	}
 	receipt, err := dispatchLiveCase(ctx, scenario, binding, request.Name)
 	if err != nil {
 		state.fail()
