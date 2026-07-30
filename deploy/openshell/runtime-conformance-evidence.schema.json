@@ -50,10 +50,10 @@
           "additionalProperties": false,
           "required": ["gateway", "sandbox", "provider", "runtime", "workspace"],
           "properties": {
-            "gateway": { "$ref": "#/$defs/resourceName" },
-            "sandbox": { "$ref": "#/$defs/resourceName" },
+            "gateway": { "$ref": "#/$defs/gatewayName" },
+            "sandbox": { "$ref": "#/$defs/sandboxName" },
             "provider": { "$ref": "#/$defs/providerName" },
-            "runtime": { "$ref": "#/$defs/resourceName" },
+            "runtime": { "$ref": "#/$defs/runtimeName" },
             "workspace": { "$ref": "#/$defs/workspaceName" }
           }
         },
@@ -111,9 +111,21 @@
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
     },
+    "gatewayName": {
+      "type": "string",
+      "pattern": "^dg-runtime-gateway-[a-f0-9]{32}$"
+    },
+    "sandboxName": {
+      "type": "string",
+      "pattern": "^dg-runtime-sandbox-[a-f0-9]{32}$"
+    },
     "providerName": {
       "type": "string",
       "pattern": "^dg-runtime-provider-[a-f0-9]{32}$"
+    },
+    "runtimeName": {
+      "type": "string",
+      "pattern": "^dg-runtime-session-[a-f0-9]{32}$"
     },
     "workspaceName": {
       "type": "string",
