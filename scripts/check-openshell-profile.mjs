@@ -947,6 +947,10 @@ if (
   runtimeProvenanceSchema?.properties?.workflow?.const !== expectedRuntimeProvenance.workflow ||
   runtimeProvenanceSchema?.properties?.artifactName?.const !==
     expectedRuntimeProvenance.artifactName ||
+  runtimeEvidenceSchema?.properties?.run?.properties?.verifier?.properties?.name?.const !==
+    runtimeConformance.verifierIdentity.name ||
+  runtimeEvidenceSchema?.properties?.run?.properties?.verifier?.properties?.version?.const !==
+    runtimeConformance.verifierIdentity.version ||
   Object.hasOwn(runtimeProvenanceSchema?.properties ?? {}, "artifactID") ||
   Object.hasOwn(runtimeProvenanceSchema?.properties ?? {}, "artifactArchiveDigest") ||
   runtimeEvidenceSchema?.properties?.result?.const !== "passed"
