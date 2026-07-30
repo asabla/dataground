@@ -113,11 +113,10 @@ func TestCredentialEvidenceFilesystemProgramIsFixedAndBounded(t *testing.T) {
 		`const ignorableCodes = new Set(["EACCES", "EPERM", "ENOENT", "ENOTDIR", "ELOOP"]);`,
 		`const requiredFiles = ["/etc/os-release"];`,
 		`let copiedBytes = 0;`,
-		`let traversedFiles = 0;`,
 		`excludedDirectories.has(candidate)`,
 		`fs.writeSync(1, buffer`,
 		`copyFile(file, true)`,
-		`traversedFiles === 0 || copiedBytes === 0`,
+		`if (copiedBytes === 0)`,
 	} {
 		if !strings.Contains(credentialEvidenceFilesystemProgram, required) {
 			t.Fatalf("filesystem program is missing %q", required)
