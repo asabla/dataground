@@ -232,9 +232,9 @@ func assertionFor(name CheckName) Assertions {
 func newTestConcreteScenario(t *testing.T, probes *scenarioProbes) *ConcreteScenario {
 	t.Helper()
 	scenario, err := NewConcreteScenario(ScenarioConfig{
-		RunID: testRunID,
+		RunID:    testRunID,
 		Provider: probes,
-		Runtime: probes,
+		Runtime:  probes,
 	})
 	if err != nil {
 		t.Fatalf("NewConcreteScenario() error = %v", err)
