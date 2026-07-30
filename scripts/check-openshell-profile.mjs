@@ -405,7 +405,7 @@ const compactCanaryHarnessSource = canaryHarnessSource.replaceAll(/\s/g, "");
 if (
   canaryEvidenceRun?.assembly !== "internal/security/canaryevidence.Run" ||
   canaryEvidenceRun?.profileOwnership !==
-    "checked profile snapshot, topology digests, and dataground-openshell-canary/2.0.0 verifier identity" ||
+    "checked profile snapshot, topology digests, and dataground-openshell-canary/3.0.0 verifier identity" ||
   JSON.stringify(canaryEvidenceRun?.cleanupOrder) !==
     JSON.stringify(["sandbox", "provider", "workspace"]) ||
   canaryEvidenceRun?.cleanupContext !== "cancellation-independent run-owned cleanup" ||
