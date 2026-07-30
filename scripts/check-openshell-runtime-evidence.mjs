@@ -206,7 +206,7 @@ function representativeEvidence() {
     upstreamEndpointExposed: false,
   }));
   return {
-    schemaVersion: "dataground.dev.openshell-runtime-conformance-evidence/v1",
+    schemaVersion: "dataground.dev.openshell-runtime-conformance-evidence/v2",
     profile: structuredClone(expectedProfile),
     run: {
       id,
@@ -225,8 +225,6 @@ function representativeEvidence() {
         workflow: expectedProvenance.workflow,
         workflowRunID: 123,
         artifactName: expectedProvenance.artifactName,
-        artifactID: 456,
-        artifactArchiveDigest: `sha256:${"b".repeat(64)}`,
       },
     },
     checks,
@@ -269,6 +267,28 @@ function runSelfTest() {
             ...valid.run.provenance,
             workflow: ".github/workflows/other.yml",
           },
+        },
+      },
+      false,
+    ],
+    [
+      "producer-forged upload provenance",
+      {
+        ...valid,
+        run: {
+          ...valid.run,
+          provenance: { ...valid.run.provenance, artifactID: 456 },
+        },
+      },
+      false,
+    ],
+    [
+      "missing workflow run provenance",
+      {
+        ...valid,
+        run: {
+          ...valid.run,
+          provenance: { ...valid.run.provenance, workflowRunID: undefined },
         },
       },
       false,
