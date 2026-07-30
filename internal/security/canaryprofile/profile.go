@@ -1,9 +1,9 @@
 package canaryprofile
 
 const (
-	SchemaVersion         = "dataground.dev.openshell-credential-non-exposure-evidence/v2"
+	SchemaVersion         = "dataground.dev.openshell-credential-non-exposure-evidence/v3"
 	VerifierName          = "dataground-openshell-canary"
-	VerifierVersion       = "2.0.0"
+	VerifierVersion       = "3.0.0"
 	OpenShellVersion      = "0.0.86"
 	OpenShellCommit       = "d556748771c41cbbd4e4dd7cd9030c798afe2b7d"
 	GatewayImage          = "ghcr.io/nvidia/openshell/gateway@sha256:e21f520a0678ba3cfe749957338b5fa78c75e8e52de13e4559ccbb582f781a0b"
