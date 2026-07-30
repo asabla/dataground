@@ -65,7 +65,7 @@
           "required": ["name", "version"],
           "properties": {
             "name": { "const": "dataground-openshell-runtime-conformance" },
-            "version": { "const": "1.0.0" }
+            "version": { "const": "2.0.0" }
           }
         },
         "provenance": {
