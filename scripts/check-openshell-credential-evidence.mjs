@@ -50,6 +50,8 @@ const expectedProfile = {
   gatewayConfigSHA256: profile.topology.gatewayConfigSHA256,
 };
 const expectedScanLimits = profile.providerProfileEvidence.contract.scanner.surfaceMaxBytes;
+const expectedScanMinimums =
+  profile.providerProfileEvidence.contract.scanner.surfaceMinimumInspectedBytes;
 const expectedVerifierIdentity = profile.providerProfileEvidence.contract.verifierIdentity;
 const workspaceNameTemplate =
   profile.providerProfileEvidence.contract.evidenceRun.workspaceCleanup.name;
@@ -146,6 +148,9 @@ function verifyEvidence(evidence) {
     if (check.inspectedBytes > check.inputLimitBytes) {
       failures.push(`${check.surface} claims more inspected bytes than its input limit`);
     }
+    if (check.inspectedBytes < expectedScanMinimums[check.surface]) {
+      failures.push(`${check.surface} does not satisfy the checked-in coverage minimum`);
+    }
     const scanStartedAt = Date.parse(check.startedAt);
     const scanFinishedAt = Date.parse(check.finishedAt);
     if (
@@ -164,7 +169,7 @@ function verifyEvidence(evidence) {
 
 function representativeEvidence() {
   return {
-    schemaVersion: "dataground.dev.openshell-credential-non-exposure-evidence/v2",
+    schemaVersion: "dataground.dev.openshell-credential-non-exposure-evidence/v3",
     profile: structuredClone(expectedProfile),
     run: {
       id: "0123456789abcdef0123456789abcdef",
@@ -348,6 +353,18 @@ function runSelfTest() {
         ...valid,
         checks: valid.checks.map((check, index) =>
           index === 0 ? { ...check, inspectedBytes: check.inputLimitBytes + 1 } : check,
+        ),
+      },
+      false,
+    ],
+    [
+      "insufficient inspected coverage",
+      {
+        ...valid,
+        checks: valid.checks.map((check, index) =>
+          index === 0
+            ? { ...check, inspectedBytes: expectedScanMinimums[check.surface] - 1 }
+            : check,
         ),
       },
       false,
