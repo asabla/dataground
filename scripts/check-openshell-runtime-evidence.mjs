@@ -49,6 +49,10 @@ const expectedResourceNames = {
   runtime: "dg-runtime-session-<runID>",
   workspace: "dg-runtime-<runID>",
 };
+const expectedProvenance = {
+  workflow: ".github/workflows/openshell-runtime-conformance.yml",
+  artifactName: "openshell-runtime-conformance",
+};
 
 const [profile, schema] = await Promise.all([readJSON(profilePath), readJSON(schemaPath)]);
 const contract = profile.runtime?.conformance;
@@ -89,7 +93,10 @@ function verifyEvidence(evidence) {
     contract?.schemaVersion !== evidence.schemaVersion ||
     contract?.verifierIdentity?.name !== evidence.run.verifier.name ||
     contract?.verifierIdentity?.version !== evidence.run.verifier.version ||
-    JSON.stringify(contract?.resourceNames) !== JSON.stringify(expectedResourceNames)
+    JSON.stringify(contract?.resourceNames) !== JSON.stringify(expectedResourceNames) ||
+    JSON.stringify(contract?.provenance) !== JSON.stringify(expectedProvenance) ||
+    evidence.run.provenance.workflow !== expectedProvenance.workflow ||
+    evidence.run.provenance.artifactName !== expectedProvenance.artifactName
   ) {
     failures.push("evidence does not use the checked-in runtime verifier contract");
   }
@@ -207,6 +214,14 @@ function representativeEvidence() {
       startedAt: "2026-07-30T12:00:00.000Z",
       finishedAt: "2026-07-30T12:01:00.000Z",
       verifier: structuredClone(contract.verifierIdentity),
+      provenance: {
+        sourceCommit: "a".repeat(40),
+        workflow: expectedProvenance.workflow,
+        workflowRunID: 123,
+        artifactName: expectedProvenance.artifactName,
+        artifactID: 456,
+        artifactArchiveDigest: `sha256:${"b".repeat(64)}`,
+      },
     },
     checks,
     capabilities: Object.entries(expectedClassifications).map(([name, classification]) => ({
@@ -229,6 +244,22 @@ function runSelfTest() {
   const mutations = [
     ["representative evidence", valid, true],
     ["profile drift", { ...valid, profile: { ...valid.profile, runtimeVersion: "0.0.0" } }, false],
+    [
+      "missing provenance",
+      { ...valid, run: { ...valid.run, provenance: undefined } },
+      false,
+    ],
+    [
+      "wrong workflow provenance",
+      {
+        ...valid,
+        run: {
+          ...valid.run,
+          provenance: { ...valid.run.provenance, workflow: ".github/workflows/other.yml" },
+        },
+      },
+      false,
+    ],
     [
       "missing runtime case",
       { ...valid, checks: valid.checks.slice(1) },
