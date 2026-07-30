@@ -108,6 +108,7 @@ func (scenario *ConcreteScenario) ValidateBinding(binding LiveBinding) error {
 	defer state.mu.Unlock()
 	if state.failed || state.running || binding.RunID != state.request.RunID ||
 		binding.Resources != state.request.Resources {
+		state.failed = true
 		return ErrScenarioBinding
 	}
 	return nil
