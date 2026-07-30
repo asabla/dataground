@@ -1027,10 +1027,8 @@ if (
   runtimeLiveCaseBackend?.completion !==
     "atomic backend finalization after the twelfth case and before cleanup" ||
   runtimeLiveCaseBackend?.serialization !== "forbidden" ||
-  runtimeLiveCaseBackend?.status !==
-    "implemented; repository-owned concrete scenario required" ||
-  runtimeScenarioDriver?.assembly !==
-    "internal/execution/runtimeevidence.NewConcreteScenario" ||
+  runtimeLiveCaseBackend?.status !== "implemented; repository-owned concrete scenario required" ||
+  runtimeScenarioDriver?.assembly !== "internal/execution/runtimeevidence.NewConcreteScenario" ||
   runtimeScenarioDriver?.binding !==
     "exact run-derived portable resources with separate provider lifecycle and Codex runtime probe ports" ||
   runtimeScenarioDriver?.dispatch !==
@@ -1041,8 +1039,7 @@ if (
     "each probe must attest inspection without native-protocol or upstream-endpoint exposure" ||
   runtimeScenarioDriver?.concurrency !==
     "single-use ordered state; overlap, cancellation, probe failure, binding drift, invalid assertions, and proof replay are terminal" ||
-  runtimeScenarioDriver?.errors !==
-    "native probe errors are replaced by stable scenario errors" ||
+  runtimeScenarioDriver?.errors !== "native probe errors are replaced by stable scenario errors" ||
   runtimeScenarioDriver?.serialization !== "forbidden" ||
   runtimeScenarioDriver?.status !==
     "implemented; concrete Docker/OpenShell and Codex probe ports and launcher required" ||
