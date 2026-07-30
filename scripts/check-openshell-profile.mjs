@@ -917,8 +917,7 @@ const runtimeConformance = profile.runtime?.conformance;
 const runtimeEvidenceSchema = JSON.parse(
   await readFile(resolve(root, runtimeConformance?.schema ?? ""), "utf8"),
 );
-const runtimeProvenanceSchema =
-  runtimeEvidenceSchema?.properties?.run?.properties?.provenance;
+const runtimeProvenanceSchema = runtimeEvidenceSchema?.properties?.run?.properties?.provenance;
 if (
   runtimeConformance?.schema !== "deploy/openshell/runtime-conformance-evidence.schema.json" ||
   runtimeConformance?.schemaVersion !==
