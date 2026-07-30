@@ -67,9 +67,9 @@ type RuntimeProbes interface {
 }
 
 type ScenarioConfig struct {
-	RunID     string
-	Provider  ProviderProbes
-	Runtime   RuntimeProbes
+	RunID    string
+	Provider ProviderProbes
+	Runtime  RuntimeProbes
 }
 
 type ConcreteScenario struct {
