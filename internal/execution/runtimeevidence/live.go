@@ -33,9 +33,12 @@ type LiveBinding struct {
 // LiveReceipt commits to one completed live observation without returning its
 // transcript, native identifiers, endpoints, prompts, or provider responses.
 type LiveReceipt struct {
-	StartedAt         time.Time
-	FinishedAt        time.Time
-	ObservationSHA256 [sha256.Size]byte
+	StartedAt               time.Time
+	FinishedAt              time.Time
+	ObservationSHA256       [sha256.Size]byte
+	ExposureChecked         bool
+	NativeProtocolExposed   bool
+	UpstreamEndpointExposed bool
 }
 
 // LiveScenario owns the native operations for each required case. Separate
@@ -253,7 +256,10 @@ func validLiveReceipt(receipt LiveReceipt) bool {
 	return !receipt.StartedAt.IsZero() &&
 		!receipt.FinishedAt.IsZero() &&
 		receipt.FinishedAt.After(receipt.StartedAt) &&
-		receipt.ObservationSHA256 != empty
+		receipt.ObservationSHA256 != empty &&
+		receipt.ExposureChecked &&
+		!receipt.NativeProtocolExposed &&
+		!receipt.UpstreamEndpointExposed
 }
 
 func liveObservationCommitment(
@@ -273,6 +279,9 @@ func liveObservationCommitment(
 	writeLiveCommitmentPart(digest, []byte(receipt.StartedAt.UTC().Format(time.RFC3339Nano)))
 	writeLiveCommitmentPart(digest, []byte(receipt.FinishedAt.UTC().Format(time.RFC3339Nano)))
 	writeLiveCommitmentPart(digest, receipt.ObservationSHA256[:])
+	writeLiveCommitmentPart(digest, []byte("exposure-checked"))
+	writeLiveCommitmentPart(digest, []byte("native-protocol-not-exposed"))
+	writeLiveCommitmentPart(digest, []byte("upstream-endpoint-not-exposed"))
 	return "sha256:" + hex.EncodeToString(digest.Sum(nil))
 }
 
