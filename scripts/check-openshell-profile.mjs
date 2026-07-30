@@ -158,8 +158,7 @@ if (
     "deploy/openshell/evidence/openshell-credential-non-exposure-v3.json" ||
   !/^[a-f0-9]{64}$/.test(acceptedCredentialEvidence?.sha256 ?? "") ||
   !/^[a-f0-9]{32}$/.test(acceptedCredentialEvidence?.runID ?? "") ||
-  acceptedCredentialEvidence?.workflow !==
-    ".github/workflows/openshell-credential-evidence.yml" ||
+  acceptedCredentialEvidence?.workflow !== ".github/workflows/openshell-credential-evidence.yml" ||
   !Number.isSafeInteger(acceptedCredentialEvidence?.workflowRunID) ||
   !/^[a-f0-9]{40}$/.test(acceptedCredentialEvidence?.headCommit ?? "") ||
   !Number.isSafeInteger(acceptedCredentialEvidence?.artifactID) ||
@@ -199,7 +198,8 @@ if (
     acceptedCredentialEvidenceRecord.profile?.providerProfileSourceSHA256 !==
       profile.providerProfileEvidence.codex.sha256 ||
     acceptedCredentialEvidenceRecord.profile?.runtimeVersion !== profile.runtime.version ||
-    acceptedCredentialEvidenceRecord.profile?.gatewayEndpoint !== profile.topology.gatewayEndpoint ||
+    acceptedCredentialEvidenceRecord.profile?.gatewayEndpoint !==
+      profile.topology.gatewayEndpoint ||
     acceptedCredentialEvidenceRecord.profile?.driver !== profile.topology.driver ||
     acceptedCredentialEvidenceRecord.profile?.composeSHA256 !== profile.topology.composeSHA256 ||
     acceptedCredentialEvidenceRecord.profile?.gatewayConfigSHA256 !==
@@ -856,12 +856,17 @@ if (
 ) {
   fail("mutable images or unsafe sandbox bind mounts are present in the local topology");
 }
+const expectedRemainingBlockers = [
+  "Publish and certify a tagged Rosetta v1 build, authenticated transport profile, stable error taxonomy, compatibility policy, and signed conformance fixtures before production materialization.",
+];
 if (
-  !Array.isArray(profile.blockers) ||
-  profile.blockers.length === 0 ||
-  profile.blockers.some((blocker) => blocker.includes("credential non-exposure record"))
+  profile.providerProfileEvidence?.codex?.status !==
+    "credential non-exposure certified for the pinned development profile" ||
+  profile.capabilities?.credentialNonExposure !== "certified for pinned development profile" ||
+  profile.capabilities?.realSandboxInvocation !== "blocked" ||
+  JSON.stringify(profile.blockers) !== JSON.stringify(expectedRemainingBlockers)
 ) {
-  fail("remaining production certification blockers must be explicit and current");
+  fail("the accepted credential evidence claim or remaining blockers are inconsistent");
 }
 
 const credentialEvidenceWorkflow = await readFile(
