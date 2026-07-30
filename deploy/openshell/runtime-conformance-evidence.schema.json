@@ -1,13 +1,21 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v1.json",
+  "$id": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json",
   "title": "DataGround OpenShell runtime conformance evidence",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "profile", "run", "checks", "capabilities", "cleanup", "result"],
+  "required": [
+    "schemaVersion",
+    "profile",
+    "run",
+    "checks",
+    "capabilities",
+    "cleanup",
+    "result"
+  ],
   "properties": {
     "schemaVersion": {
-      "const": "dataground.dev.openshell-runtime-conformance-evidence/v1"
+      "const": "dataground.dev.openshell-runtime-conformance-evidence/v2"
     },
     "profile": {
       "type": "object",
@@ -26,46 +34,106 @@
         "gatewayConfigSHA256"
       ],
       "properties": {
-        "openshellCommit": { "$ref": "#/$defs/commit" },
-        "gatewayImage": { "$ref": "#/$defs/imageDigest" },
-        "supervisorImage": { "$ref": "#/$defs/imageDigest" },
-        "sandboxImage": { "$ref": "#/$defs/imageDigest" },
-        "runtimeVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
-        "runtimeSchemaCanonicalSHA256": { "$ref": "#/$defs/sha256" },
-        "credentialEvidenceSHA256": { "$ref": "#/$defs/sha256" },
-        "gatewayEndpoint": { "const": "http://127.0.0.1:8080" },
-        "driver": { "const": "docker" },
-        "composeSHA256": { "$ref": "#/$defs/sha256" },
-        "gatewayConfigSHA256": { "$ref": "#/$defs/sha256" }
+        "openshellCommit": {
+          "$ref": "#/$defs/commit"
+        },
+        "gatewayImage": {
+          "$ref": "#/$defs/imageDigest"
+        },
+        "supervisorImage": {
+          "$ref": "#/$defs/imageDigest"
+        },
+        "sandboxImage": {
+          "$ref": "#/$defs/imageDigest"
+        },
+        "runtimeVersion": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "runtimeSchemaCanonicalSHA256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "credentialEvidenceSHA256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "gatewayEndpoint": {
+          "const": "http://127.0.0.1:8080"
+        },
+        "driver": {
+          "const": "docker"
+        },
+        "composeSHA256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "gatewayConfigSHA256": {
+          "$ref": "#/$defs/sha256"
+        }
       }
     },
     "run": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "resources", "startedAt", "finishedAt", "verifier", "provenance"],
+      "required": [
+        "id",
+        "resources",
+        "startedAt",
+        "finishedAt",
+        "verifier",
+        "provenance"
+      ],
       "properties": {
-        "id": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
         "resources": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["gateway", "sandbox", "provider", "runtime", "workspace"],
+          "required": [
+            "gateway",
+            "sandbox",
+            "provider",
+            "runtime",
+            "workspace"
+          ],
           "properties": {
-            "gateway": { "$ref": "#/$defs/gatewayName" },
-            "sandbox": { "$ref": "#/$defs/sandboxName" },
-            "provider": { "$ref": "#/$defs/providerName" },
-            "runtime": { "$ref": "#/$defs/runtimeName" },
-            "workspace": { "$ref": "#/$defs/workspaceName" }
+            "gateway": {
+              "$ref": "#/$defs/gatewayName"
+            },
+            "sandbox": {
+              "$ref": "#/$defs/sandboxName"
+            },
+            "provider": {
+              "$ref": "#/$defs/providerName"
+            },
+            "runtime": {
+              "$ref": "#/$defs/runtimeName"
+            },
+            "workspace": {
+              "$ref": "#/$defs/workspaceName"
+            }
           }
         },
-        "startedAt": { "$ref": "#/$defs/timestamp" },
-        "finishedAt": { "$ref": "#/$defs/timestamp" },
+        "startedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "finishedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
         "verifier": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["name", "version"],
+          "required": [
+            "name",
+            "version"
+          ],
           "properties": {
-            "name": { "const": "dataground-openshell-runtime-conformance" },
-            "version": { "const": "1.0.0" }
+            "name": {
+              "const": "dataground-openshell-runtime-conformance"
+            },
+            "version": {
+              "const": "1.0.0"
+            }
           }
         },
         "provenance": {
@@ -75,19 +143,21 @@
             "sourceCommit",
             "workflow",
             "workflowRunID",
-            "artifactName",
-            "artifactID",
-            "artifactArchiveDigest"
+            "artifactName"
           ],
           "properties": {
-            "sourceCommit": { "$ref": "#/$defs/commit" },
-            "workflow": { "const": ".github/workflows/openshell-runtime-conformance.yml" },
-            "workflowRunID": { "type": "integer", "minimum": 1 },
-            "artifactName": { "const": "openshell-runtime-conformance" },
-            "artifactID": { "type": "integer", "minimum": 1 },
-            "artifactArchiveDigest": {
-              "type": "string",
-              "pattern": "^sha256:[a-f0-9]{64}$"
+            "sourceCommit": {
+              "$ref": "#/$defs/commit"
+            },
+            "workflow": {
+              "const": ".github/workflows/openshell-runtime-conformance.yml"
+            },
+            "workflowRunID": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "artifactName": {
+              "const": "openshell-runtime-conformance"
             }
           }
         }
@@ -97,25 +167,41 @@
       "type": "array",
       "minItems": 12,
       "maxItems": 12,
-      "items": { "$ref": "#/$defs/check" }
+      "items": {
+        "$ref": "#/$defs/check"
+      }
     },
     "capabilities": {
       "type": "array",
       "minItems": 15,
       "maxItems": 15,
-      "items": { "$ref": "#/$defs/capability" }
+      "items": {
+        "$ref": "#/$defs/capability"
+      }
     },
     "cleanup": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sandbox", "providerBinding", "workspace"],
+      "required": [
+        "sandbox",
+        "providerBinding",
+        "workspace"
+      ],
       "properties": {
-        "sandbox": { "$ref": "#/$defs/cleanupResource" },
-        "providerBinding": { "$ref": "#/$defs/cleanupResource" },
-        "workspace": { "$ref": "#/$defs/cleanupResource" }
+        "sandbox": {
+          "$ref": "#/$defs/cleanupResource"
+        },
+        "providerBinding": {
+          "$ref": "#/$defs/cleanupResource"
+        },
+        "workspace": {
+          "$ref": "#/$defs/cleanupResource"
+        }
       }
     },
-    "result": { "const": "passed" }
+    "result": {
+      "const": "passed"
+    }
   },
   "$defs": {
     "commit": {
@@ -188,21 +274,36 @@
             "sandbox-teardown"
           ]
         },
-        "status": { "const": "passed" },
-        "startedAt": { "$ref": "#/$defs/timestamp" },
-        "finishedAt": { "$ref": "#/$defs/timestamp" },
+        "status": {
+          "const": "passed"
+        },
+        "startedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "finishedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
         "observationCommitment": {
           "type": "string",
           "pattern": "^sha256:[a-f0-9]{64}$"
         },
-        "nativeProtocolExposed": { "const": false },
-        "upstreamEndpointExposed": { "const": false }
+        "nativeProtocolExposed": {
+          "const": false
+        },
+        "upstreamEndpointExposed": {
+          "const": false
+        }
       }
     },
     "capability": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "classification", "evidence", "reasonCode"],
+      "required": [
+        "name",
+        "classification",
+        "evidence",
+        "reasonCode"
+      ],
       "properties": {
         "name": {
           "enum": [
@@ -224,7 +325,11 @@
           ]
         },
         "classification": {
-          "enum": ["supported", "unsupported", "blocked"]
+          "enum": [
+            "supported",
+            "unsupported",
+            "blocked"
+          ]
         },
         "evidence": {
           "type": "array",
@@ -247,7 +352,10 @@
           }
         },
         "reasonCode": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "enum": [
             null,
             "ADAPTER_UNSUPPORTED",
@@ -259,19 +367,35 @@
       "allOf": [
         {
           "if": {
-            "properties": { "classification": { "const": "supported" } },
-            "required": ["classification"]
+            "properties": {
+              "classification": {
+                "const": "supported"
+              }
+            },
+            "required": [
+              "classification"
+            ]
           },
           "then": {
             "properties": {
-              "evidence": { "type": "array", "minItems": 1 },
-              "reasonCode": { "const": null }
+              "evidence": {
+                "type": "array",
+                "minItems": 1
+              },
+              "reasonCode": {
+                "const": null
+              }
             }
           },
           "else": {
             "properties": {
-              "evidence": { "type": "array", "maxItems": 0 },
-              "reasonCode": { "type": "string" }
+              "evidence": {
+                "type": "array",
+                "maxItems": 0
+              },
+              "reasonCode": {
+                "type": "string"
+              }
             }
           }
         }
@@ -280,10 +404,17 @@
     "cleanupResource": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "status"],
+      "required": [
+        "name",
+        "status"
+      ],
       "properties": {
-        "name": { "$ref": "#/$defs/resourceName" },
-        "status": { "const": "removed" }
+        "name": {
+          "$ref": "#/$defs/resourceName"
+        },
+        "status": {
+          "const": "removed"
+        }
       }
     }
   }
