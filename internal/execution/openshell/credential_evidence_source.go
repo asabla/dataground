@@ -20,7 +20,7 @@ const (
 const fs = require("node:fs");
 const path = require("node:path");
 const root = "/";
-const rootDevice = fs.statSync(root).dev;
+const excludedDirectories = new Set(["/proc", "/sys"]);
 const pending = [root];
 const buffer = Buffer.alloc(64 * 1024);
 const ignorableCodes = new Set(["EACCES", "EPERM", "ENOENT", "ENOTDIR", "ELOOP"]);
@@ -75,6 +75,9 @@ while (pending.length > 0) {
 	const children = [];
 	for (const entry of entries) {
 		const candidate = path.join(directory, entry.name);
+		if (excludedDirectories.has(candidate)) {
+			continue;
+		}
 		let stat;
 		try {
 			stat = fs.lstatSync(candidate);
@@ -84,9 +87,7 @@ while (pending.length > 0) {
 			}
 			continue;
 		}
-		if (stat.dev === rootDevice) {
-			children.push({ path: candidate, stat });
-		}
+		children.push({ path: candidate, stat });
 	}
 	for (const child of children) {
 		if (child.stat.isFile()) {
