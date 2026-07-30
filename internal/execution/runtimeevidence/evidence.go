@@ -94,6 +94,10 @@ type CaseRunner interface {
 	Run(context.Context, CheckRequest) (Observation, error)
 }
 
+type caseFinalizer interface {
+	FinalizeBinding(runID string, resources Resources) error
+}
+
 type CleanupRequest struct {
 	RunID        string
 	ResourceKind string
@@ -306,6 +310,11 @@ func runCases(ctx context.Context, config Config, resources Resources) ([]check,
 			NativeProtocolExposed:   observation.NativeProtocolExposed,
 			UpstreamEndpointExposed: observation.UpstreamEndpointExposed,
 		})
+	}
+	if finalizer, ok := config.Cases.(caseFinalizer); ok {
+		if err := finalizer.FinalizeBinding(config.RunID, resources); err != nil {
+			return checks, ErrCase
+		}
 	}
 	return checks, nil
 }
