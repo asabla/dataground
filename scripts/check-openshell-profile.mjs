@@ -857,16 +857,76 @@ if (
   fail("mutable images or unsafe sandbox bind mounts are present in the local topology");
 }
 const expectedRemainingBlockers = [
+  "Capture, verify, and incorporate complete Docker-hosted OpenShell and Codex runtime conformance evidence for the pinned development profile.",
   "Publish and certify a tagged Rosetta v1 build, authenticated transport profile, stable error taxonomy, compatibility policy, and signed conformance fixtures before production materialization.",
 ];
 if (
   profile.providerProfileEvidence?.codex?.status !==
     "credential non-exposure certified for the pinned development profile" ||
   profile.capabilities?.credentialNonExposure !== "certified for pinned development profile" ||
-  profile.capabilities?.realSandboxInvocation !== "blocked" ||
+  profile.capabilities?.realSandboxInvocation !==
+    "evidence contract defined; live certification blocked" ||
   JSON.stringify(profile.blockers) !== JSON.stringify(expectedRemainingBlockers)
 ) {
   fail("the accepted credential evidence claim or remaining blockers are inconsistent");
+}
+
+const expectedRuntimeChecks = [
+  "gateway-ready",
+  "sandbox-ready",
+  "initialize",
+  "turn-success",
+  "event-normalization",
+  "interrupt",
+  "command-approval",
+  "file-change-approval",
+  "artifact-export",
+  "sandbox-teardown",
+];
+const expectedRuntimeClassifications = {
+  text: "supported",
+  "item-activity": "supported",
+  interrupt: "supported",
+  "command-approval": "supported",
+  "file-change-approval": "supported",
+  question: "unsupported",
+  "permission-escalation": "unsupported",
+  "rich-item-delta": "unsupported",
+  usage: "unsupported",
+  resume: "unsupported",
+  steer: "unsupported",
+  "artifact-export": "supported",
+  "runtime-artifact-events": "unsupported",
+};
+const runtimeConformance = profile.runtime?.conformance;
+const runtimeEvidenceSchema = JSON.parse(
+  await readFile(resolve(root, runtimeConformance?.schema ?? ""), "utf8"),
+);
+if (
+  runtimeConformance?.schema !==
+    "deploy/openshell/runtime-conformance-evidence.schema.json" ||
+  runtimeConformance?.schemaVersion !==
+    "dataground.dev.openshell-runtime-conformance-evidence/v1" ||
+  runtimeConformance?.verifier !== "pnpm openshell:runtime-evidence:check <evidence.json>" ||
+  runtimeConformance?.verifierIdentity?.name !==
+    "dataground-openshell-runtime-conformance" ||
+  runtimeConformance?.verifierIdentity?.version !== "1.0.0" ||
+  JSON.stringify(runtimeConformance?.requiredChecks) !== JSON.stringify(expectedRuntimeChecks) ||
+  JSON.stringify(runtimeConformance?.capabilityClassifications) !==
+    JSON.stringify(expectedRuntimeClassifications) ||
+  runtimeConformance?.status !== "evidence contract defined; live record required" ||
+  runtimeEvidenceSchema?.properties?.schemaVersion?.const !==
+    runtimeConformance.schemaVersion ||
+  runtimeEvidenceSchema?.properties?.checks?.minItems !== expectedRuntimeChecks.length ||
+  runtimeEvidenceSchema?.properties?.checks?.maxItems !== expectedRuntimeChecks.length ||
+  runtimeEvidenceSchema?.properties?.capabilities?.minItems !==
+    Object.keys(expectedRuntimeClassifications).length ||
+  runtimeEvidenceSchema?.properties?.capabilities?.maxItems !==
+    Object.keys(expectedRuntimeClassifications).length ||
+  !runtimeEvidenceSchema?.properties?.profile?.required?.includes("credentialEvidenceSHA256") ||
+  runtimeEvidenceSchema?.properties?.result?.const !== "passed"
+) {
+  fail("the runtime conformance evidence contract is missing or inconsistent");
 }
 
 const credentialEvidenceWorkflow = await readFile(
