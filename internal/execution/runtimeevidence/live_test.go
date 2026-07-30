@@ -127,6 +127,9 @@ func TestLiveCasesFailClosed(t *testing.T) {
 		if !errors.Is(err, ErrLiveCaseBackend) || !errors.Is(err, context.Canceled) {
 			t.Fatalf("Run() error = %v", err)
 		}
+		if _, err := cases.Run(context.Background(), testLiveRequest(CheckGatewayReady)); !errors.Is(err, ErrLiveCaseOrder) {
+			t.Fatalf("Run() after cancellation error = %v", err)
+		}
 	})
 
 	t.Run("invalid receipt is terminal", func(t *testing.T) {
