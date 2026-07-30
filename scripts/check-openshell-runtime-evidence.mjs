@@ -251,6 +251,14 @@ function runSelfTest() {
     ["representative evidence", valid, true],
     ["profile drift", { ...valid, profile: { ...valid.profile, runtimeVersion: "0.0.0" } }, false],
     [
+      "credential evidence drift",
+      {
+        ...valid,
+        profile: { ...valid.profile, credentialEvidenceSHA256: "c".repeat(64) },
+      },
+      false,
+    ],
+    [
       "missing provenance",
       { ...valid, run: { ...valid.run, provenance: undefined } },
       false,
@@ -311,6 +319,16 @@ function runSelfTest() {
       false,
     ],
     [
+      "duplicate capability",
+      {
+        ...valid,
+        capabilities: valid.capabilities.map((capability, index) =>
+          index === 1 ? { ...capability, name: valid.capabilities[0].name } : capability,
+        ),
+      },
+      false,
+    ],
+    [
       "missing supported evidence",
       {
         ...valid,
@@ -339,6 +357,28 @@ function runSelfTest() {
         checks: valid.checks.map((check, index) =>
           index === 0 ? { ...check, nativeProtocolExposed: true } : check,
         ),
+      },
+      false,
+    ],
+    [
+      "upstream endpoint exposure",
+      {
+        ...valid,
+        checks: valid.checks.map((check, index) =>
+          index === 0 ? { ...check, upstreamEndpointExposed: true } : check,
+        ),
+      },
+      false,
+    ],
+    [
+      "reversed run window",
+      {
+        ...valid,
+        run: {
+          ...valid.run,
+          startedAt: "2026-07-30T12:02:00.000Z",
+          finishedAt: "2026-07-30T12:01:00.000Z",
+        },
       },
       false,
     ],
@@ -387,6 +427,20 @@ function runSelfTest() {
           workspace: {
             ...valid.cleanup.workspace,
             name: "dg-runtime-fedcba9876543210fedcba9876543210",
+          },
+        },
+      },
+      false,
+    ],
+    [
+      "mixed runtime identity",
+      {
+        ...valid,
+        run: {
+          ...valid.run,
+          resources: {
+            ...valid.run.resources,
+            runtime: "dg-runtime-session-fedcba9876543210fedcba9876543210",
           },
         },
       },
