@@ -92,6 +92,9 @@ func TestConcreteScenarioFailsClosed(t *testing.T) {
 		if err := scenario.ValidateBinding(binding); !errors.Is(err, ErrScenarioBinding) {
 			t.Fatalf("ValidateBinding() error = %v", err)
 		}
+		if _, err := scenario.GatewayReady(context.Background(), testLiveBinding()); !errors.Is(err, ErrScenarioOrder) {
+			t.Fatalf("GatewayReady() after binding drift error = %v", err)
+		}
 	})
 
 	t.Run("configuration cannot be serialized", func(t *testing.T) {
