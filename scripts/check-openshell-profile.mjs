@@ -1015,6 +1015,8 @@ if (
     "four-byte length-prefixed SHA-256 over the v1 domain, run, case, resources, UTC interval, and observation proof" ||
   runtimeLiveCaseBackend?.observationCommitmentDomain !==
     "dataground.openshell-runtime-live-observation/v1" ||
+  runtimeLiveCaseBackend?.exposure !==
+    "each receipt must attest completed inspection; native-protocol or upstream-endpoint exposure fails before commitment" ||
   runtimeLiveCaseBackend?.concurrency !==
     "one in-flight case; overlap, order drift, cancellation, backend failure, invalid receipts, and proof replay are terminal" ||
   runtimeLiveCaseBackend?.completion !==
@@ -1047,6 +1049,9 @@ if (
   !runtimeLiveCaseSource.includes("func (cases *LiveCases) FinalizeBinding(") ||
   !runtimeLiveCaseSource.includes("liveObservationCommitmentDomain") ||
   !runtimeLiveCaseSource.includes("writeLiveCommitmentPart") ||
+  !runtimeLiveCaseSource.includes("ExposureChecked") ||
+  !runtimeLiveCaseSource.includes("!receipt.NativeProtocolExposed") ||
+  !runtimeLiveCaseSource.includes("!receipt.UpstreamEndpointExposed") ||
   !runtimeLiveCaseSource.includes("ErrLiveCaseReplay") ||
   runtimeLiveCaseSource.includes("os/exec") ||
   runtimeLiveCaseSource.includes('"docker"') ||
