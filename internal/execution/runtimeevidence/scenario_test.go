@@ -15,9 +15,9 @@ func TestConcreteScenarioRunsThroughLiveCases(t *testing.T) {
 
 	probes := &scenarioProbes{base: time.Date(2026, time.July, 30, 13, 0, 0, 0, time.UTC)}
 	scenario, err := NewConcreteScenario(ScenarioConfig{
-		RunID: testRunID,
+		RunID:    testRunID,
 		Provider: probes,
-		Runtime: probes,
+		Runtime:  probes,
 	})
 	if err != nil {
 		t.Fatalf("NewConcreteScenario() error = %v", err)
