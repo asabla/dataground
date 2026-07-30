@@ -17,7 +17,7 @@ func TestExecuteOwnsCompleteEvidence(t *testing.T) {
 	base := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
 	runner := &caseRunner{base: base}
 	var cleanupRequests []CleanupRequest
-	config := validConfig(runner, func(_ context.Context, request CleanupRequest) error {
+	config := testConfig(runner, func(_ context.Context, request CleanupRequest) error {
 		cleanupRequests = append(cleanupRequests, request)
 		return nil
 	})
@@ -96,7 +96,7 @@ func TestExecuteIsSingleUseAndRunCannotBeSerialized(t *testing.T) {
 
 	base := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
 	run, err := newEvidenceRun(
-		validConfig(&caseRunner{base: base}, successfulCleanup),
+		testConfig(&caseRunner{base: base}, successfulCleanup),
 		clock(base, base.Add(time.Minute)),
 	)
 	if err != nil {
@@ -132,7 +132,7 @@ func TestNewRejectsInvalidPlanBeforeCaseExecutionOrCleanup(t *testing.T) {
 
 			runner := &caseRunner{}
 			cleanups := 0
-			config := validConfig(runner, func(context.Context, CleanupRequest) error {
+			config := testConfig(runner, func(context.Context, CleanupRequest) error {
 				cleanups++
 				return nil
 			})
@@ -151,7 +151,7 @@ func TestNewRejectsCaseBindingDrift(t *testing.T) {
 	t.Parallel()
 
 	runner := &caseRunner{bindingError: errors.New("sensitive binding detail")}
-	_, err := New(validConfig(runner, successfulCleanup))
+	_, err := New(testConfig(runner, successfulCleanup))
 	if !errors.Is(err, ErrInvalidConfiguration) || strings.Contains(err.Error(), "sensitive") {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -168,7 +168,7 @@ func TestExecuteCleansEveryResourceAfterCaseFailureAndSanitizesError(t *testing.
 	}
 	var cleanupKinds []string
 	run, err := newEvidenceRun(
-		validConfig(runner, func(_ context.Context, request CleanupRequest) error {
+		testConfig(runner, func(_ context.Context, request CleanupRequest) error {
 			cleanupKinds = append(cleanupKinds, request.ResourceKind)
 			return nil
 		}),
@@ -202,7 +202,7 @@ func TestExecuteUsesNonCanceledCleanupContext(t *testing.T) {
 	runner := &caseRunner{base: base, failure: context.Canceled, failAt: CheckGatewayReady}
 	cleanups := 0
 	run, err := newEvidenceRun(
-		validConfig(runner, func(cleanupContext context.Context, _ CleanupRequest) error {
+		testConfig(runner, func(cleanupContext context.Context, _ CleanupRequest) error {
 			cleanups++
 			if cleanupContext.Err() != nil {
 				t.Fatalf("cleanup context error = %v", cleanupContext.Err())
@@ -231,7 +231,7 @@ func TestExecuteRejectsCancellationEvenWhenCaseRunnerIgnoresIt(t *testing.T) {
 	cancel()
 	base := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
 	run, err := newEvidenceRun(
-		validConfig(&caseRunner{base: base}, successfulCleanup),
+		testConfig(&caseRunner{base: base}, successfulCleanup),
 		clock(base, base.Add(time.Minute)),
 	)
 	if err != nil {
@@ -250,7 +250,7 @@ func TestExecuteRejectsUncertainCleanup(t *testing.T) {
 	base := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
 	var cleanupKinds []string
 	run, err := newEvidenceRun(
-		validConfig(&caseRunner{base: base}, func(_ context.Context, request CleanupRequest) error {
+		testConfig(&caseRunner{base: base}, func(_ context.Context, request CleanupRequest) error {
 			cleanupKinds = append(cleanupKinds, request.ResourceKind)
 			if request.ResourceKind == "provider" {
 				return errors.New("sensitive cleanup detail")
@@ -301,7 +301,7 @@ func TestExecuteRejectsInvalidObservations(t *testing.T) {
 			t.Parallel()
 
 			run, err := newEvidenceRun(
-				validConfig(&caseRunner{base: base, mutateAt: CheckTurnSuccess, mutate: mutate}, successfulCleanup),
+				testConfig(&caseRunner{base: base, mutateAt: CheckTurnSuccess, mutate: mutate}, successfulCleanup),
 				clock(base, base.Add(time.Minute)),
 			)
 			if err != nil {
@@ -321,7 +321,7 @@ func TestExecuteRejectsDuplicateCommitments(t *testing.T) {
 	base := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
 	runner := &caseRunner{base: base, duplicateCommitment: true}
 	run, err := newEvidenceRun(
-		validConfig(runner, successfulCleanup),
+		testConfig(runner, successfulCleanup),
 		clock(base, base.Add(time.Minute)),
 	)
 	if err != nil {
@@ -337,7 +337,7 @@ func TestExecuteRejectsClockRegression(t *testing.T) {
 
 	base := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
 	run, err := newEvidenceRun(
-		validConfig(&caseRunner{base: base}, successfulCleanup),
+		testConfig(&caseRunner{base: base}, successfulCleanup),
 		clock(base.Add(time.Minute), base),
 	)
 	if err != nil {
@@ -368,7 +368,7 @@ func TestCapabilitiesAreClosedAndDeterministic(t *testing.T) {
 	}
 }
 
-func validConfig(runner CaseRunner, cleanup CleanupFunc) Config {
+func testConfig(runner CaseRunner, cleanup CleanupFunc) Config {
 	return Config{
 		RunID: "0123456789abcdef0123456789abcdef",
 		Provenance: Provenance{
