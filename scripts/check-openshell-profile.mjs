@@ -1039,7 +1039,9 @@ if (
       !runtimeEvidenceSource.includes(`unsupported("${reason}")`),
   )
 ) {
-  fail("the runtime evidence producer or typed case orchestration is missing, mutable, or overclaims a concrete live probe");
+  fail(
+    "the runtime evidence producer or typed case orchestration is missing, mutable, or overclaims a concrete live probe",
+  );
 }
 
 const credentialEvidenceWorkflow = await readFile(
