@@ -354,7 +354,7 @@ if (
   !canaryOpenShellSource.includes("const buffer = Buffer.alloc(64 * 1024);") ||
   !canaryOpenShellSource.includes("excludedDirectories.has(candidate)") ||
   !canaryOpenShellSource.includes("copyFile(file, true)") ||
-  !canaryOpenShellSource.includes("traversedFiles === 0 || copiedBytes === 0") ||
+  !canaryOpenShellSource.includes("if (copiedBytes === 0)") ||
   canaryOpenShellSource.includes("rootDevice") ||
   canaryOpenShellSource.includes("stat.dev ===") ||
   !canaryOpenShellSource.includes("fs.writeSync(1, buffer") ||
