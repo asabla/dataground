@@ -308,7 +308,7 @@
         "artifact-export": "supported",
         "runtime-artifact-events": "unsupported"
       },
-      "status": "v2 evidence producer defined; live record required",
+      "status": "v2 evidence producer and typed case orchestration defined; live record required",
       "resourceNames": {
         "gateway": "dg-runtime-gateway-<runID>",
         "sandbox": "dg-runtime-sandbox-<runID>",
@@ -324,14 +324,14 @@
         "assembly": "internal/execution/runtimeevidence.New",
         "execution": "(*runtimeevidence.EvidenceRun).Execute",
         "binding": "checked profile and verifier, source commit and workflow-run inputs, producer-owned workflow and artifact identity, run-derived resources, canonical case order, capabilities, cleanup, and result",
-        "caseRunner": "run-bound port; concrete live backend required",
+        "caseRunner": "internal/execution/runtimeevidence.NewLiveCaseRunner; typed run-bound live probes required",
         "cleanupOrder": [
           "sandbox",
           "providerBinding",
           "workspace"
         ],
         "serialization": "run forbidden; result only after every case and cleanup succeeds",
-        "status": "closed assembler implemented; live case backends and launcher required"
+        "status": "closed assembler and typed case orchestration implemented; concrete probes and launcher required"
       }
     }
   },
@@ -339,7 +339,7 @@
     "gatewayPlacement": "adapter conformance tested",
     "sandboxLifecycle": "adapter conformance tested",
     "codexAppServerStdio": "adapter conformance tested",
-    "realSandboxInvocation": "v2 evidence producer defined; live certification blocked",
+    "realSandboxInvocation": "v2 evidence producer and typed case orchestration defined; live certification blocked",
     "credentialNonExposure": "certified for pinned development profile",
     "rosettaMaterialization": "blocked"
   },
