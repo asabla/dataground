@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	statusPassed  = "passed"
-	statusRemoved = "removed"
+	statusPassed      = "passed"
+	statusRemoved     = "removed"
+	maxSafeInteger    = int64(1<<53 - 1)
 )
 
 var (
@@ -231,9 +232,9 @@ func (run *EvidenceRun) Execute(ctx context.Context) (Result, error) {
 	var outcome error
 	if checkErr != nil {
 		outcome = errors.Join(outcome, checkErr)
-		if err := ctx.Err(); err != nil {
-			outcome = errors.Join(outcome, err)
-		}
+	}
+	if err := ctx.Err(); err != nil {
+		outcome = errors.Join(outcome, err)
 	}
 	if cleanupErr != nil {
 		outcome = errors.Join(outcome, cleanupErr)
@@ -374,6 +375,7 @@ func validConfig(config Config) bool {
 	return runIDPattern.MatchString(config.RunID) &&
 		commitPattern.MatchString(config.Provenance.SourceCommit) &&
 		config.Provenance.WorkflowRunID > 0 &&
+		config.Provenance.WorkflowRunID <= maxSafeInteger &&
 		config.Cases != nil &&
 		config.Cleanup.Sandbox != nil &&
 		config.Cleanup.ProviderBinding != nil &&
