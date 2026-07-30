@@ -45,6 +45,8 @@ type LiveCaseRunner struct {
 	resources Resources
 	cases     LiveCases
 	started   bool
+	running   bool
+	failed    bool
 	next      int
 	receipts  map[string]struct{}
 }
@@ -80,13 +82,24 @@ func (runner *LiveCaseRunner) Run(ctx context.Context, request CheckRequest) (Ob
 		return Observation{}, ErrCaseBinding
 	}
 	runner.mu.Lock()
-	if !runner.started || request.RunID != runner.runID || request.Resources != runner.resources ||
+	if !runner.started || runner.running || runner.failed || request.RunID != runner.runID || request.Resources != runner.resources ||
 		runner.next >= len(requiredChecks) || request.Name != requiredChecks[runner.next] {
 		runner.mu.Unlock()
 		return Observation{}, ErrCaseBinding
 	}
 	runner.next++
+	runner.running = true
 	runner.mu.Unlock()
+
+	succeeded := false
+	defer func() {
+		runner.mu.Lock()
+		runner.running = false
+		if !succeeded {
+			runner.failed = true
+		}
+		runner.mu.Unlock()
+	}()
 
 	receipt, err := runner.run(ctx, request.Name)
 	if err != nil {
@@ -109,12 +122,17 @@ func (runner *LiveCaseRunner) Run(ctx context.Context, request CheckRequest) (Ob
 	}
 	runner.receipts[receipt.PayloadSHA256] = struct{}{}
 	runner.mu.Unlock()
+	succeeded = true
 	return Observation{
 		StartedAt: receipt.StartedAt, FinishedAt: receipt.FinishedAt,
 		Commitment: commitment,
 		NativeProtocolExposed: receipt.NativeProtocolExposed,
 		UpstreamEndpointExposed: receipt.UpstreamEndpointExposed,
 	}, nil
+}
+
+func (*LiveCaseRunner) MarshalJSON() ([]byte, error) {
+	return nil, ErrSerialization
 }
 
 func (runner *LiveCaseRunner) run(ctx context.Context, name CheckName) (CaseReceipt, error) {
