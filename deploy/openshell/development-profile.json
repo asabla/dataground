@@ -308,7 +308,7 @@
         "artifact-export": "supported",
         "runtime-artifact-events": "unsupported"
       },
-      "status": "v2 evidence producer defined; live record required",
+      "status": "v2 evidence producer and live case backend defined; live record required",
       "resourceNames": {
         "gateway": "dg-runtime-gateway-<runID>",
         "sandbox": "dg-runtime-sandbox-<runID>",
@@ -324,14 +324,26 @@
         "assembly": "internal/execution/runtimeevidence.New",
         "execution": "(*runtimeevidence.EvidenceRun).Execute",
         "binding": "checked profile and verifier, source commit and workflow-run inputs, producer-owned workflow and artifact identity, run-derived resources, canonical case order, capabilities, cleanup, and result",
-        "caseRunner": "run-bound port; concrete live backend required",
+        "caseRunner": "internal/execution/runtimeevidence.NewLiveCases; concrete typed live scenario required",
+        "liveCaseBackend": {
+          "assembly": "internal/execution/runtimeevidence.NewLiveCases",
+          "binding": "exact run-derived portable gateway, sandbox, provider, runtime, and workspace identities",
+          "dispatch": "twelve typed scenario methods in canonical profile order",
+          "observationProof": "fixed 32-byte SHA-256 supplied by the exact live scenario; raw observations are not retained",
+          "observationCommitment": "four-byte length-prefixed SHA-256 over the v1 domain, run, case, resources, UTC interval, and observation proof",
+          "observationCommitmentDomain": "dataground.openshell-runtime-live-observation/v1",
+          "concurrency": "one in-flight case; overlap, order drift, cancellation, backend failure, invalid receipts, and proof replay are terminal",
+          "completion": "atomic backend finalization after the twelfth case and before cleanup",
+          "serialization": "forbidden",
+          "status": "implemented; concrete OpenShell and Codex scenario driver required"
+        },
         "cleanupOrder": [
           "sandbox",
           "providerBinding",
           "workspace"
         ],
         "serialization": "run forbidden; result only after every case and cleanup succeeds",
-        "status": "closed assembler implemented; live case backends and launcher required"
+        "status": "closed assembler and run-bound live case backend implemented; concrete OpenShell and Codex scenario driver and launcher required"
       }
     }
   },
@@ -339,7 +351,7 @@
     "gatewayPlacement": "adapter conformance tested",
     "sandboxLifecycle": "adapter conformance tested",
     "codexAppServerStdio": "adapter conformance tested",
-    "realSandboxInvocation": "v2 evidence producer defined; live certification blocked",
+    "realSandboxInvocation": "v2 evidence producer and live case backend defined; concrete scenario driver and live certification blocked",
     "credentialNonExposure": "certified for pinned development profile",
     "rosettaMaterialization": "blocked"
   },
