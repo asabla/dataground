@@ -44,25 +44,49 @@ func (cases *liveCases) receipt(name CheckName) (CaseReceipt, error) {
 		payload = fmt.Sprintf("sha256:%064x", 1)
 	}
 	return CaseReceipt{
-		StartedAt: cases.base.Add(time.Duration(index*2+1) * time.Second),
-		FinishedAt: cases.base.Add(time.Duration(index*2+2) * time.Second),
-		PayloadSHA256: payload,
+		StartedAt:             cases.base.Add(time.Duration(index*2+1) * time.Second),
+		FinishedAt:            cases.base.Add(time.Duration(index*2+2) * time.Second),
+		PayloadSHA256:         payload,
 		NativeProtocolExposed: cases.exposeAt == name,
 	}, nil
 }
 
-func (cases *liveCases) GatewayReady(context.Context) (CaseReceipt, error) { return cases.receipt(CheckGatewayReady) }
-func (cases *liveCases) SandboxReady(context.Context) (CaseReceipt, error) { return cases.receipt(CheckSandboxReady) }
-func (cases *liveCases) Initialize(context.Context) (CaseReceipt, error) { return cases.receipt(CheckInitialize) }
-func (cases *liveCases) TurnSuccess(context.Context) (CaseReceipt, error) { return cases.receipt(CheckTurnSuccess) }
-func (cases *liveCases) TurnFailure(context.Context) (CaseReceipt, error) { return cases.receipt(CheckTurnFailure) }
-func (cases *liveCases) EventNormalization(context.Context) (CaseReceipt, error) { return cases.receipt(CheckEventNormalization) }
-func (cases *liveCases) Interrupt(context.Context) (CaseReceipt, error) { return cases.receipt(CheckInterrupt) }
-func (cases *liveCases) Cancellation(context.Context) (CaseReceipt, error) { return cases.receipt(CheckCancellation) }
-func (cases *liveCases) CommandApproval(context.Context) (CaseReceipt, error) { return cases.receipt(CheckCommandApproval) }
-func (cases *liveCases) FileChangeApproval(context.Context) (CaseReceipt, error) { return cases.receipt(CheckFileChangeApproval) }
-func (cases *liveCases) ArtifactExport(context.Context) (CaseReceipt, error) { return cases.receipt(CheckArtifactExport) }
-func (cases *liveCases) SandboxTeardown(context.Context) (CaseReceipt, error) { return cases.receipt(CheckSandboxTeardown) }
+func (cases *liveCases) GatewayReady(context.Context) (CaseReceipt, error) {
+	return cases.receipt(CheckGatewayReady)
+}
+func (cases *liveCases) SandboxReady(context.Context) (CaseReceipt, error) {
+	return cases.receipt(CheckSandboxReady)
+}
+func (cases *liveCases) Initialize(context.Context) (CaseReceipt, error) {
+	return cases.receipt(CheckInitialize)
+}
+func (cases *liveCases) TurnSuccess(context.Context) (CaseReceipt, error) {
+	return cases.receipt(CheckTurnSuccess)
+}
+func (cases *liveCases) TurnFailure(context.Context) (CaseReceipt, error) {
+	return cases.receipt(CheckTurnFailure)
+}
+func (cases *liveCases) EventNormalization(context.Context) (CaseReceipt, error) {
+	return cases.receipt(CheckEventNormalization)
+}
+func (cases *liveCases) Interrupt(context.Context) (CaseReceipt, error) {
+	return cases.receipt(CheckInterrupt)
+}
+func (cases *liveCases) Cancellation(context.Context) (CaseReceipt, error) {
+	return cases.receipt(CheckCancellation)
+}
+func (cases *liveCases) CommandApproval(context.Context) (CaseReceipt, error) {
+	return cases.receipt(CheckCommandApproval)
+}
+func (cases *liveCases) FileChangeApproval(context.Context) (CaseReceipt, error) {
+	return cases.receipt(CheckFileChangeApproval)
+}
+func (cases *liveCases) ArtifactExport(context.Context) (CaseReceipt, error) {
+	return cases.receipt(CheckArtifactExport)
+}
+func (cases *liveCases) SandboxTeardown(context.Context) (CaseReceipt, error) {
+	return cases.receipt(CheckSandboxTeardown)
+}
 
 func TestLiveCaseRunnerOwnsCanonicalCases(t *testing.T) {
 	t.Parallel()
@@ -182,7 +206,7 @@ func TestLiveCaseRunnerCompletesOwnedEvidenceRun(t *testing.T) {
 	run, err := newEvidenceRun(Config{
 		RunID: runID,
 		Provenance: Provenance{
-			SourceCommit: "0123456789abcdef0123456789abcdef01234567",
+			SourceCommit:  "0123456789abcdef0123456789abcdef01234567",
 			WorkflowRunID: 42,
 		},
 		Cases: runner,
@@ -211,7 +235,7 @@ func TestLiveCaseRunnerCannotSerializeOrContinueAfterFailure(t *testing.T) {
 	runID := "0123456789abcdef0123456789abcdef"
 	resources := namesForRun(runID)
 	runner, err := NewLiveCaseRunner(runID, resources, &liveCases{
-		base: time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC),
+		base:   time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC),
 		failAt: CheckGatewayReady,
 	})
 	if err != nil {
