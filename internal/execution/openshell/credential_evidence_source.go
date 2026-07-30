@@ -26,7 +26,6 @@ const buffer = Buffer.alloc(64 * 1024);
 const ignorableCodes = new Set(["EACCES", "EPERM", "ENOENT", "ENOTDIR", "ELOOP"]);
 const requiredFiles = ["/etc/os-release"];
 let copiedBytes = 0;
-let traversedFiles = 0;
 
 function isIgnorable(error) {
 	return error !== null && typeof error === "object" && ignorableCodes.has(error.code);
@@ -101,8 +100,8 @@ while (pending.length > 0) {
 		children.push({ path: candidate, stat });
 	}
 	for (const child of children) {
-		if (child.stat.isFile() && copyFile(child.path)) {
-			traversedFiles++;
+		if (child.stat.isFile()) {
+			copyFile(child.path);
 		}
 	}
 	for (let index = children.length - 1; index >= 0; index--) {
@@ -111,7 +110,7 @@ while (pending.length > 0) {
 		}
 	}
 }
-if (traversedFiles === 0 || copiedBytes === 0) {
+if (copiedBytes === 0) {
 	throw new Error("filesystem coverage was empty");
 }`
 )
