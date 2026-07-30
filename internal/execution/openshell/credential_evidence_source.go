@@ -24,39 +24,50 @@ const excludedDirectories = new Set(["/proc", "/sys"]);
 const pending = [root];
 const buffer = Buffer.alloc(64 * 1024);
 const ignorableCodes = new Set(["EACCES", "EPERM", "ENOENT", "ENOTDIR", "ELOOP"]);
+const requiredFiles = ["/etc/os-release"];
+let copiedBytes = 0;
+let traversedFiles = 0;
 
 function isIgnorable(error) {
 	return error !== null && typeof error === "object" && ignorableCodes.has(error.code);
 }
 
-function copyFile(file) {
+function copyFile(file, required = false) {
 	let descriptor;
 	try {
 		descriptor = fs.openSync(file, "r");
 		for (;;) {
 			const count = fs.readSync(descriptor, buffer, 0, buffer.length, null);
 			if (count === 0) {
-				return;
+				return true;
 			}
+			copiedBytes += count;
 			let written = 0;
 			while (written < count) {
 				written += fs.writeSync(1, buffer, written, count - written);
 			}
 		}
 	} catch (error) {
-		if (!isIgnorable(error)) {
+		if (required || !isIgnorable(error)) {
 			throw error;
 		}
+		return false;
 	} finally {
 		if (descriptor !== undefined) {
 			try {
 				fs.closeSync(descriptor);
 			} catch (error) {
-				if (!isIgnorable(error)) {
+				if (required || !isIgnorable(error)) {
 					throw error;
 				}
 			}
 		}
+	}
+}
+
+for (const file of requiredFiles) {
+	if (!copyFile(file, true)) {
+		throw new Error("required filesystem anchor was not inspected");
 	}
 }
 
@@ -90,8 +101,8 @@ while (pending.length > 0) {
 		children.push({ path: candidate, stat });
 	}
 	for (const child of children) {
-		if (child.stat.isFile()) {
-			copyFile(child.path);
+		if (child.stat.isFile() && copyFile(child.path)) {
+			traversedFiles++;
 		}
 	}
 	for (let index = children.length - 1; index >= 0; index--) {
@@ -99,6 +110,9 @@ while (pending.length > 0) {
 			pending.push(children[index].path);
 		}
 	}
+}
+if (traversedFiles === 0 || copiedBytes === 0) {
+	throw new Error("filesystem coverage was empty");
 }`
 )
 
