@@ -249,7 +249,7 @@ function representativeEvidence() {
       name,
       classification,
       evidence: structuredClone(expectedEvidence[name] ?? []),
-      reasonCode: classification === "supported" ? null : "ADAPTER_UNSUPPORTED",
+      reasonCode: classification === "supported" ? null : expectedReasonCodes[name],
     })),
     cleanup: {
       sandbox: { name: `dg-runtime-sandbox-${id}`, status: "removed" },
