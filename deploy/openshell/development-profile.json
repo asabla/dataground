@@ -311,6 +311,10 @@
         "provider": "dg-runtime-provider-<runID>",
         "runtime": "dg-runtime-session-<runID>",
         "workspace": "dg-runtime-<runID>"
+      },
+      "provenance": {
+        "workflow": ".github/workflows/openshell-runtime-conformance.yml",
+        "artifactName": "openshell-runtime-conformance"
       }
     }
   },
