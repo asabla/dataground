@@ -918,24 +918,20 @@ const runtimeEvidenceSchema = JSON.parse(
   await readFile(resolve(root, runtimeConformance?.schema ?? ""), "utf8"),
 );
 if (
-  runtimeConformance?.schema !==
-    "deploy/openshell/runtime-conformance-evidence.schema.json" ||
+  runtimeConformance?.schema !== "deploy/openshell/runtime-conformance-evidence.schema.json" ||
   runtimeConformance?.schemaVersion !==
     "dataground.dev.openshell-runtime-conformance-evidence/v1" ||
   runtimeConformance?.verifier !== "pnpm openshell:runtime-evidence:check <evidence.json>" ||
-  runtimeConformance?.verifierIdentity?.name !==
-    "dataground-openshell-runtime-conformance" ||
+  runtimeConformance?.verifierIdentity?.name !== "dataground-openshell-runtime-conformance" ||
   runtimeConformance?.verifierIdentity?.version !== "1.0.0" ||
   JSON.stringify(runtimeConformance?.requiredChecks) !== JSON.stringify(expectedRuntimeChecks) ||
   JSON.stringify(runtimeConformance?.capabilityClassifications) !==
     JSON.stringify(expectedRuntimeClassifications) ||
   JSON.stringify(runtimeConformance?.resourceNames) !==
     JSON.stringify(expectedRuntimeResourceNames) ||
-  JSON.stringify(runtimeConformance?.provenance) !==
-    JSON.stringify(expectedRuntimeProvenance) ||
+  JSON.stringify(runtimeConformance?.provenance) !== JSON.stringify(expectedRuntimeProvenance) ||
   runtimeConformance?.status !== "evidence contract defined; live record required" ||
-  runtimeEvidenceSchema?.properties?.schemaVersion?.const !==
-    runtimeConformance.schemaVersion ||
+  runtimeEvidenceSchema?.properties?.schemaVersion?.const !== runtimeConformance.schemaVersion ||
   runtimeEvidenceSchema?.properties?.checks?.minItems !== expectedRuntimeChecks.length ||
   runtimeEvidenceSchema?.properties?.checks?.maxItems !== expectedRuntimeChecks.length ||
   runtimeEvidenceSchema?.properties?.capabilities?.minItems !==
@@ -946,8 +942,8 @@ if (
   !runtimeEvidenceSchema?.properties?.run?.required?.includes("provenance") ||
   runtimeEvidenceSchema?.properties?.run?.properties?.provenance?.properties?.workflow?.const !==
     expectedRuntimeProvenance.workflow ||
-  runtimeEvidenceSchema?.properties?.run?.properties?.provenance?.properties?.artifactName?.const !==
-    expectedRuntimeProvenance.artifactName ||
+  runtimeEvidenceSchema?.properties?.run?.properties?.provenance?.properties?.artifactName
+    ?.const !== expectedRuntimeProvenance.artifactName ||
   runtimeEvidenceSchema?.properties?.result?.const !== "passed"
 ) {
   fail("the runtime conformance evidence contract is missing or inconsistent");
