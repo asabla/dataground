@@ -71,6 +71,7 @@ type liveCaseState struct {
 	next     int
 	running  bool
 	failed   bool
+	sealed   bool
 	proofs   map[[sha256.Size]byte]struct{}
 }
 
@@ -97,6 +98,7 @@ func (cases *LiveCases) ValidateBinding(runID string, resources Resources) error
 	defer cases.state.mu.Unlock()
 	if cases.state.failed ||
 		cases.state.running ||
+		cases.state.sealed ||
 		runID != cases.state.binding.RunID ||
 		resources != cases.state.binding.Resources {
 		return ErrLiveCaseBinding
@@ -114,6 +116,10 @@ func (cases *LiveCases) Run(ctx context.Context, request CheckRequest) (Observat
 
 	state := cases.state
 	state.mu.Lock()
+	if state.sealed {
+		state.mu.Unlock()
+		return Observation{}, ErrLiveCaseOrder
+	}
 	if state.failed ||
 		state.running ||
 		state.next >= len(requiredChecks) ||
@@ -171,6 +177,28 @@ func (cases *LiveCases) Run(ctx context.Context, request CheckRequest) (Observat
 		NativeProtocolExposed:   false,
 		UpstreamEndpointExposed: false,
 	}, nil
+}
+
+func (cases *LiveCases) FinalizeBinding(runID string, resources Resources) error {
+	if cases == nil || cases.state == nil {
+		return ErrLiveCaseBinding
+	}
+	state := cases.state
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.sealed {
+		return ErrLiveCaseBinding
+	}
+	if state.failed ||
+		state.running ||
+		state.next != len(requiredChecks) ||
+		runID != state.binding.RunID ||
+		resources != state.binding.Resources {
+		state.failed = true
+		return ErrLiveCaseBinding
+	}
+	state.sealed = true
+	return nil
 }
 
 func (LiveCases) MarshalJSON() ([]byte, error) {
