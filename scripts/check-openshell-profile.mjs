@@ -1066,7 +1066,9 @@ if (
       !runtimeEvidenceSource.includes(`unsupported("${reason}")`),
   )
 ) {
-  fail("the runtime evidence producer or live case backend is missing, mutable, or overclaims a concrete scenario");
+  fail(
+    "the runtime evidence producer or live case backend is missing, mutable, or overclaims a concrete scenario",
+  );
 }
 
 const credentialEvidenceWorkflow = await readFile(
