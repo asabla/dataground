@@ -81,13 +81,13 @@ if (
   credentialEvidenceContract?.schema !==
     "deploy/openshell/credential-non-exposure-evidence.schema.json" ||
   credentialEvidenceContract?.schemaVersion !==
-    "dataground.dev.openshell-credential-non-exposure-evidence/v2" ||
+    "dataground.dev.openshell-credential-non-exposure-evidence/v3" ||
   credentialEvidenceContract?.verifier !==
     "pnpm openshell:credential-evidence:check <evidence.json>" ||
   JSON.stringify(Object.keys(credentialEvidenceContract?.verifierIdentity ?? {}).sort()) !==
     JSON.stringify(["name", "version"]) ||
   credentialEvidenceContract?.verifierIdentity?.name !== "dataground-openshell-canary" ||
-  credentialEvidenceContract?.verifierIdentity?.version !== "2.0.0" ||
+  credentialEvidenceContract?.verifierIdentity?.version !== "3.0.0" ||
   credentialEvidenceContract?.status !== "contract and launcher verified; live evidence required"
 ) {
   fail("the credential non-exposure evidence contract is missing or unblocked");
@@ -349,9 +349,11 @@ if (
   !canaryOpenShellSource.includes('"-name", "cmdline"') ||
   !canaryOpenShellSource.includes('"-name", "environ"') ||
   !canaryOpenShellSource.includes('credentialEvidenceFilesystemProgram = `"use strict";') ||
-  !canaryOpenShellSource.includes("const rootDevice = fs.statSync(root).dev;") ||
+  !canaryOpenShellSource.includes('const excludedDirectories = new Set(["/proc", "/sys"]);') ||
   !canaryOpenShellSource.includes("const buffer = Buffer.alloc(64 * 1024);") ||
-  !canaryOpenShellSource.includes("stat.dev === rootDevice") ||
+  !canaryOpenShellSource.includes("excludedDirectories.has(candidate)") ||
+  canaryOpenShellSource.includes("rootDevice") ||
+  canaryOpenShellSource.includes("stat.dev ===") ||
   !canaryOpenShellSource.includes("fs.writeSync(1, buffer") ||
   !canaryOpenShellSource.includes('"node", "-e", credentialEvidenceFilesystemProgram') ||
   canaryOpenShellSource.includes("child_process") ||
@@ -659,6 +661,24 @@ if (
   )
 ) {
   fail("the credential collector limits do not match the development profile");
+}
+const surfaceMinimumInspectedBytes = canaryScanner?.surfaceMinimumInspectedBytes;
+if (
+  JSON.stringify(canaryScanner?.filesystemExcludedRoots) !== JSON.stringify(["/proc", "/sys"]) ||
+  canaryScanner?.filesystemTraversal !==
+    "all mounted filesystems except exact virtual kernel roots; regular files only; no symlink traversal" ||
+  typeof surfaceMinimumInspectedBytes !== "object" ||
+  surfaceMinimumInspectedBytes === null ||
+  JSON.stringify(Object.keys(surfaceMinimumInspectedBytes).sort()) !==
+    JSON.stringify([...expectedCanarySurfaces].sort()) ||
+  Object.entries(surfaceMinimumInspectedBytes).some(
+    ([surface, minimum]) =>
+      !Number.isSafeInteger(minimum) ||
+      minimum < 0 ||
+      minimum > surfaceMaxBytes[surface],
+  )
+) {
+  fail("the credential scanner coverage contract must be explicit and bounded per surface");
 }
 const canaryScannerSchema = JSON.parse(
   await readFile(resolve(root, canaryScanner?.schema ?? ""), "utf8"),
