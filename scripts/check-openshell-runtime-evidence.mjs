@@ -48,6 +48,15 @@ const expectedEvidence = {
   "file-change-approval": ["file-change-approval"],
   "artifact-export": ["artifact-export"],
 };
+const expectedReasonCodes = {
+  question: "ADAPTER_UNSUPPORTED",
+  "permission-escalation": "ADAPTER_UNSUPPORTED",
+  "rich-item-delta": "ADAPTER_UNSUPPORTED",
+  usage: "ADAPTER_UNSUPPORTED",
+  resume: "DURABLE_INTERACTION_UNIMPLEMENTED",
+  steer: "DURABLE_INTERACTION_UNIMPLEMENTED",
+  "runtime-artifact-events": "NATIVE_PROTOCOL_UNCERTIFIED",
+};
 const expectedResourceNames = {
   gateway: "dg-runtime-gateway-<runID>",
   sandbox: "dg-runtime-sandbox-<runID>",
@@ -110,7 +119,7 @@ function verifyEvidence(evidence) {
   const checks = evidence.checks.map((check) => check.name);
   if (
     checks.length !== new Set(checks).size ||
-    JSON.stringify([...checks].sort()) !== JSON.stringify([...requiredChecks].sort()) ||
+    JSON.stringify(checks) !== JSON.stringify(requiredChecks) ||
     JSON.stringify([...(contract?.requiredChecks ?? [])]) !== JSON.stringify(requiredChecks)
   ) {
     failures.push("evidence must contain every checked runtime case exactly once");
@@ -142,6 +151,11 @@ function verifyEvidence(evidence) {
       failures.push(`${name} is not bound to its required live checks`);
     }
   }
+  for (const [name, expectedReasonCode] of Object.entries(expectedReasonCodes)) {
+    if (capabilities.get(name)?.reasonCode !== expectedReasonCode) {
+      failures.push(`${name} does not use its profile-owned limitation reason`);
+    }
+  }
   if (
     evidence.capabilities.some(
       (capability) =>
@@ -163,6 +177,7 @@ function verifyEvidence(evidence) {
   ) {
     failures.push("runtime evidence timestamps are invalid or out of order");
   }
+  let previousFinishedAt = runStartedAt;
   for (const check of evidence.checks) {
     const startedAt = Date.parse(check.startedAt);
     const finishedAt = Date.parse(check.finishedAt);
@@ -171,10 +186,12 @@ function verifyEvidence(evidence) {
       !Number.isFinite(finishedAt) ||
       finishedAt < startedAt ||
       startedAt < runStartedAt ||
+      startedAt < previousFinishedAt ||
       finishedAt > runFinishedAt
     ) {
       failures.push(`${check.name} observation window is outside the evidence run`);
     }
+    previousFinishedAt = finishedAt;
   }
 
   const names = Object.fromEntries(
@@ -295,6 +312,16 @@ function runSelfTest() {
     ],
     ["missing runtime case", { ...valid, checks: valid.checks.slice(1) }, false],
     [
+      "reordered runtime cases",
+      {
+        ...valid,
+        checks: valid.checks.map((check, index, checks) =>
+          index === 0 ? checks[1] : index === 1 ? checks[0] : check,
+        ),
+      },
+      false,
+    ],
+    [
       "duplicate runtime case",
       {
         ...valid,
@@ -357,6 +384,18 @@ function runSelfTest() {
       false,
     ],
     [
+      "wrong limitation reason",
+      {
+        ...valid,
+        capabilities: valid.capabilities.map((capability) =>
+          capability.name === "resume"
+            ? { ...capability, reasonCode: "ADAPTER_UNSUPPORTED" }
+            : capability,
+        ),
+      },
+      false,
+    ],
+    [
       "unbound capability evidence",
       {
         ...valid,
@@ -406,6 +445,16 @@ function runSelfTest() {
         ...valid,
         checks: valid.checks.map((check, index) =>
           index === 0 ? { ...check, startedAt: "2026-07-30T11:59:59.000Z" } : check,
+        ),
+      },
+      false,
+    ],
+    [
+      "overlapping observation window",
+      {
+        ...valid,
+        checks: valid.checks.map((check, index) =>
+          index === 1 ? { ...check, startedAt: valid.checks[0].startedAt } : check,
         ),
       },
       false,
