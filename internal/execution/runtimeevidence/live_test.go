@@ -139,6 +139,20 @@ func TestLiveCasesFailClosed(t *testing.T) {
 		}
 	})
 
+	t.Run("uninspected exposure is rejected", func(t *testing.T) {
+		cases := newTestLiveCases(t, &liveScenario{uninspected: true})
+		if _, err := cases.Run(context.Background(), testLiveRequest(CheckGatewayReady)); !errors.Is(err, ErrLiveCaseReceipt) {
+			t.Fatalf("Run() error = %v", err)
+		}
+	})
+
+	t.Run("observed exposure is rejected", func(t *testing.T) {
+		cases := newTestLiveCases(t, &liveScenario{exposed: true})
+		if _, err := cases.Run(context.Background(), testLiveRequest(CheckGatewayReady)); !errors.Is(err, ErrLiveCaseReceipt) {
+			t.Fatalf("Run() error = %v", err)
+		}
+	})
+
 	t.Run("proof replay is terminal", func(t *testing.T) {
 		cases := newTestLiveCases(t, &liveScenario{replay: true})
 		if _, err := cases.Run(context.Background(), testLiveRequest(CheckGatewayReady)); err != nil {
@@ -202,6 +216,8 @@ type liveScenario struct {
 	fail    error
 	invalid bool
 	replay  bool
+	uninspected bool
+	exposed     bool
 }
 
 type blockingLiveScenario struct {
@@ -301,9 +317,12 @@ func (scenario *liveScenario) run(
 		proofInput = []byte("same-proof")
 	}
 	receipt := LiveReceipt{
-		StartedAt:         startedAt,
-		FinishedAt:        finishedAt,
-		ObservationSHA256: sha256.Sum256(proofInput),
+		StartedAt:               startedAt,
+		FinishedAt:              finishedAt,
+		ObservationSHA256:       sha256.Sum256(proofInput),
+		ExposureChecked:         !scenario.uninspected,
+		NativeProtocolExposed:   scenario.exposed,
+		UpstreamEndpointExposed: false,
 	}
 	if scenario.invalid {
 		receipt.FinishedAt = receipt.StartedAt
