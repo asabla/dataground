@@ -905,6 +905,10 @@ const expectedRuntimeResourceNames = {
   runtime: "dg-runtime-session-<runID>",
   workspace: "dg-runtime-<runID>",
 };
+const expectedRuntimeProvenance = {
+  workflow: ".github/workflows/openshell-runtime-conformance.yml",
+  artifactName: "openshell-runtime-conformance",
+};
 const runtimeConformance = profile.runtime?.conformance;
 const runtimeEvidenceSchema = JSON.parse(
   await readFile(resolve(root, runtimeConformance?.schema ?? ""), "utf8"),
@@ -923,6 +927,8 @@ if (
     JSON.stringify(expectedRuntimeClassifications) ||
   JSON.stringify(runtimeConformance?.resourceNames) !==
     JSON.stringify(expectedRuntimeResourceNames) ||
+  JSON.stringify(runtimeConformance?.provenance) !==
+    JSON.stringify(expectedRuntimeProvenance) ||
   runtimeConformance?.status !== "evidence contract defined; live record required" ||
   runtimeEvidenceSchema?.properties?.schemaVersion?.const !==
     runtimeConformance.schemaVersion ||
@@ -933,6 +939,11 @@ if (
   runtimeEvidenceSchema?.properties?.capabilities?.maxItems !==
     Object.keys(expectedRuntimeClassifications).length ||
   !runtimeEvidenceSchema?.properties?.profile?.required?.includes("credentialEvidenceSHA256") ||
+  !runtimeEvidenceSchema?.properties?.run?.required?.includes("provenance") ||
+  runtimeEvidenceSchema?.properties?.run?.properties?.provenance?.properties?.workflow?.const !==
+    expectedRuntimeProvenance.workflow ||
+  runtimeEvidenceSchema?.properties?.run?.properties?.provenance?.properties?.artifactName?.const !==
+    expectedRuntimeProvenance.artifactName ||
   runtimeEvidenceSchema?.properties?.result?.const !== "passed"
 ) {
   fail("the runtime conformance evidence contract is missing or inconsistent");
