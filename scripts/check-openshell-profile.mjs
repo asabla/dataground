@@ -865,7 +865,7 @@ if (
     "credential non-exposure certified for the pinned development profile" ||
   profile.capabilities?.credentialNonExposure !== "certified for pinned development profile" ||
   profile.capabilities?.realSandboxInvocation !==
-    "v2 evidence producer defined; live certification blocked" ||
+    "v2 evidence producer and typed case orchestration defined; live certification blocked" ||
   JSON.stringify(profile.blockers) !== JSON.stringify(expectedRemainingBlockers)
 ) {
   fail("the accepted credential evidence claim or remaining blockers are inconsistent");
@@ -953,7 +953,8 @@ if (
   JSON.stringify(runtimeConformance?.resourceNames) !==
     JSON.stringify(expectedRuntimeResourceNames) ||
   JSON.stringify(runtimeConformance?.provenance) !== JSON.stringify(expectedRuntimeProvenance) ||
-  runtimeConformance?.status !== "v2 evidence producer defined; live record required" ||
+  runtimeConformance?.status !==
+    "v2 evidence producer and typed case orchestration defined; live record required" ||
   runtimeEvidenceSchema?.properties?.schemaVersion?.const !== runtimeConformance.schemaVersion ||
   runtimeEvidenceSchema?.properties?.checks?.minItems !== expectedRuntimeChecks.length ||
   runtimeEvidenceSchema?.properties?.checks?.maxItems !== expectedRuntimeChecks.length ||
