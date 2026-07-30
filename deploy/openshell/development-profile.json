@@ -335,7 +335,8 @@
           "concurrency": "one in-flight case; overlap, order drift, cancellation, backend failure, invalid receipts, and proof replay are terminal",
           "completion": "atomic backend finalization after the twelfth case and before cleanup",
           "serialization": "forbidden",
-          "status": "implemented; concrete OpenShell and Codex scenario driver required"
+          "status": "implemented; concrete OpenShell and Codex scenario driver required",
+          "exposure": "each receipt must attest completed inspection; native-protocol or upstream-endpoint exposure fails before commitment"
         },
         "cleanupOrder": [
           "sandbox",
