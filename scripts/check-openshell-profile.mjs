@@ -865,7 +865,7 @@ if (
     "credential non-exposure certified for the pinned development profile" ||
   profile.capabilities?.credentialNonExposure !== "certified for pinned development profile" ||
   profile.capabilities?.realSandboxInvocation !==
-    "evidence contract defined; live certification blocked" ||
+    "v2 evidence contract defined; live certification blocked" ||
   JSON.stringify(profile.blockers) !== JSON.stringify(expectedRemainingBlockers)
 ) {
   fail("the accepted credential evidence claim or remaining blockers are inconsistent");
@@ -917,20 +917,22 @@ const runtimeConformance = profile.runtime?.conformance;
 const runtimeEvidenceSchema = JSON.parse(
   await readFile(resolve(root, runtimeConformance?.schema ?? ""), "utf8"),
 );
+const runtimeProvenanceSchema =
+  runtimeEvidenceSchema?.properties?.run?.properties?.provenance;
 if (
   runtimeConformance?.schema !== "deploy/openshell/runtime-conformance-evidence.schema.json" ||
   runtimeConformance?.schemaVersion !==
-    "dataground.dev.openshell-runtime-conformance-evidence/v1" ||
+    "dataground.dev.openshell-runtime-conformance-evidence/v2" ||
   runtimeConformance?.verifier !== "pnpm openshell:runtime-evidence:check <evidence.json>" ||
   runtimeConformance?.verifierIdentity?.name !== "dataground-openshell-runtime-conformance" ||
-  runtimeConformance?.verifierIdentity?.version !== "1.0.0" ||
+  runtimeConformance?.verifierIdentity?.version !== "2.0.0" ||
   JSON.stringify(runtimeConformance?.requiredChecks) !== JSON.stringify(expectedRuntimeChecks) ||
   JSON.stringify(runtimeConformance?.capabilityClassifications) !==
     JSON.stringify(expectedRuntimeClassifications) ||
   JSON.stringify(runtimeConformance?.resourceNames) !==
     JSON.stringify(expectedRuntimeResourceNames) ||
   JSON.stringify(runtimeConformance?.provenance) !== JSON.stringify(expectedRuntimeProvenance) ||
-  runtimeConformance?.status !== "evidence contract defined; live record required" ||
+  runtimeConformance?.status !== "v2 evidence contract defined; live record required" ||
   runtimeEvidenceSchema?.properties?.schemaVersion?.const !== runtimeConformance.schemaVersion ||
   runtimeEvidenceSchema?.properties?.checks?.minItems !== expectedRuntimeChecks.length ||
   runtimeEvidenceSchema?.properties?.checks?.maxItems !== expectedRuntimeChecks.length ||
@@ -940,10 +942,13 @@ if (
     Object.keys(expectedRuntimeClassifications).length ||
   !runtimeEvidenceSchema?.properties?.profile?.required?.includes("credentialEvidenceSHA256") ||
   !runtimeEvidenceSchema?.properties?.run?.required?.includes("provenance") ||
-  runtimeEvidenceSchema?.properties?.run?.properties?.provenance?.properties?.workflow?.const !==
-    expectedRuntimeProvenance.workflow ||
-  runtimeEvidenceSchema?.properties?.run?.properties?.provenance?.properties?.artifactName
-    ?.const !== expectedRuntimeProvenance.artifactName ||
+  JSON.stringify(runtimeProvenanceSchema?.required) !==
+    JSON.stringify(["sourceCommit", "workflow", "workflowRunID", "artifactName"]) ||
+  runtimeProvenanceSchema?.properties?.workflow?.const !== expectedRuntimeProvenance.workflow ||
+  runtimeProvenanceSchema?.properties?.artifactName?.const !==
+    expectedRuntimeProvenance.artifactName ||
+  Object.hasOwn(runtimeProvenanceSchema?.properties ?? {}, "artifactID") ||
+  Object.hasOwn(runtimeProvenanceSchema?.properties ?? {}, "artifactArchiveDigest") ||
   runtimeEvidenceSchema?.properties?.result?.const !== "passed"
 ) {
   fail("the runtime conformance evidence contract is missing or inconsistent");
