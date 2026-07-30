@@ -32,7 +32,7 @@ if (profile.schemaVersion !== "dataground.dev.openshell-profile/v1") {
   fail("unexpected development profile schema version");
 }
 if (profile.status !== "blocked" || profile.productionCertifiable !== false) {
-  fail("the incomplete development profile must remain blocked and non-certifiable");
+  fail("the development profile must remain production-blocked and non-certifiable");
 }
 if (
   profile.source?.rosetta?.candidateCommit !== "320158f1e4a4eea378d82c1527f4a7af5fb9855b" ||
@@ -88,7 +88,7 @@ if (
     JSON.stringify(["name", "version"]) ||
   credentialEvidenceContract?.verifierIdentity?.name !== "dataground-openshell-canary" ||
   credentialEvidenceContract?.verifierIdentity?.version !== "3.0.0" ||
-  credentialEvidenceContract?.status !== "contract and launcher verified; live evidence required"
+  credentialEvidenceContract?.status !== "coverage-qualified v3 evidence incorporated and verified"
 ) {
   fail("the credential non-exposure evidence contract is missing or unblocked");
 }
@@ -138,6 +138,74 @@ if (
     credentialEvidenceContract?.verifierIdentity?.version
 ) {
   fail("the credential evidence schema does not match the verifier identity contract");
+}
+
+const acceptedCredentialEvidence = credentialEvidenceContract?.acceptedEvidence;
+const acceptedCredentialEvidenceKeys = [
+  "artifactArchiveDigest",
+  "artifactID",
+  "file",
+  "headCommit",
+  "runID",
+  "sha256",
+  "workflow",
+  "workflowRunID",
+];
+if (
+  JSON.stringify(Object.keys(acceptedCredentialEvidence ?? {}).sort()) !==
+    JSON.stringify(acceptedCredentialEvidenceKeys) ||
+  acceptedCredentialEvidence?.file !==
+    "deploy/openshell/evidence/openshell-credential-non-exposure-v3.json" ||
+  !/^[a-f0-9]{64}$/.test(acceptedCredentialEvidence?.sha256 ?? "") ||
+  !/^[a-f0-9]{32}$/.test(acceptedCredentialEvidence?.runID ?? "") ||
+  acceptedCredentialEvidence?.workflow !==
+    ".github/workflows/openshell-credential-evidence.yml" ||
+  !Number.isSafeInteger(acceptedCredentialEvidence?.workflowRunID) ||
+  !/^[a-f0-9]{40}$/.test(acceptedCredentialEvidence?.headCommit ?? "") ||
+  !Number.isSafeInteger(acceptedCredentialEvidence?.artifactID) ||
+  !/^sha256:[a-f0-9]{64}$/.test(acceptedCredentialEvidence?.artifactArchiveDigest ?? "")
+) {
+  fail("the accepted credential evidence provenance is incomplete");
+}
+
+let acceptedCredentialEvidenceBytes;
+let acceptedCredentialEvidenceRecord;
+try {
+  acceptedCredentialEvidenceBytes = await readFile(
+    resolve(root, acceptedCredentialEvidence?.file ?? ""),
+  );
+  acceptedCredentialEvidenceRecord = JSON.parse(acceptedCredentialEvidenceBytes);
+} catch {
+  fail("the accepted credential evidence record is unavailable or malformed");
+}
+if (
+  acceptedCredentialEvidenceBytes &&
+  createHash("sha256").update(acceptedCredentialEvidenceBytes).digest("hex") !==
+    acceptedCredentialEvidence?.sha256
+) {
+  fail("the accepted credential evidence record does not match its recorded digest");
+}
+if (
+  acceptedCredentialEvidenceRecord &&
+  (acceptedCredentialEvidenceRecord.schemaVersion !== credentialEvidenceContract?.schemaVersion ||
+    acceptedCredentialEvidenceRecord.run?.id !== acceptedCredentialEvidence?.runID ||
+    JSON.stringify(acceptedCredentialEvidenceRecord.run?.verifier) !==
+      JSON.stringify(credentialEvidenceContract?.verifierIdentity) ||
+    acceptedCredentialEvidenceRecord.result !== "passed" ||
+    acceptedCredentialEvidenceRecord.profile?.openshellCommit !== profile.source.openshell.commit ||
+    acceptedCredentialEvidenceRecord.profile?.gatewayImage !== profile.artifacts.gateway ||
+    acceptedCredentialEvidenceRecord.profile?.supervisorImage !== profile.artifacts.supervisor ||
+    acceptedCredentialEvidenceRecord.profile?.sandboxImage !== profile.artifacts.sandbox ||
+    acceptedCredentialEvidenceRecord.profile?.providerProfileSourceSHA256 !==
+      profile.providerProfileEvidence.codex.sha256 ||
+    acceptedCredentialEvidenceRecord.profile?.runtimeVersion !== profile.runtime.version ||
+    acceptedCredentialEvidenceRecord.profile?.gatewayEndpoint !== profile.topology.gatewayEndpoint ||
+    acceptedCredentialEvidenceRecord.profile?.driver !== profile.topology.driver ||
+    acceptedCredentialEvidenceRecord.profile?.composeSHA256 !== profile.topology.composeSHA256 ||
+    acceptedCredentialEvidenceRecord.profile?.gatewayConfigSHA256 !==
+      profile.topology.gatewayConfigSHA256)
+) {
+  fail("the accepted credential evidence record is not bound to the checked profile");
 }
 const canaryScanner = credentialEvidenceContract?.scanner;
 const canaryScannerCommandSource = await readFile(
@@ -247,7 +315,7 @@ if (
   canaryScanner?.resourceNameFormat !== "portable lowercase identifier" ||
   JSON.stringify(canaryScanner?.surfaceResourceKinds) !==
     JSON.stringify(expectedSurfaceResourceKinds) ||
-  canaryScanner?.status !== "commitment-only scanner verified; live Docker execution required"
+  canaryScanner?.status !== "commitment-only scanner and accepted live Docker execution verified"
 ) {
   fail("the commitment-only credential canary scanner contract is missing or unblocked");
 }
@@ -260,7 +328,7 @@ if (
   canaryCollector?.limitOwnership !== "collector-owned exact profile limits" ||
   JSON.stringify(canaryCollector?.sourceOrder) !== JSON.stringify(expectedCanarySurfaces) ||
   canaryCollector?.status !==
-    "collection, acquisition, and launcher wiring verified; live Docker execution required" ||
+    "collection, acquisition, launcher wiring, and accepted live Docker execution verified" ||
   !canaryCollectorSource.includes("func Collect(") ||
   !canaryCollectorSource.includes("canaryscan.ValidateReportConfig(") ||
   !canaryCollectorSource.includes("canaryscan.ScanReport(") ||
@@ -283,7 +351,7 @@ if (
     "single-use canonical collection with direct scanner handoff" ||
   canarySourceAcquisition?.serialization !== "forbidden" ||
   canarySourceAcquisition?.status !==
-    "all seven source backends and launcher wiring verified; live Docker execution required" ||
+    "all seven source backends, launcher wiring, and accepted live Docker execution verified" ||
   canarySourceAcquisition?.openShell?.assembly !==
     "internal/execution/openshell.NewCredentialEvidenceSources" ||
   canarySourceAcquisition?.openShell?.binding !==
@@ -300,7 +368,7 @@ if (
     ]) ||
   canarySourceAcquisition?.openShell?.serialization !== "forbidden" ||
   canarySourceAcquisition?.openShell?.status !==
-    "OpenShell sandbox source backend and launcher wiring verified; live Docker execution required" ||
+    "OpenShell sandbox source backend, launcher wiring, and accepted live Docker execution verified" ||
   canarySourceAcquisition?.docker?.assembly !== "internal/security/canarydocker.New" ||
   canarySourceAcquisition?.docker?.binding !==
     "exact running gateway container ID, digest-pinned image, Compose project and service, and run, gateway, and provider evidence labels" ||
@@ -310,7 +378,7 @@ if (
     JSON.stringify(["provider-arguments", "gateway-logs"]) ||
   canarySourceAcquisition?.docker?.serialization !== "forbidden" ||
   canarySourceAcquisition?.docker?.status !==
-    "Docker host source backend and launcher wiring verified; live Docker execution required" ||
+    "Docker host source backend, launcher wiring, and accepted live Docker execution verified" ||
   canarySourceAcquisition?.runtime?.assembly !== "internal/security/canaryruntime.New" ||
   canarySourceAcquisition?.runtime?.binding !==
     "same exact execution.RuntimeSession passed to the native runtime adapter, evidence run, and portable runtime name" ||
@@ -321,7 +389,7 @@ if (
     "captured bytes cleared after scanner close, unusable handoff, or explicit discard" ||
   canarySourceAcquisition?.runtime?.serialization !== "forbidden" ||
   canarySourceAcquisition?.runtime?.status !==
-    "runtime-error source backend and launcher wiring verified; live Docker execution required" ||
+    "runtime-error source backend, launcher wiring, and accepted live Docker execution verified" ||
   !canarySourceAdapter.includes("func New(") ||
   !canarySourceAdapter.includes("func (adapter *Adapter) ValidateBinding(") ||
   !canarySourceAdapter.includes("func (adapter *Adapter) Collect(") ||
@@ -415,7 +483,7 @@ if (
   canaryEvidenceRun?.workspaceCleanup?.parent !== "pre-existing owner-only mode-0700 directory" ||
   canaryEvidenceRun?.workspaceCleanup?.serialization !== "forbidden" ||
   canaryEvidenceRun?.workspaceCleanup?.status !==
-    "workspace lifecycle and launcher wiring verified; live Docker execution required" ||
+    "workspace lifecycle, launcher wiring, and accepted live Docker execution verified" ||
   canaryEvidenceRun?.sandboxCleanup?.assembly !== "internal/security/canarysandbox.New" ||
   canaryEvidenceRun?.sandboxCleanup?.resource !==
     "exact DataGround execution returned by the OpenShell provider" ||
@@ -423,7 +491,7 @@ if (
     "terminate then require a timestamped exact terminal observation" ||
   canaryEvidenceRun?.sandboxCleanup?.serialization !== "forbidden" ||
   canaryEvidenceRun?.sandboxCleanup?.status !==
-    "sandbox cleanup and launcher wiring verified; live Docker execution required" ||
+    "sandbox cleanup, launcher wiring, and accepted live Docker execution verified" ||
   canaryEvidenceRun?.providerProvisioning?.assembly !==
     "internal/security/canaryprovider.Provision" ||
   canaryEvidenceRun?.providerProvisioning?.name !== "dg-canary-provider-<runID>" ||
@@ -438,7 +506,7 @@ if (
     "require pre-create absence then credential-safe exact identity observation on the dedicated evidence gateway" ||
   canaryEvidenceRun?.providerProvisioning?.serialization !== "forbidden" ||
   canaryEvidenceRun?.providerProvisioning?.status !==
-    "provider provisioning, closed composition, and launcher wiring verified; live Docker execution required" ||
+    "provider provisioning, closed composition, launcher wiring, and accepted live Docker execution verified" ||
   canaryEvidenceRun?.providerCleanup?.assembly !== "internal/security/canaryprovider.New" ||
   canaryEvidenceRun?.providerCleanup?.name !== "dg-canary-provider-<runID>" ||
   canaryEvidenceRun?.providerCleanup?.resource !==
@@ -449,7 +517,7 @@ if (
     "dedicated evidence gateway with no concurrent provider mutation" ||
   canaryEvidenceRun?.providerCleanup?.serialization !== "forbidden" ||
   canaryEvidenceRun?.providerCleanup?.status !==
-    "provider cleanup and launcher wiring verified; live Docker execution required" ||
+    "provider cleanup, launcher wiring, and accepted live Docker execution verified" ||
   canaryEvidenceRun?.composition?.assembly !== "internal/security/canaryharness.New" ||
   canaryEvidenceRun?.composition?.binding !==
     "exact run-derived portable names, provisioned provider binding and commitment, ready execution, verifier workspace, and concrete OpenShell, Docker, and runtime backends" ||
@@ -462,7 +530,7 @@ if (
     "close the exact wrapped session once after the first six live surfaces and before runtime-error acquisition" ||
   canaryEvidenceRun?.composition?.serialization !== "forbidden" ||
   canaryEvidenceRun?.composition?.status !==
-    "closed run and launcher composition verified; live Docker execution required" ||
+    "closed run, launcher composition, and accepted live Docker execution verified" ||
   canaryEvidenceRun?.launcher?.assembly !== "internal/security/canarylauncher.Run" ||
   canaryEvidenceRun?.launcher?.command !==
     "go run ./cmd/dataground-openshell-canary --workspace-root <owner-only-mode-0700-directory>" ||
@@ -482,9 +550,9 @@ if (
     "evidence JSON on stdout only after complete run cleanup and gateway teardown" ||
   canaryEvidenceRun?.launcher?.serialization !== "configuration forbidden" ||
   canaryEvidenceRun?.launcher?.status !==
-    "launcher implementation verified; live Docker execution required" ||
+    "launcher implementation and accepted live Docker execution verified" ||
   canaryEvidenceRun?.status !==
-    "provider provisioning, run, source lifecycle, cleanup, closed composition, and launcher verified; live Docker execution required" ||
+    "provider provisioning, run, source lifecycle, cleanup, closed composition, launcher, and accepted live Docker execution verified" ||
   !canaryEvidenceSource.includes("func Run(") ||
   !canaryEvidenceSource.includes("config.Sources.ValidateBinding(") ||
   !canaryEvidenceSource.includes("config.Sources.Collect(") ||
@@ -788,8 +856,12 @@ if (
 ) {
   fail("mutable images or unsafe sandbox bind mounts are present in the local topology");
 }
-if (!Array.isArray(profile.blockers) || profile.blockers.length === 0) {
-  fail("incomplete live certification blockers must be explicit");
+if (
+  !Array.isArray(profile.blockers) ||
+  profile.blockers.length === 0 ||
+  profile.blockers.some((blocker) => blocker.includes("credential non-exposure record"))
+) {
+  fail("remaining production certification blockers must be explicit and current");
 }
 
 const credentialEvidenceWorkflow = await readFile(
