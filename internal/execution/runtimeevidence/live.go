@@ -125,8 +125,8 @@ func (runner *LiveCaseRunner) Run(ctx context.Context, request CheckRequest) (Ob
 	succeeded = true
 	return Observation{
 		StartedAt: receipt.StartedAt, FinishedAt: receipt.FinishedAt,
-		Commitment: commitment,
-		NativeProtocolExposed: receipt.NativeProtocolExposed,
+		Commitment:              commitment,
+		NativeProtocolExposed:   receipt.NativeProtocolExposed,
 		UpstreamEndpointExposed: receipt.UpstreamEndpointExposed,
 	}, nil
 }
@@ -187,9 +187,9 @@ func commitCaseReceipt(request CheckRequest, receipt CaseReceipt) (string, error
 		PayloadSHA256 string    `json:"payloadSHA256"`
 	}{
 		Domain: "dataground.dev/openshell-runtime-case/v1",
-		RunID: request.RunID, Name: request.Name, Resources: request.Resources,
-		StartedAt: receipt.StartedAt.UTC().Format(time.RFC3339Nano),
-		FinishedAt: receipt.FinishedAt.UTC().Format(time.RFC3339Nano),
+		RunID:  request.RunID, Name: request.Name, Resources: request.Resources,
+		StartedAt:     receipt.StartedAt.UTC().Format(time.RFC3339Nano),
+		FinishedAt:    receipt.FinishedAt.UTC().Format(time.RFC3339Nano),
 		PayloadSHA256: receipt.PayloadSHA256,
 	})
 	if err != nil {
