@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	statusPassed      = "passed"
-	statusRemoved     = "removed"
-	maxSafeInteger    = int64(1<<53 - 1)
+	statusPassed   = "passed"
+	statusRemoved  = "removed"
+	maxSafeInteger = int64(1<<53 - 1)
 )
 
 var (
@@ -82,10 +82,10 @@ type CheckRequest struct {
 }
 
 type Observation struct {
-	StartedAt              time.Time
-	FinishedAt             time.Time
-	Commitment             string
-	NativeProtocolExposed  bool
+	StartedAt               time.Time
+	FinishedAt              time.Time
+	Commitment              string
+	NativeProtocolExposed   bool
 	UpstreamEndpointExposed bool
 }
 
@@ -142,12 +142,12 @@ type record struct {
 }
 
 type runRecord struct {
-	ID         string               `json:"id"`
-	Resources  Resources            `json:"resources"`
-	StartedAt  string               `json:"startedAt"`
-	FinishedAt string               `json:"finishedAt"`
-	Verifier   verifier             `json:"verifier"`
-	Provenance provenanceRecord     `json:"provenance"`
+	ID         string           `json:"id"`
+	Resources  Resources        `json:"resources"`
+	StartedAt  string           `json:"startedAt"`
+	FinishedAt string           `json:"finishedAt"`
+	Verifier   verifier         `json:"verifier"`
+	Provenance provenanceRecord `json:"provenance"`
 }
 
 type verifier struct {
@@ -163,13 +163,13 @@ type provenanceRecord struct {
 }
 
 type check struct {
-	Name                     CheckName `json:"name"`
-	Status                   string    `json:"status"`
-	StartedAt                string    `json:"startedAt"`
-	FinishedAt               string    `json:"finishedAt"`
-	ObservationCommitment    string    `json:"observationCommitment"`
-	NativeProtocolExposed    bool      `json:"nativeProtocolExposed"`
-	UpstreamEndpointExposed  bool      `json:"upstreamEndpointExposed"`
+	Name                    CheckName `json:"name"`
+	Status                  string    `json:"status"`
+	StartedAt               string    `json:"startedAt"`
+	FinishedAt              string    `json:"finishedAt"`
+	ObservationCommitment   string    `json:"observationCommitment"`
+	NativeProtocolExposed   bool      `json:"nativeProtocolExposed"`
+	UpstreamEndpointExposed bool      `json:"upstreamEndpointExposed"`
 }
 
 type capability struct {
