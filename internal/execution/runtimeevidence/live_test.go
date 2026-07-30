@@ -43,6 +43,12 @@ func TestLiveCasesOwnCanonicalDispatchAndObservations(t *testing.T) {
 		}
 		commitments[observation.Commitment] = struct{}{}
 	}
+	if err := cases.FinalizeBinding(testRunID, resources); err != nil {
+		t.Fatalf("FinalizeBinding() error = %v", err)
+	}
+	if _, err := cases.Run(context.Background(), testLiveRequest(CheckGatewayReady)); !errors.Is(err, ErrLiveCaseOrder) {
+		t.Fatalf("Run() after finalization error = %v", err)
+	}
 	if !reflect.DeepEqual(scenario.calls, requiredChecks[:]) {
 		t.Fatalf("scenario calls = %v, want %v", scenario.calls, requiredChecks)
 	}
@@ -162,6 +168,21 @@ func TestLiveCasesFailClosed(t *testing.T) {
 		close(scenario.release)
 		if err := <-firstResult; !errors.Is(err, ErrLiveCaseOrder) {
 			t.Fatalf("first Run() after overlap error = %v", err)
+		}
+	})
+
+	t.Run("interference before finalization is retained", func(t *testing.T) {
+		cases := newTestLiveCases(t, &liveScenario{})
+		for _, name := range requiredChecks {
+			if _, err := cases.Run(context.Background(), testLiveRequest(name)); err != nil {
+				t.Fatalf("Run(%q) error = %v", name, err)
+			}
+		}
+		if _, err := cases.Run(context.Background(), testLiveRequest(CheckGatewayReady)); !errors.Is(err, ErrLiveCaseOrder) {
+			t.Fatalf("extra Run() error = %v", err)
+		}
+		if err := cases.FinalizeBinding(testRunID, namesForRun(testRunID)); !errors.Is(err, ErrLiveCaseBinding) {
+			t.Fatalf("FinalizeBinding() error = %v", err)
 		}
 	})
 
