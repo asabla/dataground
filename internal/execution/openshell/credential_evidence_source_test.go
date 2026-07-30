@@ -108,17 +108,20 @@ func TestCredentialEvidenceFilesystemProgramIsFixedAndBounded(t *testing.T) {
 	t.Parallel()
 
 	for _, required := range []string{
-		`const rootDevice = fs.statSync(root).dev;`,
+		`const excludedDirectories = new Set(["/proc", "/sys"]);`,
 		`const buffer = Buffer.alloc(64 * 1024);`,
 		`const ignorableCodes = new Set(["EACCES", "EPERM", "ENOENT", "ENOTDIR", "ELOOP"]);`,
-		`stat.dev === rootDevice`,
+		`excludedDirectories.has(candidate)`,
 		`fs.writeSync(1, buffer`,
 	} {
 		if !strings.Contains(credentialEvidenceFilesystemProgram, required) {
 			t.Fatalf("filesystem program is missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"child_process", "process.env", "process.argv", "eval(", "spawn("} {
+	for _, forbidden := range []string{
+		"child_process", "process.env", "process.argv", "eval(", "spawn(",
+		"rootDevice", "stat.dev ===",
+	} {
 		if strings.Contains(credentialEvidenceFilesystemProgram, forbidden) {
 			t.Fatalf("filesystem program contains %q", forbidden)
 		}
