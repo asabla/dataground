@@ -117,14 +117,14 @@ func TestNewRejectsInvalidPlanBeforeCaseExecutionOrCleanup(t *testing.T) {
 	t.Parallel()
 
 	for name, mutate := range map[string]func(*Config){
-		"run ID": func(config *Config) { config.RunID = "invalid" },
+		"run ID":        func(config *Config) { config.RunID = "invalid" },
 		"source commit": func(config *Config) { config.Provenance.SourceCommit = "invalid" },
-		"workflow run": func(config *Config) { config.Provenance.WorkflowRunID = 0 },
+		"workflow run":  func(config *Config) { config.Provenance.WorkflowRunID = 0 },
 		"unsafe workflow run": func(config *Config) {
 			config.Provenance.WorkflowRunID = maxSafeInteger + 1
 		},
 		"case runner": func(config *Config) { config.Cases = nil },
-		"cleanup": func(config *Config) { config.Cleanup.Workspace = nil },
+		"cleanup":     func(config *Config) { config.Cleanup.Workspace = nil },
 	} {
 		name, mutate := name, mutate
 		t.Run(name, func(t *testing.T) {
@@ -162,9 +162,9 @@ func TestExecuteCleansEveryResourceAfterCaseFailureAndSanitizesError(t *testing.
 
 	base := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
 	runner := &caseRunner{
-		base:       base,
-		failAt:     CheckTurnFailure,
-		failure:    errors.New("sensitive runtime output"),
+		base:    base,
+		failAt:  CheckTurnFailure,
+		failure: errors.New("sensitive runtime output"),
 	}
 	var cleanupKinds []string
 	run, err := newEvidenceRun(
@@ -404,7 +404,7 @@ type caseRunner struct {
 	failAt              CheckName
 	failure             error
 	mutateAt            CheckName
-	mutate               func(*Observation)
+	mutate              func(*Observation)
 	duplicateCommitment bool
 }
 
