@@ -66,7 +66,7 @@ pnpm dev:design-system
 pnpm --filter @dataground/ui test:stories
 ```
 
-The API listens on `127.0.0.1:8080` by default. Process-local mode refuses non-loopback binding and exposes the in-memory reference agent-service lifecycle described in [reference runtime guidance](reference-runtime.md). Every `/v1` request must use `Authorization: Bearer development-token-with-at-least-thirty-two-bytes` in the example configuration. The startup credential is removed from the API process environment and represented only by its digest after assembly. This static single-domain verifier is a local boundary, not an OIDC implementation or production authentication profile. The workbench uses Vite's development server. Storybook documents shared component contracts and is not a product application.
+The API listens on `127.0.0.1:8080` by default. Process-local mode refuses non-loopback binding and exposes the in-memory reference agent-service lifecycle described in [reference runtime guidance](reference-runtime.md). Every `/v1` request must use `Authorization: Bearer development-token-with-at-least-thirty-two-bytes` in the example configuration. The startup credential is removed from the API process environment and represented only by its digest after assembly. This static single-domain verifier and its exact-principal Cedar action policy are local boundaries, not production identity or policy services. See [API action authorization](api-authorization.md) for the closed route mapping and failure semantics. The workbench uses Vite's development server. Storybook documents shared component contracts and is not a product application.
 
 The internal enforcement-object S3 protocol boundary and its remaining backend certification requirements are documented in [S3 enforcement-object guidance](s3-enforcement-objects.md). The narrower invocation-artifact transport evidence and exclusions are documented in [S3 invocation-artifact guidance](s3-invocation-artifacts.md).
 
@@ -82,7 +82,7 @@ go run ./cmd/dataground-api
 DATAGROUND_DATABASE_URL='postgres://dataground:dataground@127.0.0.1:5432/dataground?sslmode=disable' go run ./cmd/dataground-worker
 ```
 
-Durable mode persists resources, idempotency results, explicit publication and invocation operations, event replay, external-effect receipts, outbox events, and audit records. The development authenticator requires an explicit loopback IP listener even in durable mode. Production non-loopback binding remains blocked until a production OIDC verifier is composed. Cedar action authorization is still absent. See [durable control-plane operations](durable-control-plane.md).
+Durable mode persists resources, idempotency results, explicit publication and invocation operations, event replay, external-effect receipts, outbox events, and audit records. The development authenticator and static Cedar action policy require an explicit loopback IP listener even in durable mode. Production non-loopback binding remains blocked until production OIDC verification and policy-service composition exist. See [API action authorization](api-authorization.md) and [durable control-plane operations](durable-control-plane.md).
 
 See [design-system guidance](design-system.md) before changing token source, component APIs, themes, density behavior, or Storybook configuration.
 
