@@ -865,7 +865,7 @@ if (
     "credential non-exposure certified for the pinned development profile" ||
   profile.capabilities?.credentialNonExposure !== "certified for pinned development profile" ||
   profile.capabilities?.realSandboxInvocation !==
-    "v2 evidence producer, immutable execution creator, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; Docker launcher and live certification blocked" ||
+    "v2 evidence producer, immutable execution creator, runtime provider binding, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; Docker launcher and live certification blocked" ||
   JSON.stringify(profile.blockers) !== JSON.stringify(expectedRemainingBlockers)
 ) {
   fail("the accepted credential evidence claim or remaining blockers are inconsistent");
@@ -960,11 +960,24 @@ const runtimeExecutionCreatorSource = await readFile(
   resolve(root, "internal/execution/runtimeevidence/execution_creator.go"),
   "utf8",
 );
+const runtimeProviderSource = await readFile(
+  resolve(root, "internal/execution/runtimeevidence/provider_binding.go"),
+  "utf8",
+);
+const runtimeProviderContractSource = await readFile(
+  resolve(root, "internal/execution/provider_bindings.go"),
+  "utf8",
+);
+const runtimeProviderOpenShellSource = await readFile(
+  resolve(root, "internal/execution/openshell/provider_binding_runtime.go"),
+  "utf8",
+);
 const runtimeScenarioDriver = runtimeProducer?.scenarioDriver;
 const runtimeOpenShellProviderProbes = runtimeProducer?.openShellProviderProbes;
 const runtimeCodexRuntimeProbes = runtimeProducer?.codexRuntimeProbes;
 const runtimeHarness = runtimeProducer?.harness;
 const runtimeExecutionCreator = runtimeProducer?.executionCreator;
+const runtimeProvider = runtimeProducer?.runtimeProvider;
 const runtimeLiveCaseBackend = runtimeProducer?.liveCaseBackend;
 if (
   runtimeConformance?.schema !== "deploy/openshell/runtime-conformance-evidence.schema.json" ||
@@ -1134,7 +1147,22 @@ if (
     "shared irreversible create state across copies; overlap and replay poison creation without revoking cleanup authority" ||
   runtimeExecutionCreator?.serialization !== "configuration and creator forbidden" ||
   runtimeExecutionCreator?.status !==
-    "implemented; Docker topology, provider credential provisioning, launcher composition, and live record required" ||
+    "implemented with runtime provider provisioning; Docker topology, secret-source loading, launcher composition, and live record required" ||
+  runtimeProvider?.assembly !== "internal/execution/runtimeevidence.NewRuntimeProvider" ||
+  runtimeProvider?.binding !==
+    "one run-derived Codex provider name under the exact runtime isolation domain and gateway, with immutable native ID and resource version retained only for cleanup" ||
+  runtimeProvider?.credentials !==
+    "exact access_token, refresh_token, account_id, and id_token fields; each 1..65536 bytes, passed only through an allowlisted empty child environment and cleared after the first attempt" ||
+  runtimeProvider?.lifecycle !==
+    "require fresh absence before one create attempt, then accept only fresh exact codex metadata with the four checked credential keys" ||
+  runtimeProvider?.recovery !==
+    "lost create acknowledgement accepted only after exact credential-safe observation; cleanup requires exact identity and fresh timestamped absence" ||
+  runtimeProvider?.concurrency !==
+    "shared irreversible provisioning state across copies; overlap and replay poison provisioning without revoking cleanup authority" ||
+  runtimeProvider?.serialization !==
+    "credentials, requests, configuration, and provisioner forbidden" ||
+  runtimeProvider?.status !==
+    "implemented; Docker topology, secret-source loading, launcher composition, and live record required" ||
   JSON.stringify(runtimeProducer?.cleanupOrder) !==
     JSON.stringify(["sandbox", "providerBinding", "workspace"]) ||
   runtimeProducer?.serialization !==
@@ -1209,6 +1237,30 @@ if (
   runtimeExecutionCreatorSource.includes("os/exec") ||
   runtimeExecutionCreatorSource.includes('"docker"') ||
   runtimeExecutionCreatorSource.includes('"openshell"') ||
+  !runtimeProviderContractSource.includes("type RuntimeConformanceCredentials struct") ||
+  !runtimeProviderContractSource.includes("type RuntimeConformanceProviderProvisioner interface") ||
+  !runtimeProviderContractSource.includes("func (RuntimeConformanceCredentials) MarshalJSON(") ||
+  !runtimeProviderContractSource.includes("func (RuntimeConformanceProviderRequest) MarshalJSON(") ||
+  !runtimeProviderOpenShellSource.includes("func (provider *Provider) CreateRuntimeConformanceProvider(") ||
+  !runtimeProviderOpenShellSource.includes("func (provider *Provider) ObserveRuntimeConformanceProvider(") ||
+  !runtimeProviderOpenShellSource.includes("runtimeConformanceProviderKeys") ||
+  !runtimeProviderOpenShellSource.includes("RunWithCredentials(") ||
+  !runtimeProviderOpenShellSource.includes("clearRuntimeConformanceCredentialMap") ||
+  runtimeProviderOpenShellSource.includes("os.Environ()") ||
+  runtimeProviderOpenShellSource.includes('"sh", "-c"') ||
+  !providerBindingCreateSource.includes("command.Env = make(") ||
+  !runtimeProviderSource.includes("func NewRuntimeProvider(") ||
+  !runtimeProviderSource.includes("func (provider *RuntimeProvider) Provision(") ||
+  !runtimeProviderSource.includes("func (provider *RuntimeProvider) Cleanup(") ||
+  !runtimeProviderSource.includes("ObserveRuntimeConformanceProvider(") ||
+  !runtimeProviderSource.includes("CreateRuntimeConformanceProvider(") ||
+  !runtimeProviderSource.includes("clearRuntimeProviderCredentials") ||
+  !runtimeProviderSource.includes("context.WithoutCancel(ctx)") ||
+  !runtimeProviderSource.includes("func (RuntimeProviderConfig) MarshalJSON(") ||
+  !runtimeProviderSource.includes("func (RuntimeProvider) MarshalJSON(") ||
+  runtimeProviderSource.includes("os/exec") ||
+  runtimeProviderSource.includes('"docker"') ||
+  runtimeProviderSource.includes('"openshell"') ||
   !runtimeHarnessSource.includes("func NewHarness(") ||
   !runtimeHarnessSource.includes("return newHarness(config, time.Now)") ||
   !runtimeHarnessSource.includes("NewOpenShellProbes(") ||
@@ -1241,7 +1293,7 @@ if (
   )
 ) {
   fail(
-    "the runtime evidence producer, immutable execution creator, concrete probes, or closed composition harness are missing, mutable, or overclaim live certification",
+    "the runtime evidence producer, immutable execution creator, runtime provider binding, concrete probes, or closed composition harness are missing, mutable, or overclaim live certification",
   );
 }
 
