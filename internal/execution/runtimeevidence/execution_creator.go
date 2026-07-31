@@ -176,10 +176,11 @@ func (creator *ExecutionCreator) Create(ctx context.Context) (execution.Executio
 	if state.failed || state.cleaned {
 		state.failed = true
 		state.mu.Unlock()
+		cleanupErr := state.cleanupAfterFailure()
 		return execution.Execution{}, errors.Join(
 			ErrExecutionCreation,
 			ErrExecutionCreationOrder,
-			state.cleanupAfterFailure(),
+			cleanupErr,
 		)
 	}
 	state.created = true
@@ -201,7 +202,6 @@ func (creator *ExecutionCreator) Cleanup(
 		request.ResourceName != state.resources.Sandbox ||
 		!state.started ||
 		!state.created ||
-		state.failed ||
 		state.cleaning {
 		state.failed = true
 		state.mu.Unlock()
@@ -293,7 +293,9 @@ func (state *executionCreationState) cleanupPersisted(ctx context.Context) error
 	if errors.Is(err, execution.ErrExecutionMissing) {
 		return nil
 	}
-	if err != nil || !validCreatedExecutionRecord(record, state, record.Execution.State) {
+	if err != nil ||
+		!validCleanupExecutionState(record.Execution.State) ||
+		!validCreatedExecutionRecord(record, state, record.Execution.State) {
 		return ErrExecutionCreationCleanup
 	}
 	if err := state.provider.Terminate(ctx, state.ref); err != nil {
@@ -366,6 +368,15 @@ func validCreatedExecutionIdentity(
 		value.GatewayID == state.resources.Gateway
 }
 
+func validCleanupExecutionState(state string) bool {
+	switch state {
+	case "pending", "provisioning", "ready", "deleting", "terminated":
+		return true
+	default:
+		return false
+	}
+}
+
 func runtimeExecutionID(runID string) string {
 	return identity.Derived(
 		"exe",
@@ -399,7 +410,6 @@ func (ExecutionCreator) MarshalJSON() ([]byte, error) {
 }
 
 var (
-	_ CleanupFunc     = (*ExecutionCreator)(nil).Cleanup
 	_ json.Marshaler = ExecutionCreationConfig{}
 	_ json.Marshaler = ExecutionCreator{}
 )
