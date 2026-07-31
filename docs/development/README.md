@@ -14,6 +14,7 @@ PostgreSQL 18 is required for durable integration tests and durable control-plan
 | `cmd/dataground-worker` | Replaceable publication and invocation reconciler |
 | `cmd/dataground-migrate` | PostgreSQL schema migration and compatibility check |
 | `cmd/dataground-repair` | Audited failed-operation repair command |
+| `cmd/dataground-policy-install` | Audited immutable invocation-policy installer |
 | `internal` | Platform-owned Go implementation packages |
 | `deploy/openshell` | Pinned, loopback-only OpenShell development profile and deny-all fixture |
 | `deploy/storage` | Pinned, disposable S3 enforcement-object conformance candidate |
@@ -83,6 +84,8 @@ DATAGROUND_DATABASE_URL='postgres://dataground:dataground@127.0.0.1:5432/datagro
 ```
 
 Durable mode persists resources, idempotency results, explicit publication and invocation operations, event replay, external-effect receipts, outbox events, command audits, and append-only API authorization decisions. A completed action evaluation is not released until PostgreSQL records its principal, scope, outcome, correlation, policy-set identity, and exact policy digest. The development authenticator and static Cedar action policy require an explicit loopback IP listener even in durable mode. Production non-loopback binding remains blocked until production OIDC verification and policy-service composition exist. See [API action authorization](api-authorization.md) and [durable control-plane operations](durable-control-plane.md).
+
+After an exact service revision exists, an authorized operator can install its reviewed Cedar invocation policy with `go run ./cmd/dataground-policy-install` and the required `-isolation-domain`, `-service`, `-revision`, `-policy-set`, `-policy-file`, `-actor`, `-reason`, and `-correlation-id` flags. The command requires the current PostgreSQL schema, accepts one bounded regular policy file, validates it against the canonical invocation schema, and atomically records immutable policy bytes plus safe installation audit evidence. Its database credential is the administrative authorization boundary. Identical replay is read-only; changed policy or attribution for the same revision is rejected. This is an internal operator boundary, not public policy authoring, approval workflow, signing, distribution, reload, or default-worker composition.
 
 See [design-system guidance](design-system.md) before changing token source, component APIs, themes, density behavior, or Storybook configuration.
 
