@@ -865,7 +865,7 @@ if (
     "credential non-exposure certified for the pinned development profile" ||
   profile.capabilities?.credentialNonExposure !== "certified for pinned development profile" ||
   profile.capabilities?.realSandboxInvocation !==
-    "v2 evidence producer, immutable execution creator, runtime provider binding, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; Docker launcher and live certification blocked" ||
+    "v2 evidence producer, immutable execution creator, private credential source, runtime provider binding, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; Docker launcher and live certification blocked" ||
   JSON.stringify(profile.blockers) !== JSON.stringify(expectedRemainingBlockers)
 ) {
   fail("the accepted credential evidence claim or remaining blockers are inconsistent");
@@ -960,6 +960,14 @@ const runtimeExecutionCreatorSource = await readFile(
   resolve(root, "internal/execution/runtimeevidence/execution_creator.go"),
   "utf8",
 );
+const runtimeCredentialSourceSource = await readFile(
+  resolve(root, "internal/execution/runtimeevidence/credential_source.go"),
+  "utf8",
+);
+const runtimeCredentialSourceUnixSource = await readFile(
+  resolve(root, "internal/execution/runtimeevidence/credential_source_unix.go"),
+  "utf8",
+);
 const runtimeProviderSource = await readFile(
   resolve(root, "internal/execution/runtimeevidence/provider_binding.go"),
   "utf8",
@@ -977,6 +985,7 @@ const runtimeOpenShellProviderProbes = runtimeProducer?.openShellProviderProbes;
 const runtimeCodexRuntimeProbes = runtimeProducer?.codexRuntimeProbes;
 const runtimeHarness = runtimeProducer?.harness;
 const runtimeExecutionCreator = runtimeProducer?.executionCreator;
+const runtimeCredentialSource = runtimeProducer?.runtimeCredentialSource;
 const runtimeProvider = runtimeProducer?.runtimeProvider;
 const runtimeLiveCaseBackend = runtimeProducer?.liveCaseBackend;
 if (
@@ -993,7 +1002,7 @@ if (
     JSON.stringify(expectedRuntimeResourceNames) ||
   JSON.stringify(runtimeConformance?.provenance) !== JSON.stringify(expectedRuntimeProvenance) ||
   runtimeConformance?.status !==
-    "v2 evidence producer, immutable execution creation, concrete probes, and closed composition harness defined; Docker launcher and live record required" ||
+    "v2 evidence producer, immutable execution creation, private credential acquisition, concrete probes, and closed composition harness defined; Docker launcher and live record required" ||
   runtimeEvidenceSchema?.properties?.schemaVersion?.const !== runtimeConformance.schemaVersion ||
   runtimeEvidenceSchema?.properties?.checks?.minItems !== expectedRuntimeChecks.length ||
   runtimeEvidenceSchema?.properties?.checks?.maxItems !== expectedRuntimeChecks.length ||
@@ -1147,7 +1156,23 @@ if (
     "shared irreversible create state across copies; overlap and replay poison creation without revoking cleanup authority" ||
   runtimeExecutionCreator?.serialization !== "configuration and creator forbidden" ||
   runtimeExecutionCreator?.status !==
-    "implemented with runtime provider provisioning; Docker topology, secret-source loading, launcher composition, and live record required" ||
+    "implemented with runtime provider provisioning; Docker topology, launcher composition, workflow secret materialization, and live record required" ||
+  runtimeCredentialSource?.assembly !==
+    "internal/execution/runtimeevidence.NewRuntimeCredentialSource with NewRuntimeProviderFromCredentialSource" ||
+  runtimeCredentialSource?.binding !==
+    "one fresh absolute credential-bundle directory beneath an owner-controlled parent, containing only the four fixed Codex credential files" ||
+  runtimeCredentialSource?.filesystem !==
+    "non-symlink owner-held parent without group or world write, mode-0700 bundle, and single-link owner-held mode-0600 regular files of 1..65536 bytes held by exact filesystem identity" ||
+  runtimeCredentialSource?.lifecycle !==
+    "validate before acquisition, load once in fixed order, remove the exact files and empty bundle, synchronize the parent, then hand bytes directly to the runtime provisioner" ||
+  runtimeCredentialSource?.failure !==
+    "replay, overlap, cancellation, path substitution, extra entries, unsafe ownership or permissions, and uncertain removal fail closed without revoking exact cleanup authority" ||
+  runtimeCredentialSource?.exposure !==
+    "public callers receive only the runtime provisioner; credential bytes do not enter arguments, inherited environments, generic readers, serialization, or caller-visible return values" ||
+  runtimeCredentialSource?.serialization !==
+    "source configuration, provider-source configuration, source, credentials, and provisioner forbidden" ||
+  runtimeCredentialSource?.status !==
+    "implemented; Docker topology, launcher composition, workflow secret materialization, and live record required" ||
   runtimeProvider?.assembly !== "internal/execution/runtimeevidence.NewRuntimeProvider" ||
   runtimeProvider?.binding !==
     "one run-derived Codex provider name under the exact runtime isolation domain and gateway, with immutable native ID and resource version retained only for cleanup" ||
@@ -1162,7 +1187,7 @@ if (
   runtimeProvider?.serialization !==
     "credentials, requests, configuration, and provisioner forbidden" ||
   runtimeProvider?.status !==
-    "implemented; Docker topology, secret-source loading, launcher composition, and live record required" ||
+    "implemented with private credential acquisition; Docker topology, launcher composition, workflow secret materialization, and live record required" ||
   JSON.stringify(runtimeProducer?.cleanupOrder) !==
     JSON.stringify(["sandbox", "providerBinding", "workspace"]) ||
   runtimeProducer?.serialization !==
@@ -1237,6 +1262,29 @@ if (
   runtimeExecutionCreatorSource.includes("os/exec") ||
   runtimeExecutionCreatorSource.includes('"docker"') ||
   runtimeExecutionCreatorSource.includes('"openshell"') ||
+  !runtimeCredentialSourceSource.includes("func NewRuntimeCredentialSource(") ||
+  !runtimeCredentialSourceSource.includes("func NewRuntimeProviderFromCredentialSource(") ||
+  !runtimeCredentialSourceSource.includes("func (source *RuntimeCredentialSource) load(") ||
+  !runtimeCredentialSourceSource.includes("func (source *RuntimeCredentialSource) Cleanup(") ||
+  !runtimeCredentialSourceSource.includes("exactRuntimeCredentialEntries") ||
+  !runtimeCredentialSourceSource.includes("safeRuntimeCredentialParent") ||
+  !runtimeCredentialSourceSource.includes("safeRuntimeCredentialDirectory") ||
+  !runtimeCredentialSourceSource.includes("safeRuntimeCredentialFile") ||
+  !runtimeCredentialSourceSource.includes("os.SameFile(") ||
+  !runtimeCredentialSourceSource.includes("os.Remove(owned.path)") ||
+  !runtimeCredentialSourceSource.includes("state.parent.Sync()") ||
+  !runtimeCredentialSourceSource.includes("clearRuntimeProviderCredentials(&credentials)") ||
+  !runtimeCredentialSourceSource.includes("func (CredentialSourceConfig) MarshalJSON(") ||
+  !runtimeCredentialSourceSource.includes("func (RuntimeProviderSourceConfig) MarshalJSON(") ||
+  !runtimeCredentialSourceSource.includes("func (RuntimeCredentialSource) MarshalJSON(") ||
+  !runtimeCredentialSourceUnixSource.includes("stat.Uid == uint32(os.Geteuid())") ||
+  !runtimeCredentialSourceUnixSource.includes("stat.Nlink == 1") ||
+  runtimeCredentialSourceSource.includes("os.LookupEnv(") ||
+  runtimeCredentialSourceSource.includes("os.Getenv(") ||
+  runtimeCredentialSourceSource.includes("os.Environ(") ||
+  runtimeCredentialSourceSource.includes("os/exec") ||
+  runtimeCredentialSourceSource.includes('"docker"') ||
+  runtimeCredentialSourceSource.includes('"openshell"') ||
   !runtimeProviderContractSource.includes("type RuntimeConformanceCredentials struct") ||
   !runtimeProviderContractSource.includes("type RuntimeConformanceProviderProvisioner interface") ||
   !runtimeProviderContractSource.includes("func (RuntimeConformanceCredentials) MarshalJSON(") ||
@@ -1299,7 +1347,7 @@ if (
   )
 ) {
   fail(
-    "the runtime evidence producer, immutable execution creator, runtime provider binding, concrete probes, or closed composition harness are missing, mutable, or overclaim live certification",
+    "the runtime evidence producer, immutable execution creator, private credential source, runtime provider binding, concrete probes, or closed composition harness are missing, mutable, or overclaim live certification",
   );
 }
 
