@@ -1071,8 +1071,7 @@ if (
   runtimeOpenShellProviderProbes?.serialization !== "configuration and adapter forbidden" ||
   runtimeOpenShellProviderProbes?.status !==
     "implemented with Codex runtime probes; launcher required" ||
-  runtimeCodexRuntimeProbes?.assembly !==
-    "internal/execution/runtimeevidence.NewCodexProbes" ||
+  runtimeCodexRuntimeProbes?.assembly !== "internal/execution/runtimeevidence.NewCodexProbes" ||
   runtimeCodexRuntimeProbes?.binding !==
     "exact run-derived portable resources, exact persisted ready execution, fresh OpenShell runtime session per case, and pinned internal Codex client" ||
   JSON.stringify(runtimeCodexRuntimeProbes?.cases) !==
