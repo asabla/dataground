@@ -242,11 +242,21 @@ func (workspace *runtimeLauncherWorkspace) removePartial() error {
 			workspace.exportInfo,
 			runtimeLauncherExportLock,
 		)
+	} else {
+		_ = removePartialRuntimeLauncherDirectory(
+			workspace.exportPath,
+			runtimeLauncherExportLock,
+		)
 	}
 	if workspace.policyInfo != nil {
 		_ = removeRuntimeLauncherDirectory(
 			workspace.policyPath,
 			workspace.policyInfo,
+			runtimeLauncherPolicyLock,
+		)
+	} else {
+		_ = removePartialRuntimeLauncherDirectory(
+			workspace.policyPath,
 			runtimeLauncherPolicyLock,
 		)
 	}
@@ -257,6 +267,43 @@ func (workspace *runtimeLauncherWorkspace) removePartial() error {
 	if workspace.parent != nil {
 		_ = workspace.parent.Sync()
 		_ = workspace.parent.Close()
+	}
+	return nil
+}
+
+func removePartialRuntimeLauncherDirectory(path string, lockName string) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil || !safeRuntimeCredentialDirectory(info) {
+		return ErrLauncherCleanup
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil || len(entries) > 1 {
+		return ErrLauncherCleanup
+	}
+	if len(entries) == 1 {
+		if entries[0].Name() != lockName {
+			return ErrLauncherCleanup
+		}
+		lockPath := filepath.Join(path, lockName)
+		lock, err := os.Lstat(lockPath)
+		if err != nil || !safeRuntimeLauncherLock(lock) || os.Remove(lockPath) != nil {
+			return ErrLauncherCleanup
+		}
+	}
+	directory, err := os.Open(path)
+	if err != nil {
+		return ErrLauncherCleanup
+	}
+	if err := directory.Sync(); err != nil {
+		_ = directory.Close()
+		return ErrLauncherCleanup
+	}
+	_ = directory.Close()
+	if err := os.Remove(path); err != nil {
+		return ErrLauncherCleanup
 	}
 	return nil
 }
@@ -344,8 +391,8 @@ func (workspace *runtimeLauncherWorkspace) validParent() bool {
 		os.SameFile(workspace.parentInfo, opened)
 }
 
-func (runtimeLauncherWorkspace) MarshalJSON() ([]byte, error) {
+func (*runtimeLauncherWorkspace) MarshalJSON() ([]byte, error) {
 	return nil, ErrSerialization
 }
 
-var _ json.Marshaler = runtimeLauncherWorkspace{}
+var _ json.Marshaler = (*runtimeLauncherWorkspace)(nil)
