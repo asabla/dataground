@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"time"
 )
 
@@ -107,11 +108,24 @@ func validHarnessConfig(config HarnessConfig) bool {
 		config.Provenance.WorkflowRunID > 0 &&
 		config.Provenance.WorkflowRunID <= maxSafeInteger &&
 		config.ExecutionID != "" &&
-		config.Store != nil &&
-		config.Provider != nil &&
+		!isNilHarnessPort(config.Store) &&
+		!isNilHarnessPort(config.Provider) &&
 		config.Cleanup.Sandbox != nil &&
 		config.Cleanup.ProviderBinding != nil &&
 		config.Cleanup.Workspace != nil
+}
+
+func isNilHarnessPort(value any) bool {
+	if value == nil {
+		return true
+	}
+	reflected := reflect.ValueOf(value)
+	switch reflected.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return reflected.IsNil()
+	default:
+		return false
+	}
 }
 
 func (HarnessConfig) MarshalJSON() ([]byte, error) {
