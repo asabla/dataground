@@ -87,6 +87,15 @@ func TestInvocationAuthorizationPolicyInstallationIsExactAuditedAndAppendOnly(t 
 		ReasonDigest:              append([]byte(nil), reasonDigest[:]...),
 	}
 	repository := persistence.NewRepository(pool)
+	invalidDigest := record
+	invalidDigest.PolicyDigest = append([]byte(nil), record.PolicyDigest...)
+	invalidDigest.PolicyDigest[0] ^= 0xff
+	if err := repository.InstallInvocationAuthorizationPolicy(
+		ctx,
+		invalidDigest,
+	); !errors.Is(err, persistence.ErrInvocationAuthorizationPolicyRecordInvalid) {
+		t.Fatalf("digest-drifted installation error = %v", err)
+	}
 	if err := repository.InstallInvocationAuthorizationPolicy(ctx, record); err != nil {
 		t.Fatalf("install policy: %v", err)
 	}
