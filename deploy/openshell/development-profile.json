@@ -322,7 +322,7 @@
       },
       "workflow": {
         "path": ".github/workflows/openshell-runtime-conformance.yml",
-        "trust": "trusted main push or explicit dispatch through the openshell-runtime-conformance environment",
+        "trust": "trusted main push or explicit main dispatch through the openshell-runtime-conformance environment",
         "permissions": "contents read only",
         "credentials": "four environment-scoped Codex secrets materialized once as owner-only files and absent from the launcher step environment",
         "execution": "checksum-verified pinned OpenShell CLI with exact source commit and workflow-run provenance",
