@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -584,4 +583,3 @@ func (reader *countingReader) Read(_ []byte) (int, error) {
 }
 
 var _ authn.Authenticator = tokenAuthenticator{}
-var _ = errors.Is
