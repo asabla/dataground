@@ -21,7 +21,7 @@ var (
 	ErrInvalidCredential = errors.New("credential is invalid")
 	ErrUnavailable       = errors.New("authentication is unavailable")
 
-	principalIDPattern    = regexp.MustCompile(`^[a-z][a-z0-9_-]{2,127}$`)
+	principalIDPattern     = regexp.MustCompile(`^[a-z][a-z0-9_-]{2,127}$`)
 	isolationDomainPattern = regexp.MustCompile(`^iso_[0-9a-z]{20,32}$`)
 )
 
@@ -144,8 +144,8 @@ type Authenticator interface {
 }
 
 type DevelopmentConfig struct {
-	BearerToken      []byte
-	PrincipalID      string
+	BearerToken       []byte
+	PrincipalID       string
 	IsolationDomainID string
 }
 
