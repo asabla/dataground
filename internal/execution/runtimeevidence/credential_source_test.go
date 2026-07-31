@@ -34,6 +34,9 @@ func TestRuntimeCredentialSourceLoadsAndConsumesExactBundle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRuntimeProviderFromCredentialSource() error = %v", err)
 	}
+	if _, err := os.Lstat(directory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("credential directory remains before provider mutation: %v", err)
+	}
 	if err := provider.Provision(context.Background()); err != nil {
 		t.Fatalf("Provision() error = %v", err)
 	}
@@ -86,6 +89,15 @@ func TestRuntimeCredentialSourceRejectsUnsafeBundles(t *testing.T) {
 		"empty file": func(t *testing.T, directory string) {
 			t.Helper()
 			if err := os.WriteFile(filepath.Join(directory, "access_token"), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"oversized file": func(t *testing.T, directory string) {
+			t.Helper()
+			if err := os.Truncate(
+				filepath.Join(directory, "access_token"),
+				runtimeCredentialSourceMaxBytes+1,
+			); err != nil {
 				t.Fatal(err)
 			}
 		},
