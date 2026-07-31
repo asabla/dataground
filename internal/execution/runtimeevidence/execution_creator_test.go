@@ -285,6 +285,7 @@ func (provider *executionCreatorProvider) Create(
 	request execution.CreateRequest,
 ) (execution.Execution, error) {
 	provider.createRequest = request
+	provider.createRequest.Policy = append([]byte(nil), request.Policy...)
 	value := execution.Execution{
 		IsolationDomainID: request.IsolationDomainID,
 		ID:                runtimeExecutionID(testRunID),
