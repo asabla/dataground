@@ -14,6 +14,7 @@ import (
 
 	"github.com/asabla/dataground/internal/api"
 	"github.com/asabla/dataground/internal/authn"
+	"github.com/asabla/dataground/internal/authz"
 	"github.com/asabla/dataground/internal/reference"
 )
 
@@ -512,7 +513,7 @@ func TestIdempotencyResponsesArePrincipalBound(t *testing.T) {
 	handler, err := server.Handler(tokenAuthenticator{principals: map[string]authn.Principal{
 		"first-token-with-at-least-thirty-two-bytes":  first,
 		"second-token-with-at-least-thirty-two-bytes": second,
-	}})
+	}}, allowAuthorizer{})
 	if err != nil {
 		t.Fatalf("create authenticated handler: %v", err)
 	}
@@ -536,12 +537,66 @@ func TestIdempotencyResponsesArePrincipalBound(t *testing.T) {
 	}
 }
 
-func TestHandlerRejectsTypedNilAuthenticator(t *testing.T) {
+func TestProtectedRoutesAuthorizeBeforeReadingRequests(t *testing.T) {
+	t.Parallel()
+
+	authenticator, err := authn.NewDevelopmentAuthenticator(authn.DevelopmentConfig{
+		BearerToken: []byte(testToken), PrincipalID: testActor, IsolationDomainID: testDomain,
+	})
+	if err != nil {
+		t.Fatalf("create development authenticator: %v", err)
+	}
+	handler, err := api.NewHandler(authenticator, authorizerFunc(func(_ context.Context, request authz.Request) error {
+		if request.Action != authz.CreateAgentService ||
+			request.ResourceType != authz.IsolationDomain ||
+			request.ResourceID != testDomain ||
+			request.IsolationDomainID != testDomain ||
+			request.Principal.ID() != testActor {
+			return authz.ErrUnavailable
+		}
+		return authz.ErrDenied
+	}))
+	if err != nil {
+		t.Fatalf("create authorized handler: %v", err)
+	}
+	reader := &countingReader{}
+	request := httptest.NewRequest(http.MethodPost, serviceCollectionPath(testDomain), reader)
+	request.Header.Set("Authorization", "Bearer "+testToken)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "authorization-order-0001")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("expected forbidden status, got %d", response.Code)
+	}
+	var problem api.ErrorEnvelope
+	decodeResponse(t, response, &problem)
+	if problem.Error.Code != "ACTION_FORBIDDEN" {
+		t.Fatalf("unexpected authorization error: %q", problem.Error.Code)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("request body was read before authorization: %d reads", reader.reads)
+	}
+}
+
+func TestHandlerRejectsTypedNilSecurityDependencies(t *testing.T) {
 	t.Parallel()
 
 	var authenticator *authn.DevelopmentAuthenticator
-	if _, err := api.NewHandler(authenticator); err == nil {
+	if _, err := api.NewHandler(authenticator, allowAuthorizer{}); err == nil {
 		t.Fatal("typed-nil authenticator was accepted")
+	}
+	authenticator, err := authn.NewDevelopmentAuthenticator(authn.DevelopmentConfig{
+		BearerToken: []byte(testToken), PrincipalID: testActor, IsolationDomainID: testDomain,
+	})
+	if err != nil {
+		t.Fatalf("create development authenticator: %v", err)
+	}
+	var authorizer *authz.StaticCedarAuthorizer
+	if _, err := api.NewHandler(authenticator, authorizer); err == nil {
+		t.Fatal("typed-nil authorizer was accepted")
 	}
 }
 
@@ -553,9 +608,13 @@ func newHandler(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatalf("create development authenticator: %v", err)
 	}
-	handler, err := api.NewHandler(authenticator)
+	authorizer, err := authz.NewDevelopmentCedarAuthorizer(testActor, testDomain)
 	if err != nil {
-		t.Fatalf("create authenticated handler: %v", err)
+		t.Fatalf("create development authorizer: %v", err)
+	}
+	handler, err := api.NewHandler(authenticator, authorizer)
+	if err != nil {
+		t.Fatalf("create protected handler: %v", err)
 	}
 	return handler
 }
@@ -572,6 +631,18 @@ func (authenticator tokenAuthenticator) Authenticate(_ context.Context, token []
 	return principal, nil
 }
 
+type allowAuthorizer struct{}
+
+func (allowAuthorizer) Authorize(_ context.Context, _ authz.Request) error {
+	return nil
+}
+
+type authorizerFunc func(context.Context, authz.Request) error
+
+func (authorize authorizerFunc) Authorize(ctx context.Context, request authz.Request) error {
+	return authorize(ctx, request)
+}
+
 type countingReader struct {
 	reads int
 }
@@ -582,3 +653,5 @@ func (reader *countingReader) Read(_ []byte) (int, error) {
 }
 
 var _ authn.Authenticator = tokenAuthenticator{}
+var _ authz.Authorizer = allowAuthorizer{}
+var _ authz.Authorizer = authorizerFunc(nil)
