@@ -60,9 +60,9 @@ func TestExecutionCreatorRejectsDriftAndSerialization(t *testing.T) {
 	var typedNilStore *executionCreatorStore
 	var typedNilProvider *executionCreatorProvider
 	for name, mutate := range map[string]func(*ExecutionCreationConfig){
-		"run":      func(config *ExecutionCreationConfig) { config.RunID = "invalid" },
-		"policy":   func(config *ExecutionCreationConfig) { config.Policy = []byte("version: 1\n") },
-		"store":    func(config *ExecutionCreationConfig) { config.Store = nil },
+		"run":                func(config *ExecutionCreationConfig) { config.RunID = "invalid" },
+		"policy":             func(config *ExecutionCreationConfig) { config.Policy = []byte("version: 1\n") },
+		"store":              func(config *ExecutionCreationConfig) { config.Store = nil },
 		"provider":           func(config *ExecutionCreationConfig) { config.Provider = nil },
 		"typed nil store":    func(config *ExecutionCreationConfig) { config.Store = typedNilStore },
 		"typed nil provider": func(config *ExecutionCreationConfig) { config.Provider = typedNilProvider },
