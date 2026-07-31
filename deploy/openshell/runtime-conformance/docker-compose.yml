@@ -1,0 +1,36 @@
+# Derived from NVIDIA OpenShell v0.0.86 deploy/docker under Apache-2.0.
+services:
+  gateway:
+    image: ghcr.io/nvidia/openshell/gateway@sha256:e21f520a0678ba3cfe749957338b5fa78c75e8e52de13e4559ccbb582f781a0b
+    restart: unless-stopped
+    command: []
+    user: "${DATAGROUND_RUNTIME_CONFORMANCE_UID:?required}:${DATAGROUND_RUNTIME_CONFORMANCE_GID:?required}"
+    group_add:
+      - "${DATAGROUND_RUNTIME_CONFORMANCE_DOCKER_GID:?required}"
+    network_mode: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - type: bind
+        source: "${DATAGROUND_RUNTIME_CONFORMANCE_STATE_PATH:?required}"
+        target: "${DATAGROUND_RUNTIME_CONFORMANCE_STATE_PATH:?required}"
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${DATAGROUND_RUNTIME_CONFORMANCE_JWT_PATH:?required}"
+        target: /run/dataground-runtime-conformance/gateway-jwt
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./gateway.toml
+        target: /etc/openshell/gateway.toml
+        read_only: true
+    labels:
+      dataground.dev/runtime-conformance-run: "${DATAGROUND_RUNTIME_CONFORMANCE_RUN_ID:-}"
+      dataground.dev/runtime-conformance-gateway: "${DATAGROUND_RUNTIME_CONFORMANCE_GATEWAY:-}"
+      dataground.dev/runtime-conformance-provider: "${DATAGROUND_RUNTIME_CONFORMANCE_PROVIDER:-}"
+    environment:
+      OPENSHELL_GATEWAY_CONFIG: /etc/openshell/gateway.toml
+      OPENSHELL_DB_URL: "sqlite:${DATAGROUND_RUNTIME_CONFORMANCE_STATE_PATH:?required}/gateway.db?mode=rwc"
+      XDG_DATA_HOME: "${DATAGROUND_RUNTIME_CONFORMANCE_STATE_PATH:?required}"
+      HOME: "${DATAGROUND_RUNTIME_CONFORMANCE_STATE_PATH:?required}"
