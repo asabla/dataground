@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/asabla/dataground/internal/execution"
+	"github.com/asabla/dataground/internal/identity"
 )
 
 const (
@@ -349,11 +350,11 @@ func (state *openShellProbeState) observationError(ctx context.Context) error {
 }
 
 func runtimeIsolationDomain(runID string) string {
-	return "dg-runtime-domain-" + runID
+	return identity.Derived("iso", "runtime-conformance:"+runID)
 }
 
 func runtimeOperationID(runID string) string {
-	return "dg-runtime-operation-" + runID
+	return identity.Derived("op", "runtime-conformance:"+runID)
 }
 
 func runtimeArtifactPath(runID string) string {
