@@ -182,6 +182,30 @@ func TestRuntimeProviderRejectsReplacementDuringCleanup(t *testing.T) {
 	}
 }
 
+func TestRuntimeProviderCleanupConvergesBeforeNativeMutation(t *testing.T) {
+	t.Parallel()
+
+	privateErr := errors.New("private observation detail")
+	port := &runtimeProviderPort{observeErr: privateErr}
+	provider := newTestRuntimeProvider(t, port)
+	if err := provider.Provision(context.Background()); !errors.Is(
+		err,
+		ErrRuntimeProviderProvision,
+	) || errors.Is(err, privateErr) {
+		t.Fatalf("Provision() error = %v", err)
+	}
+	if err := provider.Cleanup(context.Background(), CleanupRequest{
+		RunID:        testRunID,
+		ResourceKind: "provider",
+		ResourceName: namesForRun(testRunID).Provider,
+	}); err != nil {
+		t.Fatalf("Cleanup() error = %v", err)
+	}
+	if port.createCalls != 0 || port.deleteCalls != 0 {
+		t.Fatalf("native calls = create %d, delete %d", port.createCalls, port.deleteCalls)
+	}
+}
+
 func TestRuntimeProviderRejectsInvalidInputsAndSerialization(t *testing.T) {
 	t.Parallel()
 
@@ -225,6 +249,7 @@ type runtimeProviderPort struct {
 	deleteCalls   int
 	createErr     error
 	deleteErr     error
+	observeErr    error
 	createHook    func()
 }
 
@@ -268,7 +293,7 @@ func (port *runtimeProviderPort) ObserveRuntimeConformanceProvider(
 ) (execution.ProviderBindingObservation, error) {
 	port.mu.Lock()
 	defer port.mu.Unlock()
-	return port.observation(ref.IsolationDomainID, ref.GatewayID, ref.Name), nil
+	return port.observation(ref.IsolationDomainID, ref.GatewayID, ref.Name), port.observeErr
 }
 
 func (port *runtimeProviderPort) ObserveProviderBinding(
@@ -277,7 +302,7 @@ func (port *runtimeProviderPort) ObserveProviderBinding(
 ) (execution.ProviderBindingObservation, error) {
 	port.mu.Lock()
 	defer port.mu.Unlock()
-	return port.observation(ref.IsolationDomainID, ref.GatewayID, ref.Name), nil
+	return port.observation(ref.IsolationDomainID, ref.GatewayID, ref.Name), port.observeErr
 }
 
 func (port *runtimeProviderPort) DeleteProviderBinding(
