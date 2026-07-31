@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	runtimePolicySHA256             = "a193c3421b98a1640aa099d91b528beaee91af2a14980ba423ac3050c40649a9"
-	runtimeExecutionReadyTimeout    = 5 * time.Minute
-	runtimeExecutionPollInterval    = time.Second
+	runtimePolicySHA256            = "a193c3421b98a1640aa099d91b528beaee91af2a14980ba423ac3050c40649a9"
+	runtimeExecutionReadyTimeout   = 5 * time.Minute
+	runtimeExecutionPollInterval   = time.Second
 	runtimeExecutionCleanupTimeout = time.Minute
 )
 
@@ -46,19 +46,19 @@ type ExecutionCreator struct {
 }
 
 type executionCreationState struct {
-	mu       sync.Mutex
-	runID    string
+	mu        sync.Mutex
+	runID     string
 	resources Resources
-	store    HarnessStore
-	provider ExecutionCreationProvider
-	policy   []byte
-	ref      execution.ExecutionRef
-	poll     func(context.Context) error
-	started  bool
-	created  bool
-	cleaning bool
-	cleaned  bool
-	failed   bool
+	store     HarnessStore
+	provider  ExecutionCreationProvider
+	policy    []byte
+	ref       execution.ExecutionRef
+	poll      func(context.Context) error
+	started   bool
+	created   bool
+	cleaning  bool
+	cleaned   bool
+	failed    bool
 }
 
 // NewExecutionCreator owns the immutable OpenShell execution inputs used by
