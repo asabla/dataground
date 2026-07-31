@@ -1240,9 +1240,15 @@ if (
   !runtimeProviderContractSource.includes("type RuntimeConformanceCredentials struct") ||
   !runtimeProviderContractSource.includes("type RuntimeConformanceProviderProvisioner interface") ||
   !runtimeProviderContractSource.includes("func (RuntimeConformanceCredentials) MarshalJSON(") ||
-  !runtimeProviderContractSource.includes("func (RuntimeConformanceProviderRequest) MarshalJSON(") ||
-  !runtimeProviderOpenShellSource.includes("func (provider *Provider) CreateRuntimeConformanceProvider(") ||
-  !runtimeProviderOpenShellSource.includes("func (provider *Provider) ObserveRuntimeConformanceProvider(") ||
+  !runtimeProviderContractSource.includes(
+    "func (RuntimeConformanceProviderRequest) MarshalJSON(",
+  ) ||
+  !runtimeProviderOpenShellSource.includes(
+    "func (provider *Provider) CreateRuntimeConformanceProvider(",
+  ) ||
+  !runtimeProviderOpenShellSource.includes(
+    "func (provider *Provider) ObserveRuntimeConformanceProvider(",
+  ) ||
   !runtimeProviderOpenShellSource.includes("runtimeConformanceProviderKeys") ||
   !runtimeProviderOpenShellSource.includes("RunWithCredentials(") ||
   !runtimeProviderOpenShellSource.includes("clearRuntimeConformanceCredentialMap") ||
