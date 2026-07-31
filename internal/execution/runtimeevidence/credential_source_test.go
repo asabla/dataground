@@ -260,7 +260,6 @@ func TestRuntimeCredentialSourceCleanupBeforeLoadConsumesBundle(t *testing.T) {
 	}
 }
 
-
 func TestRuntimeCredentialSourceRejectsInvalidProviderBeforeAcquisition(t *testing.T) {
 	t.Parallel()
 
