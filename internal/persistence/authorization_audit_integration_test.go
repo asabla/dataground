@@ -118,6 +118,7 @@ func TestAPIAuthorizationDecisionsAreAttributedAndAppendOnly(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate authorization decisions: %v", err)
 	}
+	rows.Close()
 	if len(decisions) != 2 {
 		t.Fatalf("authorization decision count = %d, want 2", len(decisions))
 	}
