@@ -191,10 +191,10 @@ func (probes *scenarioProbes) run(
 	}
 	assertions.NativeProtocolExposed = probes.exposed
 	return ProbeResult{
-		StartedAt: startedAt,
-		FinishedAt: startedAt.Add(time.Millisecond),
+		StartedAt:         startedAt,
+		FinishedAt:        startedAt.Add(time.Millisecond),
 		ObservationSHA256: sha256.Sum256(proof),
-		Assertions: assertions,
+		Assertions:        assertions,
 	}, nil
 }
 
