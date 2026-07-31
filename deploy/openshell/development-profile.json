@@ -411,7 +411,17 @@
           "recovery": "observe deterministic persisted state before cancellation-independent termination; require a fresh exact terminal observation",
           "concurrency": "shared irreversible create state across copies; overlap and replay poison creation without revoking cleanup authority",
           "serialization": "configuration and creator forbidden",
-          "status": "implemented; Docker topology, provider credential provisioning, launcher composition, and live record required"
+          "status": "implemented with runtime provider provisioning; Docker topology, secret-source loading, launcher composition, and live record required"
+        },
+        "runtimeProvider": {
+          "assembly": "internal/execution/runtimeevidence.NewRuntimeProvider",
+          "binding": "one run-derived Codex provider name under the exact runtime isolation domain and gateway, with immutable native ID and resource version retained only for cleanup",
+          "credentials": "exact access_token, refresh_token, account_id, and id_token fields; each 1..65536 bytes, passed only through an allowlisted empty child environment and cleared after the first attempt",
+          "lifecycle": "require fresh absence before one create attempt, then accept only fresh exact codex metadata with the four checked credential keys",
+          "recovery": "lost create acknowledgement accepted only after exact credential-safe observation; cleanup requires exact identity and fresh timestamped absence",
+          "concurrency": "shared irreversible provisioning state across copies; overlap and replay poison provisioning without revoking cleanup authority",
+          "serialization": "credentials, requests, configuration, and provisioner forbidden",
+          "status": "implemented; Docker topology, secret-source loading, launcher composition, and live record required"
         }
       }
     }
@@ -420,7 +430,7 @@
     "gatewayPlacement": "adapter conformance tested",
     "sandboxLifecycle": "adapter conformance tested",
     "codexAppServerStdio": "adapter conformance tested",
-    "realSandboxInvocation": "v2 evidence producer, immutable execution creator, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; Docker launcher and live certification blocked",
+    "realSandboxInvocation": "v2 evidence producer, immutable execution creator, runtime provider binding, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; Docker launcher and live certification blocked",
     "credentialNonExposure": "certified for pinned development profile",
     "rosettaMaterialization": "blocked"
   },
