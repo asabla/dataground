@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -292,7 +291,7 @@ func newRuntimeLauncherPorts(
 		ExportWorkspace:  owned.export,
 		StateStore:       store,
 		ProviderProfiles: profiles,
-	}, openshell.ExecRunner{Environment: runtimeLauncherOpenShellEnvironment()})
+	}, openshell.ExecRunner{Environment: runtimeLauncherOpenShellEnvironment(owned.path)})
 	return &runtimeLauncherPorts{store: store, provider: provider}, nil
 }
 
@@ -452,15 +451,11 @@ func (state *launcherState) cleanup() error {
 	return outcome
 }
 
-func runtimeLauncherOpenShellEnvironment() []string {
-	keys := [...]string{"HOME", "PATH", "XDG_CONFIG_HOME"}
-	environment := make([]string, 0, len(keys))
-	for _, key := range keys {
-		if value, exists := os.LookupEnv(key); exists {
-			environment = append(environment, key+"="+value)
-		}
+func runtimeLauncherOpenShellEnvironment(home string) []string {
+	return []string{
+		"HOME=" + home,
+		"XDG_CONFIG_HOME=" + home,
 	}
-	return environment
 }
 
 func launcherFailure(ctx context.Context, sentinel error) error {
