@@ -129,7 +129,7 @@ func (creator *ExecutionCreator) Create(ctx context.Context) (execution.Executio
 		Driver:            driver,
 		Capabilities:      []string{openShellRuntimeCapability},
 	})
-	if err != nil || !validCreatedGateway(gateway, state) || state.poisoned() {
+	if err != nil || !validCreatedGateway(gateway, state) || state.invalidAfter(readyCtx) {
 		state.fail()
 		return execution.Execution{}, state.creationError(readyCtx, false)
 	}
@@ -141,7 +141,7 @@ func (creator *ExecutionCreator) Create(ctx context.Context) (execution.Executio
 	if err != nil ||
 		!validCreatedGateway(gatewayRecord.Gateway, state) ||
 		gatewayRecord.Endpoint != gatewayEndpoint ||
-		state.poisoned() {
+		state.invalidAfter(readyCtx) {
 		state.fail()
 		return execution.Execution{}, state.creationError(readyCtx, false)
 	}
@@ -149,7 +149,7 @@ func (creator *ExecutionCreator) Create(ctx context.Context) (execution.Executio
 		readyCtx,
 		state.ref.IsolationDomainID,
 		state.resources.Gateway,
-	); err != nil || state.poisoned() {
+	); err != nil || state.invalidAfter(readyCtx) {
 		state.fail()
 		return execution.Execution{}, state.creationError(readyCtx, false)
 	}
@@ -158,12 +158,13 @@ func (creator *ExecutionCreator) Create(ctx context.Context) (execution.Executio
 		OperationID:          runtimeOperationID(state.runID),
 		RequiredCapabilities: []string{openShellRuntimeCapability},
 	})
-	if err != nil || !validCreatedPlacement(placement, state) || state.poisoned() {
+	if err != nil || !validCreatedPlacement(placement, state) || state.invalidAfter(readyCtx) {
 		state.fail()
 		return execution.Execution{}, state.creationError(readyCtx, false)
 	}
 
 	requestPolicy := slices.Clone(policy)
+	creationStartedAt := time.Now().UTC()
 	value, createErr := state.provider.Create(readyCtx, execution.CreateRequest{
 		Placement:         placement,
 		IsolationDomainID: state.ref.IsolationDomainID,
@@ -174,12 +175,14 @@ func (creator *ExecutionCreator) Create(ctx context.Context) (execution.Executio
 		ProviderProfiles:  []string{state.resources.Provider},
 	})
 	clear(requestPolicy)
-	if createErr != nil || !validCreatedExecution(value, state) || state.poisoned() {
+	if createErr != nil ||
+		!validCreatedExecution(value, state) ||
+		state.invalidAfter(readyCtx) {
 		state.fail()
 		return execution.Execution{}, state.creationError(readyCtx, true)
 	}
 
-	ready, err := state.waitForReady(readyCtx)
+	ready, err := state.waitForReady(readyCtx, creationStartedAt)
 	if err != nil {
 		state.fail()
 		return execution.Execution{}, state.creationError(readyCtx, true)
@@ -246,13 +249,18 @@ func (creator *ExecutionCreator) Cleanup(
 
 func (state *executionCreationState) waitForReady(
 	ctx context.Context,
+	startedAt time.Time,
 ) (execution.Execution, error) {
 	for {
 		observation, err := state.provider.Observe(ctx, state.ref)
+		finishedAt := time.Now().UTC()
 		if err != nil ||
+			state.invalidAfter(ctx) ||
 			observation.IsolationDomainID != state.ref.IsolationDomainID ||
 			observation.ExecutionID != state.ref.ID ||
-			observation.ObservedAt.IsZero() {
+			observation.ObservedAt.IsZero() ||
+			observation.ObservedAt.Before(startedAt) ||
+			observation.ObservedAt.After(finishedAt) {
 			return execution.Execution{}, ErrExecutionCreation
 		}
 		switch observation.State {
@@ -310,15 +318,20 @@ func (state *executionCreationState) cleanupPersisted(ctx context.Context) error
 		!validCreatedExecutionRecord(record, state, record.Execution.State) {
 		return ErrExecutionCreationCleanup
 	}
-	if err := state.provider.Terminate(ctx, state.ref); err != nil {
+	startedAt := time.Now().UTC()
+	if err := state.provider.Terminate(ctx, state.ref); err != nil || ctx.Err() != nil {
 		return ErrExecutionCreationCleanup
 	}
 	observation, err := state.provider.Observe(ctx, state.ref)
+	finishedAt := time.Now().UTC()
 	if err != nil ||
+		ctx.Err() != nil ||
 		observation.IsolationDomainID != state.ref.IsolationDomainID ||
 		observation.ExecutionID != state.ref.ID ||
 		observation.State != "terminated" ||
-		observation.ObservedAt.IsZero() {
+		observation.ObservedAt.IsZero() ||
+		observation.ObservedAt.Before(startedAt) ||
+		observation.ObservedAt.After(finishedAt) {
 		return ErrExecutionCreationCleanup
 	}
 	terminal, err := state.store.GetExecution(ctx, state.ref)
@@ -407,7 +420,10 @@ func pollRuntimeExecution(ctx context.Context) error {
 	}
 }
 
-func (state *executionCreationState) poisoned() bool {
+func (state *executionCreationState) invalidAfter(ctx context.Context) bool {
+	if ctx == nil || ctx.Err() != nil {
+		return true
+	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	return state.failed
