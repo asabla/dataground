@@ -33,7 +33,8 @@
     "openshell:credential-evidence:check": "node scripts/check-openshell-credential-evidence.mjs",
     "openshell:credential-evidence:run": "go run ./cmd/dataground-openshell-canary",
     "openshell:credential-evidence:accepted:check": "node scripts/check-openshell-credential-evidence.mjs deploy/openshell/evidence/openshell-credential-non-exposure-v3.json",
-    "openshell:runtime-evidence:check": "node scripts/check-openshell-runtime-evidence.mjs"
+    "openshell:runtime-evidence:check": "node scripts/check-openshell-runtime-evidence.mjs",
+    "openshell:runtime-evidence:run": "go run ./cmd/dataground-openshell-runtime-conformance"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.4",
