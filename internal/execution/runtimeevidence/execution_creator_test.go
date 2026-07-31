@@ -57,11 +57,15 @@ func TestExecutionCreatorRejectsDriftAndSerialization(t *testing.T) {
 	t.Parallel()
 
 	fixture := newExecutionCreatorFixture()
+	var typedNilStore *executionCreatorStore
+	var typedNilProvider *executionCreatorProvider
 	for name, mutate := range map[string]func(*ExecutionCreationConfig){
 		"run":      func(config *ExecutionCreationConfig) { config.RunID = "invalid" },
 		"policy":   func(config *ExecutionCreationConfig) { config.Policy = []byte("version: 1\n") },
 		"store":    func(config *ExecutionCreationConfig) { config.Store = nil },
-		"provider": func(config *ExecutionCreationConfig) { config.Provider = nil },
+		"provider":           func(config *ExecutionCreationConfig) { config.Provider = nil },
+		"typed nil store":    func(config *ExecutionCreationConfig) { config.Store = typedNilStore },
+		"typed nil provider": func(config *ExecutionCreationConfig) { config.Provider = typedNilProvider },
 	} {
 		name, mutate := name, mutate
 		t.Run(name, func(t *testing.T) {
@@ -142,6 +146,38 @@ func TestExecutionCreatorPoisonsReplayButPreservesCleanup(t *testing.T) {
 		ResourceName: namesForRun(testRunID).Sandbox,
 	}); err != nil {
 		t.Fatalf("Cleanup() error = %v", err)
+	}
+}
+
+func TestExecutionCreatorRejectsOverlapBeforeNativeMutation(t *testing.T) {
+	t.Parallel()
+
+	fixture := newExecutionCreatorFixture()
+	fixture.provider.registerStarted = make(chan struct{})
+	fixture.provider.releaseRegister = make(chan struct{})
+	creator, err := newExecutionCreator(fixture.config(), fixture.poll)
+	if err != nil {
+		t.Fatalf("newExecutionCreator() error = %v", err)
+	}
+	firstResult := make(chan error, 1)
+	go func() {
+		_, createErr := creator.Create(context.Background())
+		firstResult <- createErr
+	}()
+	<-fixture.provider.registerStarted
+	copyOfCreator := *creator
+	if _, err := copyOfCreator.Create(context.Background()); !errors.Is(
+		err,
+		ErrExecutionCreationOrder,
+	) {
+		t.Fatalf("overlapping Create() error = %v", err)
+	}
+	close(fixture.provider.releaseRegister)
+	if err := <-firstResult; !errors.Is(err, ErrExecutionCreation) {
+		t.Fatalf("first Create() error = %v", err)
+	}
+	if fixture.provider.createCalls != 0 {
+		t.Fatalf("Create() calls = %d", fixture.provider.createCalls)
 	}
 }
 
@@ -239,12 +275,24 @@ type executionCreatorProvider struct {
 	terminateErr         error
 	terminateObservation string
 	terminateCalls       int
+	createCalls          int
+	registerStarted      chan struct{}
+	releaseRegister      chan struct{}
+	registerOnce         sync.Once
 }
 
 func (provider *executionCreatorProvider) RegisterGateway(
 	_ context.Context,
 	registration execution.GatewayRegistration,
 ) (execution.Gateway, error) {
+	if provider.registerStarted != nil {
+		provider.registerOnce.Do(func() { close(provider.registerStarted) })
+		select {
+		case <-provider.releaseRegister:
+		case <-time.After(time.Second):
+			return execution.Gateway{}, errors.New("register release timeout")
+		}
+	}
 	gateway := execution.Gateway{
 		IsolationDomainID: registration.IsolationDomainID,
 		ID:                registration.ID,
@@ -284,6 +332,7 @@ func (provider *executionCreatorProvider) Create(
 	_ context.Context,
 	request execution.CreateRequest,
 ) (execution.Execution, error) {
+	provider.createCalls++
 	provider.createRequest = request
 	provider.createRequest.Policy = append([]byte(nil), request.Policy...)
 	value := execution.Execution{
