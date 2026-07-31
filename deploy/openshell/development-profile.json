@@ -308,7 +308,7 @@
         "artifact-export": "supported",
         "runtime-artifact-events": "unsupported"
       },
-      "status": "v2 evidence producer, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; live record required",
+      "status": "v2 evidence producer, concrete probes, and closed composition harness defined; Docker launcher and live record required",
       "resourceNames": {
         "gateway": "dg-runtime-gateway-<runID>",
         "sandbox": "dg-runtime-sandbox-<runID>",
@@ -335,7 +335,7 @@
           "concurrency": "one in-flight case; overlap, order drift, cancellation, backend failure, invalid receipts, and proof replay are terminal",
           "completion": "atomic backend finalization after the twelfth case and before cleanup",
           "serialization": "forbidden",
-          "status": "implemented with scenario driver, OpenShell provider probes, and Codex runtime probes; launcher required",
+          "status": "implemented with scenario driver, concrete probes, and closed composition harness; Docker launcher required",
           "exposure": "each receipt must attest completed inspection; native-protocol or upstream-endpoint exposure fails before commitment"
         },
         "cleanupOrder": [
@@ -344,7 +344,7 @@
           "workspace"
         ],
         "serialization": "run forbidden; result only after every case and cleanup succeeds",
-        "status": "closed assembler, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes implemented; launcher required",
+        "status": "closed assembler, concrete probes, and composition harness implemented; Docker launcher required",
         "scenarioDriver": {
           "assembly": "internal/execution/runtimeevidence.NewConcreteScenario",
           "binding": "exact run-derived portable resources with separate provider lifecycle and Codex runtime probe ports",
@@ -354,7 +354,7 @@
           "concurrency": "single-use ordered state; overlap, cancellation, probe failure, binding drift, invalid assertions, and proof replay are terminal",
           "errors": "native probe errors are replaced by stable scenario errors",
           "serialization": "forbidden",
-          "status": "implemented with OpenShell provider and Codex runtime probes; launcher required"
+          "status": "implemented with concrete probes and closed composition harness; Docker launcher required"
         },
         "openShellProviderProbes": {
           "assembly": "internal/execution/runtimeevidence.NewOpenShellProbes",
@@ -368,9 +368,9 @@
           "observationProof": "domain-separated SHA-256 over the portable binding, UTC interval, private native routing identities, readiness state, and artifact digest",
           "artifact": "exact run-derived sandbox path and content; exported bytes cleared after comparison",
           "failure": "order drift, overlap, cancellation, native failure, binding mismatch, clock regression, artifact substitution, and uncertain teardown are terminal",
-          "creation": "pinned image, policy, and provider-profile creation remains launcher-owned",
+          "creation": "pinned image, policy, and provider-profile creation remains Docker-launcher-owned",
           "serialization": "configuration and adapter forbidden",
-          "status": "implemented with Codex runtime probes; launcher required"
+          "status": "implemented with Codex runtime probes and closed composition harness; Docker launcher required"
         },
         "codexRuntimeProbes": {
           "assembly": "internal/execution/runtimeevidence.NewCodexProbes",
@@ -391,7 +391,17 @@
           "limits": "at most 256 normalized events and 4194304 canonical JSON bytes per case",
           "failure": "order drift, overlap, caller cancellation, execution substitution, native failure, uncertain session close, invalid event sequence, endpoint or native-field exposure, clock regression, and outcome mismatch are terminal",
           "serialization": "configuration and adapter forbidden",
-          "status": "implemented; launcher required"
+          "status": "implemented with closed composition harness; Docker launcher required"
+        },
+        "harness": {
+          "assembly": "internal/execution/runtimeevidence.NewHarness",
+          "binding": "one run, workflow provenance, exact persisted execution, shared store and provider ports, and exact sandbox, provider-binding, and workspace cleanup functions",
+          "composition": "constructs the OpenShell and Codex probe adapters, concrete scenario, live cases, and evidence run internally",
+          "chronology": "public construction owns time.Now and shares it across every evidence layer",
+          "singleUse": "shared irreversible evidence state across harness copies",
+          "failure": "invalid or typed-nil ports fail before execution; runtime failures are sanitized and incomplete results remain non-serializable",
+          "serialization": "configuration and harness forbidden",
+          "status": "implemented; Docker topology, immutable sandbox creation, and live record required"
         }
       }
     }
