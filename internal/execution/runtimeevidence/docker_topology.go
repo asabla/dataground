@@ -222,16 +222,26 @@ func (topology *DockerTopology) Start(ctx context.Context) error {
 		return topologyStartError(ctx)
 	}
 	containerID, err := state.observeContainer(ctx)
-	if err != nil || state.invalidAfterStart(ctx) {
+	if err != nil {
 		state.failStart()
 		return topologyStartError(ctx)
+	}
+	if err := state.continuationError(ctx); err != nil {
+		state.failStart()
+		return err
 	}
 	if err := state.verifyContainer(ctx, containerID); err != nil {
 		state.failStart()
 		return topologyStartError(ctx)
 	}
 	state.mu.Lock()
-	if state.failed || state.removed || ctx.Err() != nil {
+	if err := ctx.Err(); err != nil {
+		state.failed = true
+		state.starting = false
+		state.mu.Unlock()
+		return errors.Join(ErrDockerTopologyStart, err)
+	}
+	if state.failed || state.removed {
 		state.failed = true
 		state.starting = false
 		state.mu.Unlock()
@@ -404,13 +414,16 @@ func (state *dockerTopologyState) observeRemoval(ctx context.Context) error {
 	return nil
 }
 
-func (state *dockerTopologyState) invalidAfterStart(ctx context.Context) bool {
-	if ctx.Err() != nil {
-		return true
+func (state *dockerTopologyState) continuationError(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return errors.Join(ErrDockerTopologyStart, err)
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	return state.failed || state.removed
+	if state.failed || state.removed {
+		return errors.Join(ErrDockerTopologyStart, ErrDockerTopologyOrder)
+	}
+	return nil
 }
 
 func (state *dockerTopologyState) failStart() {
