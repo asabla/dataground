@@ -467,7 +467,6 @@ func TestHealthEndpointsRejectOtherMethods(t *testing.T) {
 	}
 }
 
-
 func TestProtectedRoutesAuthenticateBeforeReadingRequests(t *testing.T) {
 	t.Parallel()
 
