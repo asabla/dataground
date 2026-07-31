@@ -111,6 +111,39 @@ func TestOpenShellProbesFailClosed(t *testing.T) {
 		}
 	})
 
+	t.Run("cancellation is terminal", func(t *testing.T) {
+		fixture := newOpenShellProbeFixture()
+		probes := fixture.open(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, err := probes.GatewayReady(ctx, testProbeRequest()); !errors.Is(err, context.Canceled) {
+			t.Fatalf("GatewayReady() error = %v", err)
+		}
+		if _, err := probes.GatewayReady(context.Background(), testProbeRequest()); !errors.Is(err, ErrOpenShellProbeOrder) {
+			t.Fatalf("GatewayReady() after cancellation error = %v", err)
+		}
+	})
+
+	t.Run("overlap poisons both calls", func(t *testing.T) {
+		fixture := newOpenShellProbeFixture()
+		fixture.store.gatewayEntered = make(chan struct{})
+		fixture.store.gatewayRelease = make(chan struct{})
+		probes := fixture.open(t)
+		first := make(chan error, 1)
+		go func() {
+			_, err := probes.GatewayReady(context.Background(), testProbeRequest())
+			first <- err
+		}()
+		<-fixture.store.gatewayEntered
+		if _, err := probes.GatewayReady(context.Background(), testProbeRequest()); !errors.Is(err, ErrOpenShellProbeOrder) {
+			t.Fatalf("overlapping GatewayReady() error = %v", err)
+		}
+		close(fixture.store.gatewayRelease)
+		if err := <-first; !errors.Is(err, ErrOpenShellProbeOrder) {
+			t.Fatalf("first GatewayReady() error = %v", err)
+		}
+	})
+
 	t.Run("private errors are sanitized", func(t *testing.T) {
 		privateErr := errors.New("native endpoint and sandbox")
 		fixture := newOpenShellProbeFixture()
@@ -250,10 +283,12 @@ func (fixture *openShellProbeFixture) open(t *testing.T) *OpenShellProbes {
 }
 
 type probeStore struct {
-	gateway      execution.GatewayRecord
-	execution    execution.ExecutionRecord
-	gatewayErr   error
-	executionErr error
+	gateway        execution.GatewayRecord
+	execution      execution.ExecutionRecord
+	gatewayErr     error
+	executionErr   error
+	gatewayEntered chan struct{}
+	gatewayRelease chan struct{}
 }
 
 func (store *probeStore) GetGateway(
@@ -261,6 +296,10 @@ func (store *probeStore) GetGateway(
 	string,
 	string,
 ) (execution.GatewayRecord, error) {
+	if store.gatewayEntered != nil {
+		close(store.gatewayEntered)
+		<-store.gatewayRelease
+	}
 	return store.gateway, store.gatewayErr
 }
 
