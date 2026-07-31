@@ -154,7 +154,7 @@ func authenticatedActorID(request *http.Request) string {
 
 func authenticatedCorrelationID(request *http.Request) string {
 	correlationID, ok := request.Context().Value(authenticatedCorrelationKey{}).(string)
-	if !ok || !correlationIDPattern.MatchString(correlationID) {
+	if !ok || correlationID == "" {
 		return ""
 	}
 	return correlationID
