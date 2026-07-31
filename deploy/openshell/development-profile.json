@@ -308,7 +308,7 @@
         "artifact-export": "supported",
         "runtime-artifact-events": "unsupported"
       },
-      "status": "v2 evidence producer, concrete probes, and closed composition harness defined; Docker launcher and live record required",
+      "status": "v2 evidence producer, immutable execution creation, concrete probes, and closed composition harness defined; Docker launcher and live record required",
       "resourceNames": {
         "gateway": "dg-runtime-gateway-<runID>",
         "sandbox": "dg-runtime-sandbox-<runID>",
@@ -344,7 +344,7 @@
           "workspace"
         ],
         "serialization": "run forbidden; result only after every case and cleanup succeeds",
-        "status": "closed assembler, concrete probes, and composition harness implemented; Docker launcher required",
+        "status": "closed assembler, immutable execution creation, concrete probes, and composition harness implemented; Docker launcher required",
         "scenarioDriver": {
           "assembly": "internal/execution/runtimeevidence.NewConcreteScenario",
           "binding": "exact run-derived portable resources with separate provider lifecycle and Codex runtime probe ports",
@@ -368,9 +368,9 @@
           "observationProof": "domain-separated SHA-256 over the portable binding, UTC interval, private native routing identities, readiness state, and artifact digest",
           "artifact": "exact run-derived sandbox path and content; exported bytes cleared after comparison",
           "failure": "order drift, overlap, cancellation, native failure, binding mismatch, clock regression, artifact substitution, and uncertain teardown are terminal",
-          "creation": "pinned image, policy, and provider-profile creation remains Docker-launcher-owned",
+          "creation": "pinned image, deny-all policy, run-derived provider profile, placement, and readiness are owned by the immutable execution creator",
           "serialization": "configuration and adapter forbidden",
-          "status": "implemented with Codex runtime probes and closed composition harness; Docker launcher required"
+          "status": "implemented with immutable execution creation, Codex runtime probes, and closed composition harness; Docker launcher required"
         },
         "codexRuntimeProbes": {
           "assembly": "internal/execution/runtimeevidence.NewCodexProbes",
@@ -391,7 +391,7 @@
           "limits": "at most 256 normalized events and 4194304 canonical JSON bytes per case",
           "failure": "order drift, overlap, caller cancellation, execution substitution, native failure, uncertain session close, invalid event sequence, endpoint or native-field exposure, clock regression, and outcome mismatch are terminal",
           "serialization": "configuration and adapter forbidden",
-          "status": "implemented with closed composition harness; Docker launcher required"
+          "status": "implemented with immutable execution creation and closed composition harness; Docker launcher required"
         },
         "harness": {
           "assembly": "internal/execution/runtimeevidence.NewHarness",
@@ -401,7 +401,17 @@
           "singleUse": "shared irreversible evidence state across harness copies",
           "failure": "invalid or typed-nil ports fail before execution; runtime failures are sanitized and incomplete results remain non-serializable",
           "serialization": "configuration and harness forbidden",
-          "status": "implemented; Docker topology, immutable sandbox creation, and live record required"
+          "status": "implemented with immutable execution creation; Docker topology and live record required"
+        },
+        "executionCreator": {
+          "assembly": "internal/execution/runtimeevidence.NewExecutionCreator",
+          "binding": "one run-derived isolation domain, gateway, operation, sandbox, provider profile, and deterministic execution identity",
+          "inputs": "exact loopback Docker gateway, codex.app-server/v1 capability, digest-pinned sandbox image, and checked deny-all policy bytes and digest",
+          "lifecycle": "register and re-read the gateway, enable the exact provider profile, reserve placement, create once, and require a fresh exact ready observation",
+          "recovery": "observe deterministic persisted state before cancellation-independent termination; require a fresh exact terminal observation",
+          "concurrency": "shared irreversible create state across copies; overlap and replay poison creation without revoking cleanup authority",
+          "serialization": "configuration and creator forbidden",
+          "status": "implemented; Docker topology, provider credential provisioning, launcher composition, and live record required"
         }
       }
     }
@@ -410,7 +420,7 @@
     "gatewayPlacement": "adapter conformance tested",
     "sandboxLifecycle": "adapter conformance tested",
     "codexAppServerStdio": "adapter conformance tested",
-    "realSandboxInvocation": "v2 evidence producer, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; launcher and live certification blocked",
+    "realSandboxInvocation": "v2 evidence producer, immutable execution creator, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; Docker launcher and live certification blocked",
     "credentialNonExposure": "certified for pinned development profile",
     "rosettaMaterialization": "blocked"
   },
