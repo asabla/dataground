@@ -225,6 +225,27 @@ func TestExecutionCreatorRejectsStaleObservations(t *testing.T) {
 	}
 }
 
+func TestExecutionCreatorAcceptsObservedTerminationAfterLostAcknowledgement(t *testing.T) {
+	t.Parallel()
+
+	fixture := newExecutionCreatorFixture()
+	creator, err := newExecutionCreator(fixture.config(), fixture.poll)
+	if err != nil {
+		t.Fatalf("newExecutionCreator() error = %v", err)
+	}
+	if _, err := creator.Create(context.Background()); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	fixture.provider.terminateErr = errors.New("private lost acknowledgement")
+	if err := creator.Cleanup(context.Background(), CleanupRequest{
+		RunID:        testRunID,
+		ResourceKind: "sandbox",
+		ResourceName: namesForRun(testRunID).Sandbox,
+	}); err != nil {
+		t.Fatalf("Cleanup() error = %v", err)
+	}
+}
+
 func TestExecutionCreatorFailsClosedOnUncertainCleanup(t *testing.T) {
 	t.Parallel()
 
