@@ -51,8 +51,9 @@ type runtimeCredentialSourceState struct {
 	started       bool
 	loading       bool
 	cleaning      bool
-	consumed      bool
-	failed        bool
+	consumed        bool
+	directoryRemoved bool
+	failed          bool
 }
 
 type ownedCredentialFile struct {
@@ -84,7 +85,8 @@ func newRuntimeCredentialSource(
 		return nil, ErrCredentialSourceConfiguration
 	}
 	path := filepath.Clean(config.Directory)
-	if path == string(filepath.Separator) {
+	if path == string(filepath.Separator) ||
+		filepath.Dir(path) == string(filepath.Separator) {
 		return nil, ErrCredentialSourceConfiguration
 	}
 	state, err := openRuntimeCredentialSource(path, read)
@@ -217,7 +219,11 @@ func (source *RuntimeCredentialSource) Load(
 	values := make([][]byte, len(files))
 	var readErr error
 	for index, file := range files {
-		if state.invalidAfter(ctx) {
+		if err := ctx.Err(); err != nil {
+			readErr = err
+			break
+		}
+		if state.failedAfter() {
 			readErr = ErrCredentialSourceOrder
 			break
 		}
@@ -355,6 +361,9 @@ func readRuntimeCredentialFile(
 }
 
 func (state *runtimeCredentialSourceState) consumeOwned() error {
+	if state.directoryRemoved {
+		return state.finishRuntimeCredentialRemoval()
+	}
 	if !state.validFilesystemIdentity() {
 		return ErrCredentialSourceCleanup
 	}
@@ -374,15 +383,12 @@ func (state *runtimeCredentialSourceState) consumeOwned() error {
 			outcome = errors.Join(outcome, ErrCredentialSourceCleanup)
 			continue
 		}
+		owned.removed = true
+		_ = owned.file.Close()
+		owned.file = nil
 		if _, err := os.Lstat(owned.path); !errors.Is(err, os.ErrNotExist) {
 			outcome = errors.Join(outcome, ErrCredentialSourceCleanup)
-			continue
 		}
-		owned.removed = true
-		if err := owned.file.Close(); err != nil {
-			outcome = errors.Join(outcome, ErrCredentialSourceCleanup)
-		}
-		owned.file = nil
 	}
 	if err := state.directory.Sync(); err != nil {
 		outcome = errors.Join(outcome, ErrCredentialSourceCleanup)
@@ -400,10 +406,30 @@ func (state *runtimeCredentialSourceState) consumeOwned() error {
 	if _, err := os.Lstat(state.path); !errors.Is(err, os.ErrNotExist) {
 		return ErrCredentialSourceCleanup
 	}
+	state.directoryRemoved = true
+	return state.finishRuntimeCredentialRemoval()
+}
+
+func (state *runtimeCredentialSourceState) finishRuntimeCredentialRemoval() error {
+	parent, err := os.Lstat(state.parentPath)
+	opened, openedErr := state.parent.Stat()
+	if err != nil ||
+		openedErr != nil ||
+		!safeRuntimeCredentialParent(parent) ||
+		!safeRuntimeCredentialParent(opened) ||
+		!os.SameFile(state.parentInfo, parent) ||
+		!os.SameFile(state.parentInfo, opened) {
+		return ErrCredentialSourceCleanup
+	}
+	if _, err := os.Lstat(state.path); !errors.Is(err, os.ErrNotExist) {
+		return ErrCredentialSourceCleanup
+	}
 	if err := state.parent.Sync(); err != nil {
 		return ErrCredentialSourceCleanup
 	}
-	return errors.Join(state.directory.Close(), state.parent.Close())
+	_ = state.directory.Close()
+	_ = state.parent.Close()
+	return nil
 }
 
 func (state *runtimeCredentialSourceState) validFilesystemIdentity() bool {
@@ -425,10 +451,7 @@ func (state *runtimeCredentialSourceState) validFilesystemIdentity() bool {
 		os.SameFile(state.directoryInfo, openedDirectory)
 }
 
-func (state *runtimeCredentialSourceState) invalidAfter(ctx context.Context) bool {
-	if ctx == nil || ctx.Err() != nil {
-		return true
-	}
+func (state *runtimeCredentialSourceState) failedAfter() bool {
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	return state.failed
