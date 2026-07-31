@@ -43,21 +43,21 @@ type RuntimeProvider struct {
 }
 
 type runtimeProviderState struct {
-	mu          sync.Mutex
-	runID       string
-	name        string
-	isolationID string
-	gatewayID   string
-	credentials execution.RuntimeConformanceCredentials
-	provider    RuntimeProviderPort
-	ref         execution.ProviderBindingRef
-	started     bool
-	running     bool
-	created     bool
+	mu              sync.Mutex
+	runID           string
+	name            string
+	isolationID     string
+	gatewayID       string
+	credentials     execution.RuntimeConformanceCredentials
+	provider        RuntimeProviderPort
+	ref             execution.ProviderBindingRef
+	started         bool
+	running         bool
+	created         bool
 	mutationStarted bool
-	cleaning    bool
-	removed     bool
-	failed      bool
+	cleaning        bool
+	removed         bool
+	failed          bool
 }
 
 func NewRuntimeProvider(config RuntimeProviderConfig) (*RuntimeProvider, error) {
