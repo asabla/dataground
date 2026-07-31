@@ -691,10 +691,10 @@ const evidenceProfileBindings = [
   profile.artifacts.sandbox,
   profile.providerProfileEvidence.codex.sha256,
   profile.runtime.version,
-  profile.topology.gatewayEndpoint,
-  profile.topology.driver,
-  profile.topology.composeSHA256,
-  profile.topology.gatewayConfigSHA256,
+  runtimeDockerTopology.gatewayEndpoint,
+  runtimeDockerTopology.driver,
+  runtimeDockerTopology.composeSHA256,
+  runtimeDockerTopology.gatewayConfigSHA256,
   credentialEvidenceContract.verifierIdentity.name,
   credentialEvidenceContract.verifierIdentity.version,
 ];
@@ -980,6 +980,23 @@ const runtimeProviderOpenShellSource = await readFile(
   resolve(root, "internal/execution/openshell/provider_binding_runtime.go"),
   "utf8",
 );
+const runtimeDockerTopologySource = await readFile(
+  resolve(root, "internal/execution/runtimeevidence/docker_topology.go"),
+  "utf8",
+);
+const runtimeDockerTopology = runtimeConformance?.topology;
+const runtimeDockerCompose = await readFile(
+  resolve(root, runtimeDockerTopology?.composeFile ?? ""),
+);
+const runtimeGatewayConfig = await readFile(
+  resolve(root, runtimeDockerTopology?.gatewayConfigFile ?? ""),
+);
+const runtimeDockerComposeSHA256 = createHash("sha256")
+  .update(runtimeDockerCompose)
+  .digest("hex");
+const runtimeGatewayConfigSHA256 = createHash("sha256")
+  .update(runtimeGatewayConfig)
+  .digest("hex");
 const runtimeScenarioDriver = runtimeProducer?.scenarioDriver;
 const runtimeOpenShellProviderProbes = runtimeProducer?.openShellProviderProbes;
 const runtimeCodexRuntimeProbes = runtimeProducer?.codexRuntimeProbes;
@@ -1002,7 +1019,7 @@ if (
     JSON.stringify(expectedRuntimeResourceNames) ||
   JSON.stringify(runtimeConformance?.provenance) !== JSON.stringify(expectedRuntimeProvenance) ||
   runtimeConformance?.status !==
-    "v2 evidence producer, immutable execution creation, private credential acquisition, concrete probes, and closed composition harness defined; Docker launcher and live record required" ||
+    "v2 evidence producer, immutable execution creation, private credential acquisition, runtime Docker topology, concrete probes, and closed composition harness defined; launcher and live record required" ||
   runtimeEvidenceSchema?.properties?.schemaVersion?.const !== runtimeConformance.schemaVersion ||
   runtimeEvidenceSchema?.properties?.checks?.minItems !== expectedRuntimeChecks.length ||
   runtimeEvidenceSchema?.properties?.checks?.maxItems !== expectedRuntimeChecks.length ||
@@ -1045,6 +1062,37 @@ const runtimeProducerProfileBindings = [
   runtimeConformance.provenance.workflow,
   runtimeConformance.provenance.artifactName,
 ];
+if (
+  runtimeDockerTopology?.assembly !==
+    "internal/execution/runtimeevidence.NewDockerTopology" ||
+  runtimeDockerTopology?.composeFile !==
+    "deploy/openshell/runtime-conformance/docker-compose.yml" ||
+  runtimeDockerTopology?.composeSHA256 !== runtimeDockerComposeSHA256 ||
+  runtimeDockerTopology?.gatewayConfigFile !==
+    "deploy/openshell/runtime-conformance/gateway.toml" ||
+  runtimeDockerTopology?.gatewayConfigSHA256 !== runtimeGatewayConfigSHA256 ||
+  runtimeDockerTopology?.gatewayImage !== profile.artifacts.gateway ||
+  runtimeDockerTopology?.gatewayEndpoint !== "http://127.0.0.1:8080" ||
+  runtimeDockerTopology?.healthEndpoint !== "http://127.0.0.1:8081/health" ||
+  runtimeDockerTopology?.driver !== "docker" ||
+  runtimeDockerTopology?.binding !==
+    "one run-derived Compose project, digest-pinned gateway image, private frozen topology directory, fresh gateway JWT material, and exact gateway and provider labels" ||
+  runtimeDockerTopology?.environment !==
+    "allowlisted Docker client variables plus exact run, resource, state, JWT, UID, GID, and Docker GID values; inherited provider credentials forbidden" ||
+  runtimeDockerTopology?.lifecycle !==
+    "verify source bytes, freeze owner-only inputs, start once, require loopback readiness, and re-observe exact container identity, image, project, and labels" ||
+  runtimeDockerTopology?.recovery !==
+    "retain cleanup authority after ambiguous start; accept lost down acknowledgement only after exact project container and volume absence" ||
+  runtimeDockerTopology?.concurrency !==
+    "shared irreversible state across copies; replay and overlap poison startup without revoking cleanup" ||
+  runtimeDockerTopology?.serialization !==
+    "configuration, topology, and frozen workspace forbidden" ||
+  runtimeDockerTopology?.status !==
+    "implemented; launcher composition, workflow secret materialization, and live record required"
+) {
+  fail("the runtime Docker topology contract is missing or inconsistent");
+}
+
 if (
   runtimeProducer?.assembly !== "internal/execution/runtimeevidence.New" ||
   runtimeProducer?.execution !== "(*runtimeevidence.EvidenceRun).Execute" ||
@@ -1142,7 +1190,7 @@ if (
     "invalid or typed-nil ports fail before execution; runtime failures are sanitized and incomplete results remain non-serializable" ||
   runtimeHarness?.serialization !== "configuration and harness forbidden" ||
   runtimeHarness?.status !==
-    "implemented with immutable execution creation; Docker topology and live record required" ||
+    "implemented with immutable execution creation and runtime Docker topology; launcher composition and live record required" ||
   runtimeExecutionCreator?.assembly !== "internal/execution/runtimeevidence.NewExecutionCreator" ||
   runtimeExecutionCreator?.binding !==
     "one run-derived isolation domain, gateway, operation, sandbox, provider profile, and deterministic execution identity" ||
@@ -1156,7 +1204,7 @@ if (
     "shared irreversible create state across copies; overlap and replay poison creation without revoking cleanup authority" ||
   runtimeExecutionCreator?.serialization !== "configuration and creator forbidden" ||
   runtimeExecutionCreator?.status !==
-    "implemented with runtime provider provisioning; Docker topology, launcher composition, workflow secret materialization, and live record required" ||
+    "implemented with runtime provider provisioning and Docker topology; launcher composition, workflow secret materialization, and live record required" ||
   runtimeCredentialSource?.assembly !==
     "internal/execution/runtimeevidence.NewRuntimeCredentialSource with NewRuntimeProviderFromCredentialSource" ||
   runtimeCredentialSource?.binding !==
@@ -1172,7 +1220,7 @@ if (
   runtimeCredentialSource?.serialization !==
     "source configuration, provider-source configuration, source, credentials, and provisioner forbidden" ||
   runtimeCredentialSource?.status !==
-    "implemented; Docker topology, launcher composition, workflow secret materialization, and live record required" ||
+    "implemented with Docker topology; launcher composition, workflow secret materialization, and live record required" ||
   runtimeProvider?.assembly !== "internal/execution/runtimeevidence.NewRuntimeProvider" ||
   runtimeProvider?.binding !==
     "one run-derived Codex provider name under the exact runtime isolation domain and gateway, with immutable native ID and resource version retained only for cleanup" ||
@@ -1187,13 +1235,13 @@ if (
   runtimeProvider?.serialization !==
     "credentials, requests, configuration, and provisioner forbidden" ||
   runtimeProvider?.status !==
-    "implemented with private credential acquisition; Docker topology, launcher composition, workflow secret materialization, and live record required" ||
+    "implemented with private credential acquisition and Docker topology; launcher composition, workflow secret materialization, and live record required" ||
   JSON.stringify(runtimeProducer?.cleanupOrder) !==
     JSON.stringify(["sandbox", "providerBinding", "workspace"]) ||
   runtimeProducer?.serialization !==
     "run forbidden; result only after every case and cleanup succeeds" ||
   runtimeProducer?.status !==
-    "closed assembler, immutable execution creation, concrete probes, and composition harness implemented; Docker launcher required" ||
+    "closed assembler, immutable execution creation, concrete probes, composition harness, and runtime Docker topology implemented; launcher required" ||
   runtimeProducerProfileBindings.some(
     (binding) => !runtimeEvidenceProfileSource.includes(JSON.stringify(binding)),
   ) ||
@@ -1339,6 +1387,22 @@ if (
   runtimeEvidenceSource.includes("os/exec") ||
   runtimeEvidenceSource.includes('"docker"') ||
   runtimeEvidenceSource.includes('"openshell"') ||
+  !runtimeDockerTopologySource.includes("func NewDockerTopology(") ||
+  !runtimeDockerTopologySource.includes("readRuntimeTopologyFile(") ||
+  !runtimeDockerTopologySource.includes("openRuntimeTopologyWorkspace(") ||
+  !runtimeDockerTopologySource.includes("writeRuntimeTopologyJWT(") ||
+  !runtimeDockerTopologySource.includes("runtimeCredentialOwnedByCurrentUser(") ||
+  !runtimeDockerTopologySource.includes("runtimeCredentialSingleLink(") ||
+  !runtimeDockerTopologySource.includes("command.Env = append(") ||
+  !runtimeDockerTopologySource.includes('"compose"') ||
+  !runtimeDockerTopologySource.includes('"--project-name"') ||
+  !runtimeDockerTopologySource.includes('"inspect"') ||
+  !runtimeDockerTopologySource.includes('"--volumes"') ||
+  !runtimeDockerTopologySource.includes('"label=com.docker.compose.project="') ||
+  !runtimeDockerTopologySource.includes("context.WithoutCancel(ctx)") ||
+  !runtimeDockerTopologySource.includes("func (DockerTopologyConfig) MarshalJSON(") ||
+  !runtimeDockerTopologySource.includes("func (DockerTopology) MarshalJSON(") ||
+  runtimeDockerTopologySource.includes("os.Environ()") ||
   !runtimeEvidenceProfileSource.includes("func currentProfile() profile") ||
   Object.entries(expectedRuntimeReasonCodes).some(
     ([name, reason]) =>
@@ -1347,7 +1411,7 @@ if (
   )
 ) {
   fail(
-    "the runtime evidence producer, immutable execution creator, private credential source, runtime provider binding, concrete probes, or closed composition harness are missing, mutable, or overclaim live certification",
+    "the runtime evidence producer, immutable execution creator, private credential source, runtime provider binding, Docker topology, concrete probes, or closed composition harness are missing, mutable, or overclaim live certification",
   );
 }
 
