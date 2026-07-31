@@ -22,19 +22,29 @@ func TestRuntimeCredentialSourceLoadsAndConsumesExactBundle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRuntimeCredentialSource() error = %v", err)
 	}
-	credentials, err := source.Load(context.Background())
+	port := &runtimeProviderPort{}
+	provider, err := NewRuntimeProviderFromCredentialSource(
+		context.Background(),
+		RuntimeProviderSourceConfig{
+			RunID:    testRunID,
+			Source:   source,
+			Provider: port,
+		},
+	)
 	if err != nil {
-		t.Fatalf("Load() error = %v", err)
+		t.Fatalf("NewRuntimeProviderFromCredentialSource() error = %v", err)
 	}
-	defer clearRuntimeProviderCredentials(&credentials)
-	for name, value := range map[string][]byte{
-		"access":  credentials.AccessToken,
-		"refresh": credentials.RefreshToken,
-		"account": credentials.AccountID,
-		"id":      credentials.IDToken,
+	if err := provider.Provision(context.Background()); err != nil {
+		t.Fatalf("Provision() error = %v", err)
+	}
+	for name, expected := range map[string]string{
+		"access":  "access-value",
+		"refresh": "refresh-value",
+		"account": "account-value",
+		"id":      "id-value",
 	} {
-		if string(value) != name+"-value" {
-			t.Fatalf("%s credential = %q", name, value)
+		if string(port.observed[name]) != expected {
+			t.Fatalf("%s credential = %q", name, port.observed[name])
 		}
 	}
 	if _, err := os.Lstat(directory); !errors.Is(err, os.ErrNotExist) {
@@ -132,7 +142,7 @@ func TestRuntimeCredentialSourceRejectsSubstitutionWithoutDeletingReplacement(t 
 	if err := os.WriteFile(path, []byte("replacement"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := source.Load(context.Background()); !errors.Is(err, ErrCredentialSourceLoad) {
+	if _, err := source.load(context.Background()); !errors.Is(err, ErrCredentialSourceLoad) {
 		t.Fatalf("Load() error = %v", err)
 	}
 	replacement, err := os.ReadFile(path)
@@ -176,12 +186,12 @@ func TestRuntimeCredentialSourceOverlapPoisonsLoadButPreservesCleanup(t *testing
 	}
 	first := make(chan error, 1)
 	go func() {
-		credentials, err := source.Load(context.Background())
+		credentials, err := source.load(context.Background())
 		clearRuntimeProviderCredentials(&credentials)
 		first <- err
 	}()
 	<-entered
-	if _, err := source.Load(context.Background()); !errors.Is(err, ErrCredentialSourceOrder) {
+	if _, err := source.load(context.Background()); !errors.Is(err, ErrCredentialSourceOrder) {
 		t.Fatalf("overlap Load() error = %v", err)
 	}
 	close(release)
@@ -208,7 +218,7 @@ func TestRuntimeCredentialSourceCancellationConsumesBundle(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	credentials, err := source.Load(ctx)
+	credentials, err := source.load(ctx)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -233,8 +243,55 @@ func TestRuntimeCredentialSourceCleanupBeforeLoadConsumesBundle(t *testing.T) {
 	if err := source.Cleanup(context.Background()); err != nil {
 		t.Fatalf("Cleanup() error = %v", err)
 	}
-	if _, err := source.Load(context.Background()); !errors.Is(err, ErrCredentialSourceOrder) {
+	if _, err := source.load(context.Background()); !errors.Is(err, ErrCredentialSourceOrder) {
 		t.Fatalf("Load() after Cleanup() error = %v", err)
+	}
+}
+
+
+func TestRuntimeCredentialSourceRejectsInvalidProviderBeforeAcquisition(t *testing.T) {
+	t.Parallel()
+
+	directory := writeRuntimeCredentialBundle(t)
+	source, err := NewRuntimeCredentialSource(CredentialSourceConfig{Directory: directory})
+	if err != nil {
+		t.Fatalf("NewRuntimeCredentialSource() error = %v", err)
+	}
+	defer func() {
+		if err := source.Cleanup(context.Background()); err != nil {
+			t.Errorf("Cleanup() error = %v", err)
+		}
+	}()
+	var typedNil *runtimeProviderPort
+	for name, config := range map[string]RuntimeProviderSourceConfig{
+		"run": {
+			RunID:    "invalid",
+			Source:   source,
+			Provider: &runtimeProviderPort{},
+		},
+		"source": {
+			RunID:    testRunID,
+			Provider: &runtimeProviderPort{},
+		},
+		"provider": {
+			RunID:    testRunID,
+			Source:   source,
+			Provider: typedNil,
+		},
+	} {
+		name, config := name, config
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := NewRuntimeProviderFromCredentialSource(
+				context.Background(),
+				config,
+			); !errors.Is(err, ErrCredentialSourceConfiguration) {
+				t.Fatalf("NewRuntimeProviderFromCredentialSource() error = %v", err)
+			}
+		})
+	}
+	if _, err := os.Lstat(directory); err != nil {
+		t.Fatalf("invalid provider consumed credential bundle: %v", err)
 	}
 }
 
@@ -271,6 +328,14 @@ func TestRuntimeCredentialSourceRejectsInvalidConfigurationAndSerialization(t *t
 	}()
 	if _, err := json.Marshal(config); !errors.Is(err, ErrSerialization) {
 		t.Fatalf("config MarshalJSON() error = %v", err)
+	}
+	providerSourceConfig := RuntimeProviderSourceConfig{
+		RunID:    testRunID,
+		Source:   source,
+		Provider: &runtimeProviderPort{},
+	}
+	if _, err := json.Marshal(providerSourceConfig); !errors.Is(err, ErrSerialization) {
+		t.Fatalf("provider source config MarshalJSON() error = %v", err)
 	}
 	if _, err := json.Marshal(source); !errors.Is(err, ErrSerialization) {
 		t.Fatalf("source MarshalJSON() error = %v", err)
