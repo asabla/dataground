@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/asabla/dataground/internal/authn"
+	"github.com/asabla/dataground/internal/authz"
 )
 
 const maximumAuthorizationHeaderBytes = 8 << 10
@@ -20,11 +21,20 @@ type authenticatedPrincipalKey struct{}
 
 func newProtectedRoute(
 	authenticator authn.Authenticator,
-) (func(http.HandlerFunc) http.Handler, error) {
+	authorizer authz.Authorizer,
+) (func(authz.Action, authz.ResourceType, string, http.HandlerFunc) http.Handler, error) {
 	if authenticator == nil || isNilInterface(authenticator) {
 		return nil, errors.New("API authenticator is required")
 	}
-	return func(next http.HandlerFunc) http.Handler {
+	if authorizer == nil || isNilInterface(authorizer) {
+		return nil, errors.New("API authorizer is required")
+	}
+	return func(
+		action authz.Action,
+		resourceType authz.ResourceType,
+		resourcePathValue string,
+		next http.HandlerFunc,
+	) http.Handler {
 		return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 			values := request.Header.Values("Authorization")
 			request.Header.Del("Authorization")
@@ -71,6 +81,30 @@ func newProtectedRoute(
 					"ISOLATION_DOMAIN_FORBIDDEN",
 					"The authenticated principal cannot access this isolation domain.",
 					false,
+				)})
+				return
+			}
+
+			resourceID := domainID
+			if resourcePathValue != "" {
+				resourceID = request.PathValue(resourcePathValue)
+			}
+			if err := authorizer.Authorize(request.Context(), authz.Request{
+				Principal: principal, Action: action, ResourceType: resourceType,
+				ResourceID: resourceID, IsolationDomainID: domainID,
+			}); err != nil {
+				if errors.Is(err, authz.ErrDenied) {
+					writeJSON(response, http.StatusForbidden, ErrorEnvelope{Error: safeError(
+						"ACTION_FORBIDDEN",
+						"The authenticated principal cannot perform this action.",
+						false,
+					)})
+					return
+				}
+				writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
+					"AUTHORIZATION_UNAVAILABLE",
+					"Authorization is temporarily unavailable.",
+					true,
 				)})
 				return
 			}
