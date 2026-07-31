@@ -866,7 +866,7 @@ if (
     "credential non-exposure certified for the pinned development profile" ||
   profile.capabilities?.credentialNonExposure !== "certified for pinned development profile" ||
   profile.capabilities?.realSandboxInvocation !==
-    "v2 evidence producer, immutable execution creator, private credential source, runtime provider binding, Docker topology, live case backend, scenario driver, OpenShell provider probes, Codex runtime probes, closed composition harness, and checked launcher defined; workflow execution and live certification blocked" ||
+    "v2 evidence producer, immutable execution creator, private credential source, runtime provider binding, Docker topology, live case backend, scenario driver, OpenShell provider probes, Codex runtime probes, closed composition harness, and checked launcher and workflow defined; live execution and certification blocked" ||
   JSON.stringify(profile.blockers) !== JSON.stringify(expectedRemainingBlockers)
 ) {
   fail("the accepted credential evidence claim or remaining blockers are inconsistent");
@@ -924,6 +924,24 @@ const expectedRuntimeProvenance = {
   artifactName: "openshell-runtime-conformance",
 };
 const runtimeConformance = profile.runtime?.conformance;
+const expectedRuntimeWorkflow = {
+  path: ".github/workflows/openshell-runtime-conformance.yml",
+  trust:
+    "trusted main push or explicit dispatch through the openshell-runtime-conformance environment",
+  permissions: "contents read only",
+  credentials:
+    "four environment-scoped Codex secrets materialized once as owner-only files and absent from the launcher step environment",
+  execution:
+    "checksum-verified pinned OpenShell CLI with exact source commit and workflow-run provenance",
+  verification:
+    "checked runtime verifier, exact workflow provenance, and independent credential, workspace, container, and volume residue rejection",
+  artifact: "openshell-runtime-conformance uploaded only after complete cleanup",
+};
+if (
+  JSON.stringify(runtimeConformance?.workflow) !== JSON.stringify(expectedRuntimeWorkflow)
+) {
+  fail("the runtime conformance workflow contract is missing or inconsistent");
+}
 const runtimeEvidenceSchema = JSON.parse(
   await readFile(resolve(root, runtimeConformance?.schema ?? ""), "utf8"),
 );
@@ -1029,7 +1047,7 @@ if (
     JSON.stringify(expectedRuntimeResourceNames) ||
   JSON.stringify(runtimeConformance?.provenance) !== JSON.stringify(expectedRuntimeProvenance) ||
   runtimeConformance?.status !==
-    "v2 evidence producer, immutable execution creation, private credential acquisition, runtime Docker topology, concrete probes, closed composition harness, and checked launcher defined; workflow execution and live record required" ||
+    "v2 evidence producer, immutable execution creation, private credential acquisition, runtime Docker topology, concrete probes, closed composition harness, and checked launcher defined; workflow defined; live execution and record required" ||
   runtimeEvidenceSchema?.properties?.schemaVersion?.const !== runtimeConformance.schemaVersion ||
   runtimeEvidenceSchema?.properties?.checks?.minItems !== expectedRuntimeChecks.length ||
   runtimeEvidenceSchema?.properties?.checks?.maxItems !== expectedRuntimeChecks.length ||
@@ -1097,7 +1115,7 @@ if (
   runtimeDockerTopology?.serialization !==
     "configuration, topology, and frozen workspace forbidden" ||
   runtimeDockerTopology?.status !==
-    "implemented with checked launcher; workflow secret materialization, live execution, and record incorporation required"
+    "implemented with checked launcher; workflow defined; live execution and record incorporation required"
 ) {
   fail("the runtime Docker topology contract is missing or inconsistent");
 }
@@ -1127,7 +1145,7 @@ if (
     "atomic backend finalization after the twelfth case and before cleanup" ||
   runtimeLiveCaseBackend?.serialization !== "forbidden" ||
   runtimeLiveCaseBackend?.status !==
-    "implemented with scenario driver, concrete probes, closed composition harness, and checked launcher; workflow execution and live record required" ||
+    "implemented with scenario driver, concrete probes, closed composition harness, and checked launcher; workflow defined; live execution and record required" ||
   runtimeScenarioDriver?.assembly !== "internal/execution/runtimeevidence.NewConcreteScenario" ||
   runtimeScenarioDriver?.binding !==
     "exact run-derived portable resources with separate provider lifecycle and Codex runtime probe ports" ||
@@ -1142,7 +1160,7 @@ if (
   runtimeScenarioDriver?.errors !== "native probe errors are replaced by stable scenario errors" ||
   runtimeScenarioDriver?.serialization !== "forbidden" ||
   runtimeScenarioDriver?.status !==
-    "implemented with concrete probes, closed composition harness, and checked launcher; workflow execution and live record required" ||
+    "implemented with concrete probes, closed composition harness, and checked launcher; workflow defined; live execution and record required" ||
   runtimeOpenShellProviderProbes?.assembly !==
     "internal/execution/runtimeevidence.NewOpenShellProbes" ||
   runtimeOpenShellProviderProbes?.binding !==
@@ -1159,7 +1177,7 @@ if (
     "pinned image, deny-all policy, run-derived provider profile, placement, and readiness are owned by the immutable execution creator" ||
   runtimeOpenShellProviderProbes?.serialization !== "configuration and adapter forbidden" ||
   runtimeOpenShellProviderProbes?.status !==
-    "implemented with immutable execution creation, Codex runtime probes, closed composition harness, and checked launcher; workflow execution and live record required" ||
+    "implemented with immutable execution creation, Codex runtime probes, closed composition harness, and checked launcher; workflow defined; live execution and record required" ||
   runtimeCodexRuntimeProbes?.assembly !== "internal/execution/runtimeevidence.NewCodexProbes" ||
   runtimeCodexRuntimeProbes?.binding !==
     "exact run-derived portable resources, exact persisted ready execution, fresh OpenShell runtime session per case, and pinned internal Codex client" ||
@@ -1186,7 +1204,7 @@ if (
     "order drift, overlap, caller cancellation, execution substitution, native failure, uncertain session close, invalid event sequence, endpoint or native-field exposure, clock regression, and outcome mismatch are terminal" ||
   runtimeCodexRuntimeProbes?.serialization !== "configuration and adapter forbidden" ||
   runtimeCodexRuntimeProbes?.status !==
-    "implemented with immutable execution creation, closed composition harness, and checked launcher; workflow execution and live record required" ||
+    "implemented with immutable execution creation, closed composition harness, and checked launcher; workflow defined; live execution and record required" ||
   runtimeHarness?.assembly !== "internal/execution/runtimeevidence.NewHarness" ||
   runtimeHarness?.binding !==
     "one run, workflow provenance, exact persisted execution, shared store and provider ports, and exact sandbox, provider-binding, and workspace cleanup functions" ||
@@ -1199,7 +1217,7 @@ if (
     "invalid or typed-nil ports fail before execution; runtime failures are sanitized and incomplete results remain non-serializable" ||
   runtimeHarness?.serialization !== "configuration and harness forbidden" ||
   runtimeHarness?.status !==
-    "implemented with immutable execution creation, runtime Docker topology, and checked launcher; workflow execution and live record required" ||
+    "implemented with immutable execution creation, runtime Docker topology, and checked launcher; workflow defined; live execution and record required" ||
   runtimeExecutionCreator?.assembly !== "internal/execution/runtimeevidence.NewExecutionCreator" ||
   runtimeExecutionCreator?.binding !==
     "one run-derived isolation domain, gateway, operation, sandbox, provider profile, and deterministic execution identity" ||
@@ -1213,7 +1231,7 @@ if (
     "shared irreversible create state across copies; overlap and replay poison creation without revoking cleanup authority" ||
   runtimeExecutionCreator?.serialization !== "configuration and creator forbidden" ||
   runtimeExecutionCreator?.status !==
-    "implemented with runtime provider provisioning, Docker topology, and checked launcher; workflow secret materialization, live execution, and record incorporation required" ||
+    "implemented with runtime provider provisioning, Docker topology, and checked launcher; workflow defined; live execution and record incorporation required" ||
   runtimeCredentialSource?.assembly !==
     "internal/execution/runtimeevidence.NewRuntimeCredentialSource with NewRuntimeProviderFromCredentialSource" ||
   runtimeCredentialSource?.binding !==
@@ -1229,7 +1247,7 @@ if (
   runtimeCredentialSource?.serialization !==
     "source configuration, provider-source configuration, source, credentials, and provisioner forbidden" ||
   runtimeCredentialSource?.status !==
-    "implemented with Docker topology and checked launcher; workflow secret materialization, live execution, and record incorporation required" ||
+    "implemented with Docker topology and checked launcher; workflow defined; live execution and record incorporation required" ||
   runtimeProvider?.assembly !== "internal/execution/runtimeevidence.NewRuntimeProvider" ||
   runtimeProvider?.binding !==
     "one run-derived Codex provider name under the exact runtime isolation domain and gateway, with immutable native ID and resource version retained only for cleanup" ||
@@ -1244,7 +1262,7 @@ if (
   runtimeProvider?.serialization !==
     "credentials, requests, configuration, and provisioner forbidden" ||
   runtimeProvider?.status !==
-    "implemented with private credential acquisition, Docker topology, and checked launcher; workflow secret materialization, live execution, and record incorporation required" ||
+    "implemented with private credential acquisition, Docker topology, and checked launcher; workflow defined; live execution and record incorporation required" ||
   runtimeLauncher?.assembly !== "internal/execution/runtimeevidence.Launch" ||
   runtimeLauncher?.command !==
     "go run ./cmd/dataground-openshell-runtime-conformance --workspace-root <owner-only-mode-0700-directory> --credential-directory <fresh-private-bundle> --source-commit <commit> --workflow-run-id <id>" ||
@@ -1260,13 +1278,13 @@ if (
     "result available only after harness cleanup and exact Docker topology teardown" ||
   runtimeLauncher?.serialization !== "configuration and live launcher workspace forbidden" ||
   runtimeLauncher?.status !==
-    "implemented; workflow secret materialization, live execution, and record incorporation required" ||
+    "implemented; workflow defined; live execution and record incorporation required" ||
   JSON.stringify(runtimeProducer?.cleanupOrder) !==
     JSON.stringify(["sandbox", "providerBinding", "workspace"]) ||
   runtimeProducer?.serialization !==
     "run forbidden; result only after every case and cleanup succeeds" ||
   runtimeProducer?.status !==
-    "closed assembler, immutable execution creation, concrete probes, composition harness, runtime Docker topology, and checked launcher implemented; workflow execution and live record required" ||
+    "closed assembler, immutable execution creation, concrete probes, composition harness, runtime Docker topology, and checked launcher implemented; workflow defined; live execution and record required" ||
   runtimeProducerProfileBindings.some(
     (binding) => !runtimeEvidenceProfileSource.includes(JSON.stringify(binding)),
   ) ||
