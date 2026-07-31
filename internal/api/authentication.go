@@ -11,6 +11,7 @@ import (
 
 	"github.com/asabla/dataground/internal/authn"
 	"github.com/asabla/dataground/internal/authz"
+	"github.com/asabla/dataground/internal/identity"
 )
 
 const maximumAuthorizationHeaderBytes = 8 << 10
@@ -18,6 +19,7 @@ const maximumAuthorizationHeaderBytes = 8 << 10
 var bearerTokenPattern = regexp.MustCompile(`^[A-Za-z0-9._~+/=-]+$`)
 
 type authenticatedPrincipalKey struct{}
+type authenticatedCorrelationKey struct{}
 
 func newProtectedRoute(
 	authenticator authn.Authenticator,
@@ -36,6 +38,7 @@ func newProtectedRoute(
 		next http.HandlerFunc,
 	) http.Handler {
 		return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+			correlationID := identity.New("cor")
 			values := request.Header.Values("Authorization")
 			request.Header.Del("Authorization")
 			bearerToken, ok := parseBearerToken(values)
@@ -51,7 +54,8 @@ func newProtectedRoute(
 					writeAuthenticationRequired(response)
 					return
 				}
-				writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
+				writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeErrorWithCorrelation(
+					correlationID,
 					"AUTHENTICATION_UNAVAILABLE",
 					"Authentication is temporarily unavailable.",
 					true,
@@ -59,7 +63,8 @@ func newProtectedRoute(
 				return
 			}
 			if !principal.Valid() {
-				writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
+				writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeErrorWithCorrelation(
+					correlationID,
 					"AUTHENTICATION_UNAVAILABLE",
 					"Authentication is temporarily unavailable.",
 					true,
@@ -69,7 +74,8 @@ func newProtectedRoute(
 
 			domainID := request.PathValue("isolationDomainId")
 			if !isolationDomainPattern.MatchString(domainID) {
-				writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: safeError(
+				writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: safeErrorWithCorrelation(
+					correlationID,
 					"INVALID_ISOLATION_DOMAIN",
 					"Isolation domain identifier is invalid.",
 					false,
@@ -77,7 +83,8 @@ func newProtectedRoute(
 				return
 			}
 			if !principal.AllowsIsolationDomain(domainID) {
-				writeJSON(response, http.StatusForbidden, ErrorEnvelope{Error: safeError(
+				writeJSON(response, http.StatusForbidden, ErrorEnvelope{Error: safeErrorWithCorrelation(
+					correlationID,
 					"ISOLATION_DOMAIN_FORBIDDEN",
 					"The authenticated principal cannot access this isolation domain.",
 					false,
@@ -91,17 +98,19 @@ func newProtectedRoute(
 			}
 			if err := authorizer.Authorize(request.Context(), authz.Request{
 				Principal: principal, Action: action, ResourceType: resourceType,
-				ResourceID: resourceID, IsolationDomainID: domainID,
+				ResourceID: resourceID, IsolationDomainID: domainID, CorrelationID: correlationID,
 			}); err != nil {
 				if errors.Is(err, authz.ErrDenied) {
-					writeJSON(response, http.StatusForbidden, ErrorEnvelope{Error: safeError(
+					writeJSON(response, http.StatusForbidden, ErrorEnvelope{Error: safeErrorWithCorrelation(
+						correlationID,
 						"ACTION_FORBIDDEN",
 						"The authenticated principal cannot perform this action.",
 						false,
 					)})
 					return
 				}
-				writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
+				writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeErrorWithCorrelation(
+					correlationID,
 					"AUTHORIZATION_UNAVAILABLE",
 					"Authorization is temporarily unavailable.",
 					true,
@@ -110,6 +119,7 @@ func newProtectedRoute(
 			}
 
 			ctx := context.WithValue(request.Context(), authenticatedPrincipalKey{}, principal)
+			ctx = context.WithValue(ctx, authenticatedCorrelationKey{}, correlationID)
 			next.ServeHTTP(response, request.WithContext(ctx))
 		})
 	}, nil
@@ -140,6 +150,14 @@ func authenticatedActorID(request *http.Request) string {
 		return ""
 	}
 	return principal.ID()
+}
+
+func authenticatedCorrelationID(request *http.Request) string {
+	correlationID, ok := request.Context().Value(authenticatedCorrelationKey{}).(string)
+	if !ok || !correlationIDPattern.MatchString(correlationID) {
+		return ""
+	}
+	return correlationID
 }
 
 func authenticatedRequestDigest(actorID string, body []byte) [sha256.Size]byte {
