@@ -927,7 +927,7 @@ const runtimeConformance = profile.runtime?.conformance;
 const expectedRuntimeWorkflow = {
   path: ".github/workflows/openshell-runtime-conformance.yml",
   trust:
-    "trusted main push or explicit dispatch through the openshell-runtime-conformance environment",
+    "trusted main push or explicit main dispatch through the openshell-runtime-conformance environment",
   permissions: "contents read only",
   credentials:
     "four environment-scoped Codex secrets materialized once as owner-only files and absent from the launcher step environment",
@@ -1495,6 +1495,7 @@ const runtimeEvidenceWorkflow = await readFile(
 );
 const expectedRuntimeEvidenceWorkflowBindings = [
   "runs-on: ubuntu-24.04",
+  "if: github.ref == 'refs/heads/main'",
   "environment: openshell-runtime-conformance",
   "permissions:\n  contents: read",
   "cancel-in-progress: false",
