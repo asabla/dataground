@@ -77,16 +77,16 @@ const validateSchema = ajv.compile(schema);
 
 const expectedProfile = {
   openshellCommit: profile.source.openshell.commit,
-  gatewayImage: profile.artifacts.gateway,
+  gatewayImage: contract.topology.gatewayImage,
   supervisorImage: profile.artifacts.supervisor,
   sandboxImage: profile.artifacts.sandbox,
   runtimeVersion: profile.runtime.version,
   runtimeSchemaCanonicalSHA256: profile.runtime.schemaEvidence.canonicalSHA256,
   credentialEvidenceSHA256: profile.providerProfileEvidence.contract.acceptedEvidence.sha256,
-  gatewayEndpoint: profile.topology.gatewayEndpoint,
-  driver: profile.topology.driver,
-  composeSHA256: profile.topology.composeSHA256,
-  gatewayConfigSHA256: profile.topology.gatewayConfigSHA256,
+  gatewayEndpoint: contract.topology.gatewayEndpoint,
+  driver: contract.topology.driver,
+  composeSHA256: contract.topology.composeSHA256,
+  gatewayConfigSHA256: contract.topology.gatewayConfigSHA256,
 };
 
 function verifyEvidence(evidence) {
