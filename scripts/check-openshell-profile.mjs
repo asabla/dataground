@@ -952,9 +952,14 @@ const runtimeCodexProbeSource = await readFile(
   resolve(root, "internal/execution/runtimeevidence/runtime_probes.go"),
   "utf8",
 );
+const runtimeHarnessSource = await readFile(
+  resolve(root, "internal/execution/runtimeevidence/harness.go"),
+  "utf8",
+);
 const runtimeScenarioDriver = runtimeProducer?.scenarioDriver;
 const runtimeOpenShellProviderProbes = runtimeProducer?.openShellProviderProbes;
 const runtimeCodexRuntimeProbes = runtimeProducer?.codexRuntimeProbes;
+const runtimeHarness = runtimeProducer?.harness;
 const runtimeLiveCaseBackend = runtimeProducer?.liveCaseBackend;
 if (
   runtimeConformance?.schema !== "deploy/openshell/runtime-conformance-evidence.schema.json" ||
@@ -970,7 +975,7 @@ if (
     JSON.stringify(expectedRuntimeResourceNames) ||
   JSON.stringify(runtimeConformance?.provenance) !== JSON.stringify(expectedRuntimeProvenance) ||
   runtimeConformance?.status !==
-    "v2 evidence producer, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; live record required" ||
+    "v2 evidence producer, concrete probes, and closed composition harness defined; Docker launcher and live record required" ||
   runtimeEvidenceSchema?.properties?.schemaVersion?.const !== runtimeConformance.schemaVersion ||
   runtimeEvidenceSchema?.properties?.checks?.minItems !== expectedRuntimeChecks.length ||
   runtimeEvidenceSchema?.properties?.checks?.maxItems !== expectedRuntimeChecks.length ||
@@ -1038,7 +1043,7 @@ if (
     "atomic backend finalization after the twelfth case and before cleanup" ||
   runtimeLiveCaseBackend?.serialization !== "forbidden" ||
   runtimeLiveCaseBackend?.status !==
-    "implemented with scenario driver, OpenShell provider probes, and Codex runtime probes; launcher required" ||
+    "implemented with scenario driver, concrete probes, and closed composition harness; Docker launcher required" ||
   runtimeScenarioDriver?.assembly !== "internal/execution/runtimeevidence.NewConcreteScenario" ||
   runtimeScenarioDriver?.binding !==
     "exact run-derived portable resources with separate provider lifecycle and Codex runtime probe ports" ||
@@ -1053,7 +1058,7 @@ if (
   runtimeScenarioDriver?.errors !== "native probe errors are replaced by stable scenario errors" ||
   runtimeScenarioDriver?.serialization !== "forbidden" ||
   runtimeScenarioDriver?.status !==
-    "implemented with OpenShell provider and Codex runtime probes; launcher required" ||
+    "implemented with concrete probes and closed composition harness; Docker launcher required" ||
   runtimeOpenShellProviderProbes?.assembly !==
     "internal/execution/runtimeevidence.NewOpenShellProbes" ||
   runtimeOpenShellProviderProbes?.binding !==
@@ -1067,10 +1072,10 @@ if (
   runtimeOpenShellProviderProbes?.failure !==
     "order drift, overlap, cancellation, native failure, binding mismatch, clock regression, artifact substitution, and uncertain teardown are terminal" ||
   runtimeOpenShellProviderProbes?.creation !==
-    "pinned image, policy, and provider-profile creation remains launcher-owned" ||
+    "pinned image, policy, and provider-profile creation remains Docker-launcher-owned" ||
   runtimeOpenShellProviderProbes?.serialization !== "configuration and adapter forbidden" ||
   runtimeOpenShellProviderProbes?.status !==
-    "implemented with Codex runtime probes; launcher required" ||
+    "implemented with Codex runtime probes and closed composition harness; Docker launcher required" ||
   runtimeCodexRuntimeProbes?.assembly !== "internal/execution/runtimeevidence.NewCodexProbes" ||
   runtimeCodexRuntimeProbes?.binding !==
     "exact run-derived portable resources, exact persisted ready execution, fresh OpenShell runtime session per case, and pinned internal Codex client" ||
@@ -1096,13 +1101,27 @@ if (
   runtimeCodexRuntimeProbes?.failure !==
     "order drift, overlap, caller cancellation, execution substitution, native failure, uncertain session close, invalid event sequence, endpoint or native-field exposure, clock regression, and outcome mismatch are terminal" ||
   runtimeCodexRuntimeProbes?.serialization !== "configuration and adapter forbidden" ||
-  runtimeCodexRuntimeProbes?.status !== "implemented; launcher required" ||
+  runtimeCodexRuntimeProbes?.status !==
+    "implemented with closed composition harness; Docker launcher required" ||
+  runtimeHarness?.assembly !== "internal/execution/runtimeevidence.NewHarness" ||
+  runtimeHarness?.binding !==
+    "one run, workflow provenance, exact persisted execution, shared store and provider ports, and exact sandbox, provider-binding, and workspace cleanup functions" ||
+  runtimeHarness?.composition !==
+    "constructs the OpenShell and Codex probe adapters, concrete scenario, live cases, and evidence run internally" ||
+  runtimeHarness?.chronology !==
+    "public construction owns time.Now and shares it across every evidence layer" ||
+  runtimeHarness?.singleUse !== "shared irreversible evidence state across harness copies" ||
+  runtimeHarness?.failure !==
+    "invalid or typed-nil ports fail before execution; runtime failures are sanitized and incomplete results remain non-serializable" ||
+  runtimeHarness?.serialization !== "configuration and harness forbidden" ||
+  runtimeHarness?.status !==
+    "implemented; Docker topology, immutable sandbox creation, and live record required" ||
   JSON.stringify(runtimeProducer?.cleanupOrder) !==
     JSON.stringify(["sandbox", "providerBinding", "workspace"]) ||
   runtimeProducer?.serialization !==
     "run forbidden; result only after every case and cleanup succeeds" ||
   runtimeProducer?.status !==
-    "closed assembler, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes implemented; launcher required" ||
+    "closed assembler, concrete probes, and composition harness implemented; Docker launcher required" ||
   runtimeProducerProfileBindings.some(
     (binding) => !runtimeEvidenceProfileSource.includes(JSON.stringify(binding)),
   ) ||
@@ -1156,6 +1175,19 @@ if (
   !runtimeCodexProbeSource.includes("codexProbeCommitmentDomain") ||
   !runtimeCodexProbeSource.includes("func (CodexProbeConfig) MarshalJSON(") ||
   !runtimeCodexProbeSource.includes("func (CodexProbes) MarshalJSON(") ||
+  !runtimeHarnessSource.includes("func NewHarness(") ||
+  !runtimeHarnessSource.includes("return newHarness(config, time.Now)") ||
+  !runtimeHarnessSource.includes("NewOpenShellProbes(") ||
+  !runtimeHarnessSource.includes("NewCodexProbes(") ||
+  !runtimeHarnessSource.includes("NewConcreteScenario(") ||
+  !runtimeHarnessSource.includes("NewLiveCases(") ||
+  !runtimeHarnessSource.includes("newEvidenceRun(") ||
+  !runtimeHarnessSource.includes("isNilHarnessPort") ||
+  !runtimeHarnessSource.includes("func (HarnessConfig) MarshalJSON(") ||
+  !runtimeHarnessSource.includes("func (Harness) MarshalJSON(") ||
+  runtimeHarnessSource.includes("os/exec") ||
+  runtimeHarnessSource.includes('"docker"') ||
+  runtimeHarnessSource.includes('"openshell"') ||
   runtimeCodexProbeSource.includes("os/exec") ||
   runtimeOpenShellProbeSource.includes("os/exec") ||
   runtimeScenarioSource.includes("os/exec") ||
@@ -1175,7 +1207,7 @@ if (
   )
 ) {
   fail(
-    "the runtime evidence producer, scenario, or concrete provider/runtime probes are missing, mutable, or overclaim live certification",
+    "the runtime evidence producer, concrete probes, or closed composition harness are missing, mutable, or overclaim live certification",
   );
 }
 
