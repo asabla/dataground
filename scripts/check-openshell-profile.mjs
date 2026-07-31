@@ -991,12 +991,8 @@ const runtimeDockerCompose = await readFile(
 const runtimeGatewayConfig = await readFile(
   resolve(root, runtimeDockerTopology?.gatewayConfigFile ?? ""),
 );
-const runtimeDockerComposeSHA256 = createHash("sha256")
-  .update(runtimeDockerCompose)
-  .digest("hex");
-const runtimeGatewayConfigSHA256 = createHash("sha256")
-  .update(runtimeGatewayConfig)
-  .digest("hex");
+const runtimeDockerComposeSHA256 = createHash("sha256").update(runtimeDockerCompose).digest("hex");
+const runtimeGatewayConfigSHA256 = createHash("sha256").update(runtimeGatewayConfig).digest("hex");
 const runtimeScenarioDriver = runtimeProducer?.scenarioDriver;
 const runtimeOpenShellProviderProbes = runtimeProducer?.openShellProviderProbes;
 const runtimeCodexRuntimeProbes = runtimeProducer?.codexRuntimeProbes;
@@ -1063,8 +1059,7 @@ const runtimeProducerProfileBindings = [
   runtimeConformance.provenance.artifactName,
 ];
 if (
-  runtimeDockerTopology?.assembly !==
-    "internal/execution/runtimeevidence.NewDockerTopology" ||
+  runtimeDockerTopology?.assembly !== "internal/execution/runtimeevidence.NewDockerTopology" ||
   runtimeDockerTopology?.composeFile !==
     "deploy/openshell/runtime-conformance/docker-compose.yml" ||
   runtimeDockerTopology?.composeSHA256 !== runtimeDockerComposeSHA256 ||
