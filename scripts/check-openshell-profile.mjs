@@ -1415,6 +1415,13 @@ if (
   packageJSON.scripts?.["openshell:runtime-evidence:run"] !==
     "go run ./cmd/dataground-openshell-runtime-conformance" ||
   !runtimeLauncherSource.includes("func Launch(") ||
+  !runtimeLauncherSource.includes(
+    `runtimeLauncherOpenShellVersion = "${profile.source.openshell.tag.slice(1)}"`,
+  ) ||
+  !runtimeLauncherSource.includes(
+    'runtimeLauncherPolicyPath       = "deploy/openshell/policies/deny-all.yaml"',
+  ) ||
+  !runtimeLauncherSource.includes("runtimePolicySHA256") ||
   !runtimeLauncherSource.includes("ports.Check(ctx)") ||
   !runtimeLauncherSource.includes("topology.Start(ctx)") ||
   !runtimeLauncherSource.includes("ports.Register(ctx, runID)") ||
@@ -1429,6 +1436,7 @@ if (
   !runtimeLauncherSource.includes('"HOME=" + home') ||
   !runtimeLauncherSource.includes('"XDG_CONFIG_HOME=" + home') ||
   !runtimeLauncherWorkspaceSource.includes("removeRuntimeLauncherDirectory(") ||
+  runtimeLauncherWorkspaceSource.includes("RemoveAll(") ||
   !runtimeLauncherWorkspaceSource.includes("runtimeCredentialSingleLink(") ||
   !runtimeLauncherWorkspaceSource.includes("func (runtimeLauncherWorkspace) MarshalJSON(") ||
   !runtimeLauncherCommandSource.includes("runtimeevidence.Launch(ctx, config)") ||
