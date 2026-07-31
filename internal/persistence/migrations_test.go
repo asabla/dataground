@@ -57,7 +57,6 @@ func TestMigrationsRoundTrip(t *testing.T) {
 		      'service_revision_enforcement_bundles',
 		      'invocation_artifact_objects',
 		      'api_authorization_decisions',
-		      'invocation_authorization_policies',
 		      'invocation_authorization_policies'
 		  )
 	`).Scan(&tables); err != nil {
