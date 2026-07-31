@@ -1121,8 +1121,7 @@ if (
   runtimeHarness?.serialization !== "configuration and harness forbidden" ||
   runtimeHarness?.status !==
     "implemented with immutable execution creation; Docker topology and live record required" ||
-  runtimeExecutionCreator?.assembly !==
-    "internal/execution/runtimeevidence.NewExecutionCreator" ||
+  runtimeExecutionCreator?.assembly !== "internal/execution/runtimeevidence.NewExecutionCreator" ||
   runtimeExecutionCreator?.binding !==
     "one run-derived isolation domain, gateway, operation, sandbox, provider profile, and deterministic execution identity" ||
   runtimeExecutionCreator?.inputs !==
