@@ -1471,6 +1471,85 @@ if (
   );
 }
 
+const runtimeEvidenceWorkflow = await readFile(
+  resolve(root, ".github/workflows/openshell-runtime-conformance.yml"),
+  "utf8",
+);
+const expectedRuntimeEvidenceWorkflowBindings = [
+  "runs-on: ubuntu-24.04",
+  "environment: openshell-runtime-conformance",
+  "permissions:\n  contents: read",
+  "cancel-in-progress: false",
+  "OPENSHELL_VERSION: v0.0.86",
+  "OPENSHELL_PACKAGE: openshell_0.0.86-1_amd64.deb",
+  "OPENSHELL_PACKAGE_SHA256: 3e757ca2f1e855d6e3bcc328fbd69e0441a9a6d01dfe14902f525185dd55ada4",
+  "NVIDIA/OpenShell/releases/download/$OPENSHELL_VERSION",
+  "sha256sum --check --strict -",
+  'dpkg-deb --extract "$package" "$cli_root"',
+  "CODEX_ACCESS_TOKEN",
+  "CODEX_REFRESH_TOKEN",
+  "CODEX_ACCOUNT_ID",
+  "CODEX_ID_TOKEN",
+  "umask 077",
+  'install --directory --mode 0700 "$credential_directory"',
+  'chmod 0600 "$credential_directory/access_token"',
+  'chmod 0600 "$credential_directory/refresh_token"',
+  'chmod 0600 "$credential_directory/account_id"',
+  'chmod 0600 "$credential_directory/id_token"',
+  "pnpm openshell:runtime-evidence:check",
+  '--source-commit "$GITHUB_SHA"',
+  '--workflow-run-id "$GITHUB_RUN_ID"',
+  "dataground.dev/runtime-conformance-run",
+  "--filter label=com.docker.compose.project",
+  "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+  "if-no-files-found: error",
+];
+const runtimeMaterializeStep = runtimeEvidenceWorkflow.indexOf(
+  "- name: Materialize single-use runtime credentials",
+);
+const runtimeProduceStep = runtimeEvidenceWorkflow.indexOf(
+  "- name: Produce and verify live runtime evidence",
+);
+const runtimeCleanupStep = runtimeEvidenceWorkflow.indexOf(
+  "- name: Require complete resource removal",
+);
+const runtimeUploadStep = runtimeEvidenceWorkflow.indexOf(
+  "- name: Upload verified runtime evidence",
+);
+const runtimeProduceSection =
+  runtimeProduceStep < 0 || runtimeCleanupStep < 0
+    ? ""
+    : runtimeEvidenceWorkflow.slice(runtimeProduceStep, runtimeCleanupStep);
+if (
+  expectedRuntimeEvidenceWorkflowBindings.some(
+    (binding) => !runtimeEvidenceWorkflow.includes(binding),
+  ) ||
+  !runtimeEvidenceWorkflow.includes("workflow_dispatch:\n  push:") ||
+  !runtimeEvidenceWorkflow.includes("branches:\n      - main") ||
+  runtimeEvidenceWorkflow.includes("pull_request:") ||
+  runtimeEvidenceWorkflow.includes("pull_request_target:") ||
+  runtimeEvidenceWorkflow.includes("contents: write") ||
+  runtimeEvidenceWorkflow.includes("secrets: inherit") ||
+  runtimeEvidenceWorkflow.includes("install.sh") ||
+  runtimeEvidenceWorkflow.includes("apt-get") ||
+  runtimeEvidenceWorkflow.includes("systemctl") ||
+  runtimeEvidenceWorkflow.includes("rm -rf") ||
+  runtimeProduceSection.includes("secrets.") ||
+  runtimeMaterializeStep < 0 ||
+  runtimeProduceStep < 0 ||
+  runtimeCleanupStep < 0 ||
+  runtimeUploadStep < 0 ||
+  runtimeMaterializeStep > runtimeProduceStep ||
+  runtimeProduceStep > runtimeCleanupStep ||
+  runtimeCleanupStep > runtimeUploadStep ||
+  !runtimeEvidenceWorkflow
+    .slice(runtimeCleanupStep, runtimeUploadStep)
+    .includes("if: always()") ||
+  !runtimeEvidenceWorkflow.slice(runtimeUploadStep).includes("if: success()")
+) {
+  fail("the live runtime evidence workflow is missing or unsafe");
+}
+
 const credentialEvidenceWorkflow = await readFile(
   resolve(root, ".github/workflows/openshell-credential-evidence.yml"),
   "utf8",
