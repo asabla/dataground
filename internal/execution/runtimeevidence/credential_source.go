@@ -32,6 +32,12 @@ type CredentialSourceConfig struct {
 	Directory string
 }
 
+type RuntimeProviderSourceConfig struct {
+	RunID    string
+	Source   *RuntimeCredentialSource
+	Provider RuntimeProviderPort
+}
+
 // RuntimeCredentialSource adopts one fresh owner-only credential bundle. It
 // returns credentials only after removing the exact files and bundle directory.
 type RuntimeCredentialSource struct {
@@ -194,7 +200,35 @@ func openRuntimeCredentialFile(
 	}, nil
 }
 
-func (source *RuntimeCredentialSource) Load(
+// NewRuntimeProviderFromCredentialSource is the only public acquisition path.
+func NewRuntimeProviderFromCredentialSource(
+	ctx context.Context,
+	config RuntimeProviderSourceConfig,
+) (*RuntimeProvider, error) {
+	if ctx == nil ||
+		!runIDPattern.MatchString(config.RunID) ||
+		config.Source == nil ||
+		config.Source.state == nil ||
+		isNilHarnessPort(config.Provider) {
+		return nil, ErrCredentialSourceConfiguration
+	}
+	credentials, err := config.Source.load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer clearRuntimeProviderCredentials(&credentials)
+	provider, err := NewRuntimeProvider(RuntimeProviderConfig{
+		RunID:       config.RunID,
+		Credentials: credentials,
+		Provider:    config.Provider,
+	})
+	if err != nil {
+		return nil, ErrCredentialSourceConfiguration
+	}
+	return provider, nil
+}
+
+func (source *RuntimeCredentialSource) load(
 	ctx context.Context,
 ) (execution.RuntimeConformanceCredentials, error) {
 	if source == nil || source.state == nil || ctx == nil {
@@ -273,7 +307,7 @@ func (source *RuntimeCredentialSource) Load(
 }
 
 // Cleanup consumes the exact adopted bundle without returning credentials. It
-// remains available after a failed Load so a caller can retry uncertain removal.
+// remains available after failed acquisition so a caller can retry uncertain removal.
 func (source *RuntimeCredentialSource) Cleanup(ctx context.Context) error {
 	if source == nil || source.state == nil || ctx == nil {
 		return ErrCredentialSourceConfiguration
@@ -519,11 +553,16 @@ func (CredentialSourceConfig) MarshalJSON() ([]byte, error) {
 	return nil, ErrSerialization
 }
 
+func (RuntimeProviderSourceConfig) MarshalJSON() ([]byte, error) {
+	return nil, ErrSerialization
+}
+
 func (RuntimeCredentialSource) MarshalJSON() ([]byte, error) {
 	return nil, ErrSerialization
 }
 
 var (
 	_ json.Marshaler = CredentialSourceConfig{}
+	_ json.Marshaler = RuntimeProviderSourceConfig{}
 	_ json.Marshaler = RuntimeCredentialSource{}
 )
