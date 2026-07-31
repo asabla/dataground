@@ -333,7 +333,14 @@ func (server *Server) invokeAgentService(response http.ResponseWriter, request *
 
 		now := server.now()
 		invocationID := newID("inv")
-		correlationID := newID("cor")
+		correlationID := authenticatedCorrelationID(request)
+		if correlationID == "" {
+			return http.StatusInternalServerError, ErrorEnvelope{Error: safeError(
+				"AUTHORIZATION_UNAVAILABLE",
+				"Authorization is temporarily unavailable.",
+				true,
+			)}
+		}
 		operationID := newID("op")
 		invocation := Invocation{
 			Metadata:      newMetadata(invocationID, domainID, actorID, now),
@@ -701,7 +708,13 @@ func artifactKey(domainID, invocationID, artifactID string) string {
 }
 
 func safeError(code, message string, retryable bool) APIError {
-	return APIError{Code: code, Message: message, CorrelationID: newID("cor"), Retryable: retryable}
+	return safeErrorWithCorrelation(newID("cor"), code, message, retryable)
+}
+
+func safeErrorWithCorrelation(correlationID, code, message string, retryable bool) APIError {
+	return APIError{
+		Code: code, Message: message, CorrelationID: correlationID, Retryable: retryable,
+	}
 }
 
 func invalidField(field, message string) (int, any) {
