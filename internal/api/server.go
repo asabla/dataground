@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/asabla/dataground/internal/authn"
+	"github.com/asabla/dataground/internal/authz"
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/reference"
 )
@@ -52,8 +53,8 @@ type Server struct {
 	now                  func() time.Time
 }
 
-func NewHandler(authenticator authn.Authenticator) (http.Handler, error) {
-	return NewServer().Handler(authenticator)
+func NewHandler(authenticator authn.Authenticator, authorizer authz.Authorizer) (http.Handler, error) {
+	return NewServer().Handler(authenticator, authorizer)
 }
 
 func NewServer() *Server {
@@ -71,24 +72,47 @@ func NewServer() *Server {
 	}
 }
 
-func (server *Server) Handler(authenticator authn.Authenticator) (http.Handler, error) {
-	protected, err := newProtectedRoute(authenticator)
+func (server *Server) Handler(
+	authenticator authn.Authenticator,
+	authorizer authz.Authorizer,
+) (http.Handler, error) {
+	protected, err := newProtectedRoute(authenticator, authorizer)
 	if err != nil {
 		return nil, err
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", healthHandler)
 	mux.HandleFunc("GET /readyz", healthHandler)
-	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services", protected(server.createAgentService))
-	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions", protected(server.createServiceRevision))
-	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/publish", protected(server.publishServiceRevision))
-	mux.Handle("PUT /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}", protected(server.assignServiceAlias))
-	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations", protected(server.invokeAgentService))
-	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}", protected(server.getInvocation))
-	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/operations/{operationId}", protected(server.getOperation))
-	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel", protected(server.cancelInvocation))
-	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/events", protected(server.streamInvocationEvents))
-	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts/{artifactId}", protected(server.getInvocationArtifact))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services", protected(
+		authz.CreateAgentService, authz.IsolationDomain, "", server.createAgentService,
+	))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions", protected(
+		authz.CreateServiceRevision, authz.AgentService, "serviceId", server.createServiceRevision,
+	))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/publish", protected(
+		authz.PublishServiceRevision, authz.ServiceRevision, "revisionId", server.publishServiceRevision,
+	))
+	mux.Handle("PUT /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}", protected(
+		authz.AssignServiceAlias, authz.AgentService, "serviceId", server.assignServiceAlias,
+	))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations", protected(
+		authz.InvokeAgentService, authz.AgentService, "serviceId", server.invokeAgentService,
+	))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}", protected(
+		authz.ReadInvocation, authz.Invocation, "invocationId", server.getInvocation,
+	))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/operations/{operationId}", protected(
+		authz.ReadOperation, authz.Operation, "operationId", server.getOperation,
+	))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel", protected(
+		authz.CancelInvocation, authz.Invocation, "invocationId", server.cancelInvocation,
+	))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/events", protected(
+		authz.ReadInvocationEvents, authz.Invocation, "invocationId", server.streamInvocationEvents,
+	))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts/{artifactId}", protected(
+		authz.ReadInvocationArtifact, authz.Artifact, "artifactId", server.getInvocationArtifact,
+	))
 	return mux, nil
 }
 
