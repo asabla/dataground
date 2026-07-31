@@ -159,8 +159,8 @@ func mapCedarRequest(request Request) (cedar.Request, error) {
 	}
 	return cedar.Request{
 		Principal: cedar.NewEntityUID(cedar.EntityType(principalType), cedar.String(request.Principal.ID())),
-		Action: cedar.NewEntityUID(cedar.EntityType(actionEntityType), cedar.String(request.Action)),
-		Resource: cedar.NewEntityUID(cedar.EntityType(request.ResourceType), cedar.String(request.ResourceID)),
+		Action:    cedar.NewEntityUID(cedar.EntityType(actionEntityType), cedar.String(request.Action)),
+		Resource:  cedar.NewEntityUID(cedar.EntityType(request.ResourceType), cedar.String(request.ResourceID)),
 		Context: cedar.NewRecord(cedar.RecordMap{
 			"isolationDomainID": cedar.String(request.IsolationDomainID),
 		}),
