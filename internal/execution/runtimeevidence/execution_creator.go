@@ -129,7 +129,19 @@ func (creator *ExecutionCreator) Create(ctx context.Context) (execution.Executio
 		Driver:            driver,
 		Capabilities:      []string{openShellRuntimeCapability},
 	})
-	if err != nil || !validCreatedGateway(gateway, state) {
+	if err != nil || !validCreatedGateway(gateway, state) || state.poisoned() {
+		state.fail()
+		return execution.Execution{}, state.creationError(readyCtx, false)
+	}
+	gatewayRecord, err := state.store.GetGateway(
+		readyCtx,
+		state.ref.IsolationDomainID,
+		state.resources.Gateway,
+	)
+	if err != nil ||
+		!validCreatedGateway(gatewayRecord.Gateway, state) ||
+		gatewayRecord.Endpoint != gatewayEndpoint ||
+		state.poisoned() {
 		state.fail()
 		return execution.Execution{}, state.creationError(readyCtx, false)
 	}
@@ -137,7 +149,7 @@ func (creator *ExecutionCreator) Create(ctx context.Context) (execution.Executio
 		readyCtx,
 		state.ref.IsolationDomainID,
 		state.resources.Gateway,
-	); err != nil {
+	); err != nil || state.poisoned() {
 		state.fail()
 		return execution.Execution{}, state.creationError(readyCtx, false)
 	}
@@ -146,7 +158,7 @@ func (creator *ExecutionCreator) Create(ctx context.Context) (execution.Executio
 		OperationID:          runtimeOperationID(state.runID),
 		RequiredCapabilities: []string{openShellRuntimeCapability},
 	})
-	if err != nil || !validCreatedPlacement(placement, state) {
+	if err != nil || !validCreatedPlacement(placement, state) || state.poisoned() {
 		state.fail()
 		return execution.Execution{}, state.creationError(readyCtx, false)
 	}
@@ -162,7 +174,7 @@ func (creator *ExecutionCreator) Create(ctx context.Context) (execution.Executio
 		ProviderProfiles:  []string{state.resources.Provider},
 	})
 	clear(requestPolicy)
-	if createErr != nil || !validCreatedExecution(value, state) {
+	if createErr != nil || !validCreatedExecution(value, state) || state.poisoned() {
 		state.fail()
 		return execution.Execution{}, state.creationError(readyCtx, true)
 	}
@@ -393,6 +405,12 @@ func pollRuntimeExecution(ctx context.Context) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+func (state *executionCreationState) poisoned() bool {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.failed
 }
 
 func (state *executionCreationState) fail() {
