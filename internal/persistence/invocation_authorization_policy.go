@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -45,6 +46,10 @@ func (record InvocationAuthorizationPolicyRecord) Valid() bool {
 		len(record.Schema) <= maximumInvocationAuthorizationPolicyBytes &&
 		len(record.Policies) > 0 &&
 		len(record.Policies) <= maximumInvocationAuthorizationPolicyBytes &&
+		bytes.Equal(
+			record.PolicyDigest,
+			invocationAuthorizationPolicyRecordDigest(record.Schema, record.Policies)[:],
+		) &&
 		record.InstalledBy != "" &&
 		record.InstallationCorrelationID != "" &&
 		len(record.ReasonDigest) == sha256.Size
@@ -230,6 +235,20 @@ func getInvocationAuthorizationPolicyRecord(
 		return InvocationAuthorizationPolicyRecord{}, ErrInvocationAuthorizationPolicyRecordInvalid
 	}
 	return cloneInvocationAuthorizationPolicyRecord(record), nil
+}
+
+func invocationAuthorizationPolicyRecordDigest(schema []byte, policies []byte) [sha256.Size]byte {
+	digest := sha256.New()
+	var size [8]byte
+	binary.BigEndian.PutUint64(size[:], uint64(len(schema)))
+	_, _ = digest.Write(size[:])
+	_, _ = digest.Write(schema)
+	binary.BigEndian.PutUint64(size[:], uint64(len(policies)))
+	_, _ = digest.Write(size[:])
+	_, _ = digest.Write(policies)
+	var result [sha256.Size]byte
+	copy(result[:], digest.Sum(nil))
+	return result
 }
 
 func cloneInvocationAuthorizationPolicyRecord(
