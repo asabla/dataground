@@ -308,7 +308,7 @@
         "artifact-export": "supported",
         "runtime-artifact-events": "unsupported"
       },
-      "status": "v2 evidence producer, immutable execution creation, private credential acquisition, concrete probes, and closed composition harness defined; Docker launcher and live record required",
+      "status": "v2 evidence producer, immutable execution creation, private credential acquisition, runtime Docker topology, concrete probes, and closed composition harness defined; launcher and live record required",
       "resourceNames": {
         "gateway": "dg-runtime-gateway-<runID>",
         "sandbox": "dg-runtime-sandbox-<runID>",
@@ -344,7 +344,7 @@
           "workspace"
         ],
         "serialization": "run forbidden; result only after every case and cleanup succeeds",
-        "status": "closed assembler, immutable execution creation, concrete probes, and composition harness implemented; Docker launcher required",
+        "status": "closed assembler, immutable execution creation, concrete probes, composition harness, and runtime Docker topology implemented; launcher required",
         "scenarioDriver": {
           "assembly": "internal/execution/runtimeevidence.NewConcreteScenario",
           "binding": "exact run-derived portable resources with separate provider lifecycle and Codex runtime probe ports",
@@ -401,7 +401,7 @@
           "singleUse": "shared irreversible evidence state across harness copies",
           "failure": "invalid or typed-nil ports fail before execution; runtime failures are sanitized and incomplete results remain non-serializable",
           "serialization": "configuration and harness forbidden",
-          "status": "implemented with immutable execution creation; Docker topology and live record required"
+          "status": "implemented with immutable execution creation and runtime Docker topology; launcher composition and live record required"
         },
         "executionCreator": {
           "assembly": "internal/execution/runtimeevidence.NewExecutionCreator",
@@ -411,7 +411,7 @@
           "recovery": "observe deterministic persisted state before cancellation-independent termination; require a fresh exact terminal observation",
           "concurrency": "shared irreversible create state across copies; overlap and replay poison creation without revoking cleanup authority",
           "serialization": "configuration and creator forbidden",
-          "status": "implemented with runtime provider provisioning; Docker topology, launcher composition, workflow secret materialization, and live record required"
+          "status": "implemented with runtime provider provisioning and Docker topology; launcher composition, workflow secret materialization, and live record required"
         },
         "runtimeCredentialSource": {
           "assembly": "internal/execution/runtimeevidence.NewRuntimeCredentialSource with NewRuntimeProviderFromCredentialSource",
@@ -421,7 +421,7 @@
           "failure": "replay, overlap, cancellation, path substitution, extra entries, unsafe ownership or permissions, and uncertain removal fail closed without revoking exact cleanup authority",
           "exposure": "public callers receive only the runtime provisioner; credential bytes do not enter arguments, inherited environments, generic readers, serialization, or caller-visible return values",
           "serialization": "source configuration, provider-source configuration, source, credentials, and provisioner forbidden",
-          "status": "implemented; Docker topology, launcher composition, workflow secret materialization, and live record required"
+          "status": "implemented with Docker topology; launcher composition, workflow secret materialization, and live record required"
         },
         "runtimeProvider": {
           "assembly": "internal/execution/runtimeevidence.NewRuntimeProvider",
@@ -431,8 +431,22 @@
           "recovery": "lost create acknowledgement accepted only after exact credential-safe observation; cleanup requires exact identity and fresh timestamped absence",
           "concurrency": "shared irreversible provisioning state across copies; overlap and replay poison provisioning without revoking cleanup authority",
           "serialization": "credentials, requests, configuration, and provisioner forbidden",
-          "status": "implemented with private credential acquisition; Docker topology, launcher composition, workflow secret materialization, and live record required"
+          "status": "implemented with private credential acquisition and Docker topology; launcher composition, workflow secret materialization, and live record required"
         }
+      },
+      "topology": {
+        "assembly": "internal/execution/runtimeevidence.NewDockerTopology",
+        "composeFile": "deploy/openshell/runtime-conformance/docker-compose.yml",
+        "composeSHA256": "e0c3a67c3b5976dc22e32e47614a1f8f08aaaa2ddfc0c376240641a391066762",
+        "gatewayConfigFile": "deploy/openshell/runtime-conformance/gateway.toml",
+        "gatewayConfigSHA256": "16f5d7a5e7d1dad1be67ede22d7b9d70e76517c98c6c9a4a4c2eb89eead08651",
+        "binding": "one run-derived Compose project, digest-pinned gateway image, private frozen topology directory, fresh gateway JWT material, and exact gateway and provider labels",
+        "environment": "allowlisted Docker client variables plus exact run, resource, state, JWT, UID, GID, and Docker GID values; inherited provider credentials forbidden",
+        "lifecycle": "verify source bytes, freeze owner-only inputs, start once, require loopback readiness, and re-observe exact container identity, image, project, and labels",
+        "recovery": "retain cleanup authority after ambiguous start; accept lost down acknowledgement only after exact project container and volume absence",
+        "concurrency": "shared irreversible state across copies; replay and overlap poison startup without revoking cleanup",
+        "serialization": "configuration, topology, and frozen workspace forbidden",
+        "status": "implemented; launcher composition, workflow secret materialization, and live record required"
       }
     }
   },
@@ -440,7 +454,7 @@
     "gatewayPlacement": "adapter conformance tested",
     "sandboxLifecycle": "adapter conformance tested",
     "codexAppServerStdio": "adapter conformance tested",
-    "realSandboxInvocation": "v2 evidence producer, immutable execution creator, private credential source, runtime provider binding, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; Docker launcher and live certification blocked",
+    "realSandboxInvocation": "v2 evidence producer, immutable execution creator, private credential source, runtime provider binding, Docker topology, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; launcher composition and live certification blocked",
     "credentialNonExposure": "certified for pinned development profile",
     "rosettaMaterialization": "blocked"
   },
