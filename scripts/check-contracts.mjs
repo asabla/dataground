@@ -22,6 +22,29 @@ assert.equal(
 );
 assert.equal(openApi.servers, undefined, "contracts must not embed a deployment endpoint");
 assert.ok(Object.keys(openApi.paths).length > 0, "OpenAPI must define at least one path");
+assert.deepEqual(
+  openApi.security,
+  [{ BearerAccessToken: [] }],
+  "versioned API operations must inherit the bearer authentication requirement",
+);
+assert.deepEqual(
+  openApi.components.securitySchemes?.BearerAccessToken,
+  {
+    type: "http",
+    scheme: "bearer",
+    bearerFormat: "JWT",
+    description:
+      "OIDC/OAuth access token. The deployment-owned authentication boundary validates issuer, audience, credential state, and isolation-domain membership before request processing.",
+  },
+  "the public bearer authentication contract is missing or inconsistent",
+);
+assert.equal(
+  Object.values(openApi.components.securitySchemes ?? {}).some(
+    (scheme) => scheme.type === "apiKey",
+  ),
+  false,
+  "API-key authentication must remain disabled by default",
+);
 
 const operationMethods = new Set([
   "delete",
@@ -58,6 +81,25 @@ for (const [route, pathItem] of Object.entries(openApi.paths)) {
       !operationIds.has(operation.operationId),
       `duplicate operationId ${operation.operationId}`,
     );
+    if (unscopedHealthRoutes.has(route)) {
+      assert.deepEqual(
+        operation.security,
+        [],
+        `${method.toUpperCase()} ${route} must remain outside API authentication`,
+      );
+    } else {
+      assert.equal(
+        operation.security,
+        undefined,
+        `${method.toUpperCase()} ${route} must inherit the common authentication boundary`,
+      );
+      for (const status of ["401", "403", "503"]) {
+        assert.ok(
+          operation.responses[status],
+          `${method.toUpperCase()} ${route} must document authentication status ${status}`,
+        );
+      }
+    }
     if (mutationMethods.has(method)) {
       assert.ok(
         operation.parameters?.some(
