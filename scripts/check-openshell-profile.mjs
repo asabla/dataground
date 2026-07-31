@@ -1438,7 +1438,7 @@ if (
   !runtimeLauncherWorkspaceSource.includes("removeRuntimeLauncherDirectory(") ||
   runtimeLauncherWorkspaceSource.includes("RemoveAll(") ||
   !runtimeLauncherWorkspaceSource.includes("runtimeCredentialSingleLink(") ||
-  !runtimeLauncherWorkspaceSource.includes("func (runtimeLauncherWorkspace) MarshalJSON(") ||
+  !runtimeLauncherWorkspaceSource.includes("func (*runtimeLauncherWorkspace) MarshalJSON(") ||
   !runtimeLauncherCommandSource.includes("runtimeevidence.Launch(ctx, config)") ||
   !runtimeLauncherCommandSource.includes('"credential-directory"') ||
   !runtimeLauncherCommandSource.includes('"source-commit"') ||
