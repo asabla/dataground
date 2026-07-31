@@ -3,6 +3,9 @@ package authz
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -60,6 +63,7 @@ type Request struct {
 	ResourceType      ResourceType
 	ResourceID        string
 	IsolationDomainID string
+	CorrelationID     string
 }
 
 type Authorizer interface {
@@ -74,6 +78,7 @@ type StaticCedarConfig struct {
 
 type StaticCedarAuthorizer struct {
 	policies *cedar.PolicySet
+	policy   PolicyDescriptor
 }
 
 func NewStaticCedarAuthorizer(config StaticCedarConfig) (*StaticCedarAuthorizer, error) {
@@ -91,7 +96,13 @@ func NewStaticCedarAuthorizer(config StaticCedarConfig) (*StaticCedarAuthorizer,
 		return nil, errors.New("API Cedar policy configuration is invalid")
 	}
 	for range policies.All() {
-		return &StaticCedarAuthorizer{policies: policies}, nil
+		return &StaticCedarAuthorizer{
+			policies: policies,
+			policy: PolicyDescriptor{
+				PolicySetID: config.PolicySetID,
+				Digest:      authorizationPolicyDigest(config.Schema, config.Policies),
+			},
+		}, nil
 	}
 	return nil, errors.New("API Cedar policy configuration is empty")
 }
@@ -119,6 +130,25 @@ when { context.isolationDomainID == "%s" };`,
 
 func CanonicalAPICedarSchema() []byte {
 	return []byte(apiCedarSchemaV1)
+}
+
+func (authorizer *StaticCedarAuthorizer) AuthorizationPolicy() PolicyDescriptor {
+	if authorizer == nil {
+		return PolicyDescriptor{}
+	}
+	return authorizer.policy
+}
+
+func authorizationPolicyDigest(schema, policies []byte) string {
+	digest := sha256.New()
+	var size [8]byte
+	binary.BigEndian.PutUint64(size[:], uint64(len(schema)))
+	_, _ = digest.Write(size[:])
+	_, _ = digest.Write(schema)
+	binary.BigEndian.PutUint64(size[:], uint64(len(policies)))
+	_, _ = digest.Write(size[:])
+	_, _ = digest.Write(policies)
+	return "sha256:" + hex.EncodeToString(digest.Sum(nil))
 }
 
 func (authorizer *StaticCedarAuthorizer) Authorize(ctx context.Context, request Request) error {
