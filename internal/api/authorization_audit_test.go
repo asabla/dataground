@@ -13,6 +13,58 @@ import (
 	"github.com/asabla/dataground/internal/authz"
 )
 
+func TestAuthorizedInvocationSharesDecisionCorrelation(t *testing.T) {
+	t.Parallel()
+
+	authenticator, err := authn.NewDevelopmentAuthenticator(authn.DevelopmentConfig{
+		BearerToken: []byte(testToken), PrincipalID: testActor, IsolationDomainID: testDomain,
+	})
+	if err != nil {
+		t.Fatalf("create development authenticator: %v", err)
+	}
+	delegate, err := authz.NewDevelopmentCedarAuthorizer(testActor, testDomain)
+	if err != nil {
+		t.Fatalf("create development authorizer: %v", err)
+	}
+	recorder := &recordingAPIDecisionRecorder{}
+	authorizer, err := authz.NewAuditedAuthorizer(delegate, recorder)
+	if err != nil {
+		t.Fatalf("create audited authorizer: %v", err)
+	}
+	handler, err := api.NewHandler(authenticator, authorizer)
+	if err != nil {
+		t.Fatalf("create protected handler: %v", err)
+	}
+
+	service := createService(t, handler, testDomain, "audit-correlation-service")
+	revision := createPublishedRevision(t, handler, testDomain, service.Metadata.ID)
+	assignAlias(t, handler, testDomain, service.Metadata.ID, revision.Metadata.ID, "audit-correlation-alias")
+	invocation := invoke(
+		t,
+		handler,
+		testDomain,
+		service.Metadata.ID,
+		"success",
+		"audit-correlation-invoke",
+	)
+
+	var invocationDecision authz.DecisionRecord
+	for _, record := range recorder.records {
+		if record.Action == authz.InvokeAgentService {
+			invocationDecision = record
+		}
+	}
+	if !invocationDecision.Valid() ||
+		invocationDecision.Outcome != authz.OutcomeAllowed ||
+		invocation.CorrelationID != invocationDecision.CorrelationID {
+		t.Fatalf(
+			"invocation correlation %q does not match decision %#v",
+			invocation.CorrelationID,
+			invocationDecision,
+		)
+	}
+}
+
 func TestProtectedRoutesWithholdAllowedRequestsWhenAuditFails(t *testing.T) {
 	t.Parallel()
 
@@ -73,6 +125,18 @@ func TestProtectedRoutesWithholdAllowedRequestsWhenAuditFails(t *testing.T) {
 	}
 }
 
+type recordingAPIDecisionRecorder struct {
+	records []authz.DecisionRecord
+}
+
+func (recorder *recordingAPIDecisionRecorder) RecordAuthorizationDecision(
+	_ context.Context,
+	record authz.DecisionRecord,
+) error {
+	recorder.records = append(recorder.records, record)
+	return nil
+}
+
 type failingAPIDecisionRecorder struct {
 	records []authz.DecisionRecord
 }
@@ -85,4 +149,5 @@ func (recorder *failingAPIDecisionRecorder) RecordAuthorizationDecision(
 	return errors.New("injected audit persistence failure")
 }
 
+var _ authz.DecisionRecorder = (*recordingAPIDecisionRecorder)(nil)
 var _ authz.DecisionRecorder = (*failingAPIDecisionRecorder)(nil)
