@@ -695,9 +695,7 @@
       "HealthResponse": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "status"
-        ],
+        "required": ["status"],
         "properties": {
           "status": {
             "type": "string",
@@ -809,9 +807,7 @@
       "ErrorEnvelope": {
         "type": "object",
         "additionalProperties": true,
-        "required": [
-          "error"
-        ],
+        "required": ["error"],
         "properties": {
           "error": {
             "$ref": "#/components/schemas/Error"
@@ -821,21 +817,12 @@
       "Error": {
         "type": "object",
         "additionalProperties": true,
-        "required": [
-          "code",
-          "message",
-          "correlationId",
-          "retryable"
-        ],
+        "required": ["code", "message", "correlationId", "retryable"],
         "properties": {
           "code": {
             "type": "string",
             "pattern": "^[A-Z][A-Z0-9_]{2,63}$",
-            "examples": [
-              "INVALID_REQUEST",
-              "RESOURCE_NOT_FOUND",
-              "IDEMPOTENCY_KEY_REUSED"
-            ]
+            "examples": ["INVALID_REQUEST", "RESOURCE_NOT_FOUND", "IDEMPOTENCY_KEY_REUSED"]
           },
           "message": {
             "type": "string",
@@ -862,11 +849,7 @@
       "FieldError": {
         "type": "object",
         "additionalProperties": true,
-        "required": [
-          "field",
-          "code",
-          "message"
-        ],
+        "required": ["field", "code", "message"],
         "properties": {
           "field": {
             "type": "string",
@@ -946,12 +929,7 @@
             "format": "date-time"
           },
           "errorClassification": {
-            "enum": [
-              "retryable",
-              "terminal",
-              "cancelled",
-              "unknown"
-            ]
+            "enum": ["retryable", "terminal", "cancelled", "unknown"]
           },
           "terminalResult": {
             "type": "object",
@@ -965,11 +943,7 @@
       "OperationLease": {
         "type": "object",
         "additionalProperties": true,
-        "required": [
-          "owner",
-          "fencingToken",
-          "expiresAt"
-        ],
+        "required": ["owner", "fencingToken", "expiresAt"],
         "properties": {
           "owner": {
             "type": "string",
@@ -989,10 +963,7 @@
       "AgentService": {
         "type": "object",
         "additionalProperties": true,
-        "required": [
-          "metadata",
-          "name"
-        ],
+        "required": ["metadata", "name"],
         "properties": {
           "metadata": {
             "$ref": "#/components/schemas/ResourceMetadata"
@@ -1031,11 +1002,7 @@
             "minimum": 1
           },
           "state": {
-            "enum": [
-              "draft",
-              "published",
-              "retired"
-            ]
+            "enum": ["draft", "published", "retired"]
           },
           "runtimeProfile": {
             "type": "string",
@@ -1068,12 +1035,7 @@
       "ServiceAlias": {
         "type": "object",
         "additionalProperties": true,
-        "required": [
-          "metadata",
-          "serviceId",
-          "name",
-          "revisionId"
-        ],
+        "required": ["metadata", "serviceId", "name", "revisionId"],
         "properties": {
           "metadata": {
             "$ref": "#/components/schemas/ResourceMetadata"
@@ -1092,13 +1054,7 @@
       "ServiceDeployment": {
         "type": "object",
         "additionalProperties": true,
-        "required": [
-          "metadata",
-          "serviceId",
-          "revisionId",
-          "desiredState",
-          "observedState"
-        ],
+        "required": ["metadata", "serviceId", "revisionId", "desiredState", "observedState"],
         "properties": {
           "metadata": {
             "$ref": "#/components/schemas/ResourceMetadata"
@@ -1110,20 +1066,10 @@
             "$ref": "#/components/schemas/RevisionId"
           },
           "desiredState": {
-            "enum": [
-              "active",
-              "retired"
-            ]
+            "enum": ["active", "retired"]
           },
           "observedState": {
-            "enum": [
-              "pending",
-              "active",
-              "degraded",
-              "failed",
-              "retired",
-              "unknown"
-            ]
+            "enum": ["pending", "active", "degraded", "failed", "retired", "unknown"]
           },
           "operationId": {
             "$ref": "#/components/schemas/OperationId"
@@ -1133,11 +1079,7 @@
       "Usage": {
         "type": "object",
         "additionalProperties": true,
-        "required": [
-          "inputTokens",
-          "outputTokens",
-          "totalTokens"
-        ],
+        "required": ["inputTokens", "outputTokens", "totalTokens"],
         "properties": {
           "inputTokens": {
             "type": "integer",
@@ -1334,13 +1276,7 @@
             "maxLength": 255
           },
           "kind": {
-            "enum": [
-              "file",
-              "structured-output",
-              "event-payload",
-              "log",
-              "other"
-            ]
+            "enum": ["file", "structured-output", "event-payload", "log", "other"]
           },
           "mediaType": {
             "type": "string",
@@ -1356,12 +1292,7 @@
             "pattern": "^sha256:[0-9a-f]{64}$"
           },
           "state": {
-            "enum": [
-              "pending",
-              "available",
-              "failed",
-              "deleted"
-            ]
+            "enum": ["pending", "available", "failed", "deleted"]
           },
           "sensitive": {
             "type": "boolean"
@@ -1371,12 +1302,7 @@
       "RuntimeCapabilityManifest": {
         "type": "object",
         "additionalProperties": true,
-        "required": [
-          "schemaVersion",
-          "runtimeFamily",
-          "runtimeVersion",
-          "capabilities"
-        ],
+        "required": ["schemaVersion", "runtimeFamily", "runtimeVersion", "capabilities"],
         "properties": {
           "schemaVersion": {
             "const": "dataground.runtime-capabilities/v1"
@@ -1398,11 +1324,7 @@
               "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z0-9]+)*$"
             },
             "additionalProperties": {
-              "enum": [
-                "supported",
-                "unsupported",
-                "degraded"
-              ]
+              "enum": ["supported", "unsupported", "degraded"]
             }
           },
           "extensions": {
@@ -1420,9 +1342,7 @@
       "CreateAgentServiceRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "name"
-        ],
+        "required": ["name"],
         "properties": {
           "name": {
             "type": "string",
@@ -1438,10 +1358,7 @@
       "CreateServiceRevisionRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "runtimeProfile",
-          "requiredCapabilities"
-        ],
+        "required": ["runtimeProfile", "requiredCapabilities"],
         "properties": {
           "runtimeProfile": {
             "type": "string",
@@ -1470,9 +1387,7 @@
       "PublishServiceRevisionRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "expectedVersion"
-        ],
+        "required": ["expectedVersion"],
         "properties": {
           "expectedVersion": {
             "type": "integer",
@@ -1483,9 +1398,7 @@
       "AssignServiceAliasRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "revisionId"
-        ],
+        "required": ["revisionId"],
         "properties": {
           "revisionId": {
             "$ref": "#/components/schemas/RevisionId"
@@ -1499,10 +1412,7 @@
       "InvokeAgentServiceRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "alias",
-          "input"
-        ],
+        "required": ["alias", "input"],
         "properties": {
           "alias": {
             "$ref": "#/components/schemas/AliasName"
