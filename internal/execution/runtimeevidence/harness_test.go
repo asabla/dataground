@@ -83,7 +83,6 @@ func TestHarnessOwnsCompleteRuntimeEvidenceChain(t *testing.T) {
 	}
 }
 
-
 func TestHarnessSanitizesFailureAndCompletesCleanup(t *testing.T) {
 	t.Parallel()
 
@@ -200,14 +199,14 @@ func TestNewHarnessRejectsInvalidComposition(t *testing.T) {
 	}
 	var typedNilProvider *harnessTestProvider
 	for name, mutate := range map[string]func(*HarnessConfig){
-		"run":        func(config *HarnessConfig) { config.RunID = "invalid" },
-		"provenance": func(config *HarnessConfig) { config.Provenance.SourceCommit = "invalid" },
-		"workflow":   func(config *HarnessConfig) { config.Provenance.WorkflowRunID = 0 },
-		"execution":  func(config *HarnessConfig) { config.ExecutionID = "" },
-		"store":      func(config *HarnessConfig) { config.Store = nil },
+		"run":                func(config *HarnessConfig) { config.RunID = "invalid" },
+		"provenance":         func(config *HarnessConfig) { config.Provenance.SourceCommit = "invalid" },
+		"workflow":           func(config *HarnessConfig) { config.Provenance.WorkflowRunID = 0 },
+		"execution":          func(config *HarnessConfig) { config.ExecutionID = "" },
+		"store":              func(config *HarnessConfig) { config.Store = nil },
 		"provider":           func(config *HarnessConfig) { config.Provider = nil },
 		"typed nil provider": func(config *HarnessConfig) { config.Provider = typedNilProvider },
-		"cleanup":    func(config *HarnessConfig) { config.Cleanup.Workspace = nil },
+		"cleanup":            func(config *HarnessConfig) { config.Cleanup.Workspace = nil },
 	} {
 		name, mutate := name, mutate
 		t.Run(name, func(t *testing.T) {
