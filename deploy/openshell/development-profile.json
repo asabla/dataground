@@ -308,7 +308,7 @@
         "artifact-export": "supported",
         "runtime-artifact-events": "unsupported"
       },
-      "status": "v2 evidence producer, live case backend, scenario driver, and OpenShell provider probes defined; live record required",
+      "status": "v2 evidence producer, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; live record required",
       "resourceNames": {
         "gateway": "dg-runtime-gateway-<runID>",
         "sandbox": "dg-runtime-sandbox-<runID>",
@@ -335,7 +335,7 @@
           "concurrency": "one in-flight case; overlap, order drift, cancellation, backend failure, invalid receipts, and proof replay are terminal",
           "completion": "atomic backend finalization after the twelfth case and before cleanup",
           "serialization": "forbidden",
-          "status": "implemented with scenario driver and OpenShell provider probes; Codex runtime probes required",
+          "status": "implemented with scenario driver, OpenShell provider probes, and Codex runtime probes; launcher required",
           "exposure": "each receipt must attest completed inspection; native-protocol or upstream-endpoint exposure fails before commitment"
         },
         "cleanupOrder": [
@@ -344,7 +344,7 @@
           "workspace"
         ],
         "serialization": "run forbidden; result only after every case and cleanup succeeds",
-        "status": "closed assembler, live case backend, scenario driver, and OpenShell provider probes implemented; Codex probes and launcher required",
+        "status": "closed assembler, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes implemented; launcher required",
         "scenarioDriver": {
           "assembly": "internal/execution/runtimeevidence.NewConcreteScenario",
           "binding": "exact run-derived portable resources with separate provider lifecycle and Codex runtime probe ports",
@@ -354,7 +354,7 @@
           "concurrency": "single-use ordered state; overlap, cancellation, probe failure, binding drift, invalid assertions, and proof replay are terminal",
           "errors": "native probe errors are replaced by stable scenario errors",
           "serialization": "forbidden",
-          "status": "implemented with OpenShell provider probes; Codex runtime probes and launcher required"
+          "status": "implemented with OpenShell provider and Codex runtime probes; launcher required"
         },
         "openShellProviderProbes": {
           "assembly": "internal/execution/runtimeevidence.NewOpenShellProbes",
@@ -370,7 +370,28 @@
           "failure": "order drift, overlap, cancellation, native failure, binding mismatch, clock regression, artifact substitution, and uncertain teardown are terminal",
           "creation": "pinned image, policy, and provider-profile creation remains launcher-owned",
           "serialization": "configuration and adapter forbidden",
-          "status": "implemented; Codex protocol probes and launcher required"
+          "status": "implemented with Codex runtime probes; launcher required"
+        },
+        "codexRuntimeProbes": {
+          "assembly": "internal/execution/runtimeevidence.NewCodexProbes",
+          "binding": "exact run-derived portable resources, exact persisted ready execution, fresh OpenShell runtime session per case, and pinned internal Codex client",
+          "cases": [
+            "initialize",
+            "turn-success",
+            "turn-failure",
+            "event-normalization",
+            "interrupt",
+            "cancellation",
+            "command-approval",
+            "file-change-approval"
+          ],
+          "requests": "fixed run-bound prompts with locked read-only defaults; approval cases alone enable interactive review and file-change alone enables workspace-write under /tmp",
+          "observationProof": "domain-separated SHA-256 over the portable binding, UTC interval, bounded normalized event transcript, and closed case outcome",
+          "acceptance": "exact success text, native terminal failure, process event lifecycle, interrupt cancellation, canceled wait, and denied typed approvals; start and transport failures are rejected",
+          "limits": "at most 256 normalized events and 4194304 canonical JSON bytes per case",
+          "failure": "order drift, overlap, caller cancellation, execution substitution, native failure, uncertain session close, invalid event sequence, endpoint or native-field exposure, clock regression, and outcome mismatch are terminal",
+          "serialization": "configuration and adapter forbidden",
+          "status": "implemented; launcher required"
         }
       }
     }
@@ -379,7 +400,7 @@
     "gatewayPlacement": "adapter conformance tested",
     "sandboxLifecycle": "adapter conformance tested",
     "codexAppServerStdio": "adapter conformance tested",
-    "realSandboxInvocation": "v2 evidence producer, live case backend, scenario driver, and OpenShell provider probes defined; Codex probes and live certification blocked",
+    "realSandboxInvocation": "v2 evidence producer, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; launcher and live certification blocked",
     "credentialNonExposure": "certified for pinned development profile",
     "rosettaMaterialization": "blocked"
   },
