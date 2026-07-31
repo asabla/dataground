@@ -446,7 +446,11 @@
         "recovery": "retain cleanup authority after ambiguous start; accept lost down acknowledgement only after exact project container and volume absence",
         "concurrency": "shared irreversible state across copies; replay and overlap poison startup without revoking cleanup",
         "serialization": "configuration, topology, and frozen workspace forbidden",
-        "status": "implemented; launcher composition, workflow secret materialization, and live record required"
+        "status": "implemented; launcher composition, workflow secret materialization, and live record required",
+        "gatewayImage": "ghcr.io/nvidia/openshell/gateway@sha256:e21f520a0678ba3cfe749957338b5fa78c75e8e52de13e4559ccbb582f781a0b",
+        "gatewayEndpoint": "http://127.0.0.1:8080",
+        "healthEndpoint": "http://127.0.0.1:8081/health",
+        "driver": "docker"
       }
     }
   },
