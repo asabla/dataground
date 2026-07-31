@@ -234,7 +234,10 @@ func TestRuntimeCredentialSourceCancellationConsumesBundle(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if credentials != (execution.RuntimeConformanceCredentials{}) {
+	if len(credentials.AccessToken) != 0 ||
+		len(credentials.RefreshToken) != 0 ||
+		len(credentials.AccountID) != 0 ||
+		len(credentials.IDToken) != 0 {
 		t.Fatal("cancelled load returned credentials")
 	}
 	if _, err := os.Lstat(directory); !errors.Is(err, os.ErrNotExist) {
