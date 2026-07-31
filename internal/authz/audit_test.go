@@ -13,7 +13,7 @@ import (
 
 const (
 	auditActor  = "usr_00000000000000000001"
-	otherActor  = "usr_00000000000000000002"
+	auditOtherActor  = "usr_00000000000000000002"
 	auditDomain = "iso_00000000000000000001"
 )
 
@@ -34,7 +34,7 @@ func TestAuditedAuthorizerRecordsClosedDecisionAndPolicyProvenance(t *testing.T)
 	if err := authorizer.Authorize(context.Background(), allowed); err != nil {
 		t.Fatalf("authorize allowed request: %v", err)
 	}
-	denied := auditRequest(t, otherActor)
+	denied := auditRequest(t, auditOtherActor)
 	if err := authorizer.Authorize(context.Background(), denied); !errors.Is(err, authz.ErrDenied) {
 		t.Fatalf("authorize denied request: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestAuditedAuthorizerRecordsClosedDecisionAndPolicyProvenance(t *testing.T)
 	}
 	for index, record := range recorder.records {
 		if !record.Valid() ||
-			record.PrincipalID != []string{auditActor, otherActor}[index] ||
+			record.PrincipalID != []string{auditActor, auditOtherActor}[index] ||
 			record.PrincipalKind != authn.PrincipalHuman ||
 			record.IsolationDomainID != auditDomain ||
 			record.Action != authz.ReadInvocation ||
@@ -82,7 +82,7 @@ func TestAuditedAuthorizerFailsClosedWhenDecisionCannotBeRecorded(t *testing.T) 
 	if err := authorizer.Authorize(context.Background(), auditRequest(t, auditActor)); !errors.Is(err, authz.ErrUnavailable) {
 		t.Fatalf("allowed decision without audit = %v, want unavailable", err)
 	}
-	if err := authorizer.Authorize(context.Background(), auditRequest(t, otherActor)); !errors.Is(err, authz.ErrUnavailable) {
+	if err := authorizer.Authorize(context.Background(), auditRequest(t, auditOtherActor)); !errors.Is(err, authz.ErrUnavailable) {
 		t.Fatalf("denied decision without audit = %v, want unavailable", err)
 	}
 }
