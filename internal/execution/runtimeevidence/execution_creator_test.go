@@ -181,6 +181,50 @@ func TestExecutionCreatorRejectsOverlapBeforeNativeMutation(t *testing.T) {
 	}
 }
 
+func TestExecutionCreatorRejectsCancelledNativeSuccess(t *testing.T) {
+	t.Parallel()
+
+	fixture := newExecutionCreatorFixture()
+	fixture.provider.createStarted = make(chan struct{})
+	fixture.provider.releaseCreate = make(chan struct{})
+	creator, err := newExecutionCreator(fixture.config(), fixture.poll)
+	if err != nil {
+		t.Fatalf("newExecutionCreator() error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		_, createErr := creator.Create(ctx)
+		result <- createErr
+	}()
+	<-fixture.provider.createStarted
+	cancel()
+	close(fixture.provider.releaseCreate)
+	if err := <-result; !errors.Is(err, ErrExecutionCreation) ||
+		!errors.Is(err, context.Canceled) {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if fixture.provider.terminateCalls != 1 {
+		t.Fatalf("Terminate() calls = %d", fixture.provider.terminateCalls)
+	}
+}
+
+func TestExecutionCreatorRejectsStaleObservations(t *testing.T) {
+	t.Parallel()
+
+	fixture := newExecutionCreatorFixture()
+	fixture.provider.observedAt = time.Unix(1, 0).UTC()
+	creator, err := newExecutionCreator(fixture.config(), fixture.poll)
+	if err != nil {
+		t.Fatalf("newExecutionCreator() error = %v", err)
+	}
+	_, err = creator.Create(context.Background())
+	if !errors.Is(err, ErrExecutionCreation) ||
+		!errors.Is(err, ErrExecutionCreationCleanup) {
+		t.Fatalf("Create() error = %v", err)
+	}
+}
+
 func TestExecutionCreatorFailsClosedOnUncertainCleanup(t *testing.T) {
 	t.Parallel()
 
@@ -279,6 +323,10 @@ type executionCreatorProvider struct {
 	registerStarted      chan struct{}
 	releaseRegister      chan struct{}
 	registerOnce         sync.Once
+	createStarted        chan struct{}
+	releaseCreate        chan struct{}
+	createOnce           sync.Once
+	observedAt           time.Time
 }
 
 func (provider *executionCreatorProvider) RegisterGateway(
@@ -333,6 +381,10 @@ func (provider *executionCreatorProvider) Create(
 	request execution.CreateRequest,
 ) (execution.Execution, error) {
 	provider.createCalls++
+	if provider.createStarted != nil {
+		provider.createOnce.Do(func() { close(provider.createStarted) })
+		<-provider.releaseCreate
+	}
 	provider.createRequest = request
 	provider.createRequest.Policy = append([]byte(nil), request.Policy...)
 	value := execution.Execution{
@@ -361,11 +413,15 @@ func (provider *executionCreatorProvider) Observe(
 		state = provider.terminateObservation
 	}
 	provider.store.setExecutionState(state)
+	observedAt := provider.observedAt
+	if observedAt.IsZero() {
+		observedAt = time.Now().UTC()
+	}
 	return execution.Observation{
 		IsolationDomainID: ref.IsolationDomainID,
 		ExecutionID:       ref.ID,
 		State:             state,
-		ObservedAt:        time.Now().UTC(),
+		ObservedAt:        observedAt,
 	}, nil
 }
 
