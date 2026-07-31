@@ -565,8 +565,11 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             409: components["responses"]["Error"];
             415: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     createServiceRevision: {
@@ -598,9 +601,12 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
             415: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     publishServiceRevision: {
@@ -641,9 +647,12 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
             415: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     assignServiceAlias: {
@@ -676,9 +685,12 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
             415: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     invokeAgentService: {
@@ -710,9 +722,12 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
             415: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     getInvocation: {
@@ -736,7 +751,10 @@ export interface operations {
                     "application/json": components["schemas"]["Invocation"];
                 };
             };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     getOperation: {
@@ -760,7 +778,10 @@ export interface operations {
                     "application/json": components["schemas"]["Operation"];
                 };
             };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     cancelInvocation: {
@@ -801,9 +822,12 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
             415: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     streamInvocationEvents: {
@@ -830,7 +854,10 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     getInvocationArtifact: {
@@ -855,7 +882,10 @@ export interface operations {
                     "application/json": components["schemas"]["ArtifactDescriptor"];
                 };
             };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
 }
