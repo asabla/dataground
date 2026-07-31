@@ -865,7 +865,7 @@ if (
     "credential non-exposure certified for the pinned development profile" ||
   profile.capabilities?.credentialNonExposure !== "certified for pinned development profile" ||
   profile.capabilities?.realSandboxInvocation !==
-    "v2 evidence producer, live case backend, and scenario driver defined; concrete probes and live certification blocked" ||
+    "v2 evidence producer, live case backend, scenario driver, and OpenShell provider probes defined; Codex probes and live certification blocked" ||
   JSON.stringify(profile.blockers) !== JSON.stringify(expectedRemainingBlockers)
 ) {
   fail("the accepted credential evidence claim or remaining blockers are inconsistent");
@@ -944,7 +944,12 @@ const runtimeScenarioSource = await readFile(
   resolve(root, "internal/execution/runtimeevidence/scenario.go"),
   "utf8",
 );
+const runtimeOpenShellProbeSource = await readFile(
+  resolve(root, "internal/execution/runtimeevidence/provider_probes.go"),
+  "utf8",
+);
 const runtimeScenarioDriver = runtimeProducer?.scenarioDriver;
+const runtimeOpenShellProviderProbes = runtimeProducer?.openShellProviderProbes;
 const runtimeLiveCaseBackend = runtimeProducer?.liveCaseBackend;
 if (
   runtimeConformance?.schema !== "deploy/openshell/runtime-conformance-evidence.schema.json" ||
@@ -960,7 +965,7 @@ if (
     JSON.stringify(expectedRuntimeResourceNames) ||
   JSON.stringify(runtimeConformance?.provenance) !== JSON.stringify(expectedRuntimeProvenance) ||
   runtimeConformance?.status !==
-    "v2 evidence producer, live case backend, and scenario driver defined; live record required" ||
+    "v2 evidence producer, live case backend, scenario driver, and OpenShell provider probes defined; live record required" ||
   runtimeEvidenceSchema?.properties?.schemaVersion?.const !== runtimeConformance.schemaVersion ||
   runtimeEvidenceSchema?.properties?.checks?.minItems !== expectedRuntimeChecks.length ||
   runtimeEvidenceSchema?.properties?.checks?.maxItems !== expectedRuntimeChecks.length ||
@@ -1027,7 +1032,8 @@ if (
   runtimeLiveCaseBackend?.completion !==
     "atomic backend finalization after the twelfth case and before cleanup" ||
   runtimeLiveCaseBackend?.serialization !== "forbidden" ||
-  runtimeLiveCaseBackend?.status !== "implemented; repository-owned concrete scenario required" ||
+  runtimeLiveCaseBackend?.status !==
+    "implemented with scenario driver and OpenShell provider probes; Codex runtime probes required" ||
   runtimeScenarioDriver?.assembly !== "internal/execution/runtimeevidence.NewConcreteScenario" ||
   runtimeScenarioDriver?.binding !==
     "exact run-derived portable resources with separate provider lifecycle and Codex runtime probe ports" ||
@@ -1042,13 +1048,30 @@ if (
   runtimeScenarioDriver?.errors !== "native probe errors are replaced by stable scenario errors" ||
   runtimeScenarioDriver?.serialization !== "forbidden" ||
   runtimeScenarioDriver?.status !==
-    "implemented; concrete Docker/OpenShell and Codex probe ports and launcher required" ||
+    "implemented with OpenShell provider probes; Codex runtime probes and launcher required" ||
+  runtimeOpenShellProviderProbes?.assembly !==
+    "internal/execution/runtimeevidence.NewOpenShellProbes" ||
+  runtimeOpenShellProviderProbes?.binding !==
+    "run-derived durable isolation and operation identities, portable gateway, exact persisted execution, pinned loopback endpoint, Docker driver, and codex.app-server/v1 capability" ||
+  JSON.stringify(runtimeOpenShellProviderProbes?.cases) !==
+    JSON.stringify(["gateway-ready", "sandbox-ready", "artifact-export", "sandbox-teardown"]) ||
+  runtimeOpenShellProviderProbes?.observationProof !==
+    "domain-separated SHA-256 over the portable binding, UTC interval, private native routing identities, readiness state, and artifact digest" ||
+  runtimeOpenShellProviderProbes?.artifact !==
+    "exact run-derived sandbox path and content; exported bytes cleared after comparison" ||
+  runtimeOpenShellProviderProbes?.failure !==
+    "order drift, overlap, cancellation, native failure, binding mismatch, clock regression, artifact substitution, and uncertain teardown are terminal" ||
+  runtimeOpenShellProviderProbes?.creation !==
+    "pinned image, policy, and provider-profile creation remains launcher-owned" ||
+  runtimeOpenShellProviderProbes?.serialization !== "configuration and adapter forbidden" ||
+  runtimeOpenShellProviderProbes?.status !==
+    "implemented; Codex protocol probes and launcher required" ||
   JSON.stringify(runtimeProducer?.cleanupOrder) !==
     JSON.stringify(["sandbox", "providerBinding", "workspace"]) ||
   runtimeProducer?.serialization !==
     "run forbidden; result only after every case and cleanup succeeds" ||
   runtimeProducer?.status !==
-    "closed assembler, live case backend, and scenario driver implemented; concrete probe ports and launcher required" ||
+    "closed assembler, live case backend, scenario driver, and OpenShell provider probes implemented; Codex probes and launcher required" ||
   runtimeProducerProfileBindings.some(
     (binding) => !runtimeEvidenceProfileSource.includes(JSON.stringify(binding)),
   ) ||
@@ -1078,6 +1101,18 @@ if (
   !runtimeScenarioSource.includes("func validProbeResult(") ||
   !runtimeScenarioSource.includes("ErrScenarioReplay") ||
   !runtimeScenarioSource.includes("func (ConcreteScenario) MarshalJSON(") ||
+  !runtimeOpenShellProbeSource.includes("func NewOpenShellProbes(") ||
+  !runtimeOpenShellProbeSource.includes('identity.Derived("iso", "runtime-conformance:"') ||
+  !runtimeOpenShellProbeSource.includes('identity.Derived("op", "runtime-conformance:"') ||
+  !runtimeOpenShellProbeSource.includes("state.store.GetGateway(") ||
+  !runtimeOpenShellProbeSource.includes("state.provider.Observe(") ||
+  !runtimeOpenShellProbeSource.includes("state.provider.Export(") ||
+  !runtimeOpenShellProbeSource.includes("clear(result.Content)") ||
+  !runtimeOpenShellProbeSource.includes("state.provider.Terminate(") ||
+  !runtimeOpenShellProbeSource.includes("openShellProbeCommitmentDomain") ||
+  !runtimeOpenShellProbeSource.includes("func (OpenShellProbeConfig) MarshalJSON(") ||
+  !runtimeOpenShellProbeSource.includes("func (OpenShellProbes) MarshalJSON(") ||
+  runtimeOpenShellProbeSource.includes("os/exec") ||
   runtimeScenarioSource.includes("os/exec") ||
   runtimeScenarioSource.includes('"docker"') ||
   runtimeScenarioSource.includes('"openshell"') ||
@@ -1095,7 +1130,7 @@ if (
   )
 ) {
   fail(
-    "the runtime evidence producer or live case backend is missing, mutable, or overclaims a concrete scenario",
+    "the runtime evidence producer, scenario, or OpenShell provider probes are missing, mutable, or overclaim live certification",
   );
 }
 
