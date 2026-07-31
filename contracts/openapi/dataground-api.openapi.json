@@ -4,7 +4,7 @@
   "info": {
     "title": "DataGround API",
     "version": "0.1.0",
-    "description": "Native DataGround contract for isolation-scoped agent services, immutable revisions, invocations, event replay, cancellation, and artifacts. Additive changes are compatible within v1. Removing or renaming fields, narrowing accepted values, changing state or error semantics, or making optional fields required is breaking and requires a new major API version. Clients must ignore unknown response fields and unknown event types while preserving the event envelope. All versioned API operations require a bearer access token whose issuer, audience, and isolation-domain membership are validated by the deployment authentication boundary."
+    "description": "Native DataGround contract for isolation-scoped agent services, immutable revisions, invocations, event replay, cancellation, and artifacts. Additive changes are compatible within v1. Removing or renaming fields, narrowing accepted values, changing state or error semantics, or making optional fields required is breaking and requires a new major API version. Clients must ignore unknown response fields and unknown event types while preserving the event envelope. All versioned API operations require a bearer access token whose issuer, audience, and isolation-domain membership are validated before a deployment authorizer evaluates the principal, closed action, path-derived resource identity, and effective isolation domain."
   },
   "security": [{ "BearerAccessToken": [] }],
   "paths": {
