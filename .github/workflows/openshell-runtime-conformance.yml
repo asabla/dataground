@@ -1,0 +1,214 @@
+name: OpenShell runtime conformance
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/openshell-runtime-conformance.yml"
+      - "cmd/dataground-openshell-runtime-conformance/**"
+      - "deploy/openshell/**"
+      - "internal/execution/**"
+      - "internal/runtime/codex/**"
+      - "scripts/check-openshell*.mjs"
+      - ".go-version"
+      - ".nvmrc"
+      - "go.mod"
+      - "go.sum"
+      - "package.json"
+      - "pnpm-lock.yaml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openshell-runtime-conformance-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  runtime-conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: openshell-runtime-conformance
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: .go-version
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.15.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Extract checksum-verified OpenShell CLI
+        id: openshell
+        env:
+          OPENSHELL_VERSION: v0.0.86
+          OPENSHELL_PACKAGE: openshell_0.0.86-1_amd64.deb
+          OPENSHELL_PACKAGE_SHA256: 3e757ca2f1e855d6e3bcc328fbd69e0441a9a6d01dfe14902f525185dd55ada4
+        run: |
+          release="https://github.com/NVIDIA/OpenShell/releases/download/$OPENSHELL_VERSION"
+          package="$RUNNER_TEMP/$OPENSHELL_PACKAGE"
+          curl \
+            --fail \
+            --location \
+            --silent \
+            --show-error \
+            --retry 3 \
+            --max-redirs 5 \
+            --proto '=https' \
+            --tlsv1.2 \
+            "$release/$OPENSHELL_PACKAGE" \
+            --output "$package"
+          printf '%s  %s\n' "$OPENSHELL_PACKAGE_SHA256" "$package" \
+            | sha256sum --check --strict -
+          cli_root="$RUNNER_TEMP/openshell-cli"
+          install --directory --mode 0700 "$cli_root"
+          dpkg-deb --extract "$package" "$cli_root"
+          cli="$cli_root/usr/bin/openshell"
+          test -x "$cli"
+          "$cli" --version | grep --fixed-strings --line-regexp "openshell 0.0.86"
+          printf 'cli=%s\n' "$cli" >>"$GITHUB_OUTPUT"
+
+      - name: Materialize single-use runtime credentials
+        id: credentials
+        env:
+          ACCESS_TOKEN: ${{ secrets.CODEX_ACCESS_TOKEN }}
+          REFRESH_TOKEN: ${{ secrets.CODEX_REFRESH_TOKEN }}
+          ACCOUNT_ID: ${{ secrets.CODEX_ACCOUNT_ID }}
+          ID_TOKEN: ${{ secrets.CODEX_ID_TOKEN }}
+        run: |
+          if [ -z "$ACCESS_TOKEN" ] || [ -z "$REFRESH_TOKEN" ] \
+            || [ -z "$ACCOUNT_ID" ] || [ -z "$ID_TOKEN" ]; then
+            echo "runtime conformance credentials are unavailable"
+            exit 1
+          fi
+          umask 077
+          credential_root="$RUNNER_TEMP/dataground-runtime-credentials"
+          credential_directory="$credential_root/bundle"
+          test ! -e "$credential_root"
+          install --directory --mode 0700 "$credential_root"
+          install --directory --mode 0700 "$credential_directory"
+          printf '%s' "$ACCESS_TOKEN" >"$credential_directory/access_token"
+          printf '%s' "$REFRESH_TOKEN" >"$credential_directory/refresh_token"
+          printf '%s' "$ACCOUNT_ID" >"$credential_directory/account_id"
+          printf '%s' "$ID_TOKEN" >"$credential_directory/id_token"
+          chmod 0600 "$credential_directory/access_token"
+          chmod 0600 "$credential_directory/refresh_token"
+          chmod 0600 "$credential_directory/account_id"
+          chmod 0600 "$credential_directory/id_token"
+          for name in access_token refresh_token account_id id_token; do
+            path="$credential_directory/$name"
+            size=$(wc --bytes <"$path")
+            if [ "$size" -lt 1 ] || [ "$size" -gt 65536 ]; then
+              echo "runtime conformance credential size is invalid"
+              exit 1
+            fi
+          done
+          printf 'directory=%s\n' "$credential_directory" >>"$GITHUB_OUTPUT"
+
+      - name: Produce and verify live runtime evidence
+        env:
+          CREDENTIAL_DIRECTORY: ${{ steps.credentials.outputs.directory }}
+          OPENSHELL_CLI: ${{ steps.openshell.outputs.cli }}
+        run: |
+          workspace="$RUNNER_TEMP/dataground-openshell-runtime"
+          record="$RUNNER_TEMP/openshell-runtime-conformance.json"
+          install --directory --mode 0700 "$workspace"
+          go run ./cmd/dataground-openshell-runtime-conformance \
+            --openshell-binary "$OPENSHELL_CLI" \
+            --workspace-root "$workspace" \
+            --credential-directory "$CREDENTIAL_DIRECTORY" \
+            --source-commit "$GITHUB_SHA" \
+            --workflow-run-id "$GITHUB_RUN_ID" >"$record"
+          pnpm openshell:runtime-evidence:check "$record"
+          node --input-type=module --eval '
+            import { readFile } from "node:fs/promises";
+            const [path, sourceCommit, workflowRunID] = process.argv.slice(1);
+            const evidence = JSON.parse(await readFile(path, "utf8"));
+            if (
+              evidence.run?.provenance?.sourceCommit !== sourceCommit ||
+              String(evidence.run?.provenance?.workflowRunID) !== workflowRunID ||
+              evidence.run?.provenance?.workflow !==
+                ".github/workflows/openshell-runtime-conformance.yml" ||
+              evidence.run?.provenance?.artifactName !== "openshell-runtime-conformance"
+            ) {
+              throw new Error("runtime evidence provenance does not match this workflow run");
+            }
+          ' "$record" "$GITHUB_SHA" "$GITHUB_RUN_ID"
+          digest=$(sha256sum "$record" | cut --delimiter ' ' --fields 1)
+          printf 'Verified runtime evidence SHA-256: `%s`\n' "$digest" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Require complete resource removal
+        if: always()
+        run: |
+          status=0
+          credential_root="$RUNNER_TEMP/dataground-runtime-credentials"
+          credential_directory="$credential_root/bundle"
+          for name in access_token refresh_token account_id id_token; do
+            path="$credential_directory/$name"
+            if [ -e "$path" ] || [ -L "$path" ]; then
+              rm --force -- "$path"
+            fi
+          done
+          rmdir "$credential_directory" 2>/dev/null || true
+          rmdir "$credential_root" 2>/dev/null || true
+          if [ -e "$credential_directory" ] || [ -L "$credential_directory" ]; then
+            echo "runtime credential bundle remains"
+            status=1
+          fi
+          workspace="$RUNNER_TEMP/dataground-openshell-runtime"
+          if [ -d "$workspace" ] \
+            && find "$workspace" -mindepth 1 -print -quit | grep --quiet .; then
+            echo "runtime conformance workspace remains"
+            status=1
+          fi
+          if docker ps --all \
+            --filter label=dataground.dev/runtime-conformance-run \
+            --quiet | grep --quiet .; then
+            echo "runtime conformance gateway container remains"
+            status=1
+          fi
+          if docker volume ls \
+            --filter label=com.docker.compose.project \
+            --format '{{.Label "com.docker.compose.project"}}' \
+            | grep --quiet '^dg_runtime_'; then
+            echo "runtime conformance project volume remains"
+            status=1
+          fi
+          gateway_image=$(node --input-type=module --eval \
+            "import profile from './deploy/openshell/development-profile.json' with { type: 'json' }; process.stdout.write(profile.runtime.conformance.topology.gatewayImage)")
+          sandbox_image=$(node --input-type=module --eval \
+            "import profile from './deploy/openshell/development-profile.json' with { type: 'json' }; process.stdout.write(profile.artifacts.sandbox)")
+          for image in "$gateway_image" "$sandbox_image"; do
+            if docker ps --all --filter "ancestor=$image" --quiet | grep --quiet .; then
+              echo "runtime conformance container remains"
+              status=1
+            fi
+          done
+          exit "$status"
+
+      - name: Upload verified runtime evidence
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: openshell-runtime-conformance
+          path: ${{ runner.temp }}/openshell-runtime-conformance.json
+          if-no-files-found: error
+          retention-days: 30
