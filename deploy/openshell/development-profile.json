@@ -308,7 +308,7 @@
         "artifact-export": "supported",
         "runtime-artifact-events": "unsupported"
       },
-      "status": "v2 evidence producer, immutable execution creation, concrete probes, and closed composition harness defined; Docker launcher and live record required",
+      "status": "v2 evidence producer, immutable execution creation, private credential acquisition, concrete probes, and closed composition harness defined; Docker launcher and live record required",
       "resourceNames": {
         "gateway": "dg-runtime-gateway-<runID>",
         "sandbox": "dg-runtime-sandbox-<runID>",
@@ -411,7 +411,17 @@
           "recovery": "observe deterministic persisted state before cancellation-independent termination; require a fresh exact terminal observation",
           "concurrency": "shared irreversible create state across copies; overlap and replay poison creation without revoking cleanup authority",
           "serialization": "configuration and creator forbidden",
-          "status": "implemented with runtime provider provisioning; Docker topology, secret-source loading, launcher composition, and live record required"
+          "status": "implemented with runtime provider provisioning; Docker topology, launcher composition, workflow secret materialization, and live record required"
+        },
+        "runtimeCredentialSource": {
+          "assembly": "internal/execution/runtimeevidence.NewRuntimeCredentialSource with NewRuntimeProviderFromCredentialSource",
+          "binding": "one fresh absolute credential-bundle directory beneath an owner-controlled parent, containing only the four fixed Codex credential files",
+          "filesystem": "non-symlink owner-held parent without group or world write, mode-0700 bundle, and single-link owner-held mode-0600 regular files of 1..65536 bytes held by exact filesystem identity",
+          "lifecycle": "validate before acquisition, load once in fixed order, remove the exact files and empty bundle, synchronize the parent, then hand bytes directly to the runtime provisioner",
+          "failure": "replay, overlap, cancellation, path substitution, extra entries, unsafe ownership or permissions, and uncertain removal fail closed without revoking exact cleanup authority",
+          "exposure": "public callers receive only the runtime provisioner; credential bytes do not enter arguments, inherited environments, generic readers, serialization, or caller-visible return values",
+          "serialization": "source configuration, provider-source configuration, source, credentials, and provisioner forbidden",
+          "status": "implemented; Docker topology, launcher composition, workflow secret materialization, and live record required"
         },
         "runtimeProvider": {
           "assembly": "internal/execution/runtimeevidence.NewRuntimeProvider",
@@ -421,7 +431,7 @@
           "recovery": "lost create acknowledgement accepted only after exact credential-safe observation; cleanup requires exact identity and fresh timestamped absence",
           "concurrency": "shared irreversible provisioning state across copies; overlap and replay poison provisioning without revoking cleanup authority",
           "serialization": "credentials, requests, configuration, and provisioner forbidden",
-          "status": "implemented; Docker topology, secret-source loading, launcher composition, and live record required"
+          "status": "implemented with private credential acquisition; Docker topology, launcher composition, workflow secret materialization, and live record required"
         }
       }
     }
@@ -430,7 +440,7 @@
     "gatewayPlacement": "adapter conformance tested",
     "sandboxLifecycle": "adapter conformance tested",
     "codexAppServerStdio": "adapter conformance tested",
-    "realSandboxInvocation": "v2 evidence producer, immutable execution creator, runtime provider binding, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; Docker launcher and live certification blocked",
+    "realSandboxInvocation": "v2 evidence producer, immutable execution creator, private credential source, runtime provider binding, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; Docker launcher and live certification blocked",
     "credentialNonExposure": "certified for pinned development profile",
     "rosettaMaterialization": "blocked"
   },
