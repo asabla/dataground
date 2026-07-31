@@ -45,21 +45,21 @@ type RuntimeCredentialSource struct {
 }
 
 type runtimeCredentialSourceState struct {
-	mu            sync.Mutex
-	path          string
-	parentPath    string
-	parent        *os.File
-	parentInfo    os.FileInfo
-	directory     *os.File
-	directoryInfo os.FileInfo
-	files         [len(runtimeCredentialSourceNames)]*ownedCredentialFile
-	read          runtimeCredentialRead
-	started       bool
-	loading       bool
-	cleaning      bool
-	consumed        bool
+	mu               sync.Mutex
+	path             string
+	parentPath       string
+	parent           *os.File
+	parentInfo       os.FileInfo
+	directory        *os.File
+	directoryInfo    os.FileInfo
+	files            [len(runtimeCredentialSourceNames)]*ownedCredentialFile
+	read             runtimeCredentialRead
+	started          bool
+	loading          bool
+	cleaning         bool
+	consumed         bool
 	directoryRemoved bool
-	failed          bool
+	failed           bool
 }
 
 type ownedCredentialFile struct {
