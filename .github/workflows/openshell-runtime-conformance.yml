@@ -173,6 +173,10 @@ jobs:
             echo "runtime credential bundle remains"
             status=1
           fi
+          if [ -e "$credential_root" ] || [ -L "$credential_root" ]; then
+            echo "runtime credential root remains"
+            status=1
+          fi
           workspace="$RUNNER_TEMP/dataground-openshell-runtime"
           if [ -d "$workspace" ] \
             && find "$workspace" -mindepth 1 -print -quit | grep --quiet .; then
@@ -194,9 +198,11 @@ jobs:
           fi
           gateway_image=$(node --input-type=module --eval \
             "import profile from './deploy/openshell/development-profile.json' with { type: 'json' }; process.stdout.write(profile.runtime.conformance.topology.gatewayImage)")
+          supervisor_image=$(node --input-type=module --eval \
+            "import profile from './deploy/openshell/development-profile.json' with { type: 'json' }; process.stdout.write(profile.artifacts.supervisor)")
           sandbox_image=$(node --input-type=module --eval \
             "import profile from './deploy/openshell/development-profile.json' with { type: 'json' }; process.stdout.write(profile.artifacts.sandbox)")
-          for image in "$gateway_image" "$sandbox_image"; do
+          for image in "$gateway_image" "$supervisor_image" "$sandbox_image"; do
             if docker ps --all --filter "ancestor=$image" --quiet | grep --quiet .; then
               echo "runtime conformance container remains"
               status=1
