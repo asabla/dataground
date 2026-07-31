@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/asabla/dataground/internal/authn"
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/reference"
 )
@@ -51,8 +52,8 @@ type Server struct {
 	now                  func() time.Time
 }
 
-func NewHandler() http.Handler {
-	return NewServer().Handler()
+func NewHandler(authenticator authn.Authenticator) (http.Handler, error) {
+	return NewServer().Handler(authenticator)
 }
 
 func NewServer() *Server {
@@ -70,21 +71,25 @@ func NewServer() *Server {
 	}
 }
 
-func (server *Server) Handler() http.Handler {
+func (server *Server) Handler(authenticator authn.Authenticator) (http.Handler, error) {
+	protected, err := newProtectedRoute(authenticator)
+	if err != nil {
+		return nil, err
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", healthHandler)
 	mux.HandleFunc("GET /readyz", healthHandler)
-	mux.HandleFunc("POST /v1/isolation-domains/{isolationDomainId}/agent-services", server.createAgentService)
-	mux.HandleFunc("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions", server.createServiceRevision)
-	mux.HandleFunc("POST /v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/publish", server.publishServiceRevision)
-	mux.HandleFunc("PUT /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}", server.assignServiceAlias)
-	mux.HandleFunc("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations", server.invokeAgentService)
-	mux.HandleFunc("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}", server.getInvocation)
-	mux.HandleFunc("GET /v1/isolation-domains/{isolationDomainId}/operations/{operationId}", server.getOperation)
-	mux.HandleFunc("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel", server.cancelInvocation)
-	mux.HandleFunc("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/events", server.streamInvocationEvents)
-	mux.HandleFunc("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts/{artifactId}", server.getInvocationArtifact)
-	return mux
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services", protected(server.createAgentService))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions", protected(server.createServiceRevision))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/publish", protected(server.publishServiceRevision))
+	mux.Handle("PUT /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}", protected(server.assignServiceAlias))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations", protected(server.invokeAgentService))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}", protected(server.getInvocation))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/operations/{operationId}", protected(server.getOperation))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel", protected(server.cancelInvocation))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/events", protected(server.streamInvocationEvents))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts/{artifactId}", protected(server.getInvocationArtifact))
+	return mux, nil
 }
 
 func healthHandler(response http.ResponseWriter, _ *http.Request) {
@@ -92,7 +97,7 @@ func healthHandler(response http.ResponseWriter, _ *http.Request) {
 }
 
 func (server *Server) createAgentService(response http.ResponseWriter, request *http.Request) {
-	server.mutate(response, request, func(body []byte) (int, any) {
+	server.mutate(response, request, func(actorID string, body []byte) (int, any) {
 		domainID, apiError := isolationDomain(request)
 		if apiError != nil {
 			return http.StatusBadRequest, ErrorEnvelope{Error: *apiError}
@@ -111,7 +116,7 @@ func (server *Server) createAgentService(response http.ResponseWriter, request *
 
 		now := server.now()
 		service := AgentService{
-			Metadata:    newMetadata(newID("svc"), domainID, now),
+			Metadata:    newMetadata(newID("svc"), domainID, actorID, now),
 			Name:        input.Name,
 			Description: input.Description,
 		}
@@ -121,7 +126,7 @@ func (server *Server) createAgentService(response http.ResponseWriter, request *
 }
 
 func (server *Server) createServiceRevision(response http.ResponseWriter, request *http.Request) {
-	server.mutate(response, request, func(body []byte) (int, any) {
+	server.mutate(response, request, func(actorID string, body []byte) (int, any) {
 		domainID, apiError := isolationDomain(request)
 		if apiError != nil {
 			return http.StatusBadRequest, ErrorEnvelope{Error: *apiError}
@@ -150,7 +155,7 @@ func (server *Server) createServiceRevision(response http.ResponseWriter, reques
 		server.revisionCounts[serviceKey]++
 		now := server.now()
 		revision := ServiceRevision{
-			Metadata:             newMetadata(newID("rev"), domainID, now),
+			Metadata:             newMetadata(newID("rev"), domainID, actorID, now),
 			ServiceID:            serviceID,
 			RevisionNumber:       server.revisionCounts[serviceKey],
 			State:                "draft",
@@ -165,7 +170,7 @@ func (server *Server) createServiceRevision(response http.ResponseWriter, reques
 }
 
 func (server *Server) publishServiceRevision(response http.ResponseWriter, request *http.Request) {
-	server.mutate(response, request, func(body []byte) (int, any) {
+	server.mutate(response, request, func(actorID string, body []byte) (int, any) {
 		domainID, apiError := isolationDomain(request)
 		if apiError != nil {
 			return http.StatusBadRequest, ErrorEnvelope{Error: *apiError}
@@ -206,7 +211,7 @@ func (server *Server) publishServiceRevision(response http.ResponseWriter, reque
 }
 
 func (server *Server) assignServiceAlias(response http.ResponseWriter, request *http.Request) {
-	server.mutate(response, request, func(body []byte) (int, any) {
+	server.mutate(response, request, func(actorID string, body []byte) (int, any) {
 		domainID, apiError := isolationDomain(request)
 		if apiError != nil {
 			return http.StatusBadRequest, ErrorEnvelope{Error: *apiError}
@@ -249,7 +254,7 @@ func (server *Server) assignServiceAlias(response http.ResponseWriter, request *
 			return conflict("VERSION_CONFLICT", "A new alias expects version zero.")
 		}
 		alias := ServiceAlias{
-			Metadata:   newMetadata(newID("als"), domainID, now),
+			Metadata:   newMetadata(newID("als"), domainID, actorID, now),
 			ServiceID:  serviceID,
 			Name:       aliasName,
 			RevisionID: input.RevisionID,
@@ -260,7 +265,7 @@ func (server *Server) assignServiceAlias(response http.ResponseWriter, request *
 }
 
 func (server *Server) invokeAgentService(response http.ResponseWriter, request *http.Request) {
-	server.mutate(response, request, func(body []byte) (int, any) {
+	server.mutate(response, request, func(actorID string, body []byte) (int, any) {
 		domainID, apiError := isolationDomain(request)
 		if apiError != nil {
 			return http.StatusBadRequest, ErrorEnvelope{Error: *apiError}
@@ -307,7 +312,7 @@ func (server *Server) invokeAgentService(response http.ResponseWriter, request *
 		correlationID := newID("cor")
 		operationID := newID("op")
 		invocation := Invocation{
-			Metadata:      newMetadata(invocationID, domainID, now),
+			Metadata:      newMetadata(invocationID, domainID, actorID, now),
 			ServiceID:     serviceID,
 			RevisionID:    revision.Metadata.ID,
 			Alias:         input.Alias,
@@ -352,7 +357,7 @@ func (server *Server) invokeAgentService(response http.ResponseWriter, request *
 			operationState = "observing"
 		}
 		server.operations[resourceKey(domainID, operationID)] = Operation{
-			Metadata:            newMetadata(operationID, domainID, now),
+			Metadata:            newMetadata(operationID, domainID, actorID, now),
 			Kind:                "invocation-execution",
 			Command:             "invoke",
 			DesiredState:        "succeeded",
@@ -404,7 +409,7 @@ func (server *Server) getOperation(response http.ResponseWriter, request *http.R
 }
 
 func (server *Server) cancelInvocation(response http.ResponseWriter, request *http.Request) {
-	server.mutate(response, request, func(body []byte) (int, any) {
+	server.mutate(response, request, func(actorID string, body []byte) (int, any) {
 		domainID, apiError := isolationDomain(request)
 		if apiError != nil {
 			return http.StatusBadRequest, ErrorEnvelope{Error: *apiError}
@@ -454,7 +459,7 @@ func (server *Server) cancelInvocation(response http.ResponseWriter, request *ht
 			OccurredAt:        now,
 			RecordedAt:        now,
 			CorrelationID:     invocation.CorrelationID,
-			ActorID:           "reference-runtime",
+			ActorID:           actorID,
 			ServiceID:         invocation.ServiceID,
 			RevisionID:        invocation.RevisionID,
 			Payload:           map[string]any{"reason": "caller requested cancellation"},
@@ -519,7 +524,16 @@ func (server *Server) getInvocationArtifact(response http.ResponseWriter, reques
 	writeJSON(response, http.StatusOK, artifact)
 }
 
-func (server *Server) mutate(response http.ResponseWriter, request *http.Request, mutation func([]byte) (int, any)) {
+func (server *Server) mutate(response http.ResponseWriter, request *http.Request, mutation func(string, []byte) (int, any)) {
+	actorID := authenticatedActorID(request)
+	if actorID == "" {
+		writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError("AUTHENTICATION_UNAVAILABLE", "Authentication is temporarily unavailable.", true)})
+		return
+	}
+	if _, apiError := isolationDomain(request); apiError != nil {
+		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: *apiError})
+		return
+	}
 	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
 		writeJSON(response, http.StatusUnsupportedMediaType, ErrorEnvelope{Error: safeError("UNSUPPORTED_MEDIA_TYPE", "Content-Type must be application/json.", false)})
@@ -536,7 +550,7 @@ func (server *Server) mutate(response http.ResponseWriter, request *http.Request
 		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: safeError("INVALID_REQUEST", "Request body is invalid or too large.", false)})
 		return
 	}
-	digest := sha256.Sum256(body)
+	digest := authenticatedRequestDigest(actorID, body)
 	cacheKey := request.Method + " " + request.URL.EscapedPath() + " " + key
 
 	server.mu.Lock()
@@ -550,7 +564,7 @@ func (server *Server) mutate(response http.ResponseWriter, request *http.Request
 		return
 	}
 
-	status, result := mutation(body)
+	status, result := mutation(actorID, body)
 	encoded, err := json.Marshal(result)
 	if err != nil {
 		writeJSON(response, http.StatusInternalServerError, ErrorEnvelope{Error: safeError("INTERNAL_ERROR", "Response could not be encoded.", false)})
@@ -563,7 +577,7 @@ func (server *Server) mutate(response http.ResponseWriter, request *http.Request
 func (server *Server) createArtifact(domainID, invocationID string, now time.Time, payload map[string]any) ArtifactDescriptor {
 	artifactID := derivedID("art", invocationID+":"+fmt.Sprint(payload["digest"]))
 	artifact := ArtifactDescriptor{
-		Metadata:     newMetadata(artifactID, domainID, now),
+		Metadata:     newMetadata(artifactID, domainID, "reference-runtime", now),
 		InvocationID: invocationID,
 		Name:         stringValue(payload["name"]),
 		Kind:         stringValue(payload["kind"]),
@@ -638,8 +652,8 @@ func parseCursor(value string) (uint64, error) {
 	return strconv.ParseUint(value, 10, 64)
 }
 
-func newMetadata(id, domainID string, now time.Time) ResourceMetadata {
-	return ResourceMetadata{ID: id, IsolationDomainID: domainID, Generation: 1, Version: 1, CreatedAt: now, UpdatedAt: now, CreatedBy: "reference-runtime"}
+func newMetadata(id, domainID, actorID string, now time.Time) ResourceMetadata {
+	return ResourceMetadata{ID: id, IsolationDomainID: domainID, Generation: 1, Version: 1, CreatedAt: now, UpdatedAt: now, CreatedBy: actorID}
 }
 
 func newID(prefix string) string {

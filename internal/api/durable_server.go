@@ -1,7 +1,6 @@
 package api
 
 import (
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/asabla/dataground/internal/authn"
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/persistence"
 	"github.com/asabla/dataground/internal/reference"
@@ -23,22 +23,29 @@ type DurableServer struct {
 	repository *persistence.Repository
 }
 
-func NewDurableHandler(repository *persistence.Repository) http.Handler {
+func NewDurableHandler(
+	repository *persistence.Repository,
+	authenticator authn.Authenticator,
+) (http.Handler, error) {
+	protected, err := newProtectedRoute(authenticator)
+	if err != nil {
+		return nil, err
+	}
 	server := &DurableServer{repository: repository}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", healthHandler)
 	mux.HandleFunc("GET /readyz", server.ready)
-	mux.HandleFunc("POST /v1/isolation-domains/{isolationDomainId}/agent-services", server.createAgentService)
-	mux.HandleFunc("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions", server.createServiceRevision)
-	mux.HandleFunc("POST /v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/publish", server.publishServiceRevision)
-	mux.HandleFunc("PUT /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}", server.assignServiceAlias)
-	mux.HandleFunc("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations", server.invokeAgentService)
-	mux.HandleFunc("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}", server.getInvocation)
-	mux.HandleFunc("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel", server.cancelInvocation)
-	mux.HandleFunc("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/events", server.streamInvocationEvents)
-	mux.HandleFunc("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts/{artifactId}", server.getInvocationArtifact)
-	mux.HandleFunc("GET /v1/isolation-domains/{isolationDomainId}/operations/{operationId}", server.getOperation)
-	return mux
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services", protected(server.createAgentService))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions", protected(server.createServiceRevision))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/publish", protected(server.publishServiceRevision))
+	mux.Handle("PUT /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}", protected(server.assignServiceAlias))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations", protected(server.invokeAgentService))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}", protected(server.getInvocation))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel", protected(server.cancelInvocation))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/events", protected(server.streamInvocationEvents))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts/{artifactId}", protected(server.getInvocationArtifact))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/operations/{operationId}", protected(server.getOperation))
+	return mux, nil
 }
 
 func (server *DurableServer) ready(response http.ResponseWriter, request *http.Request) {
@@ -59,7 +66,7 @@ func (server *DurableServer) createAgentService(response http.ResponseWriter, re
 		if input.Name == "" || len(input.Name) > 128 {
 			return encodedResult(invalidField("name", "Name must contain between 1 and 128 characters."))
 		}
-		return server.repository.CreateService(request.Context(), commandIdempotency(request, domainID, body), persistence.CreateServiceInput{
+		return server.repository.CreateService(request.Context(), commandIdempotency(request, domainID, actorID, body), persistence.CreateServiceInput{
 			ID: identity.New("svc"), Name: input.Name, Description: input.Description,
 			ActorID: actorID, CorrelationID: correlationID,
 		})
@@ -75,7 +82,7 @@ func (server *DurableServer) createServiceRevision(response http.ResponseWriter,
 		if strings.TrimSpace(input.RuntimeProfile) == "" || duplicateString(input.RequiredCapabilities) {
 			return encodedResult(invalidField("runtimeProfile", "Runtime profile is required and capabilities must be unique."))
 		}
-		return server.repository.CreateRevision(request.Context(), commandIdempotency(request, domainID, body), persistence.CreateRevisionInput{
+		return server.repository.CreateRevision(request.Context(), commandIdempotency(request, domainID, actorID, body), persistence.CreateRevisionInput{
 			ID: identity.New("rev"), ServiceID: request.PathValue("serviceId"),
 			RuntimeProfile: input.RuntimeProfile, RequiredCapabilities: input.RequiredCapabilities,
 			InputSchema: input.InputSchema, OutputSchema: input.OutputSchema,
@@ -90,7 +97,7 @@ func (server *DurableServer) publishServiceRevision(response http.ResponseWriter
 		if apiError != nil {
 			return encodedError(http.StatusBadRequest, *apiError)
 		}
-		return server.repository.AcceptPublication(request.Context(), commandIdempotency(request, domainID, body), persistence.AcceptPublicationInput{
+		return server.repository.AcceptPublication(request.Context(), commandIdempotency(request, domainID, actorID, body), persistence.AcceptPublicationInput{
 			RevisionID: request.PathValue("revisionId"), ExpectedVersion: input.ExpectedVersion,
 			ActorID: actorID, CorrelationID: correlationID, Deadline: time.Now().UTC().Add(durableOperationDeadline),
 		}, reference.Capabilities())
@@ -107,7 +114,7 @@ func (server *DurableServer) assignServiceAlias(response http.ResponseWriter, re
 		if len(alias) > 63 || !aliasPattern.MatchString(alias) {
 			return encodedResult(invalidField("alias", "Alias is not valid."))
 		}
-		return server.repository.AssignAlias(request.Context(), commandIdempotency(request, domainID, body), persistence.AssignAliasInput{
+		return server.repository.AssignAlias(request.Context(), commandIdempotency(request, domainID, actorID, body), persistence.AssignAliasInput{
 			ID: identity.New("als"), ServiceID: request.PathValue("serviceId"), Name: alias,
 			RevisionID: input.RevisionID, ExpectedVersion: input.ExpectedVersion,
 			ActorID: actorID, CorrelationID: correlationID,
@@ -124,7 +131,7 @@ func (server *DurableServer) invokeAgentService(response http.ResponseWriter, re
 		if !aliasPattern.MatchString(input.Alias) || input.Input == nil {
 			return encodedResult(invalidField("alias", "Alias and input are required."))
 		}
-		return server.repository.AcceptInvocation(request.Context(), commandIdempotency(request, domainID, body), persistence.AcceptInvocationInput{
+		return server.repository.AcceptInvocation(request.Context(), commandIdempotency(request, domainID, actorID, body), persistence.AcceptInvocationInput{
 			ID: identity.New("inv"), ServiceID: request.PathValue("serviceId"), Alias: input.Alias,
 			Input: input.Input, ActorID: actorID, CorrelationID: correlationID,
 			Deadline: time.Now().UTC().Add(durableOperationDeadline),
@@ -141,7 +148,7 @@ func (server *DurableServer) cancelInvocation(response http.ResponseWriter, requ
 		if len(input.Reason) > 512 {
 			return encodedResult(invalidField("reason", "Cancellation reason must not exceed 512 characters."))
 		}
-		return server.repository.AcceptCancellation(request.Context(), commandIdempotency(request, domainID, body), persistence.AcceptCancellationInput{
+		return server.repository.AcceptCancellation(request.Context(), commandIdempotency(request, domainID, actorID, body), persistence.AcceptCancellationInput{
 			InvocationID: request.PathValue("invocationId"), ActorID: actorID, CorrelationID: correlationID,
 		})
 	})
@@ -227,6 +234,11 @@ func (server *DurableServer) mutate(
 	request *http.Request,
 	command func(string, string, string, []byte) (persistence.CommandResult, error),
 ) {
+	actorID := authenticatedActorID(request)
+	if actorID == "" {
+		writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError("AUTHENTICATION_UNAVAILABLE", "Authentication is temporarily unavailable.", true)})
+		return
+	}
 	domainID, apiError := isolationDomain(request)
 	if apiError != nil {
 		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: *apiError})
@@ -247,9 +259,6 @@ func (server *DurableServer) mutate(
 		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: safeError("INVALID_REQUEST", "Request body is invalid or too large.", false)})
 		return
 	}
-	// Authentication is introduced at the policy boundary. Until then, do not
-	// accept caller-supplied audit identities that could forge attribution.
-	actorID := "reference-api"
 	correlationID := identity.New("cor")
 	result, err := command(domainID, actorID, correlationID, body)
 	if err != nil {
@@ -259,10 +268,10 @@ func (server *DurableServer) mutate(
 	writeRawJSON(response, result.Status, result.Body)
 }
 
-func commandIdempotency(request *http.Request, domainID string, body []byte) persistence.Idempotency {
+func commandIdempotency(request *http.Request, domainID, actorID string, body []byte) persistence.Idempotency {
 	return persistence.Idempotency{
 		IsolationDomainID: domainID, Method: request.Method, Path: request.URL.EscapedPath(),
-		Key: request.Header.Get("Idempotency-Key"), RequestDigest: sha256.Sum256(body),
+		Key: request.Header.Get("Idempotency-Key"), RequestDigest: authenticatedRequestDigest(actorID, body),
 	}
 }
 

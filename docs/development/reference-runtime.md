@@ -3,12 +3,12 @@
 The reference runtime proves DataGround's native agent-service contract without OpenShell,
 provider credentials, or a native harness. It has two modes. Process-local mode is intentionally
 in-memory and loopback-only. Durable mode stores commands and event journals in PostgreSQL and
-executes them through a replaceable worker with persistent reference-provider receipts. Neither
-mode implements authentication, Cedar authorization, a real harness, or artifact content storage.
+executes them through a replaceable worker with persistent reference-provider receipts. Both modes require the explicit loopback-only development bearer identity described below. Neither
+mode implements production OIDC verification, Cedar action authorization, a real harness, or artifact content storage.
 
 ## Implemented lifecycle
 
-Every resource path begins with an isolation-domain identifier, and every mutation requires an
+Every resource path begins with an isolation-domain identifier, every request is bound to an authenticated development principal permitted for that exact domain, and every mutation requires an
 `Idempotency-Key` header. A caller can:
 
 1. create an agent service;

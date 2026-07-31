@@ -2,8 +2,10 @@ package api_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -11,12 +13,15 @@ import (
 	"testing"
 
 	"github.com/asabla/dataground/internal/api"
+	"github.com/asabla/dataground/internal/authn"
 	"github.com/asabla/dataground/internal/reference"
 )
 
 const (
 	testDomain      = "iso_00000000000000000001"
 	otherTestDomain = "iso_00000000000000000002"
+	testActor       = "usr_00000000000000000001"
+	testToken       = "development-token-with-at-least-thirty-two-bytes"
 )
 
 func TestHealthEndpoints(t *testing.T) {
@@ -30,7 +35,7 @@ func TestHealthEndpoints(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, path, nil)
 			response := httptest.NewRecorder()
 
-			api.NewHandler().ServeHTTP(response, request)
+			newHandler(t).ServeHTTP(response, request)
 
 			if response.Code != http.StatusOK {
 				t.Fatalf("expected status %d, got %d", http.StatusOK, response.Code)
@@ -61,7 +66,7 @@ func TestHealthEndpoints(t *testing.T) {
 func TestReferenceRuntimeLifecycleAndReplay(t *testing.T) {
 	t.Parallel()
 
-	handler := api.NewHandler()
+	handler := newHandler(t)
 	service := createService(t, handler, testDomain, "service-create-0001")
 
 	replayed := performJSON[api.AgentService](t, handler, http.MethodPost, serviceCollectionPath(testDomain), "service-create-0001", map[string]any{"name": "Reference service"}, http.StatusCreated)
@@ -128,7 +133,7 @@ func TestReferenceRuntimeLifecycleAndReplay(t *testing.T) {
 
 	crossDomainPath := fmt.Sprintf("/v1/isolation-domains/%s/invocations/%s", otherTestDomain, invocation.Metadata.ID)
 	crossDomain := perform(t, handler, http.MethodGet, crossDomainPath, "", nil, nil)
-	if crossDomain.Code != http.StatusNotFound {
+	if crossDomain.Code != http.StatusForbidden {
 		t.Fatalf("expected cross-domain lookup to fail closed, got %d", crossDomain.Code)
 	}
 }
@@ -136,7 +141,7 @@ func TestReferenceRuntimeLifecycleAndReplay(t *testing.T) {
 func TestArtifactAndUnknownEventRemainGoverned(t *testing.T) {
 	t.Parallel()
 
-	handler := api.NewHandler()
+	handler := newHandler(t)
 	service := createService(t, handler, testDomain, "artifact-service-0001")
 	revision := createPublishedRevision(t, handler, testDomain, service.Metadata.ID)
 	assignAlias(t, handler, testDomain, service.Metadata.ID, revision.Metadata.ID, "artifact-alias-0001")
@@ -176,7 +181,7 @@ func TestArtifactAndUnknownEventRemainGoverned(t *testing.T) {
 func TestWaitingInvocationCanBeCancelledAndReplayed(t *testing.T) {
 	t.Parallel()
 
-	handler := api.NewHandler()
+	handler := newHandler(t)
 	service := createService(t, handler, testDomain, "cancel-service-0001")
 	revision := createPublishedRevision(t, handler, testDomain, service.Metadata.ID)
 	assignAlias(t, handler, testDomain, service.Metadata.ID, revision.Metadata.ID, "cancel-alias-0001")
@@ -203,7 +208,7 @@ func TestWaitingInvocationCanBeCancelledAndReplayed(t *testing.T) {
 func TestAllReferenceRuntimeOutcomesReachTheAPI(t *testing.T) {
 	t.Parallel()
 
-	handler := api.NewHandler()
+	handler := newHandler(t)
 	service := createService(t, handler, testDomain, "scenario-service-0001")
 	revision := createPublishedRevision(t, handler, testDomain, service.Metadata.ID)
 	assignAlias(t, handler, testDomain, service.Metadata.ID, revision.Metadata.ID, "scenario-alias-0001")
@@ -250,7 +255,7 @@ func TestAllReferenceRuntimeOutcomesReachTheAPI(t *testing.T) {
 func TestMutationsRequireValidIdempotencyKeyAndStrictJSON(t *testing.T) {
 	t.Parallel()
 
-	handler := api.NewHandler()
+	handler := newHandler(t)
 	missingKey := perform(t, handler, http.MethodPost, serviceCollectionPath(testDomain), "", map[string]any{"name": "Service"}, nil)
 	if missingKey.Code != http.StatusBadRequest {
 		t.Fatalf("expected missing idempotency key rejection, got %d", missingKey.Code)
@@ -283,7 +288,7 @@ func TestMutationsRequireValidIdempotencyKeyAndStrictJSON(t *testing.T) {
 func TestPublicationBlocksUnavailableRuntimeCapabilities(t *testing.T) {
 	t.Parallel()
 
-	handler := api.NewHandler()
+	handler := newHandler(t)
 	service := createService(t, handler, testDomain, "capability-service-0001")
 	revisionPath := fmt.Sprintf("/v1/isolation-domains/%s/agent-services/%s/revisions", testDomain, service.Metadata.ID)
 	revision := performJSON[api.ServiceRevision](
@@ -309,7 +314,11 @@ func TestPublicationBlocksUnavailableRuntimeCapabilities(t *testing.T) {
 
 func createService(t *testing.T, handler http.Handler, domainID, key string) api.AgentService {
 	t.Helper()
-	return performJSON[api.AgentService](t, handler, http.MethodPost, serviceCollectionPath(domainID), key, map[string]any{"name": "Reference service"}, http.StatusCreated)
+	service := performJSON[api.AgentService](t, handler, http.MethodPost, serviceCollectionPath(domainID), key, map[string]any{"name": "Reference service"}, http.StatusCreated)
+	if service.Metadata.CreatedBy != testActor {
+		t.Fatalf("service attribution mismatch: %q", service.Metadata.CreatedBy)
+	}
+	return service
 }
 
 func serviceCollectionPath(domainID string) string {
@@ -366,6 +375,9 @@ func perform(t *testing.T, handler http.Handler, method, path, idempotencyKey st
 		}
 	}
 	request := httptest.NewRequest(method, path, bytes.NewReader(encoded))
+	if strings.HasPrefix(path, "/v1/") {
+		request.Header.Set("Authorization", "Bearer "+testToken)
+	}
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
@@ -448,9 +460,125 @@ func TestHealthEndpointsRejectOtherMethods(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/livez", nil)
 	response := httptest.NewRecorder()
 
-	api.NewHandler().ServeHTTP(response, request)
+	newHandler(t).ServeHTTP(response, request)
 
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected status %d, got %d", http.StatusMethodNotAllowed, response.Code)
 	}
 }
+
+func TestProtectedRoutesAuthenticateBeforeReadingRequests(t *testing.T) {
+	t.Parallel()
+
+	handler := newHandler(t)
+	reader := &countingReader{}
+	request := httptest.NewRequest(http.MethodPost, serviceCollectionPath(testDomain), reader)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "unauthenticated-0001")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated status, got %d", response.Code)
+	}
+	if response.Header().Get("WWW-Authenticate") == "" {
+		t.Fatal("missing bearer challenge")
+	}
+	if reader.reads != 0 {
+		t.Fatalf("request body was read before authentication: %d reads", reader.reads)
+	}
+}
+
+func TestIdempotencyResponsesArePrincipalBound(t *testing.T) {
+	t.Parallel()
+
+	first, err := authn.NewPrincipal(authn.PrincipalInput{
+		ID: testActor, Kind: authn.PrincipalHuman, Issuer: "test",
+		Subject: testActor, Audience: authn.APIAudience, IsolationDomains: []string{testDomain},
+	})
+	if err != nil {
+		t.Fatalf("create first principal: %v", err)
+	}
+	secondActor := "usr_00000000000000000002"
+	second, err := authn.NewPrincipal(authn.PrincipalInput{
+		ID: secondActor, Kind: authn.PrincipalHuman, Issuer: "test",
+		Subject: secondActor, Audience: authn.APIAudience, IsolationDomains: []string{testDomain},
+	})
+	if err != nil {
+		t.Fatalf("create second principal: %v", err)
+	}
+	server := api.NewServer()
+	handler, err := server.Handler(tokenAuthenticator{principals: map[string]authn.Principal{
+		"first-token-with-at-least-thirty-two-bytes":  first,
+		"second-token-with-at-least-thirty-two-bytes": second,
+	}})
+	if err != nil {
+		t.Fatalf("create authenticated handler: %v", err)
+	}
+	path := serviceCollectionPath(testDomain)
+	firstResponse := perform(t, handler, http.MethodPost, path, "principal-bound-0001", map[string]any{"name": "Service"}, map[string]string{
+		"Authorization": "Bearer first-token-with-at-least-thirty-two-bytes",
+	})
+	if firstResponse.Code != http.StatusCreated {
+		t.Fatalf("first principal create failed: %d", firstResponse.Code)
+	}
+	secondResponse := perform(t, handler, http.MethodPost, path, "principal-bound-0001", map[string]any{"name": "Service"}, map[string]string{
+		"Authorization": "Bearer second-token-with-at-least-thirty-two-bytes",
+	})
+	if secondResponse.Code != http.StatusConflict {
+		t.Fatalf("second principal replayed another identity's response: %d", secondResponse.Code)
+	}
+	var problem api.ErrorEnvelope
+	decodeResponse(t, secondResponse, &problem)
+	if problem.Error.Code != "IDEMPOTENCY_KEY_REUSED" {
+		t.Fatalf("unexpected cross-principal idempotency error: %q", problem.Error.Code)
+	}
+}
+
+func TestHandlerRejectsTypedNilAuthenticator(t *testing.T) {
+	t.Parallel()
+
+	var authenticator *authn.DevelopmentAuthenticator
+	if _, err := api.NewHandler(authenticator); err == nil {
+		t.Fatal("typed-nil authenticator was accepted")
+	}
+}
+
+func newHandler(t *testing.T) http.Handler {
+	t.Helper()
+	authenticator, err := authn.NewDevelopmentAuthenticator(authn.DevelopmentConfig{
+		BearerToken: []byte(testToken), PrincipalID: testActor, IsolationDomainID: testDomain,
+	})
+	if err != nil {
+		t.Fatalf("create development authenticator: %v", err)
+	}
+	handler, err := api.NewHandler(authenticator)
+	if err != nil {
+		t.Fatalf("create authenticated handler: %v", err)
+	}
+	return handler
+}
+
+type tokenAuthenticator struct {
+	principals map[string]authn.Principal
+}
+
+func (authenticator tokenAuthenticator) Authenticate(_ context.Context, token []byte) (authn.Principal, error) {
+	principal, exists := authenticator.principals[string(token)]
+	if !exists {
+		return authn.Principal{}, authn.ErrInvalidCredential
+	}
+	return principal, nil
+}
+
+type countingReader struct {
+	reads int
+}
+
+func (reader *countingReader) Read(_ []byte) (int, error) {
+	reader.reads++
+	return 0, io.EOF
+}
+
+var _ authn.Authenticator = tokenAuthenticator{}

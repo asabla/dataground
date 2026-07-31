@@ -4,13 +4,15 @@
   "info": {
     "title": "DataGround API",
     "version": "0.1.0",
-    "description": "Native DataGround contract for isolation-scoped agent services, immutable revisions, invocations, event replay, cancellation, and artifacts. Additive changes are compatible within v1. Removing or renaming fields, narrowing accepted values, changing state or error semantics, or making optional fields required is breaking and requires a new major API version. Clients must ignore unknown response fields and unknown event types while preserving the event envelope."
+    "description": "Native DataGround contract for isolation-scoped agent services, immutable revisions, invocations, event replay, cancellation, and artifacts. Additive changes are compatible within v1. Removing or renaming fields, narrowing accepted values, changing state or error semantics, or making optional fields required is breaking and requires a new major API version. Clients must ignore unknown response fields and unknown event types while preserving the event envelope. All versioned API operations require a bearer access token whose issuer, audience, and isolation-domain membership are validated by the deployment authentication boundary."
   },
+  "security": [{ "BearerAccessToken": [] }],
   "paths": {
     "/livez": {
       "get": {
         "operationId": "getLiveness",
         "summary": "Report process liveness",
+        "security": [],
         "responses": {
           "200": {
             "description": "The API process is alive.",
@@ -27,6 +29,7 @@
       "get": {
         "operationId": "getReadiness",
         "summary": "Report API readiness",
+        "security": [],
         "responses": {
           "200": {
             "description": "The API process is ready.",
@@ -66,7 +69,10 @@
           },
           "400": { "$ref": "#/components/responses/Error" },
           "409": { "$ref": "#/components/responses/Error" },
-          "415": { "$ref": "#/components/responses/Error" }
+          "415": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -99,7 +105,10 @@
           "400": { "$ref": "#/components/responses/Error" },
           "404": { "$ref": "#/components/responses/Error" },
           "409": { "$ref": "#/components/responses/Error" },
-          "415": { "$ref": "#/components/responses/Error" }
+          "415": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -140,7 +149,10 @@
           "400": { "$ref": "#/components/responses/Error" },
           "404": { "$ref": "#/components/responses/Error" },
           "409": { "$ref": "#/components/responses/Error" },
-          "415": { "$ref": "#/components/responses/Error" }
+          "415": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -174,7 +186,10 @@
           "400": { "$ref": "#/components/responses/Error" },
           "404": { "$ref": "#/components/responses/Error" },
           "409": { "$ref": "#/components/responses/Error" },
-          "415": { "$ref": "#/components/responses/Error" }
+          "415": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -207,7 +222,10 @@
           "400": { "$ref": "#/components/responses/Error" },
           "404": { "$ref": "#/components/responses/Error" },
           "409": { "$ref": "#/components/responses/Error" },
-          "415": { "$ref": "#/components/responses/Error" }
+          "415": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -228,7 +246,10 @@
               }
             }
           },
-          "404": { "$ref": "#/components/responses/Error" }
+          "404": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -249,7 +270,10 @@
               }
             }
           },
-          "404": { "$ref": "#/components/responses/Error" }
+          "404": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -290,7 +314,10 @@
           "400": { "$ref": "#/components/responses/Error" },
           "404": { "$ref": "#/components/responses/Error" },
           "409": { "$ref": "#/components/responses/Error" },
-          "415": { "$ref": "#/components/responses/Error" }
+          "415": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -317,7 +344,10 @@
             }
           },
           "400": { "$ref": "#/components/responses/Error" },
-          "404": { "$ref": "#/components/responses/Error" }
+          "404": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -339,12 +369,23 @@
               }
             }
           },
-          "404": { "$ref": "#/components/responses/Error" }
+          "404": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
         }
       }
     }
   },
   "components": {
+    "securitySchemes": {
+      "BearerAccessToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "OIDC/OAuth access token. The deployment-owned authentication boundary validates issuer, audience, credential state, and isolation-domain membership before request processing."
+      }
+    },
     "parameters": {
       "IsolationDomainId": {
         "name": "isolationDomainId",
