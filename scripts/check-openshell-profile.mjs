@@ -865,7 +865,7 @@ if (
     "credential non-exposure certified for the pinned development profile" ||
   profile.capabilities?.credentialNonExposure !== "certified for pinned development profile" ||
   profile.capabilities?.realSandboxInvocation !==
-    "v2 evidence producer, live case backend, scenario driver, and OpenShell provider probes defined; Codex probes and live certification blocked" ||
+    "v2 evidence producer, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; launcher and live certification blocked" ||
   JSON.stringify(profile.blockers) !== JSON.stringify(expectedRemainingBlockers)
 ) {
   fail("the accepted credential evidence claim or remaining blockers are inconsistent");
@@ -948,8 +948,13 @@ const runtimeOpenShellProbeSource = await readFile(
   resolve(root, "internal/execution/runtimeevidence/provider_probes.go"),
   "utf8",
 );
+const runtimeCodexProbeSource = await readFile(
+  resolve(root, "internal/execution/runtimeevidence/runtime_probes.go"),
+  "utf8",
+);
 const runtimeScenarioDriver = runtimeProducer?.scenarioDriver;
 const runtimeOpenShellProviderProbes = runtimeProducer?.openShellProviderProbes;
+const runtimeCodexRuntimeProbes = runtimeProducer?.codexRuntimeProbes;
 const runtimeLiveCaseBackend = runtimeProducer?.liveCaseBackend;
 if (
   runtimeConformance?.schema !== "deploy/openshell/runtime-conformance-evidence.schema.json" ||
@@ -965,7 +970,7 @@ if (
     JSON.stringify(expectedRuntimeResourceNames) ||
   JSON.stringify(runtimeConformance?.provenance) !== JSON.stringify(expectedRuntimeProvenance) ||
   runtimeConformance?.status !==
-    "v2 evidence producer, live case backend, scenario driver, and OpenShell provider probes defined; live record required" ||
+    "v2 evidence producer, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; live record required" ||
   runtimeEvidenceSchema?.properties?.schemaVersion?.const !== runtimeConformance.schemaVersion ||
   runtimeEvidenceSchema?.properties?.checks?.minItems !== expectedRuntimeChecks.length ||
   runtimeEvidenceSchema?.properties?.checks?.maxItems !== expectedRuntimeChecks.length ||
@@ -1033,7 +1038,7 @@ if (
     "atomic backend finalization after the twelfth case and before cleanup" ||
   runtimeLiveCaseBackend?.serialization !== "forbidden" ||
   runtimeLiveCaseBackend?.status !==
-    "implemented with scenario driver and OpenShell provider probes; Codex runtime probes required" ||
+    "implemented with scenario driver, OpenShell provider probes, and Codex runtime probes; launcher required" ||
   runtimeScenarioDriver?.assembly !== "internal/execution/runtimeevidence.NewConcreteScenario" ||
   runtimeScenarioDriver?.binding !==
     "exact run-derived portable resources with separate provider lifecycle and Codex runtime probe ports" ||
@@ -1048,7 +1053,7 @@ if (
   runtimeScenarioDriver?.errors !== "native probe errors are replaced by stable scenario errors" ||
   runtimeScenarioDriver?.serialization !== "forbidden" ||
   runtimeScenarioDriver?.status !==
-    "implemented with OpenShell provider probes; Codex runtime probes and launcher required" ||
+    "implemented with OpenShell provider and Codex runtime probes; launcher required" ||
   runtimeOpenShellProviderProbes?.assembly !==
     "internal/execution/runtimeevidence.NewOpenShellProbes" ||
   runtimeOpenShellProviderProbes?.binding !==
@@ -1065,13 +1070,40 @@ if (
     "pinned image, policy, and provider-profile creation remains launcher-owned" ||
   runtimeOpenShellProviderProbes?.serialization !== "configuration and adapter forbidden" ||
   runtimeOpenShellProviderProbes?.status !==
-    "implemented; Codex protocol probes and launcher required" ||
+    "implemented with Codex runtime probes; launcher required" ||
+  runtimeCodexRuntimeProbes?.assembly !==
+    "internal/execution/runtimeevidence.NewCodexProbes" ||
+  runtimeCodexRuntimeProbes?.binding !==
+    "exact run-derived portable resources, exact persisted ready execution, fresh OpenShell runtime session per case, and pinned internal Codex client" ||
+  JSON.stringify(runtimeCodexRuntimeProbes?.cases) !==
+    JSON.stringify([
+      "initialize",
+      "turn-success",
+      "turn-failure",
+      "event-normalization",
+      "interrupt",
+      "cancellation",
+      "command-approval",
+      "file-change-approval",
+    ]) ||
+  runtimeCodexRuntimeProbes?.requests !==
+    "fixed run-bound prompts with locked read-only defaults; approval cases alone enable interactive review and file-change alone enables workspace-write under /tmp" ||
+  runtimeCodexRuntimeProbes?.observationProof !==
+    "domain-separated SHA-256 over the portable binding, UTC interval, bounded normalized event transcript, and closed case outcome" ||
+  runtimeCodexRuntimeProbes?.acceptance !==
+    "exact success text, native terminal failure, process event lifecycle, interrupt cancellation, canceled wait, and denied typed approvals; start and transport failures are rejected" ||
+  runtimeCodexRuntimeProbes?.limits !==
+    "at most 256 normalized events and 4194304 canonical JSON bytes per case" ||
+  runtimeCodexRuntimeProbes?.failure !==
+    "order drift, overlap, caller cancellation, execution substitution, native failure, uncertain session close, invalid event sequence, endpoint or native-field exposure, clock regression, and outcome mismatch are terminal" ||
+  runtimeCodexRuntimeProbes?.serialization !== "configuration and adapter forbidden" ||
+  runtimeCodexRuntimeProbes?.status !== "implemented; launcher required" ||
   JSON.stringify(runtimeProducer?.cleanupOrder) !==
     JSON.stringify(["sandbox", "providerBinding", "workspace"]) ||
   runtimeProducer?.serialization !==
     "run forbidden; result only after every case and cleanup succeeds" ||
   runtimeProducer?.status !==
-    "closed assembler, live case backend, scenario driver, and OpenShell provider probes implemented; Codex probes and launcher required" ||
+    "closed assembler, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes implemented; launcher required" ||
   runtimeProducerProfileBindings.some(
     (binding) => !runtimeEvidenceProfileSource.includes(JSON.stringify(binding)),
   ) ||
@@ -1112,6 +1144,20 @@ if (
   !runtimeOpenShellProbeSource.includes("openShellProbeCommitmentDomain") ||
   !runtimeOpenShellProbeSource.includes("func (OpenShellProbeConfig) MarshalJSON(") ||
   !runtimeOpenShellProbeSource.includes("func (OpenShellProbes) MarshalJSON(") ||
+  !runtimeCodexProbeSource.includes("func NewCodexProbes(") ||
+  !runtimeCodexProbeSource.includes("state.provider.StartRuntime(") ||
+  !runtimeCodexProbeSource.includes("codex.New(trackedSession)") ||
+  !runtimeCodexProbeSource.includes("dgruntime.ApprovalLocked") ||
+  !runtimeCodexProbeSource.includes("dgruntime.ApprovalInteractive") ||
+  !runtimeCodexProbeSource.includes("dgruntime.SandboxWorkspaceWrite") ||
+  !runtimeCodexProbeSource.includes("maxCodexProbeEvents") ||
+  !runtimeCodexProbeSource.includes("maxCodexProbeEventBytes") ||
+  !runtimeCodexProbeSource.includes("valueExposesNativeProtocol") ||
+  !runtimeCodexProbeSource.includes("trackedCodexProbeSession") ||
+  !runtimeCodexProbeSource.includes("codexProbeCommitmentDomain") ||
+  !runtimeCodexProbeSource.includes("func (CodexProbeConfig) MarshalJSON(") ||
+  !runtimeCodexProbeSource.includes("func (CodexProbes) MarshalJSON(") ||
+  runtimeCodexProbeSource.includes("os/exec") ||
   runtimeOpenShellProbeSource.includes("os/exec") ||
   runtimeScenarioSource.includes("os/exec") ||
   runtimeScenarioSource.includes('"docker"') ||
@@ -1130,7 +1176,7 @@ if (
   )
 ) {
   fail(
-    "the runtime evidence producer, scenario, or OpenShell provider probes are missing, mutable, or overclaim live certification",
+    "the runtime evidence producer, scenario, or concrete provider/runtime probes are missing, mutable, or overclaim live certification",
   );
 }
 
