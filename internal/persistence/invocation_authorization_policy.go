@@ -36,6 +36,7 @@ type InvocationAuthorizationPolicyRecord struct {
 }
 
 func (record InvocationAuthorizationPolicyRecord) Valid() bool {
+	digest := invocationAuthorizationPolicyRecordDigest(record.Schema, record.Policies)
 	return record.Contract == "dataground.invocation-authorization-policy/v1" &&
 		record.IsolationDomainID != "" &&
 		record.ServiceID != "" &&
@@ -46,10 +47,7 @@ func (record InvocationAuthorizationPolicyRecord) Valid() bool {
 		len(record.Schema) <= maximumInvocationAuthorizationPolicyBytes &&
 		len(record.Policies) > 0 &&
 		len(record.Policies) <= maximumInvocationAuthorizationPolicyBytes &&
-		bytes.Equal(
-			record.PolicyDigest,
-			invocationAuthorizationPolicyRecordDigest(record.Schema, record.Policies)[:],
-		) &&
+		bytes.Equal(record.PolicyDigest, digest[:]) &&
 		record.InstalledBy != "" &&
 		record.InstallationCorrelationID != "" &&
 		len(record.ReasonDigest) == sha256.Size
