@@ -28,6 +28,7 @@ concurrency:
 
 jobs:
   runtime-conformance:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: openshell-runtime-conformance
