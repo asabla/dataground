@@ -57,9 +57,7 @@ func NewPrincipal(input PrincipalInput) (Principal, error) {
 	if !principalIDPattern.MatchString(input.ID) {
 		return Principal{}, errors.New("principal ID is invalid")
 	}
-	switch input.Kind {
-	case PrincipalHuman, PrincipalService, PrincipalPlatformService, PrincipalSandboxWorkload, PrincipalDistributedCompute:
-	default:
+	if !validPrincipalKind(input.Kind) {
 		return Principal{}, errors.New("principal kind is invalid")
 	}
 	if input.Issuer == "" || len(input.Issuer) > 512 {
@@ -108,10 +106,16 @@ func (principal Principal) AllowsIsolationDomain(domainID string) bool {
 }
 
 func (principal Principal) Valid() bool {
-	if !principalIDPattern.MatchString(principal.id) || principal.audience != APIAudience {
+	if !principalIDPattern.MatchString(principal.id) || !validPrincipalKind(principal.kind) {
 		return false
 	}
-	if principal.issuer == "" || principal.subject == "" || len(principal.isolationDomains) == 0 {
+	if principal.audience != APIAudience || principal.issuer == "" || len(principal.issuer) > 512 {
+		return false
+	}
+	if principal.subject == "" || len(principal.subject) > 512 {
+		return false
+	}
+	if len(principal.isolationDomains) == 0 || len(principal.isolationDomains) > 64 {
 		return false
 	}
 	for domainID := range principal.isolationDomains {
@@ -120,6 +124,15 @@ func (principal Principal) Valid() bool {
 		}
 	}
 	return true
+}
+
+func validPrincipalKind(kind PrincipalKind) bool {
+	switch kind {
+	case PrincipalHuman, PrincipalService, PrincipalPlatformService, PrincipalSandboxWorkload, PrincipalDistributedCompute:
+		return true
+	default:
+		return false
+	}
 }
 
 func (Principal) MarshalJSON() ([]byte, error) {
