@@ -54,6 +54,7 @@ type runtimeProviderState struct {
 	started     bool
 	running     bool
 	created     bool
+	mutationStarted bool
 	cleaning    bool
 	removed     bool
 	failed      bool
@@ -122,6 +123,9 @@ func (provider *RuntimeProvider) Provision(ctx context.Context) error {
 		return state.provisionError(ctx)
 	}
 
+	state.mu.Lock()
+	state.mutationStarted = true
+	state.mu.Unlock()
 	createStartedAt := time.Now().UTC()
 	binding, createErr := state.provider.CreateRuntimeConformanceProvider(
 		ctx,
@@ -184,7 +188,7 @@ func (provider *RuntimeProvider) Cleanup(ctx context.Context, request CleanupReq
 		request.ResourceKind != "provider" ||
 		request.ResourceName != state.name ||
 		!state.started ||
-		!state.created ||
+		(!state.created && state.mutationStarted) ||
 		state.running ||
 		state.cleaning {
 		if state.running {
@@ -193,7 +197,7 @@ func (provider *RuntimeProvider) Cleanup(ctx context.Context, request CleanupReq
 		state.mu.Unlock()
 		return ErrRuntimeProviderCleanup
 	}
-	if state.removed {
+	if state.removed || !state.created {
 		state.mu.Unlock()
 		return nil
 	}
