@@ -3,6 +3,7 @@ package runtimeevidence
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"io"
@@ -51,6 +52,45 @@ func TestCodexProbesOwnProtocolObservations(t *testing.T) {
 			result.Assertions.NativeProtocolExposed ||
 			result.Assertions.UpstreamEndpointExposed {
 			t.Fatalf("probe %d has invalid exposure assertion: %#v", index, result.Assertions)
+		}
+	}
+}
+
+func TestCodexProbesCompleteConcreteScenario(t *testing.T) {
+	t.Parallel()
+
+	fixture := newCodexProbeFixture(codexProbeScripts(testRunID)...)
+	probes := fixture.open(t)
+	provider := &codexChainProvider{clock: fixture.clock}
+	scenario, err := NewConcreteScenario(ScenarioConfig{
+		RunID:    testRunID,
+		Provider: provider,
+		Runtime:  probes,
+	})
+	if err != nil {
+		t.Fatalf("NewConcreteScenario() error = %v", err)
+	}
+	binding := LiveBinding{RunID: testRunID, Resources: namesForRun(testRunID)}
+	for index, call := range []func(context.Context, LiveBinding) (LiveReceipt, error){
+		scenario.GatewayReady,
+		scenario.SandboxReady,
+		scenario.Initialize,
+		scenario.TurnSuccess,
+		scenario.TurnFailure,
+		scenario.EventNormalization,
+		scenario.Interrupt,
+		scenario.Cancellation,
+		scenario.CommandApproval,
+		scenario.FileChangeApproval,
+		scenario.ArtifactExport,
+		scenario.SandboxTeardown,
+	} {
+		receipt, err := call(context.Background(), binding)
+		if err != nil {
+			t.Fatalf("scenario case %d error = %v", index, err)
+		}
+		if receipt.ObservationSHA256 == ([sha256.Size]byte{}) {
+			t.Fatalf("scenario case %d has empty commitment", index)
 		}
 	}
 }
@@ -188,6 +228,49 @@ type codexProbeFixture struct {
 	store    *codexProbeStore
 	provider *codexProbeProvider
 	clock    *probeClock
+}
+
+type codexChainProvider struct {
+	clock *probeClock
+}
+
+func (provider *codexChainProvider) GatewayReady(
+	context.Context,
+	ProbeRequest,
+) (ProbeResult, error) {
+	return provider.result(CheckGatewayReady), nil
+}
+
+func (provider *codexChainProvider) SandboxReady(
+	context.Context,
+	ProbeRequest,
+) (ProbeResult, error) {
+	return provider.result(CheckSandboxReady), nil
+}
+
+func (provider *codexChainProvider) ArtifactExport(
+	context.Context,
+	ProbeRequest,
+) (ProbeResult, error) {
+	return provider.result(CheckArtifactExport), nil
+}
+
+func (provider *codexChainProvider) SandboxTeardown(
+	context.Context,
+	ProbeRequest,
+) (ProbeResult, error) {
+	return provider.result(CheckSandboxTeardown), nil
+}
+
+func (provider *codexChainProvider) result(name CheckName) ProbeResult {
+	startedAt := provider.clock.now()
+	finishedAt := provider.clock.now()
+	return ProbeResult{
+		StartedAt:         startedAt,
+		FinishedAt:        finishedAt,
+		ObservationSHA256: sha256.Sum256([]byte("codex-chain-" + string(name))),
+		Assertions:        openShellProbeAssertion(name),
+	}
 }
 
 func newCodexProbeFixture(scripts ...func(*codexProbeServer)) *codexProbeFixture {
