@@ -308,7 +308,7 @@
         "artifact-export": "supported",
         "runtime-artifact-events": "unsupported"
       },
-      "status": "v2 evidence producer, immutable execution creation, private credential acquisition, runtime Docker topology, concrete probes, and closed composition harness defined; launcher and live record required",
+      "status": "v2 evidence producer, immutable execution creation, private credential acquisition, runtime Docker topology, concrete probes, closed composition harness, and checked launcher defined; workflow execution and live record required",
       "resourceNames": {
         "gateway": "dg-runtime-gateway-<runID>",
         "sandbox": "dg-runtime-sandbox-<runID>",
@@ -335,7 +335,7 @@
           "concurrency": "one in-flight case; overlap, order drift, cancellation, backend failure, invalid receipts, and proof replay are terminal",
           "completion": "atomic backend finalization after the twelfth case and before cleanup",
           "serialization": "forbidden",
-          "status": "implemented with scenario driver, concrete probes, and closed composition harness; Docker launcher required",
+          "status": "implemented with scenario driver, concrete probes, closed composition harness, and checked launcher; workflow execution and live record required",
           "exposure": "each receipt must attest completed inspection; native-protocol or upstream-endpoint exposure fails before commitment"
         },
         "cleanupOrder": [
@@ -344,7 +344,7 @@
           "workspace"
         ],
         "serialization": "run forbidden; result only after every case and cleanup succeeds",
-        "status": "closed assembler, immutable execution creation, concrete probes, composition harness, and runtime Docker topology implemented; launcher required",
+        "status": "closed assembler, immutable execution creation, concrete probes, composition harness, runtime Docker topology, and checked launcher implemented; workflow execution and live record required",
         "scenarioDriver": {
           "assembly": "internal/execution/runtimeevidence.NewConcreteScenario",
           "binding": "exact run-derived portable resources with separate provider lifecycle and Codex runtime probe ports",
@@ -354,7 +354,7 @@
           "concurrency": "single-use ordered state; overlap, cancellation, probe failure, binding drift, invalid assertions, and proof replay are terminal",
           "errors": "native probe errors are replaced by stable scenario errors",
           "serialization": "forbidden",
-          "status": "implemented with concrete probes and closed composition harness; Docker launcher required"
+          "status": "implemented with concrete probes, closed composition harness, and checked launcher; workflow execution and live record required"
         },
         "openShellProviderProbes": {
           "assembly": "internal/execution/runtimeevidence.NewOpenShellProbes",
@@ -370,7 +370,7 @@
           "failure": "order drift, overlap, cancellation, native failure, binding mismatch, clock regression, artifact substitution, and uncertain teardown are terminal",
           "creation": "pinned image, deny-all policy, run-derived provider profile, placement, and readiness are owned by the immutable execution creator",
           "serialization": "configuration and adapter forbidden",
-          "status": "implemented with immutable execution creation, Codex runtime probes, and closed composition harness; Docker launcher required"
+          "status": "implemented with immutable execution creation, Codex runtime probes, closed composition harness, and checked launcher; workflow execution and live record required"
         },
         "codexRuntimeProbes": {
           "assembly": "internal/execution/runtimeevidence.NewCodexProbes",
@@ -391,7 +391,7 @@
           "limits": "at most 256 normalized events and 4194304 canonical JSON bytes per case",
           "failure": "order drift, overlap, caller cancellation, execution substitution, native failure, uncertain session close, invalid event sequence, endpoint or native-field exposure, clock regression, and outcome mismatch are terminal",
           "serialization": "configuration and adapter forbidden",
-          "status": "implemented with immutable execution creation and closed composition harness; Docker launcher required"
+          "status": "implemented with immutable execution creation, closed composition harness, and checked launcher; workflow execution and live record required"
         },
         "harness": {
           "assembly": "internal/execution/runtimeevidence.NewHarness",
@@ -401,7 +401,7 @@
           "singleUse": "shared irreversible evidence state across harness copies",
           "failure": "invalid or typed-nil ports fail before execution; runtime failures are sanitized and incomplete results remain non-serializable",
           "serialization": "configuration and harness forbidden",
-          "status": "implemented with immutable execution creation and runtime Docker topology; launcher composition and live record required"
+          "status": "implemented with immutable execution creation, runtime Docker topology, and checked launcher; workflow execution and live record required"
         },
         "executionCreator": {
           "assembly": "internal/execution/runtimeevidence.NewExecutionCreator",
@@ -411,7 +411,7 @@
           "recovery": "observe deterministic persisted state before cancellation-independent termination; require a fresh exact terminal observation",
           "concurrency": "shared irreversible create state across copies; overlap and replay poison creation without revoking cleanup authority",
           "serialization": "configuration and creator forbidden",
-          "status": "implemented with runtime provider provisioning and Docker topology; launcher composition, workflow secret materialization, and live record required"
+          "status": "implemented with runtime provider provisioning, Docker topology, and checked launcher; workflow secret materialization, live execution, and record incorporation required"
         },
         "runtimeCredentialSource": {
           "assembly": "internal/execution/runtimeevidence.NewRuntimeCredentialSource with NewRuntimeProviderFromCredentialSource",
@@ -421,7 +421,7 @@
           "failure": "replay, overlap, cancellation, path substitution, extra entries, unsafe ownership or permissions, and uncertain removal fail closed without revoking exact cleanup authority",
           "exposure": "public callers receive only the runtime provisioner; credential bytes do not enter arguments, inherited environments, generic readers, serialization, or caller-visible return values",
           "serialization": "source configuration, provider-source configuration, source, credentials, and provisioner forbidden",
-          "status": "implemented with Docker topology; launcher composition, workflow secret materialization, and live record required"
+          "status": "implemented with Docker topology and checked launcher; workflow secret materialization, live execution, and record incorporation required"
         },
         "runtimeProvider": {
           "assembly": "internal/execution/runtimeevidence.NewRuntimeProvider",
@@ -431,7 +431,18 @@
           "recovery": "lost create acknowledgement accepted only after exact credential-safe observation; cleanup requires exact identity and fresh timestamped absence",
           "concurrency": "shared irreversible provisioning state across copies; overlap and replay poison provisioning without revoking cleanup authority",
           "serialization": "credentials, requests, configuration, and provisioner forbidden",
-          "status": "implemented with private credential acquisition and Docker topology; launcher composition, workflow secret materialization, and live record required"
+          "status": "implemented with private credential acquisition, Docker topology, and checked launcher; workflow secret materialization, live execution, and record incorporation required"
+        },
+        "launcher": {
+          "assembly": "internal/execution/runtimeevidence.Launch",
+          "command": "go run ./cmd/dataground-openshell-runtime-conformance --workspace-root <owner-only-mode-0700-directory> --credential-directory <fresh-private-bundle> --source-commit <commit> --workflow-run-id <id>",
+          "binding": "one generated run ID, exact provenance, checked policy and topology, one in-memory store and provider, and direct provider-to-creator-to-harness composition",
+          "preflight": "validate provenance and the pinned OpenShell version before Docker mutation or credential consumption",
+          "secretSource": "accept only the private four-file credential bundle path; credential values never enter arguments or inherited environments",
+          "cleanup": "retry exact sandbox, provider binding, credential bundle, private launcher workspace, and Docker topology cleanup under a bounded cancellation-independent context",
+          "output": "result available only after harness cleanup and exact Docker topology teardown",
+          "serialization": "configuration and live launcher workspace forbidden",
+          "status": "implemented; workflow secret materialization, live execution, and record incorporation required"
         }
       },
       "topology": {
@@ -446,7 +457,7 @@
         "recovery": "retain cleanup authority after ambiguous start; accept lost down acknowledgement only after exact project container and volume absence",
         "concurrency": "shared irreversible state across copies; replay and overlap poison startup without revoking cleanup",
         "serialization": "configuration, topology, and frozen workspace forbidden",
-        "status": "implemented; launcher composition, workflow secret materialization, and live record required",
+        "status": "implemented with checked launcher; workflow secret materialization, live execution, and record incorporation required",
         "gatewayImage": "ghcr.io/nvidia/openshell/gateway@sha256:e21f520a0678ba3cfe749957338b5fa78c75e8e52de13e4559ccbb582f781a0b",
         "gatewayEndpoint": "http://127.0.0.1:8080",
         "healthEndpoint": "http://127.0.0.1:8081/health",
@@ -458,7 +469,7 @@
     "gatewayPlacement": "adapter conformance tested",
     "sandboxLifecycle": "adapter conformance tested",
     "codexAppServerStdio": "adapter conformance tested",
-    "realSandboxInvocation": "v2 evidence producer, immutable execution creator, private credential source, runtime provider binding, Docker topology, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; launcher composition and live certification blocked",
+    "realSandboxInvocation": "v2 evidence producer, immutable execution creator, private credential source, runtime provider binding, Docker topology, live case backend, scenario driver, OpenShell provider probes, Codex runtime probes, closed composition harness, and checked launcher defined; workflow execution and live certification blocked",
     "credentialNonExposure": "certified for pinned development profile",
     "rosettaMaterialization": "blocked"
   },
