@@ -16,8 +16,8 @@ const (
 	credentialEvidenceSHA256     = "684e8e9e8b859e0822c8f287201d137a88abcad501f7b9f94ffac9c9aa9414e3"
 	gatewayEndpoint              = "http://127.0.0.1:8080"
 	driver                       = "docker"
-	composeSHA256                = "c20a9475cfd62db222a3c1b64c9e7dd26cbed31ea311cc623120f58c87aeb5ee"
-	gatewayConfigSHA256          = "c2e2a4ec201edac242e47f28f49dba9ec8b4b520bf1969574f3d173441aa3830"
+	runtimeComposeSHA256         = "e0c3a67c3b5976dc22e32e47614a1f8f08aaaa2ddfc0c376240641a391066762"
+	runtimeGatewayConfigSHA256   = "16f5d7a5e7d1dad1be67ede22d7b9d70e76517c98c6c9a4a4c2eb89eead08651"
 )
 
 type profile struct {
@@ -45,7 +45,7 @@ func currentProfile() profile {
 		CredentialEvidenceSHA256:     credentialEvidenceSHA256,
 		GatewayEndpoint:              gatewayEndpoint,
 		Driver:                       driver,
-		ComposeSHA256:                composeSHA256,
-		GatewayConfigSHA256:          gatewayConfigSHA256,
+		ComposeSHA256:                runtimeComposeSHA256,
+		GatewayConfigSHA256:          runtimeGatewayConfigSHA256,
 	}
 }
