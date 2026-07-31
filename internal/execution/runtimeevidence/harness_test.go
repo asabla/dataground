@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -79,6 +80,57 @@ func TestHarnessOwnsCompleteRuntimeEvidenceChain(t *testing.T) {
 		cleanupKinds[1] != "provider" ||
 		cleanupKinds[2] != "workspace" {
 		t.Fatalf("cleanup order = %v", cleanupKinds)
+	}
+}
+
+
+func TestHarnessSanitizesFailureAndCompletesCleanup(t *testing.T) {
+	t.Parallel()
+
+	providerFixture := newOpenShellProbeFixture()
+	runtimeFixture := newCodexProbeFixture(codexProbeScripts(testRunID)...)
+	privateErr := errors.New("private native endpoint failed")
+	runtimeFixture.provider.openErr = privateErr
+	provider := &harnessTestProvider{
+		probeProvider:      providerFixture.provider,
+		codexProbeProvider: runtimeFixture.provider,
+	}
+	var cleanupKinds []string
+	cleanup := func(_ context.Context, request CleanupRequest) error {
+		cleanupKinds = append(cleanupKinds, request.ResourceKind)
+		return nil
+	}
+	harness, err := newHarness(HarnessConfig{
+		RunID:       testRunID,
+		Provenance:  Provenance{SourceCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", WorkflowRunID: 42},
+		ExecutionID: providerFixture.store.execution.Execution.ID,
+		Store:       providerFixture.store,
+		Provider:    provider,
+		Cleanup: Cleanup{
+			Sandbox:         cleanup,
+			ProviderBinding: cleanup,
+			Workspace:       cleanup,
+		},
+	}, providerFixture.clock.now)
+	if err != nil {
+		t.Fatalf("newHarness() error = %v", err)
+	}
+
+	result, err := harness.Run(context.Background())
+	if !errors.Is(err, ErrHarnessRun) ||
+		!errors.Is(err, ErrRunIncomplete) ||
+		errors.Is(err, privateErr) ||
+		strings.Contains(err.Error(), "private") {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got := len(cleanupKinds); got != 3 ||
+		cleanupKinds[0] != "sandbox" ||
+		cleanupKinds[1] != "provider" ||
+		cleanupKinds[2] != "workspace" {
+		t.Fatalf("cleanup order = %v", cleanupKinds)
+	}
+	if _, marshalErr := json.Marshal(result); !errors.Is(marshalErr, ErrRunIncomplete) {
+		t.Fatalf("json.Marshal(incomplete result) error = %v", marshalErr)
 	}
 }
 
