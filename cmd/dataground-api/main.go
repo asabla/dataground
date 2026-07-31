@@ -55,9 +55,15 @@ func main() {
 			os.Exit(1)
 		}
 		defer pool.Close()
-		handler, err = api.NewDurableHandler(persistence.NewRepository(pool), authenticator, authorizer)
+		repository := persistence.NewRepository(pool)
+		auditedAuthorizer, auditErr := authz.NewAuditedAuthorizer(authorizer, repository)
+		if auditErr != nil {
+			logger.Error("durable authorization audit assembly failed", "error", auditErr)
+			os.Exit(1)
+		}
+		handler, err = api.NewDurableHandler(repository, authenticator, auditedAuthorizer)
 		if err != nil {
-			logger.Error("durable API authentication assembly failed", "error", err)
+			logger.Error("durable API security assembly failed", "error", err)
 			os.Exit(1)
 		}
 		logger.Info("durable PostgreSQL mode enabled")
