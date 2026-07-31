@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	auditActor  = "usr_00000000000000000001"
-	auditOtherActor  = "usr_00000000000000000002"
-	auditDomain = "iso_00000000000000000001"
+	auditActor      = "usr_00000000000000000001"
+	auditOtherActor = "usr_00000000000000000002"
+	auditDomain     = "iso_00000000000000000001"
 )
 
 func TestAuditedAuthorizerRecordsClosedDecisionAndPolicyProvenance(t *testing.T) {
