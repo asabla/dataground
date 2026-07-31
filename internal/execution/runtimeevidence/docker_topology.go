@@ -231,7 +231,7 @@ func (topology *DockerTopology) Start(ctx context.Context) error {
 		return topologyStartError(ctx)
 	}
 	state.mu.Lock()
-	if state.failed || state.removed {
+	if state.failed || state.removed || ctx.Err() != nil {
 		state.failed = true
 		state.starting = false
 		state.mu.Unlock()
@@ -683,8 +683,13 @@ func openRuntimeTopologyWorkspace(
 	if err != nil {
 		return nil, ErrDockerTopologyConfiguration
 	}
+	currentParent, currentParentErr := os.Lstat(root)
 	parentInfo, err := parent.Stat()
-	if err != nil || !parentInfo.IsDir() || parentInfo.Mode().Perm() != 0o700 {
+	if err != nil ||
+		currentParentErr != nil ||
+		!safeRuntimeTopologyDirectory(parentInfo) ||
+		!safeRuntimeTopologyDirectory(currentParent) ||
+		!os.SameFile(parentInfo, currentParent) {
 		_ = parent.Close()
 		return nil, ErrDockerTopologyConfiguration
 	}
@@ -700,7 +705,12 @@ func openRuntimeTopologyWorkspace(
 		return nil, ErrDockerTopologyStart
 	}
 	directoryInfo, err := directory.Stat()
-	if err != nil || !directoryInfo.IsDir() || directoryInfo.Mode().Perm() != 0o700 {
+	currentDirectory, currentDirectoryErr := os.Lstat(path)
+	if err != nil ||
+		currentDirectoryErr != nil ||
+		!safeRuntimeTopologyDirectory(directoryInfo) ||
+		!safeRuntimeTopologyDirectory(currentDirectory) ||
+		!os.SameFile(directoryInfo, currentDirectory) {
 		_ = directory.Close()
 		_ = os.Remove(path)
 		_ = parent.Close()
@@ -811,7 +821,7 @@ func writeRuntimeTopologyFile(path string, content []byte) (os.FileInfo, error) 
 		return nil, err
 	}
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+	if err != nil || !safeRuntimeTopologyFile(info) {
 		return nil, ErrDockerTopologyStart
 	}
 	if err := file.Close(); err != nil {
@@ -900,7 +910,17 @@ func safeRuntimeTopologyDirectory(info os.FileInfo) bool {
 	return info != nil &&
 		info.Mode()&os.ModeSymlink == 0 &&
 		info.IsDir() &&
-		info.Mode().Perm() == 0o700
+		info.Mode().Perm() == 0o700 &&
+		runtimeCredentialOwnedByCurrentUser(info)
+}
+
+func safeRuntimeTopologyFile(info os.FileInfo) bool {
+	return info != nil &&
+		info.Mode()&os.ModeSymlink == 0 &&
+		info.Mode().IsRegular() &&
+		info.Mode().Perm() == 0o600 &&
+		runtimeCredentialOwnedByCurrentUser(info) &&
+		runtimeCredentialSingleLink(info)
 }
 
 func (workspace *runtimeTopologyWorkspace) removePartial() {
