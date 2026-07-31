@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-
-	"github.com/asabla/dataground/internal/execution"
 )
 
 func TestRuntimeCredentialSourceLoadsAndConsumesExactBundle(t *testing.T) {
