@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 const root = resolve(import.meta.dirname, "..");
 const profilePath = resolve(root, "deploy/openshell/development-profile.json");
 const profile = JSON.parse(await readFile(profilePath, "utf8"));
+const packageJSON = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
 
 const failures = [];
 const fail = (message) => failures.push(message);
@@ -1411,6 +1412,8 @@ if (
   runtimeEvidenceSource.includes("os/exec") ||
   runtimeEvidenceSource.includes('"docker"') ||
   runtimeEvidenceSource.includes('"openshell"') ||
+  packageJSON.scripts?.["openshell:runtime-evidence:run"] !==
+    "go run ./cmd/dataground-openshell-runtime-conformance" ||
   !runtimeLauncherSource.includes("func Launch(") ||
   !runtimeLauncherSource.includes("ports.Check(ctx)") ||
   !runtimeLauncherSource.includes("topology.Start(ctx)") ||
@@ -1422,6 +1425,9 @@ if (
   !runtimeLauncherSource.includes("context.WithTimeout(context.Background()") ||
   !runtimeLauncherSource.includes("func (LauncherConfig) MarshalJSON(") ||
   runtimeLauncherSource.includes("os.Environ()") ||
+  runtimeLauncherSource.includes("os.LookupEnv(") ||
+  !runtimeLauncherSource.includes('"HOME=" + home') ||
+  !runtimeLauncherSource.includes('"XDG_CONFIG_HOME=" + home') ||
   !runtimeLauncherWorkspaceSource.includes("removeRuntimeLauncherDirectory(") ||
   !runtimeLauncherWorkspaceSource.includes("runtimeCredentialSingleLink(") ||
   !runtimeLauncherWorkspaceSource.includes("func (runtimeLauncherWorkspace) MarshalJSON(") ||
