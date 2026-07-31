@@ -180,6 +180,28 @@ func TestDockerTopologyRejectsContainerBindingDrift(t *testing.T) {
 	}
 }
 
+func TestDockerTopologyRejectsNativeSuccessAfterCancellation(t *testing.T) {
+	containerID := strings.Repeat("d", 64)
+	runner := &fakeDockerTopologyRunner{results: []dockerTopologyResult{
+		{},
+		{output: containerID + "\n"},
+		{},
+		{},
+		{},
+	}}
+	ctx, cancel := context.WithCancel(context.Background())
+	topology, _ := newTestDockerTopology(t, runner, func(context.Context) error {
+		cancel()
+		return nil
+	})
+	if err := topology.Start(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if err := topology.Cleanup(context.Background()); err != nil {
+		t.Fatalf("Cleanup() error = %v", err)
+	}
+}
+
 func TestDockerTopologyOverlapPoisonsStartButPreservesCleanup(t *testing.T) {
 	containerID := strings.Repeat("c", 64)
 	entered := make(chan struct{})
