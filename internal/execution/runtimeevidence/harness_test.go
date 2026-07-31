@@ -146,13 +146,15 @@ func TestNewHarnessRejectsInvalidComposition(t *testing.T) {
 			Workspace:       cleanup,
 		},
 	}
+	var typedNilProvider *harnessTestProvider
 	for name, mutate := range map[string]func(*HarnessConfig){
 		"run":        func(config *HarnessConfig) { config.RunID = "invalid" },
 		"provenance": func(config *HarnessConfig) { config.Provenance.SourceCommit = "invalid" },
 		"workflow":   func(config *HarnessConfig) { config.Provenance.WorkflowRunID = 0 },
 		"execution":  func(config *HarnessConfig) { config.ExecutionID = "" },
 		"store":      func(config *HarnessConfig) { config.Store = nil },
-		"provider":   func(config *HarnessConfig) { config.Provider = nil },
+		"provider":           func(config *HarnessConfig) { config.Provider = nil },
+		"typed nil provider": func(config *HarnessConfig) { config.Provider = typedNilProvider },
 		"cleanup":    func(config *HarnessConfig) { config.Cleanup.Workspace = nil },
 	} {
 		name, mutate := name, mutate
