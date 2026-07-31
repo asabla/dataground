@@ -14,6 +14,7 @@ import (
 
 	"github.com/asabla/dataground/internal/api"
 	"github.com/asabla/dataground/internal/authn"
+	"github.com/asabla/dataground/internal/authz"
 	"github.com/asabla/dataground/internal/persistence"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -27,12 +28,12 @@ func main() {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	authenticator, err := developmentAuthenticator(address)
+	authenticator, authorizer, err := developmentSecurity(address)
 	if err != nil {
-		logger.Error("development authentication configuration failed", "error", err)
+		logger.Error("development security configuration failed", "error", err)
 		os.Exit(1)
 	}
-	handler, err := api.NewHandler(authenticator)
+	handler, err := api.NewHandler(authenticator, authorizer)
 	if err != nil {
 		logger.Error("API authentication assembly failed", "error", err)
 		os.Exit(1)
@@ -54,7 +55,7 @@ func main() {
 			os.Exit(1)
 		}
 		defer pool.Close()
-		handler, err = api.NewDurableHandler(persistence.NewRepository(pool), authenticator)
+		handler, err = api.NewDurableHandler(persistence.NewRepository(pool), authenticator, authorizer)
 		if err != nil {
 			logger.Error("durable API authentication assembly failed", "error", err)
 			os.Exit(1)
@@ -92,26 +93,36 @@ func main() {
 	}
 }
 
-func developmentAuthenticator(address string) (authn.Authenticator, error) {
+func developmentSecurity(address string) (authn.Authenticator, authz.Authorizer, error) {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
-		return nil, fmt.Errorf("parse HTTP address: %w", err)
+		return nil, nil, fmt.Errorf("parse HTTP address: %w", err)
 	}
 	ip := net.ParseIP(host)
 	if ip == nil || !ip.IsLoopback() {
-		return nil, errors.New("development authentication requires an explicit loopback IP address")
+		return nil, nil, errors.New("development security requires an explicit loopback IP address")
 	}
 
 	token, exists := os.LookupEnv("DATAGROUND_DEVELOPMENT_BEARER_TOKEN")
 	if !exists {
-		return nil, errors.New("DATAGROUND_DEVELOPMENT_BEARER_TOKEN is required")
+		return nil, nil, errors.New("DATAGROUND_DEVELOPMENT_BEARER_TOKEN is required")
 	}
 	if err := os.Unsetenv("DATAGROUND_DEVELOPMENT_BEARER_TOKEN"); err != nil {
-		return nil, fmt.Errorf("remove development bearer token from environment: %w", err)
+		return nil, nil, fmt.Errorf("remove development bearer token from environment: %w", err)
 	}
-	return authn.NewDevelopmentAuthenticator(authn.DevelopmentConfig{
+	principalID := os.Getenv("DATAGROUND_DEVELOPMENT_PRINCIPAL_ID")
+	domainID := os.Getenv("DATAGROUND_DEVELOPMENT_ISOLATION_DOMAIN_ID")
+	authorizer, err := authz.NewDevelopmentCedarAuthorizer(principalID, domainID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("development Cedar authorization: %w", err)
+	}
+	authenticator, err := authn.NewDevelopmentAuthenticator(authn.DevelopmentConfig{
 		BearerToken:       []byte(token),
-		PrincipalID:       os.Getenv("DATAGROUND_DEVELOPMENT_PRINCIPAL_ID"),
-		IsolationDomainID: os.Getenv("DATAGROUND_DEVELOPMENT_ISOLATION_DOMAIN_ID"),
+		PrincipalID:       principalID,
+		IsolationDomainID: domainID,
 	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return authenticator, authorizer, nil
 }
