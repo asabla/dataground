@@ -319,13 +319,15 @@ func (state *executionCreationState) cleanupPersisted(ctx context.Context) error
 		return ErrExecutionCreationCleanup
 	}
 	startedAt := time.Now().UTC()
-	if err := state.provider.Terminate(ctx, state.ref); err != nil || ctx.Err() != nil {
+	terminateErr := state.provider.Terminate(ctx, state.ref)
+	if ctx.Err() != nil {
 		return ErrExecutionCreationCleanup
 	}
 	observation, err := state.provider.Observe(ctx, state.ref)
 	finishedAt := time.Now().UTC()
 	if err != nil ||
 		ctx.Err() != nil ||
+		(terminateErr != nil && observation.State != "terminated") ||
 		observation.IsolationDomainID != state.ref.IsolationDomainID ||
 		observation.ExecutionID != state.ref.ID ||
 		observation.State != "terminated" ||
@@ -395,7 +397,7 @@ func validCreatedExecutionIdentity(
 
 func validCleanupExecutionState(state string) bool {
 	switch state {
-	case "pending", "provisioning", "ready", "deleting", "terminated":
+	case "pending", "provisioning", "ready", "error", "deleting", "failed", "terminated", "unknown":
 		return true
 	default:
 		return false
