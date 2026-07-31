@@ -31,15 +31,15 @@ var (
 type Action string
 
 const (
-	CreateAgentService    Action = "createAgentService"
-	CreateServiceRevision Action = "createServiceRevision"
+	CreateAgentService     Action = "createAgentService"
+	CreateServiceRevision  Action = "createServiceRevision"
 	PublishServiceRevision Action = "publishServiceRevision"
-	AssignServiceAlias    Action = "assignServiceAlias"
-	InvokeAgentService    Action = "invokeAgentService"
-	ReadInvocation        Action = "readInvocation"
-	ReadOperation         Action = "readOperation"
-	CancelInvocation      Action = "cancelInvocation"
-	ReadInvocationEvents  Action = "readInvocationEvents"
+	AssignServiceAlias     Action = "assignServiceAlias"
+	InvokeAgentService     Action = "invokeAgentService"
+	ReadInvocation         Action = "readInvocation"
+	ReadOperation          Action = "readOperation"
+	CancelInvocation       Action = "cancelInvocation"
+	ReadInvocationEvents   Action = "readInvocationEvents"
 	ReadInvocationArtifact Action = "readInvocationArtifact"
 )
 
