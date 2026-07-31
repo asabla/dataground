@@ -865,7 +865,7 @@ if (
     "credential non-exposure certified for the pinned development profile" ||
   profile.capabilities?.credentialNonExposure !== "certified for pinned development profile" ||
   profile.capabilities?.realSandboxInvocation !==
-    "v2 evidence producer, immutable execution creator, private credential source, runtime provider binding, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; Docker launcher and live certification blocked" ||
+    "v2 evidence producer, immutable execution creator, private credential source, runtime provider binding, Docker topology, live case backend, scenario driver, OpenShell provider probes, and Codex runtime probes defined; launcher composition and live certification blocked" ||
   JSON.stringify(profile.blockers) !== JSON.stringify(expectedRemainingBlockers)
 ) {
   fail("the accepted credential evidence claim or remaining blockers are inconsistent");
