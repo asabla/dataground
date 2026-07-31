@@ -281,7 +281,15 @@ func (server *DurableServer) mutate(
 		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: safeError("INVALID_REQUEST", "Request body is invalid or too large.", false)})
 		return
 	}
-	correlationID := identity.New("cor")
+	correlationID := authenticatedCorrelationID(request)
+	if correlationID == "" {
+		writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
+			"AUTHORIZATION_UNAVAILABLE",
+			"Authorization is temporarily unavailable.",
+			true,
+		)})
+		return
+	}
 	result, err := command(domainID, actorID, correlationID, body)
 	if err != nil {
 		server.writeCommandError(response, err, correlationID)
