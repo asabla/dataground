@@ -334,10 +334,10 @@ func (store *codexProbeStore) GetExecution(
 }
 
 type codexProbeProvider struct {
-	mu      sync.Mutex
-	scripts []func(*codexProbeServer)
-	opened  int
-	openErr error
+	mu       sync.Mutex
+	scripts  []func(*codexProbeServer)
+	opened   int
+	openErr  error
 	closeErr error
 }
 
