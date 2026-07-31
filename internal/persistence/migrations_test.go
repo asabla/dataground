@@ -55,7 +55,8 @@ func TestMigrationsRoundTrip(t *testing.T) {
 		      'execution_instances',
 		      'service_revision_execution_plans',
 		      'service_revision_enforcement_bundles',
-		      'invocation_artifact_objects'
+		      'invocation_artifact_objects',
+		      'api_authorization_decisions'
 		  )
 	`).Scan(&tables); err != nil {
 		t.Fatalf("inspect migrated tables: %v", err)
