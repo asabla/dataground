@@ -937,9 +937,7 @@ const expectedRuntimeWorkflow = {
     "checked runtime verifier, exact workflow provenance, and independent credential, workspace, container, and volume residue rejection",
   artifact: "openshell-runtime-conformance uploaded only after complete cleanup",
 };
-if (
-  JSON.stringify(runtimeConformance?.workflow) !== JSON.stringify(expectedRuntimeWorkflow)
-) {
+if (JSON.stringify(runtimeConformance?.workflow) !== JSON.stringify(expectedRuntimeWorkflow)) {
   fail("the runtime conformance workflow contract is missing or inconsistent");
 }
 const runtimeEvidenceSchema = JSON.parse(
@@ -1564,9 +1562,7 @@ if (
   runtimeMaterializeStep > runtimeProduceStep ||
   runtimeProduceStep > runtimeCleanupStep ||
   runtimeCleanupStep > runtimeUploadStep ||
-  !runtimeEvidenceWorkflow
-    .slice(runtimeCleanupStep, runtimeUploadStep)
-    .includes("if: always()") ||
+  !runtimeEvidenceWorkflow.slice(runtimeCleanupStep, runtimeUploadStep).includes("if: always()") ||
   !runtimeEvidenceWorkflow.slice(runtimeUploadStep).includes("if: success()")
 ) {
   fail("the live runtime evidence workflow is missing or unsafe");
