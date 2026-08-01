@@ -65,6 +65,9 @@ func (source *OIDCJWTKeysetFileSource) Load(ctx context.Context) (OIDCJWTKeysetS
 		!before.ModTime().Equal(after.ModTime()) || before.Mode() != after.Mode() {
 		return OIDCJWTKeysetSnapshot{}, ErrUnavailable
 	}
+	if err := requireUniqueJSONObject(content); err != nil {
+		return OIDCJWTKeysetSnapshot{}, ErrOIDCJWTKeysetInvalid
+	}
 
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
