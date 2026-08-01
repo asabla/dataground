@@ -37,6 +37,12 @@
       "valid": true
     },
     {
+      "file": "valid/authorization-audit-export.json",
+      "schema": "AuthorizationAuditExport",
+      "document": "authorization-audit-export",
+      "valid": true
+    },
+    {
       "file": "invalid/agent-service-missing-name.json",
       "schema": "AgentService",
       "valid": false
@@ -70,6 +76,12 @@
       "file": "invalid/release-manifest-missing-source.json",
       "schema": "ReleaseManifest",
       "document": "release-manifest",
+      "valid": false
+    },
+    {
+      "file": "invalid/authorization-audit-export-mixed-source.json",
+      "schema": "AuthorizationAuditExport",
+      "document": "authorization-audit-export",
       "valid": false
     }
   ]
