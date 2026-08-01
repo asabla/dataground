@@ -8,10 +8,10 @@ import (
 )
 
 var (
-	operationIDPattern = regexp.MustCompile(`^op_[0-9a-z]{20,32}$`)
-	invocationIDPattern = regexp.MustCompile(`^inv_[0-9a-z]{20,32}$`)
-	serviceIDPattern = regexp.MustCompile(`^svc_[0-9a-z]{20,32}$`)
-	revisionIDPattern = regexp.MustCompile(`^rev_[0-9a-z]{20,32}$`)
+	invocationAuditOperationIDPattern  = regexp.MustCompile(`^op_[0-9a-z]{20,32}$`)
+	invocationAuditInvocationIDPattern = regexp.MustCompile(`^inv_[0-9a-z]{20,32}$`)
+	invocationAuditServiceIDPattern    = regexp.MustCompile(`^svc_[0-9a-z]{20,32}$`)
+	invocationAuditRevisionIDPattern   = regexp.MustCompile(`^rev_[0-9a-z]{20,32}$`)
 )
 
 type InvocationAction string
@@ -39,10 +39,10 @@ type InvocationDecisionRecord struct {
 func (record InvocationDecisionRecord) Valid() bool {
 	return validInvocationActorID(record.ActorID) &&
 		domainIDPattern.MatchString(record.IsolationDomainID) &&
-		operationIDPattern.MatchString(record.OperationID) &&
-		invocationIDPattern.MatchString(record.InvocationID) &&
-		serviceIDPattern.MatchString(record.ServiceID) &&
-		revisionIDPattern.MatchString(record.RevisionID) &&
+		invocationAuditOperationIDPattern.MatchString(record.OperationID) &&
+		invocationAuditInvocationIDPattern.MatchString(record.InvocationID) &&
+		invocationAuditServiceIDPattern.MatchString(record.ServiceID) &&
+		invocationAuditRevisionIDPattern.MatchString(record.RevisionID) &&
 		validInvocationAction(record.Action) &&
 		validOutcome(record.Outcome) &&
 		validPolicyDescriptor(PolicyDescriptor{
