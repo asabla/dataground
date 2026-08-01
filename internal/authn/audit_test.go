@@ -234,4 +234,3 @@ func (recorder *recordingAuthenticationAttemptRecorder) RecordAuthenticationAtte
 
 var _ authn.Authenticator = authenticationAuditDelegate{}
 var _ authn.AuthenticationAttemptRecorder = (*recordingAuthenticationAttemptRecorder)(nil)
-
