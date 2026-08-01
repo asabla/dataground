@@ -108,6 +108,19 @@ func TestDurableOIDCDPoPAssemblyKeysetReadinessTracksLifecycleOwnership(t *testi
 	if err := assembly.OIDCKeysetReady(context.Background()); !errors.Is(err, authn.ErrUnavailable) {
 		t.Fatalf("stopped keyset lifecycle readiness = %v", err)
 	}
+	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	response := httptest.NewRecorder()
+	assembly.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("stopped lifecycle readiness status = %d, want %d", response.Code, http.StatusServiceUnavailable)
+	}
+	var problem api.ErrorEnvelope
+	if err := json.NewDecoder(response.Body).Decode(&problem); err != nil {
+		t.Fatalf("decode readiness response: %v", err)
+	}
+	if problem.Error.Code != "OIDC_KEYSET_UNAVAILABLE" || !problem.Error.Retryable {
+		t.Fatalf("readiness problem = %#v", problem.Error)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	finished := make(chan error, 1)
