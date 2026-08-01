@@ -16,6 +16,7 @@ import (
 	"github.com/asabla/dataground/internal/authn"
 	"github.com/asabla/dataground/internal/authz"
 	"github.com/asabla/dataground/internal/persistence"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
@@ -63,6 +64,20 @@ func TestDurableOIDCDPoPAssemblyValidatesHTTPBoundaryBeforeSourceIO(t *testing.T
 	}
 }
 
+func TestDurableOIDCDPoPAssemblyRejectsUnconfiguredRepositoryBeforeSourceIO(t *testing.T) {
+	t.Parallel()
+
+	source := &apiAssemblyKeysetSource{snapshot: apiAssemblyKeysetSnapshot(1)}
+	config := apiAssemblyConfig(t, source)
+	config.Repository = persistence.NewRepository(nil)
+	if _, err := api.NewDurableOIDCDPoPAssembly(context.Background(), config); err == nil {
+		t.Fatal("unconfigured durable repository was accepted")
+	}
+	if source.calls != 0 {
+		t.Fatalf("unconfigured repository contacted keyset source %d times", source.calls)
+	}
+}
+
 func TestDurableOIDCDPoPAssemblyNilHandlerFailsClosed(t *testing.T) {
 	t.Parallel()
 
@@ -95,7 +110,7 @@ func apiAssemblyConfig(
 		t.Fatalf("create test authorizer: %v", err)
 	}
 	return api.DurableOIDCDPoPConfig{
-		Repository:     persistence.NewRepository(nil),
+		Repository:     apiAssemblyRepository(t),
 		Authorizer:     authorizer,
 		RateLimiter:    apiAssemblyRateLimiter{},
 		ExternalOrigin: "https://api.example.invalid",
@@ -110,6 +125,22 @@ func apiAssemblyConfig(
 		DPoPClockSkew:   30 * time.Second,
 		MaximumProofAge: time.Minute,
 	}
+}
+
+func apiAssemblyRepository(t *testing.T) *persistence.Repository {
+	t.Helper()
+	config, err := pgxpool.ParseConfig(
+		"postgres://dataground:dataground@127.0.0.1:1/dataground?sslmode=disable",
+	)
+	if err != nil {
+		t.Fatalf("parse test pool configuration: %v", err)
+	}
+	pool, err := pgxpool.NewWithConfig(context.Background(), config)
+	if err != nil {
+		t.Fatalf("create test pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	return persistence.NewRepository(pool)
 }
 
 func apiAssemblyKeysetSnapshot(sequence uint64) authn.OIDCJWTKeysetSnapshot {
