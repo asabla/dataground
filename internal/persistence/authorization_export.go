@@ -175,7 +175,7 @@ func (repository *Repository) ExportAuthorizationDecisions(
 			  AND sequence > $4
 			  AND sequence <= $5
 		) AS decisions
-		ORDER BY recorded_at, source, sequence
+		ORDER BY CASE source WHEN 'api' THEN 0 ELSE 1 END, sequence
 		LIMIT $6
 	`,
 		isolationDomainID,
