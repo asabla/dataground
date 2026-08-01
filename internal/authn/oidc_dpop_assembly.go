@@ -1,0 +1,109 @@
+package authn
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"time"
+)
+
+// ReloadableOIDCDPoPConfig describes the complete authentication chain used
+// by a durable DPoP-bound API. Deployment policy and HTTP composition remain
+// outside this package.
+type ReloadableOIDCDPoPConfig struct {
+	Issuer               string
+	Audience             string
+	Algorithms           []string
+	KeysetSource         OIDCJWTKeysetSource
+	IdentityResolver     OIDCIdentityResolver
+	ReplayStore          DPoPReplayStore
+	JWTClockSkew         time.Duration
+	MaximumTokenLifetime time.Duration
+	DPoPClockSkew        time.Duration
+	MaximumProofAge      time.Duration
+}
+
+// ReloadableOIDCDPoPAuthenticator owns the signing-key lifecycle behind one
+// OIDC authenticator. Refresh replaces the complete keyset generation without
+// changing the identity or replay boundaries.
+type ReloadableOIDCDPoPAuthenticator struct {
+	authenticator *OIDCAuthenticator
+	keysets       *ReloadableOIDCJWTVerifier
+}
+
+func NewReloadableOIDCDPoPAuthenticator(
+	ctx context.Context,
+	config ReloadableOIDCDPoPConfig,
+) (*ReloadableOIDCDPoPAuthenticator, error) {
+	if ctx == nil || nilOIDCDependency(config.IdentityResolver) ||
+		nilDPoPDependency(config.ReplayStore) {
+		return nil, errors.New("OIDC DPoP dependencies are required")
+	}
+	if config.DPoPClockSkew < 0 || config.DPoPClockSkew > maximumDPoPClockSkew ||
+		config.MaximumProofAge < minimumDPoPProofAge ||
+		config.MaximumProofAge > maximumDPoPProofAge {
+		return nil, errors.New("OIDC DPoP profile is invalid")
+	}
+	keysets, err := NewReloadableOIDCJWTVerifier(ctx, ReloadableOIDCJWTConfig{
+		Issuer:          config.Issuer,
+		Audience:        config.Audience,
+		Algorithms:      append([]string(nil), config.Algorithms...),
+		ClockSkew:       config.JWTClockSkew,
+		MaximumLifetime: config.MaximumTokenLifetime,
+		Source:          config.KeysetSource,
+	})
+	if err != nil {
+		return nil, err
+	}
+	dpop, err := NewDPoPTokenVerifier(DPoPConfig{
+		Verifier:        keysets,
+		Replays:         config.ReplayStore,
+		ClockSkew:       config.DPoPClockSkew,
+		MaximumProofAge: config.MaximumProofAge,
+	})
+	if err != nil {
+		return nil, err
+	}
+	authenticator, err := NewOIDCAuthenticator(OIDCConfig{
+		Issuer:   config.Issuer,
+		Audience: config.Audience,
+		Verifier: dpop,
+		Resolver: config.IdentityResolver,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ReloadableOIDCDPoPAuthenticator{
+		authenticator: authenticator,
+		keysets:       keysets,
+	}, nil
+}
+
+func (authenticator *ReloadableOIDCDPoPAuthenticator) Authenticate(
+	ctx context.Context,
+	bearerToken []byte,
+) (Principal, error) {
+	if authenticator == nil || nilOIDCDependency(authenticator.authenticator) ||
+		nilOIDCDependency(authenticator.keysets) {
+		return Principal{}, ErrUnavailable
+	}
+	return authenticator.authenticator.Authenticate(ctx, bearerToken)
+}
+
+func (authenticator *ReloadableOIDCDPoPAuthenticator) RefreshKeyset(ctx context.Context) error {
+	if authenticator == nil || nilOIDCDependency(authenticator.keysets) {
+		return ErrUnavailable
+	}
+	return authenticator.keysets.Refresh(ctx)
+}
+
+func (*ReloadableOIDCDPoPAuthenticator) AuthenticationMethod() AuthenticationMethod {
+	return AuthenticationMethodOIDC
+}
+
+func (*ReloadableOIDCDPoPAuthenticator) MarshalJSON() ([]byte, error) {
+	return nil, errors.New("authenticators cannot be serialized")
+}
+
+var _ Authenticator = (*ReloadableOIDCDPoPAuthenticator)(nil)
+var _ json.Marshaler = (*ReloadableOIDCDPoPAuthenticator)(nil)
