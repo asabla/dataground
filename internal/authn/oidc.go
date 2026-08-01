@@ -36,10 +36,32 @@ type OIDCIdentity struct {
 	Subject string
 }
 
+func (identity OIDCIdentity) Valid() bool {
+	return validOIDCIssuer(identity.Issuer) && validOIDCValue(identity.Subject)
+}
+
 type OIDCIdentityBinding struct {
 	PrincipalID      string
 	PrincipalKind    PrincipalKind
 	IsolationDomains []string
+}
+
+func (binding OIDCIdentityBinding) ValidFor(identity OIDCIdentity) bool {
+	if !identity.Valid() {
+		return false
+	}
+	if binding.PrincipalKind != PrincipalHuman && binding.PrincipalKind != PrincipalService {
+		return false
+	}
+	_, err := NewPrincipal(PrincipalInput{
+		ID:               binding.PrincipalID,
+		Kind:             binding.PrincipalKind,
+		Issuer:           identity.Issuer,
+		Subject:          identity.Subject,
+		Audience:         APIAudience,
+		IsolationDomains: append([]string(nil), binding.IsolationDomains...),
+	})
+	return err == nil
 }
 
 type OIDCIdentityResolver interface {
@@ -132,7 +154,8 @@ func (authenticator *OIDCAuthenticator) Authenticate(
 }
 
 func (authenticator *OIDCAuthenticator) accepts(token VerifiedOIDCToken) bool {
-	if token.Issuer != authenticator.issuer || !validOIDCValue(token.Subject) {
+	identity := OIDCIdentity{Issuer: token.Issuer, Subject: token.Subject}
+	if token.Issuer != authenticator.issuer || !identity.Valid() {
 		return false
 	}
 	if len(token.Audiences) == 0 || len(token.Audiences) > maximumOIDCAudiences {
