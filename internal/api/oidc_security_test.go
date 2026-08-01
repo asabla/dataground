@@ -122,6 +122,10 @@ func apiAssemblyConfig(
 			ClockSkew:       30 * time.Second,
 			MaximumLifetime: time.Hour,
 		},
+		KeysetRefresh: authn.OIDCJWTKeysetRefreshPolicy{
+			Interval: time.Minute,
+			Timeout:  5 * time.Second,
+		},
 		DPoPClockSkew:   30 * time.Second,
 		MaximumProofAge: time.Minute,
 	}
