@@ -66,11 +66,11 @@ func TestDPoPTokenVerifierRejectsUnboundMalformedAndReplayedProofs(t *testing.T)
 	}{
 		"missing confirmation": {delegate: fixture.verified(""), proof: validProof, method: testDPoPMethod, uri: testDPoPURI},
 		"wrong confirmation":   {delegate: fixture.verified(otherThumbprint), proof: validProof, method: testDPoPMethod, uri: testDPoPURI},
-		"wrong method":          {delegate: fixture.verified(fixture.thumbprint), proof: validProof, method: "GET", uri: testDPoPURI},
-		"wrong URI":             {delegate: fixture.verified(fixture.thumbprint), proof: validProof, method: testDPoPMethod, uri: "https://api.example.invalid/other"},
-		"wrong access token":    {delegate: fixture.verified(fixture.thumbprint), proof: fixture.proof(t, testDPoPMethod, testDPoPURI, now, "proof-id-00000000000003", otherToken), method: testDPoPMethod, uri: testDPoPURI},
-		"expired proof":         {delegate: fixture.verified(fixture.thumbprint), proof: fixture.proof(t, testDPoPMethod, testDPoPURI, now.Add(-10*time.Minute), "proof-id-00000000000004", fixture.accessToken), method: testDPoPMethod, uri: testDPoPURI},
-		"replayed proof":        {delegate: fixture.verified(fixture.thumbprint), proof: validProof, method: testDPoPMethod, uri: testDPoPURI, replay: authn.ErrDPoPProofReplayed},
+		"wrong method":         {delegate: fixture.verified(fixture.thumbprint), proof: validProof, method: "GET", uri: testDPoPURI},
+		"wrong URI":            {delegate: fixture.verified(fixture.thumbprint), proof: validProof, method: testDPoPMethod, uri: "https://api.example.invalid/other"},
+		"wrong access token":   {delegate: fixture.verified(fixture.thumbprint), proof: fixture.proof(t, testDPoPMethod, testDPoPURI, now, "proof-id-00000000000003", otherToken), method: testDPoPMethod, uri: testDPoPURI},
+		"expired proof":        {delegate: fixture.verified(fixture.thumbprint), proof: fixture.proof(t, testDPoPMethod, testDPoPURI, now.Add(-10*time.Minute), "proof-id-00000000000004", fixture.accessToken), method: testDPoPMethod, uri: testDPoPURI},
+		"replayed proof":       {delegate: fixture.verified(fixture.thumbprint), proof: validProof, method: testDPoPMethod, uri: testDPoPURI, replay: authn.ErrDPoPProofReplayed},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -138,8 +138,8 @@ func newDPoPFixture(t *testing.T) dpopFixture {
 		t.Fatal(err)
 	}
 	return dpopFixture{
-		privateKey: privateKey,
-		thumbprint: dpopThumbprint(t, &privateKey.PublicKey),
+		privateKey:  privateKey,
+		thumbprint:  dpopThumbprint(t, &privateKey.PublicKey),
 		accessToken: []byte("signed-oidc-access-token-with-at-least-thirty-two-bytes"),
 	}
 }
