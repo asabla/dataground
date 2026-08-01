@@ -34,6 +34,28 @@ func TestOIDCJWTKeysetRefreshPolicyRejectsUnsafeBounds(t *testing.T) {
 	}
 }
 
+func TestNewOIDCJWTKeysetRefreshSupervisorValidatesTargetAndPolicy(t *testing.T) {
+	t.Parallel()
+
+	policy := OIDCJWTKeysetRefreshPolicy{Interval: time.Minute, Timeout: time.Second}
+	if _, err := NewOIDCJWTKeysetRefreshSupervisor(nil, policy); err == nil {
+		t.Fatal("nil refresh target was accepted")
+	}
+	if _, err := NewOIDCJWTKeysetRefreshSupervisor(
+		&ReloadableOIDCJWTVerifier{},
+		OIDCJWTKeysetRefreshPolicy{},
+	); err == nil {
+		t.Fatal("invalid refresh policy was accepted")
+	}
+	supervisor, err := NewOIDCJWTKeysetRefreshSupervisor(&ReloadableOIDCJWTVerifier{}, policy)
+	if err != nil {
+		t.Fatalf("create refresh supervisor: %v", err)
+	}
+	if status := supervisor.Status(); status != (OIDCJWTKeysetRefreshStatus{}) {
+		t.Fatalf("initial refresh status = %#v", status)
+	}
+}
+
 func TestOIDCJWTKeysetRefreshSupervisorRecordsSafeOutcomes(t *testing.T) {
 	t.Parallel()
 
