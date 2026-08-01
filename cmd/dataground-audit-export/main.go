@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
@@ -23,16 +23,27 @@ func main() {
 func run(ctx context.Context, arguments []string, output io.Writer) error {
 	flags := flag.NewFlagSet("dataground-audit-export", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var domainID, cursor string
+	var exportID, domainID, actorID, reason, correlationID, cursor string
 	var limit int
+	flags.StringVar(&exportID, "export-id", "", "stable authorization audit export identifier")
 	flags.StringVar(&domainID, "isolation-domain", "", "isolation domain identifier")
-	flags.StringVar(&cursor, "cursor", "", "opaque cursor returned by the preceding page")
+	flags.StringVar(&actorID, "actor", "", "authorized operator identifier")
+	flags.StringVar(&reason, "reason", "", "operator-visible export reason")
+	flags.StringVar(&correlationID, "correlation-id", "", "stable export correlation identifier")
+	flags.StringVar(&cursor, "cursor", "", "opaque continuation cursor from the preceding page")
 	flags.IntVar(&limit, "limit", 500, "maximum records in this page")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
-	if flags.NArg() != 0 || domainID == "" || limit < 1 || limit > 1000 {
-		return errors.New("isolation-domain is required and limit must be between 1 and 1000")
+	if flags.NArg() != 0 ||
+		exportID == "" ||
+		domainID == "" ||
+		actorID == "" ||
+		reason == "" ||
+		correlationID == "" ||
+		limit < 1 ||
+		limit > 1000 {
+		return errors.New("export-id, isolation-domain, actor, reason, correlation-id, and a limit from 1 to 1000 are required")
 	}
 	databaseURL := os.Getenv("DATAGROUND_DATABASE_URL")
 	if databaseURL == "" {
@@ -56,18 +67,24 @@ func run(ctx context.Context, arguments []string, output io.Writer) error {
 		return err
 	}
 	defer pool.Close()
-	export, err := persistence.NewRepository(pool).ExportAuthorizationDecisions(
+
+	reasonDigest := sha256.Sum256([]byte(reason))
+	document, err := persistence.NewRepository(pool).ExportAuthorizationDecisionsAudited(
 		operationCtx,
-		domainID,
-		cursor,
-		limit,
+		persistence.AuthorizationAuditExportRequest{
+			ExportID:          exportID,
+			IsolationDomainID: domainID,
+			RequestedBy:       actorID,
+			ReasonDigest:      reasonDigest[:],
+			CorrelationID:     correlationID,
+			Cursor:            cursor,
+			Limit:             limit,
+		},
 	)
 	if err != nil {
 		return err
 	}
-	encoder := json.NewEncoder(output)
-	encoder.SetEscapeHTML(true)
-	if err := encoder.Encode(export); err != nil {
+	if _, err := output.Write(append(document, '\n')); err != nil {
 		return fmt.Errorf("write authorization audit export: %w", err)
 	}
 	return nil
