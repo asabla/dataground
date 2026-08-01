@@ -22,6 +22,7 @@ import (
 const (
 	maximumOIDCJWKSBytes     = 256 << 10
 	maximumOIDCJWKSKeys      = 64
+	maximumOIDCJWTAlgorithms = 10
 	maximumOIDCClockSkew     = 5 * time.Minute
 	maximumOIDCTokenLifetime = 24 * time.Hour
 	minimumOIDCTokenLifetime = time.Minute
@@ -203,7 +204,7 @@ func parseOIDCJWTAlgorithms(values []string) (
 	map[string]struct{},
 	error,
 ) {
-	if len(values) == 0 || len(values) > 8 {
+	if len(values) == 0 || len(values) > maximumOIDCJWTAlgorithms {
 		return nil, nil, errors.New("OIDC JWT algorithms are invalid")
 	}
 	algorithms := make([]jose.SignatureAlgorithm, 0, len(values))
