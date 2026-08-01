@@ -22,9 +22,10 @@ var ErrIdentityNotFound = errors.New("OIDC identity is not registered")
 // signature, issuer, time, and revocation verifier. Raw claims stay behind that
 // boundary so caller-controlled groups cannot become platform authority.
 type VerifiedOIDCToken struct {
-	Issuer    string
-	Subject   string
-	Audiences []string
+	Issuer                 string
+	Subject                string
+	Audiences              []string
+	ConfirmationThumbprint string
 }
 
 type OIDCTokenVerifier interface {
