@@ -20,9 +20,9 @@ func TestAuthenticationRateLimitDecisionsRejectInvalidStates(t *testing.T) {
 	t.Parallel()
 
 	for name, decision := range map[string]api.AuthenticationRateLimitDecision{
-		"allowed with delay":  {Allowed: true, RetryAfter: time.Second},
+		"allowed with delay":   {Allowed: true, RetryAfter: time.Second},
 		"denied without delay": {},
-		"excessive delay":     {RetryAfter: 24*time.Hour + time.Nanosecond},
+		"excessive delay":      {RetryAfter: 24*time.Hour + time.Nanosecond},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
