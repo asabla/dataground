@@ -39,19 +39,41 @@ func newProtectedRoute(
 	) http.Handler {
 		return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 			correlationID := identity.New("cor")
-			values := request.Header.Values("Authorization")
-			request.Header.Del("Authorization")
-			bearerToken, ok := parseBearerToken(values)
-			if !ok {
-				writeAuthenticationRequired(response)
+			domainID := request.PathValue("isolationDomainId")
+			if !isolationDomainPattern.MatchString(domainID) {
+				writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: safeErrorWithCorrelation(
+					correlationID,
+					"INVALID_ISOLATION_DOMAIN",
+					"Isolation domain identifier is invalid.",
+					false,
+				)})
 				return
 			}
+			values := request.Header.Values("Authorization")
+			request.Header.Del("Authorization")
+			bearerToken, _ := parseBearerToken(values)
 			defer clear(bearerToken)
+			authenticationContext, err := authn.WithAuthenticationAttemptScope(
+				request.Context(),
+				authn.AuthenticationAttemptScope{
+					IsolationDomainID: domainID,
+					CorrelationID:     correlationID,
+				},
+			)
+			if err != nil {
+				writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeErrorWithCorrelation(
+					correlationID,
+					"AUTHENTICATION_UNAVAILABLE",
+					"Authentication is temporarily unavailable.",
+					true,
+				)})
+				return
+			}
 
-			principal, err := authenticator.Authenticate(request.Context(), bearerToken)
+			principal, err := authenticator.Authenticate(authenticationContext, bearerToken)
 			if err != nil {
 				if errors.Is(err, authn.ErrInvalidCredential) {
-					writeAuthenticationRequired(response)
+					writeAuthenticationRequired(response, correlationID)
 					return
 				}
 				writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeErrorWithCorrelation(
@@ -72,16 +94,6 @@ func newProtectedRoute(
 				return
 			}
 
-			domainID := request.PathValue("isolationDomainId")
-			if !isolationDomainPattern.MatchString(domainID) {
-				writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: safeErrorWithCorrelation(
-					correlationID,
-					"INVALID_ISOLATION_DOMAIN",
-					"Isolation domain identifier is invalid.",
-					false,
-				)})
-				return
-			}
 			if !principal.AllowsIsolationDomain(domainID) {
 				writeJSON(response, http.StatusForbidden, ErrorEnvelope{Error: safeErrorWithCorrelation(
 					correlationID,
@@ -170,9 +182,10 @@ func authenticatedRequestDigest(actorID string, body []byte) [sha256.Size]byte {
 	return result
 }
 
-func writeAuthenticationRequired(response http.ResponseWriter) {
+func writeAuthenticationRequired(response http.ResponseWriter, correlationID string) {
 	response.Header().Set("WWW-Authenticate", `Bearer realm="dataground-api"`)
-	writeJSON(response, http.StatusUnauthorized, ErrorEnvelope{Error: safeError(
+	writeJSON(response, http.StatusUnauthorized, ErrorEnvelope{Error: safeErrorWithCorrelation(
+		correlationID,
 		"UNAUTHENTICATED",
 		"A valid bearer access token is required.",
 		false,
