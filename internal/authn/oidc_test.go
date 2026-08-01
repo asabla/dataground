@@ -208,6 +208,31 @@ func TestOIDCAuthenticatorRejectsIncompleteAssemblyAndSerialization(t *testing.T
 	}
 }
 
+func TestOIDCIdentityAndBindingValidation(t *testing.T) {
+	t.Parallel()
+
+	identity := authn.OIDCIdentity{Issuer: testOIDCIssuer, Subject: testOIDCSubject}
+	if !identity.Valid() {
+		t.Fatal("valid OIDC identity was rejected")
+	}
+	binding := validOIDCBinding()
+	if !binding.ValidFor(identity) {
+		t.Fatal("valid OIDC identity binding was rejected")
+	}
+	if (authn.OIDCIdentity{Issuer: "http://identity.example.invalid", Subject: testOIDCSubject}).Valid() {
+		t.Fatal("plaintext OIDC identity was accepted")
+	}
+	binding.IsolationDomains = append(binding.IsolationDomains, binding.IsolationDomains[0])
+	if binding.ValidFor(identity) {
+		t.Fatal("duplicate-domain OIDC binding was accepted")
+	}
+	binding = validOIDCBinding()
+	binding.PrincipalKind = authn.PrincipalSandboxWorkload
+	if binding.ValidFor(identity) {
+		t.Fatal("internal workload OIDC binding was accepted")
+	}
+}
+
 func newOIDCAuthenticator(
 	t *testing.T,
 	verifier authn.OIDCTokenVerifier,
