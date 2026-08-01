@@ -298,9 +298,13 @@ func validOIDCJWTKey(key jose.JSONWebKey) bool {
 	case *rsa.PublicKey:
 		return (strings.HasPrefix(key.Algorithm, "RS") || strings.HasPrefix(key.Algorithm, "PS")) &&
 			publicKey.N.BitLen() >= 2048 && publicKey.N.BitLen() <= 8192 &&
+			publicKey.N.Bit(0) == 1 &&
 			publicKey.E >= 65537 && publicKey.E%2 == 1
 	case *ecdsa.PublicKey:
-		return oidcECDSACurveForAlgorithm(key.Algorithm) == publicKey.Curve
+		curve := oidcECDSACurveForAlgorithm(key.Algorithm)
+		return curve != nil && publicKey.Curve == curve &&
+			publicKey.X != nil && publicKey.Y != nil &&
+			curve.IsOnCurve(publicKey.X, publicKey.Y)
 	case ed25519.PublicKey:
 		return key.Algorithm == "EdDSA" && len(publicKey) == ed25519.PublicKeySize
 	default:
