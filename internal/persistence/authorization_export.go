@@ -195,6 +195,7 @@ func (repository *Repository) ExportAuthorizationDecisions(
 	records := make([]AuthorizationAuditExportRecord, 0, limit+1)
 	for rows.Next() {
 		var record AuthorizationAuditExportRecord
+		var sequence int64
 		if err := rows.Scan(
 			&record.Source,
 			&record.sequenceValue,
@@ -217,6 +218,7 @@ func (repository *Repository) ExportAuthorizationDecisions(
 			return AuthorizationAuditExport{}, fmt.Errorf("scan authorization audit export: %w", err)
 		}
 		record.Sequence = strconv.FormatInt(record.sequenceValue, 10)
+		record.Sequence = strconv.FormatInt(sequence, 10)
 		if !record.valid(isolationDomainID) {
 			return AuthorizationAuditExport{}, errors.New("stored authorization audit record is invalid")
 		}
@@ -232,6 +234,10 @@ func (repository *Repository) ExportAuthorizationDecisions(
 		records = records[:limit]
 	}
 	for _, record := range records {
+		sequence, parseErr := strconv.ParseInt(record.Sequence, 10, 64)
+		if parseErr != nil {
+			return AuthorizationAuditExport{}, ErrAuthorizationExportInvalid
+		}
 		switch record.Source {
 		case "api":
 			cursor.apiAfter = record.sequenceValue
