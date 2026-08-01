@@ -45,4 +45,3 @@ func (repository *Repository) RecordAuthenticationAttempt(
 }
 
 var _ authn.AuthenticationAttemptRecorder = (*Repository)(nil)
-
