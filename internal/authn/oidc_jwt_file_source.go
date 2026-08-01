@@ -45,6 +45,9 @@ func (source *OIDCJWTKeysetFileSource) Load(ctx context.Context) (OIDCJWTKeysetS
 	if err != nil {
 		return OIDCJWTKeysetSnapshot{}, ErrUnavailable
 	}
+	if err := ctx.Err(); err != nil {
+		return OIDCJWTKeysetSnapshot{}, err
+	}
 	if !pathInfo.Mode().IsRegular() || pathInfo.Mode().Perm()&0o022 != 0 ||
 		pathInfo.Size() <= 0 || pathInfo.Size() > maximumOIDCJWTKeysetPublicationBytes {
 		return OIDCJWTKeysetSnapshot{}, ErrOIDCJWTKeysetInvalid
@@ -59,7 +62,13 @@ func (source *OIDCJWTKeysetFileSource) Load(ctx context.Context) (OIDCJWTKeysetS
 	if err != nil {
 		return OIDCJWTKeysetSnapshot{}, ErrUnavailable
 	}
-	if !os.SameFile(pathInfo, before) || !before.Mode().IsRegular() || before.Mode().Perm()&0o022 != 0 ||
+	if err := ctx.Err(); err != nil {
+		return OIDCJWTKeysetSnapshot{}, err
+	}
+	if !os.SameFile(pathInfo, before) {
+		return OIDCJWTKeysetSnapshot{}, ErrUnavailable
+	}
+	if !before.Mode().IsRegular() || before.Mode().Perm()&0o022 != 0 ||
 		before.Size() <= 0 || before.Size() > maximumOIDCJWTKeysetPublicationBytes {
 		return OIDCJWTKeysetSnapshot{}, ErrOIDCJWTKeysetInvalid
 	}
@@ -83,6 +92,7 @@ func (source *OIDCJWTKeysetFileSource) Load(ctx context.Context) (OIDCJWTKeysetS
 	if err := decoder.Decode(&publication); err != nil {
 		return OIDCJWTKeysetSnapshot{}, ErrOIDCJWTKeysetInvalid
 	}
+	defer clear(publication.JWKS)
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return OIDCJWTKeysetSnapshot{}, ErrOIDCJWTKeysetInvalid
