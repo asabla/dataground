@@ -63,6 +63,9 @@ func NewReloadableOIDCJWTVerifier(
 	ctx context.Context,
 	config ReloadableOIDCJWTConfig,
 ) (*ReloadableOIDCJWTVerifier, error) {
+	if err := validateReloadableOIDCJWTConfig(config); err != nil {
+		return nil, err
+	}
 	if ctx == nil || nilOIDCDependency(config.Source) {
 		return nil, errors.New("OIDC JWT keyset source is required")
 	}
@@ -79,6 +82,19 @@ func NewReloadableOIDCJWTVerifier(
 		return nil, err
 	}
 	return verifier, nil
+}
+
+func validateReloadableOIDCJWTConfig(config ReloadableOIDCJWTConfig) error {
+	if !validOIDCIssuer(config.Issuer) || config.Audience != APIAudience ||
+		config.ClockSkew < 0 || config.ClockSkew > maximumOIDCClockSkew ||
+		config.MaximumLifetime < minimumOIDCTokenLifetime ||
+		config.MaximumLifetime > maximumOIDCTokenLifetime {
+		return errors.New("reloadable OIDC JWT profile is invalid")
+	}
+	if _, _, err := parseOIDCJWTAlgorithms(config.Algorithms); err != nil {
+		return errors.New("reloadable OIDC JWT profile is invalid")
+	}
+	return nil
 }
 
 func (verifier *ReloadableOIDCJWTVerifier) Refresh(ctx context.Context) error {
