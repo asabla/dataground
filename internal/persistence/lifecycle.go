@@ -69,6 +69,32 @@ func (repository *Repository) ClaimNext(
 	workerID string,
 	leaseDuration time.Duration,
 ) (*OperationClaim, error) {
+	return repository.claimNext(ctx, kind, "", workerID, leaseDuration)
+}
+
+// ClaimNextInIsolationDomain leases only work owned by one exact isolation
+// domain. Development workers use this boundary so a domain-specific gateway
+// cannot advance attempts or state for unrelated domains.
+func (repository *Repository) ClaimNextInIsolationDomain(
+	ctx context.Context,
+	kind string,
+	isolationDomainID string,
+	workerID string,
+	leaseDuration time.Duration,
+) (*OperationClaim, error) {
+	if isolationDomainID == "" {
+		return nil, errors.New("isolation-scoped claim requires a domain")
+	}
+	return repository.claimNext(ctx, kind, isolationDomainID, workerID, leaseDuration)
+}
+
+func (repository *Repository) claimNext(
+	ctx context.Context,
+	kind string,
+	isolationDomainID string,
+	workerID string,
+	leaseDuration time.Duration,
+) (*OperationClaim, error) {
 	table, resourceColumn, terminalStates, err := operationTable(kind)
 	if err != nil {
 		return nil, err
@@ -80,6 +106,7 @@ func (repository *Repository) ClaimNext(
 			       isolation_domain_id, id, due_at, updated_at
 			FROM %s
 			WHERE observed_state <> ALL($1)
+			  AND ($5 = '' OR isolation_domain_id = $5)
 			  AND (command <> 'repair' OR (effect_actor_id IS NOT NULL AND effect_correlation_id IS NOT NULL))
 			  AND due_at <= $2
 			  AND (lease_expires_at IS NULL OR lease_expires_at <= $2)
@@ -115,7 +142,15 @@ func (repository *Repository) ClaimNext(
 	var claim OperationClaim
 	claim.Kind = kind
 	claim.LeaseOwner = workerID
-	err = repository.pool.QueryRow(ctx, query, terminalStates, now, workerID, now.Add(leaseDuration)).Scan(
+	err = repository.pool.QueryRow(
+		ctx,
+		query,
+		terminalStates,
+		now,
+		workerID,
+		now.Add(leaseDuration),
+		isolationDomainID,
+	).Scan(
 		&claim.IsolationDomainID,
 		&claim.ID,
 		&claim.ResourceID,
