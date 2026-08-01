@@ -46,12 +46,27 @@ func main() {
 	}
 	defer pool.Close()
 	repository := persistence.NewRepository(pool)
-	worker := reconcile.New(repository, reconcile.NewReferenceDriver(pool), workerID)
+	config, err := loadWorkerConfig(os.LookupEnv)
+	if err != nil {
+		logger.Error("worker configuration failed", "error", err)
+		os.Exit(1)
+	}
+	driver, resources, err := composeWorkerDriver(ctx, pool, repository, config)
+	if err != nil {
+		logger.Error("worker composition failed", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if closeErr := resources.Close(); closeErr != nil {
+			logger.Error("worker resource cleanup failed", "error", closeErr)
+		}
+	}()
+	worker := reconcile.New(workerReconcileStore(repository, config), driver, workerID)
 	dispatcher := outbox.New(repository, outbox.AcknowledgePublisher{}, workerID)
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
-	logger.Info("starting DataGround reconciler", "worker_id", workerID)
+	logger.Info("starting DataGround reconciler", "worker_id", workerID, "mode", config.mode)
 	for {
 		select {
 		case <-ctx.Done():
