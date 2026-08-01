@@ -185,10 +185,15 @@ func validOIDCIssuer(issuer string) bool {
 }
 
 func validOIDCValue(value string) bool {
-	return value != "" &&
-		len(value) <= maximumOIDCValueBytes &&
-		strings.TrimSpace(value) == value &&
-		!strings.ContainsAny(value, "\x00\r\n")
+	if value == "" || len(value) > maximumOIDCValueBytes || !utf8.ValidString(value) || strings.TrimSpace(value) != value {
+		return false
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) {
+			return false
+		}
+	}
+	return true
 }
 
 func nilOIDCDependency(value any) bool {
