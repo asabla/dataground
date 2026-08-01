@@ -36,7 +36,8 @@ func (repository *Repository) ReserveDPoPProof(
 		reservation.ExpiresAt,
 	); err != nil {
 		var postgresErr *pgconn.PgError
-		if errors.As(err, &postgresErr) && postgresErr.Code == "23505" {
+		if errors.As(err, &postgresErr) && postgresErr.Code == "23505" &&
+			postgresErr.ConstraintName == "oidc_dpop_replays_proof_key" {
 			return authn.ErrDPoPProofReplayed
 		}
 		return fmt.Errorf("reserve DPoP proof: %w", err)
