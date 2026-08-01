@@ -37,6 +37,7 @@ func (scope AuthenticationAttemptScope) Valid() bool {
 }
 
 type authenticationAttemptScopeKey struct{}
+type rejectedAuthenticationAttemptKey struct{}
 
 func WithAuthenticationAttemptScope(
 	ctx context.Context,
@@ -46,6 +47,13 @@ func WithAuthenticationAttemptScope(
 		return nil, errors.New("authentication attempt scope is invalid")
 	}
 	return context.WithValue(ctx, authenticationAttemptScopeKey{}, scope), nil
+}
+
+func WithRejectedAuthenticationAttempt(ctx context.Context) (context.Context, error) {
+	if ctx == nil {
+		return nil, errors.New("authentication rejection context is invalid")
+	}
+	return context.WithValue(ctx, rejectedAuthenticationAttemptKey{}, true), nil
 }
 
 type AuthenticationAttemptRecord struct {
@@ -123,7 +131,12 @@ func (authenticator *AuditedAuthenticator) Authenticate(
 		return Principal{}, ErrUnavailable
 	}
 
-	principal, authenticationErr := authenticator.delegate.Authenticate(ctx, bearerToken)
+	var principal Principal
+	authenticationErr := ErrInvalidCredential
+	rejected, _ := ctx.Value(rejectedAuthenticationAttemptKey{}).(bool)
+	if !rejected {
+		principal, authenticationErr = authenticator.delegate.Authenticate(ctx, bearerToken)
+	}
 	if err := ctx.Err(); err != nil {
 		return Principal{}, err
 	}
