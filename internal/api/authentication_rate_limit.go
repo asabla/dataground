@@ -8,17 +8,26 @@ import (
 
 const maximumAuthenticationRetryAfter = 24 * time.Hour
 
-// AuthenticationRateLimitRequest is the minimized input to a deployment-owned
-// authentication admission policy. CredentialDigest is transient correlation
-// material and must not be logged or included in authentication audit records.
+// AuthenticationRateLimitRequest is the minimized immutable input to a
+// deployment-owned authentication admission policy. The credential digest is
+// transient correlation material and must not be logged or included in
+// authentication audit records.
 type AuthenticationRateLimitRequest struct {
-	IsolationDomainID string
-	CredentialDigest  [sha256.Size]byte
+	isolationDomainID string
+	credentialDigest  [sha256.Size]byte
+}
+
+func (request AuthenticationRateLimitRequest) IsolationDomainID() string {
+	return request.isolationDomainID
+}
+
+func (request AuthenticationRateLimitRequest) CredentialDigest() [sha256.Size]byte {
+	return request.credentialDigest
 }
 
 func (request AuthenticationRateLimitRequest) Valid() bool {
-	return isolationDomainPattern.MatchString(request.IsolationDomainID) &&
-		request.CredentialDigest != [sha256.Size]byte{}
+	return isolationDomainPattern.MatchString(request.isolationDomainID) &&
+		request.credentialDigest != [sha256.Size]byte{}
 }
 
 // AuthenticationRateLimitDecision either admits the request or supplies a
@@ -44,8 +53,8 @@ func authenticationRateLimitRequest(
 	bearerToken []byte,
 ) AuthenticationRateLimitRequest {
 	return AuthenticationRateLimitRequest{
-		IsolationDomainID: isolationDomainID,
-		CredentialDigest:  sha256.Sum256(bearerToken),
+		isolationDomainID: isolationDomainID,
+		credentialDigest:  sha256.Sum256(bearerToken),
 	}
 }
 
