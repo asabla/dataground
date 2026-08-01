@@ -4,10 +4,7 @@
   "title": "DataGround authorization audit export",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "content",
-    "contentSha256"
-  ],
+  "required": ["content", "contentSha256"],
   "properties": {
     "content": {
       "type": "object",
@@ -91,11 +88,7 @@
       "pattern": "^[a-z][a-z0-9_-]{2,127}$"
     },
     "outcome": {
-      "enum": [
-        "allowed",
-        "denied",
-        "unavailable"
-      ]
+      "enum": ["allowed", "denied", "unavailable"]
     },
     "policySetId": {
       "type": "string",
@@ -221,11 +214,7 @@
           "$ref": "#/$defs/actorId"
         },
         "action": {
-          "enum": [
-            "admit",
-            "run",
-            "cancel"
-          ]
+          "enum": ["admit", "run", "cancel"]
         },
         "operationId": {
           "type": "string",
