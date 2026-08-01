@@ -271,10 +271,17 @@ func TestAuthorizationAuditExportRejectsInvalidRequestsAndSerializesClosedRecord
 	var storedReasonDigest []byte
 	var receipts int
 	if err := pool.QueryRow(ctx, `
-		SELECT count(*), min(reason_digest)
+		SELECT count(*)
 		FROM authorization_audit_exports
 		WHERE export_id = $1
-	`, request.ExportID).Scan(&receipts, &storedReasonDigest); err != nil {
+	`, request.ExportID).Scan(&receipts); err != nil {
+		t.Fatalf("count export receipts: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT reason_digest
+		FROM authorization_audit_exports
+		WHERE export_id = $1
+	`, request.ExportID).Scan(&storedReasonDigest); err != nil {
 		t.Fatalf("read export receipt: %v", err)
 	}
 	if receipts != 1 || !bytes.Equal(storedReasonDigest, reasonDigest[:]) {
