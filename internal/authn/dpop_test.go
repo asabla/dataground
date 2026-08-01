@@ -223,7 +223,8 @@ func (fixture dpopFixture) proof(
 
 func dpopThumbprint(t *testing.T, key *ecdsa.PublicKey) string {
 	t.Helper()
-	thumbprint, err := (jose.JSONWebKey{Key: key}).Thumbprint(crypto.SHA256)
+	jwk := jose.JSONWebKey{Key: key}
+	thumbprint, err := jwk.Thumbprint(crypto.SHA256)
 	if err != nil {
 		t.Fatalf("compute DPoP thumbprint: %v", err)
 	}
