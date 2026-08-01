@@ -128,6 +128,38 @@ func TestAuditedAuthenticatorWithholdsResultWhenAuditFails(t *testing.T) {
 	}
 }
 
+func TestAuditedAuthenticatorRecordsForcedRejectionWithoutCallingDelegate(t *testing.T) {
+	t.Parallel()
+
+	delegate := &countingAuthenticationAuditDelegate{
+		principal: authenticationAuditPrincipal(t, testDomain),
+	}
+	recorder := &recordingAuthenticationAttemptRecorder{}
+	authenticator, err := authn.NewAuditedAuthenticator(delegate, recorder)
+	if err != nil {
+		t.Fatalf("create audited authenticator: %v", err)
+	}
+	ctx := authenticationAuditContext(t, testDomain, "cor_00000000000000000005")
+	ctx, err = authn.WithRejectedAuthenticationAttempt(ctx)
+	if err != nil {
+		t.Fatalf("mark rejected authentication: %v", err)
+	}
+
+	principal, err := authenticator.Authenticate(ctx, nil)
+	if !errors.Is(err, authn.ErrInvalidCredential) || principal.Valid() {
+		t.Fatalf("result = %#v, %v; want rejected with no principal", principal, err)
+	}
+	if delegate.calls != 0 {
+		t.Fatalf("delegate calls = %d, want 0", delegate.calls)
+	}
+	if len(recorder.records) != 1 ||
+		recorder.records[0].Outcome != authn.AuthenticationOutcomeRejected ||
+		recorder.records[0].PrincipalID != "" ||
+		recorder.records[0].PrincipalKind != "" {
+		t.Fatalf("records = %#v", recorder.records)
+	}
+}
+
 func TestAuditedAuthenticatorRequiresScopeAndPreservesCancellation(t *testing.T) {
 	t.Parallel()
 
@@ -203,6 +235,23 @@ func authenticationAuditPrincipal(t *testing.T, domainID string) authn.Principal
 	return principal
 }
 
+type countingAuthenticationAuditDelegate struct {
+	principal authn.Principal
+	calls     int
+}
+
+func (delegate *countingAuthenticationAuditDelegate) Authenticate(
+	_ context.Context,
+	_ []byte,
+) (authn.Principal, error) {
+	delegate.calls++
+	return delegate.principal, nil
+}
+
+func (*countingAuthenticationAuditDelegate) AuthenticationMethod() authn.AuthenticationMethod {
+	return authn.AuthenticationMethodDevelopmentBearer
+}
+
 type authenticationAuditDelegate struct {
 	principal authn.Principal
 	err       error
@@ -232,5 +281,6 @@ func (recorder *recordingAuthenticationAttemptRecorder) RecordAuthenticationAtte
 	return recorder.err
 }
 
+var _ authn.Authenticator = (*countingAuthenticationAuditDelegate)(nil)
 var _ authn.Authenticator = authenticationAuditDelegate{}
 var _ authn.AuthenticationAttemptRecorder = (*recordingAuthenticationAttemptRecorder)(nil)
