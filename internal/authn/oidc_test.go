@@ -64,7 +64,7 @@ func TestOIDCAuthenticatorRejectsUntrustedIssuerAudienceAndSubject(t *testing.T)
 			Issuer: testOIDCIssuer, Audiences: []string{testOIDCAudience},
 		},
 		"control subject": {
-			Issuer: testOIDCIssuer, Subject: "subject\\t0001",
+			Issuer: testOIDCIssuer, Subject: "subject\t0001",
 			Audiences: []string{testOIDCAudience},
 		},
 		"wrong audience": {
