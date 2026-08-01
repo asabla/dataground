@@ -1,6 +1,7 @@
 package authn_test
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/ecdsa"
@@ -233,10 +234,14 @@ func dpopThumbprint(t *testing.T, key *ecdsa.PublicKey) string {
 
 func corruptDPoPProof(proof []byte) []byte {
 	corrupted := append([]byte(nil), proof...)
-	if corrupted[len(corrupted)-1] == 'A' {
-		corrupted[len(corrupted)-1] = 'B'
+	signatureStart := bytes.LastIndexByte(corrupted, '.') + 1
+	if signatureStart <= 0 || signatureStart >= len(corrupted) {
+		return corrupted
+	}
+	if corrupted[signatureStart] == 'A' {
+		corrupted[signatureStart] = 'B'
 	} else {
-		corrupted[len(corrupted)-1] = 'A'
+		corrupted[signatureStart] = 'A'
 	}
 	return corrupted
 }
