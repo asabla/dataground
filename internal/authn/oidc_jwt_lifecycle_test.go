@@ -164,6 +164,10 @@ func TestReloadableOIDCJWTVerifierRetainsValidGenerationWhenSourceIsUnavailable(
 	if err := verifier.Refresh(context.Background()); !errors.Is(err, authn.ErrUnavailable) {
 		t.Fatalf("unavailable refresh = %v", err)
 	}
+	source.setError(authn.ErrOIDCJWTKeysetInvalid)
+	if err := verifier.Refresh(context.Background()); !errors.Is(err, authn.ErrOIDCJWTKeysetInvalid) {
+		t.Fatalf("invalid publication refresh = %v", err)
+	}
 	if _, err := verifier.Verify(context.Background(), []byte(token)); err != nil {
 		t.Fatalf("verify retained generation: %v", err)
 	}
