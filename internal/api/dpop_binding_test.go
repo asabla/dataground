@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/asabla/dataground/internal/authn"
+	"github.com/asabla/dataground/internal/authz"
 	jose "github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 )
@@ -122,6 +123,42 @@ func TestDPoPRequestBinderRejectsAmbiguousRequestTargetsAndHeaders(t *testing.T)
 	}
 }
 
+func TestDPoPBoundHandlerRejectsBindingFailureEvenWhenAuthenticatorAcceptsEmptyInput(t *testing.T) {
+	t.Parallel()
+	binder, err := NewDPoPRequestBinder(dpopBindingOrigin)
+	if err != nil {
+		t.Fatalf("create DPoP request binder: %v", err)
+	}
+	principal, err := authn.NewPrincipal(authn.PrincipalInput{
+		ID: "usr_00000000000000000001", Kind: authn.PrincipalHuman,
+		Issuer: "test", Subject: "test", Audience: authn.APIAudience,
+		IsolationDomains: []string{dpopBindingDomain},
+	})
+	if err != nil {
+		t.Fatalf("create principal: %v", err)
+	}
+	handler, err := NewDPoPBoundHandler(
+		dpopBindingPermissiveAuthenticator{principal: principal},
+		dpopBindingAllowAuthorizer{},
+		binder,
+	)
+	if err != nil {
+		t.Fatalf("create DPoP-bound handler: %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPost, dpopBindingPath, nil)
+	request.Header.Set("Authorization", "Bearer token-with-at-least-thirty-two-bytes")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusUnauthorized)
+	}
+	if response.Header().Get("WWW-Authenticate") == "" {
+		t.Fatal("missing authentication challenge")
+	}
+}
+
 func TestDPoPRequestBinderRejectsUntrustedOrigins(t *testing.T) {
 	t.Parallel()
 	for name, origin := range map[string]string{
@@ -184,6 +221,23 @@ func dpopBindingThumbprint(t *testing.T, publicKey ed25519.PublicKey) string {
 	return base64.RawURLEncoding.EncodeToString(thumbprint)
 }
 
+type dpopBindingPermissiveAuthenticator struct {
+	principal authn.Principal
+}
+
+func (authenticator dpopBindingPermissiveAuthenticator) Authenticate(
+	_ context.Context,
+	_ []byte,
+) (authn.Principal, error) {
+	return authenticator.principal, nil
+}
+
+type dpopBindingAllowAuthorizer struct{}
+
+func (dpopBindingAllowAuthorizer) Authorize(context.Context, authz.Request) error {
+	return nil
+}
+
 type dpopBindingTokenVerifier struct {
 	thumbprint string
 }
@@ -221,5 +275,7 @@ func (store *dpopBindingReplayStore) ReserveDPoPProof(
 	return nil
 }
 
+var _ authn.Authenticator = dpopBindingPermissiveAuthenticator{}
+var _ authz.Authorizer = dpopBindingAllowAuthorizer{}
 var _ authn.OIDCTokenVerifier = (*dpopBindingTokenVerifier)(nil)
 var _ authn.DPoPReplayStore = (*dpopBindingReplayStore)(nil)
