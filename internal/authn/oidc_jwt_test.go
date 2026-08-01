@@ -128,6 +128,9 @@ func TestPinnedOIDCJWTVerifierRejectsUnsafeProfiles(t *testing.T) {
 	validKey := oidcJWTJWK(&privateKey.PublicKey, jose.RS256, testOIDCJWTKeyID)
 	privateJWK := oidcJWTJWK(privateKey, jose.RS256, testOIDCJWTKeyID)
 	weakJWK := oidcJWTJWK(&weakKey.PublicKey, jose.RS256, testOIDCJWTKeyID)
+	weakExponentKey := privateKey.PublicKey
+	weakExponentKey.E = 3
+	weakExponentJWK := oidcJWTJWK(&weakExponentKey, jose.RS256, testOIDCJWTKeyID)
 	wrongAlgorithmJWK := oidcJWTJWK(&privateKey.PublicKey, jose.PS256, testOIDCJWTKeyID)
 	duplicateKeys := []jose.JSONWebKey{validKey, validKey}
 	validJWKS := marshalOIDCJWKS(t, []jose.JSONWebKey{validKey})
@@ -181,6 +184,11 @@ func TestPinnedOIDCJWTVerifierRejectsUnsafeProfiles(t *testing.T) {
 		"weak key": func() authn.PinnedOIDCJWTConfig {
 			config := valid
 			config.JWKS = marshalOIDCJWKS(t, []jose.JSONWebKey{weakJWK})
+			return config
+		}(),
+		"weak RSA exponent": func() authn.PinnedOIDCJWTConfig {
+			config := valid
+			config.JWKS = marshalOIDCJWKS(t, []jose.JSONWebKey{weakExponentJWK})
 			return config
 		}(),
 		"algorithm not allowed": func() authn.PinnedOIDCJWTConfig {
