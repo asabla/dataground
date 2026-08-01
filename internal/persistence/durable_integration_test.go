@@ -830,6 +830,112 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 	}
 }
 
+func TestClaimNextInIsolationDomainSkipsUnrelatedWork(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	databaseURL := testDatabaseURL(t)
+	database, err := persistence.OpenSQL(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := persistence.MigrateDownTo(ctx, database, 0); err != nil {
+		database.Close()
+		t.Fatalf("reset schema: %v", err)
+	}
+	if err := persistence.MigrateUp(ctx, database); err != nil {
+		database.Close()
+		t.Fatalf("migrate schema: %v", err)
+	}
+	database.Close()
+	pool, err := persistence.OpenPool(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	repository := persistence.NewRepository(pool)
+
+	createPublication := func(domainID string, suffix string) string {
+		serviceID := identity.New("svc")
+		revisionID := identity.New("rev")
+		actorID := "scoped-claim-test"
+		if _, err := repository.CreateService(
+			ctx,
+			testIdempotency(domainID, "create-service-"+suffix),
+			persistence.CreateServiceInput{
+				ID: serviceID, Name: "scoped-" + suffix, ActorID: actorID,
+				CorrelationID: identity.New("cor"),
+			},
+		); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := repository.CreateRevision(
+			ctx,
+			testIdempotency(domainID, "create-revision-"+suffix),
+			persistence.CreateRevisionInput{
+				ID: revisionID, ServiceID: serviceID, RuntimeProfile: "reference/v1",
+				ActorID: actorID, CorrelationID: identity.New("cor"),
+			},
+		); err != nil {
+			t.Fatal(err)
+		}
+		accepted, err := repository.AcceptPublication(
+			ctx,
+			testIdempotency(domainID, "publish-"+suffix),
+			persistence.AcceptPublicationInput{
+				RevisionID: revisionID, ExpectedVersion: 1, ActorID: actorID,
+				CorrelationID: identity.New("cor"), Deadline: time.Now().Add(time.Minute),
+			},
+			reference.Capabilities(),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var operation domain.Operation
+		if err := json.Unmarshal(accepted.Body, &operation); err != nil {
+			t.Fatal(err)
+		}
+		return operation.Metadata.ID
+	}
+
+	unrelatedDomainID := identity.New("iso")
+	scopedDomainID := identity.New("iso")
+	unrelatedOperationID := createPublication(unrelatedDomainID, "unrelated")
+	scopedOperationID := createPublication(scopedDomainID, "scoped")
+	claim, err := repository.ClaimNextInIsolationDomain(
+		ctx,
+		persistence.OperationKindPublication,
+		scopedDomainID,
+		"scoped-worker",
+		time.Minute,
+	)
+	if err != nil || claim == nil {
+		t.Fatalf("claim scoped operation = (%#v, %v)", claim, err)
+	}
+	if claim.IsolationDomainID != scopedDomainID || claim.ID != scopedOperationID ||
+		claim.ID == unrelatedOperationID {
+		t.Fatalf("scoped claim = %#v", claim)
+	}
+	if _, err := repository.ClaimNextInIsolationDomain(
+		ctx,
+		persistence.OperationKindPublication,
+		"",
+		"scoped-worker",
+		time.Minute,
+	); err == nil {
+		t.Fatal("empty isolation scope was accepted")
+	}
+	missing, err := repository.ClaimNextInIsolationDomain(
+		ctx,
+		persistence.OperationKindPublication,
+		identity.New("iso"),
+		"scoped-worker",
+		time.Minute,
+	)
+	if err != nil || missing != nil {
+		t.Fatalf("claim absent scope = (%#v, %v)", missing, err)
+	}
+}
+
 func runToTerminal(
 	t *testing.T,
 	ctx context.Context,
