@@ -30,7 +30,7 @@ Revocation uses the same shape with `operation` set to `revoke` and omits `princ
 
 PostgreSQL-backed durable API mode now wraps its configured authenticator in a fail-closed attempt-audit boundary. Each completed attempt records only its path-derived isolation domain, generated request correlation, credential method, and coarse outcome. Successful in-domain attempts additionally record the platform principal identifier and kind; rejected, unavailable, and cross-domain attempts contain no principal data. Tokens, token digests, issuer, subject, audience, key ID, request path, client address, and dependency diagnostics are never part of this record. The current executable still supplies only the loopback development authenticator; the same internal boundary can wrap OIDC when production composition prerequisites exist.
 
-OIDC discovery, automatic key refresh, provider revocation behavior, group-to-membership administration, HTTPS ingress, replay-resistant or sender-constrained credentials, API startup configuration, workload identity, and production conformance remain unimplemented. Until those boundaries exist, the executable API continues to require its loopback-only static development identity and must not bind publicly.
+OIDC discovery, automatic key refresh, provider revocation behavior, group-to-membership administration, HTTPS ingress, trusted external-URI reconstruction, provider-side DPoP issuance, optional nonce policy, API startup configuration, workload identity, and production conformance remain unimplemented. Until those boundaries exist, the executable API continues to require its loopback-only static development identity and must not bind publicly.
 
 
 ## DPoP request binding
