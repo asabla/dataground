@@ -106,6 +106,55 @@ func TestRateLimitedDPoPHandlerRejectsBeforeBindingOrAuthentication(t *testing.T
 	}
 }
 
+func TestRateLimitedDPoPHandlerMakesCancellationAuthoritative(t *testing.T) {
+	t.Parallel()
+
+	for name, cancelDuringAdmission := range map[string]bool{
+		"before admission": false,
+		"during admission": true,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithCancel(context.Background())
+			if !cancelDuringAdmission {
+				cancel()
+			}
+			limiter := &recordingAuthenticationRateLimiter{
+				decision:           api.AuthenticationRateLimitDecision{Allowed: true},
+				ignoreCancellation: true,
+			}
+			if cancelDuringAdmission {
+				limiter.afterCall = cancel
+			}
+			authenticator := &countingRateLimitAuthenticator{}
+			handler := newRateLimitedDPoPHandler(t, authenticator, limiter)
+			request := httptest.NewRequest(http.MethodPost, serviceCollectionPath(testDomain), nil).WithContext(ctx)
+			request.Header.Set("Authorization", "Bearer "+testToken)
+			request.Header.Set("DPoP", "unverified.proof.value")
+			response := httptest.NewRecorder()
+
+			handler.ServeHTTP(response, request)
+
+			if response.Code != http.StatusServiceUnavailable {
+				t.Fatalf("status = %d, want %d", response.Code, http.StatusServiceUnavailable)
+			}
+			if authenticator.calls != 0 {
+				t.Fatalf("authentication calls = %d, want 0", authenticator.calls)
+			}
+			if request.Header.Get("Authorization") != "" || request.Header.Get("DPoP") != "" {
+				t.Fatal("cancelled admission left credentials in request headers")
+			}
+			wantCalls := 0
+			if cancelDuringAdmission {
+				wantCalls = 1
+			}
+			if len(limiter.requests) != wantCalls {
+				t.Fatalf("rate limit calls = %d, want %d", len(limiter.requests), wantCalls)
+			}
+		})
+	}
+}
+
 func TestRateLimitedDPoPHandlerFailsClosedWhenLimiterIsUnavailable(t *testing.T) {
 	t.Parallel()
 
@@ -200,19 +249,26 @@ func newRateLimitedDPoPHandler(
 }
 
 type recordingAuthenticationRateLimiter struct {
-	decision api.AuthenticationRateLimitDecision
-	err      error
-	requests []api.AuthenticationRateLimitRequest
+	decision           api.AuthenticationRateLimitDecision
+	err                error
+	requests           []api.AuthenticationRateLimitRequest
+	ignoreCancellation bool
+	afterCall          func()
 }
 
 func (limiter *recordingAuthenticationRateLimiter) AllowAuthentication(
 	ctx context.Context,
 	request api.AuthenticationRateLimitRequest,
 ) (api.AuthenticationRateLimitDecision, error) {
-	if err := ctx.Err(); err != nil {
-		return api.AuthenticationRateLimitDecision{}, err
+	if !limiter.ignoreCancellation {
+		if err := ctx.Err(); err != nil {
+			return api.AuthenticationRateLimitDecision{}, err
+		}
 	}
 	limiter.requests = append(limiter.requests, request)
+	if limiter.afterCall != nil {
+		limiter.afterCall()
+	}
 	return limiter.decision, limiter.err
 }
 
