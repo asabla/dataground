@@ -105,6 +105,7 @@ func TestRateLimitedDPoPHandlerMakesCancellationAuthoritative(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 			if !cancelDuringAdmission {
 				cancel()
 			}
