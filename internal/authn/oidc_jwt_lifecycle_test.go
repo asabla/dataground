@@ -76,14 +76,16 @@ func TestReloadableOIDCJWTVerifierRejectsRollbackAndConflictingReuse(t *testing.
 	source.setSnapshot(oidcJWTKeysetSnapshot(
 		t, 1, expiresAt, &firstKey.PublicKey, "lifecycle-key-1",
 	))
-	if err := verifier.Refresh(context.Background()); err == nil {
-		t.Fatal("keyset rollback was accepted")
+	if err := verifier.Refresh(context.Background());
+		!errors.Is(err, authn.ErrOIDCJWTKeysetRollback) {
+		t.Fatalf("keyset rollback = %v", err)
 	}
 	source.setSnapshot(oidcJWTKeysetSnapshot(
 		t, 2, expiresAt, &firstKey.PublicKey, "lifecycle-key-1",
 	))
-	if err := verifier.Refresh(context.Background()); err == nil {
-		t.Fatal("conflicting keyset sequence was accepted")
+	if err := verifier.Refresh(context.Background());
+		!errors.Is(err, authn.ErrOIDCJWTKeysetConflict) {
+		t.Fatalf("conflicting keyset sequence = %v", err)
 	}
 	if _, err := verifier.Verify(context.Background(), []byte(secondToken)); err != nil {
 		t.Fatalf("verify retained keyset: %v", err)
@@ -120,10 +122,32 @@ func TestReloadableOIDCJWTVerifierRejectsInvalidSourcesAndSnapshots(t *testing.T
 			if _, err := authn.NewReloadableOIDCJWTVerifier(
 				context.Background(),
 				reloadableOIDCJWTConfig(source),
-			); err == nil {
-				t.Fatal("invalid keyset snapshot was accepted")
+			); !errors.Is(err, authn.ErrOIDCJWTKeysetInvalid) {
+				t.Fatalf("invalid keyset snapshot = %v", err)
 			}
 		})
+	}
+}
+
+func TestReloadableOIDCJWTVerifierRetainsValidGenerationWhenSourceIsUnavailable(t *testing.T) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := &oidcJWTKeysetSource{snapshot: oidcJWTKeysetSnapshot(
+		t, 1, time.Now().Add(time.Hour), &privateKey.PublicKey, "lifecycle-key-1",
+	)}
+	verifier := newReloadableOIDCJWTVerifier(t, source)
+	fixture := oidcJWTFixture{privateKey: privateKey}
+	token := fixture.sign(
+		t, validOIDCJWTClaims(time.Now()), jose.RS256, "lifecycle-key-1", nil,
+	)
+	source.setError(errors.New("source unavailable"))
+	if err := verifier.Refresh(context.Background()); !errors.Is(err, authn.ErrUnavailable) {
+		t.Fatalf("unavailable refresh = %v", err)
+	}
+	if _, err := verifier.Verify(context.Background(), []byte(token)); err != nil {
+		t.Fatalf("verify retained generation: %v", err)
 	}
 }
 
@@ -153,6 +177,7 @@ func TestReloadableOIDCJWTVerifierPreservesCancellationAndCannotSerialize(t *tes
 type oidcJWTKeysetSource struct {
 	mu       sync.Mutex
 	snapshot authn.OIDCJWTKeysetSnapshot
+	err      error
 }
 
 func (source *oidcJWTKeysetSource) Load(
@@ -163,9 +188,18 @@ func (source *oidcJWTKeysetSource) Load(
 	}
 	source.mu.Lock()
 	defer source.mu.Unlock()
+	if source.err != nil {
+		return authn.OIDCJWTKeysetSnapshot{}, source.err
+	}
 	snapshot := source.snapshot
 	snapshot.JWKS = append([]byte(nil), snapshot.JWKS...)
 	return snapshot, nil
+}
+
+func (source *oidcJWTKeysetSource) setError(err error) {
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	source.err = err
 }
 
 func (source *oidcJWTKeysetSource) setSnapshot(snapshot authn.OIDCJWTKeysetSnapshot) {
