@@ -63,8 +63,8 @@ func TestOIDCJWTKeysetRefreshSupervisorRecordsSafeOutcomes(t *testing.T) {
 		t.Fatalf("refresh supervisor exit = %v", err)
 	}
 	status := supervisor.Status()
-	if status.Running {
-		t.Fatal("stopped supervisor remained ready")
+	if status.Running || status.Refreshing {
+		t.Fatal("stopped supervisor retained active lifecycle state")
 	}
 	if status.LastAttemptAt != times[1] || status.LastSuccessAt != times[1] {
 		t.Fatalf("refresh timestamps = %#v", status)
@@ -77,6 +77,49 @@ func TestOIDCJWTKeysetRefreshSupervisorRecordsSafeOutcomes(t *testing.T) {
 	}
 	if _, err := json.Marshal(supervisor); err == nil {
 		t.Fatal("refresh supervisor serialization succeeded")
+	}
+}
+
+func TestOIDCJWTKeysetRefreshSupervisorExposesInFlightAttempt(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	waitingAgain := make(chan struct{})
+	attemptedAt := time.Date(2026, time.August, 1, 12, 0, 0, 0, time.UTC)
+	waits := 0
+	supervisor := &OIDCJWTKeysetRefreshSupervisor{
+		target: blockingSupervisorRefreshTarget{started: started, release: release},
+		policy: OIDCJWTKeysetRefreshPolicy{Interval: time.Minute, Timeout: time.Second},
+		now:    func() time.Time { return attemptedAt },
+		wait: func(ctx context.Context, _ time.Duration) error {
+			waits++
+			if waits == 1 {
+				return nil
+			}
+			close(waitingAgain)
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+	finished := make(chan error, 1)
+	go func() { finished <- supervisor.Run(ctx) }()
+	<-started
+	status := supervisor.Status()
+	if !status.Running || !status.Refreshing || status.LastAttemptAt != attemptedAt {
+		t.Fatalf("in-flight refresh status = %#v", status)
+	}
+	close(release)
+	<-waitingAgain
+	status = supervisor.Status()
+	if status.Refreshing || status.LastSuccessAt != attemptedAt {
+		t.Fatalf("completed refresh status = %#v", status)
+	}
+	cancel()
+	if err := <-finished; !errors.Is(err, context.Canceled) {
+		t.Fatalf("refresh supervisor exit = %v", err)
 	}
 }
 
@@ -218,6 +261,21 @@ type blockingSupervisorKeysetSource struct {
 	release chan struct{}
 }
 
+type blockingSupervisorRefreshTarget struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (target blockingSupervisorRefreshTarget) Refresh(context.Context) error {
+	close(target.started)
+	<-target.release
+	return nil
+}
+
+func (blockingSupervisorRefreshTarget) Ready(context.Context) error {
+	return nil
+}
+
 func (source blockingSupervisorKeysetSource) Load(context.Context) (OIDCJWTKeysetSnapshot, error) {
 	close(source.started)
 	<-source.release
@@ -225,4 +283,5 @@ func (source blockingSupervisorKeysetSource) Load(context.Context) (OIDCJWTKeyse
 }
 
 var _ oidcJWTKeysetRefreshTarget = (*supervisorRefreshTarget)(nil)
+var _ oidcJWTKeysetRefreshTarget = blockingSupervisorRefreshTarget{}
 var _ OIDCJWTKeysetSource = blockingSupervisorKeysetSource{}
