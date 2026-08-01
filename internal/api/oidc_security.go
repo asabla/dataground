@@ -37,7 +37,7 @@ func NewDurableOIDCDPoPAssembly(
 	ctx context.Context,
 	config DurableOIDCDPoPConfig,
 ) (*DurableOIDCDPoPAssembly, error) {
-	if ctx == nil || config.Repository == nil {
+	if ctx == nil || config.Repository == nil || !config.Repository.Configured() {
 		return nil, errors.New("durable OIDC DPoP repository is required")
 	}
 	if config.Authorizer == nil || isNilInterface(config.Authorizer) {
