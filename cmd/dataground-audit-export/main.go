@@ -43,7 +43,7 @@ func run(ctx context.Context, arguments []string, output io.Writer) error {
 		correlationID == "" ||
 		limit < 1 ||
 		limit > 1000 {
-		return errors.New("all export identity flags are required and limit must be between 1 and 1000")
+		return errors.New("export-id, isolation-domain, actor, reason, correlation-id, and a limit from 1 to 1000 are required")
 	}
 	databaseURL := os.Getenv("DATAGROUND_DATABASE_URL")
 	if databaseURL == "" {
