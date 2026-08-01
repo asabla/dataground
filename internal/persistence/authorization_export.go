@@ -92,23 +92,28 @@ func (repository *Repository) ExportAuthorizationDecisions(
 	}
 	defer transaction.Rollback(ctx)
 
+	var apiMaximum, invocationMaximum int64
+	if err := transaction.QueryRow(ctx, `
+		SELECT
+			COALESCE((
+				SELECT max(sequence)
+				FROM api_authorization_decisions
+				WHERE isolation_domain_id = $1
+			), 0),
+			COALESCE((
+				SELECT max(sequence)
+				FROM invocation_authorization_decisions
+				WHERE isolation_domain_id = $1
+			), 0)
+	`, isolationDomainID).Scan(&apiMaximum, &invocationMaximum); err != nil {
+		return AuthorizationAuditExport{}, fmt.Errorf("capture authorization audit export bounds: %w", err)
+	}
 	if !cursor.initialized {
-		if err := transaction.QueryRow(ctx, `
-			SELECT
-				COALESCE((
-					SELECT max(sequence)
-					FROM api_authorization_decisions
-					WHERE isolation_domain_id = $1
-				), 0),
-				COALESCE((
-					SELECT max(sequence)
-					FROM invocation_authorization_decisions
-					WHERE isolation_domain_id = $1
-				), 0)
-		`, isolationDomainID).Scan(&cursor.apiThrough, &cursor.invocationThrough); err != nil {
-			return AuthorizationAuditExport{}, fmt.Errorf("capture authorization audit export bounds: %w", err)
-		}
+		cursor.apiThrough = apiMaximum
+		cursor.invocationThrough = invocationMaximum
 		cursor.initialized = true
+	} else if cursor.apiThrough > apiMaximum || cursor.invocationThrough > invocationMaximum {
+		return AuthorizationAuditExport{}, ErrAuthorizationExportInvalid
 	}
 
 	rows, err := transaction.Query(ctx, `
