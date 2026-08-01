@@ -1,0 +1,9 @@
+# OIDC authentication boundary
+
+DataGround has an internal provider-neutral boundary for turning a deployment-verified OIDC access token into a platform principal. It is not composed into the API command and does not make the reference server a production endpoint.
+
+A deployment-owned verifier must validate the token signature, algorithm, issuer, time claims, revocation state, and other provider-specific requirements before returning only the verified issuer, subject, and audiences. DataGround independently requires the configured HTTPS issuer, an exact configured audience, one bounded subject, and a bounded duplicate-free audience set. Cancellation and deadlines remain distinguishable; invalid credentials stay distinct from provider unavailability, and unexpected provider details are not returned.
+
+The verified token cannot supply a DataGround principal identifier, principal kind, roles, groups, or isolation-domain membership. A separate platform-owned resolver receives only the exact issuer and subject and returns the registered principal binding. Unknown identities are invalid credentials. Invalid registry data is an availability failure because denying it as a caller error would hide deployment drift. The authenticator builds a fresh non-serializable principal, passes the verifier a transient owned token copy, and clears that copy after verification.
+
+Concrete discovery and signature verification, key rotation and revocation behavior, persistent identity registration, group-to-membership administration, authentication audit, HTTPS ingress, replay-resistant or sender-constrained credentials, API startup configuration, workload identity, and production conformance remain unimplemented. Until those boundaries exist, the executable API continues to require its loopback-only static development identity and must not bind publicly.
