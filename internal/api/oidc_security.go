@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/asabla/dataground/internal/authn"
 	"github.com/asabla/dataground/internal/authz"
@@ -19,7 +20,9 @@ type DurableOIDCDPoPConfig struct {
 	Authorizer     authz.Authorizer
 	RateLimiter    AuthenticationRateLimiter
 	ExternalOrigin string
-	Authentication authn.ReloadableOIDCDPoPConfig
+	OIDC            authn.ReloadableOIDCJWTConfig
+	DPoPClockSkew   time.Duration
+	MaximumProofAge time.Duration
 }
 
 // DurableOIDCDPoPAssembly keeps the handler and keyset refresh capability in
@@ -51,7 +54,18 @@ func NewDurableOIDCDPoPAssembly(
 	if err != nil {
 		return nil, err
 	}
-	authenticator, err := authn.NewReloadableOIDCDPoPAuthenticator(ctx, config.Authentication)
+	authenticator, err := authn.NewReloadableOIDCDPoPAuthenticator(ctx, authn.ReloadableOIDCDPoPConfig{
+		Issuer:               config.OIDC.Issuer,
+		Audience:             config.OIDC.Audience,
+		Algorithms:           append([]string(nil), config.OIDC.Algorithms...),
+		KeysetSource:         config.OIDC.Source,
+		IdentityResolver:     config.Repository,
+		ReplayStore:          config.Repository,
+		JWTClockSkew:         config.OIDC.ClockSkew,
+		MaximumTokenLifetime: config.OIDC.MaximumLifetime,
+		DPoPClockSkew:        config.DPoPClockSkew,
+		MaximumProofAge:      config.MaximumProofAge,
+	})
 	if err != nil {
 		return nil, err
 	}
