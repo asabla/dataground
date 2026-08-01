@@ -16,6 +16,47 @@ import (
 
 const rateLimitOrigin = "https://api.example.invalid"
 
+func TestAuthenticationRateLimitValuesRejectInvalidStates(t *testing.T) {
+	t.Parallel()
+
+	validRequest := api.AuthenticationRateLimitRequest{
+		IsolationDomainID: testDomain,
+		CredentialDigest:  sha256.Sum256([]byte(testToken)),
+	}
+	if !validRequest.Valid() {
+		t.Fatal("valid rate limit request was rejected")
+	}
+	invalidDomain := validRequest
+	invalidDomain.IsolationDomainID = "invalid"
+	if invalidDomain.Valid() {
+		t.Fatal("invalid isolation domain was accepted")
+	}
+	invalidDigest := validRequest
+	invalidDigest.CredentialDigest = [sha256.Size]byte{}
+	if invalidDigest.Valid() {
+		t.Fatal("zero credential digest was accepted")
+	}
+
+	for name, decision := range map[string]api.AuthenticationRateLimitDecision{
+		"allowed with delay": {Allowed: true, RetryAfter: time.Second},
+		"denied without delay": {},
+		"excessive delay": {RetryAfter: 24*time.Hour + time.Nanosecond},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if decision.Valid() {
+				t.Fatal("invalid rate limit decision was accepted")
+			}
+		})
+	}
+	if !((api.AuthenticationRateLimitDecision{Allowed: true}).Valid()) {
+		t.Fatal("allowed decision was rejected")
+	}
+	if !((api.AuthenticationRateLimitDecision{RetryAfter: time.Second}).Valid()) {
+		t.Fatal("bounded denial decision was rejected")
+	}
+}
+
 func TestRateLimitedDPoPHandlerRejectsBeforeBindingOrAuthentication(t *testing.T) {
 	t.Parallel()
 
