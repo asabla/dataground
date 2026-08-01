@@ -103,13 +103,13 @@ func TestOIDCJWTKeysetFileSourceRejectsMalformedPublications(t *testing.T) {
 
 	expiresAt := time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano)
 	for name, content := range map[string]string{
-		"empty":          "",
+		"empty":           "",
 		"duplicate field": `{"sequence":1,"sequence":2,"expiresAt":"` + expiresAt + `","jwks":{"keys":[]}}`,
-		"unknown field":  `{"sequence":1,"expiresAt":"` + expiresAt + `","jwks":{"keys":[]},"extra":true}`,
-		"trailing value": `{"sequence":1,"expiresAt":"` + expiresAt + `","jwks":{"keys":[]}} {}`,
-		"zero sequence":  `{"sequence":0,"expiresAt":"` + expiresAt + `","jwks":{"keys":[]}}`,
-		"missing expiry": `{"sequence":1,"jwks":{"keys":[]}}`,
-		"missing JWKS":   `{"sequence":1,"expiresAt":"` + expiresAt + `"}`,
+		"unknown field":   `{"sequence":1,"expiresAt":"` + expiresAt + `","jwks":{"keys":[]},"extra":true}`,
+		"trailing value":  `{"sequence":1,"expiresAt":"` + expiresAt + `","jwks":{"keys":[]}} {}`,
+		"zero sequence":   `{"sequence":0,"expiresAt":"` + expiresAt + `","jwks":{"keys":[]}}`,
+		"missing expiry":  `{"sequence":1,"jwks":{"keys":[]}}`,
+		"missing JWKS":    `{"sequence":1,"expiresAt":"` + expiresAt + `"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
