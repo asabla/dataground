@@ -568,7 +568,7 @@ function runSelfTest() {
     return passed === shouldPass ? [] : [`self-test failed: ${name}`];
   });
   const evidenceBytes = Buffer.from(JSON.stringify(valid));
-  const evidenceFile = "deploy/openshell/evidence/representative-runtime.json";
+  const evidenceFile = "deploy/openshell/evidence/openshell-runtime-conformance-v2.json";
   const acceptance = {
     schemaVersion: "dataground.dev.openshell-runtime-conformance-acceptance/v1",
     evidence: {
