@@ -129,6 +129,21 @@ func TestAuthenticationAttemptsAreMinimizedScopedAndAppendOnly(t *testing.T) {
 	`, domainID, principalID, identity.New("cor")); err == nil {
 		t.Fatal("partially attributed authentication attempt was accepted")
 	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO authentication_attempts (
+			isolation_domain_id, principal_id, principal_kind, method, outcome, correlation_id
+		) VALUES ($1, $2, 'service', 'development-bearer', 'authenticated', $3)
+	`, domainID, principalID, identity.New("cor")); err == nil {
+		t.Fatal("impossible development principal kind was accepted")
+	}
+	if err := repository.RecordAuthenticationAttempt(ctx, authn.AuthenticationAttemptRecord{
+		IsolationDomainID: domainID,
+		Method:            authn.AuthenticationMethodOIDC,
+		Outcome:           authn.AuthenticationOutcomeRejected,
+		CorrelationID:     rejectedCorrelation,
+	}); err == nil {
+		t.Fatal("duplicate domain correlation was accepted")
+	}
 	if err := repository.RecordAuthenticationAttempt(ctx, authn.AuthenticationAttemptRecord{
 		IsolationDomainID: domainID,
 		PrincipalID:       principalID,
