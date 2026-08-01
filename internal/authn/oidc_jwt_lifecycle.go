@@ -109,11 +109,17 @@ func (verifier *ReloadableOIDCJWTVerifier) Refresh(ctx context.Context) error {
 	if err != nil {
 		return errors.New("OIDC JWT keyset snapshot is invalid")
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	digest := sha256.Sum256(snapshot.JWKS)
 	expiresAt := snapshot.ExpiresAt.UTC()
 
 	verifier.mu.Lock()
 	defer verifier.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if snapshot.Sequence < verifier.sequence {
 		return errors.New("OIDC JWT keyset snapshot rollback is invalid")
 	}
