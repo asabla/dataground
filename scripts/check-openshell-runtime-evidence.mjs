@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
@@ -7,6 +8,10 @@ import addFormats from "ajv-formats";
 const root = resolve(import.meta.dirname, "..");
 const profilePath = resolve(root, "deploy/openshell/development-profile.json");
 const schemaPath = resolve(root, "deploy/openshell/runtime-conformance-evidence.schema.json");
+const acceptanceSchemaPath = resolve(
+  root,
+  "deploy/openshell/runtime-conformance-acceptance.schema.json",
+);
 const requiredChecks = [
   "gateway-ready",
   "sandbox-ready",
@@ -69,11 +74,16 @@ const expectedProvenance = {
   artifactName: "openshell-runtime-conformance",
 };
 
-const [profile, schema] = await Promise.all([readJSON(profilePath), readJSON(schemaPath)]);
+const [profile, schema, acceptanceSchema] = await Promise.all([
+  readJSON(profilePath),
+  readJSON(schemaPath),
+  readJSON(acceptanceSchemaPath),
+]);
 const contract = profile.runtime?.conformance;
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormats(ajv);
 const validateSchema = ajv.compile(schema);
+const validateAcceptanceSchema = ajv.compile(acceptanceSchema);
 
 const expectedProfile = {
   openshellCommit: profile.source.openshell.commit,
@@ -207,6 +217,42 @@ function verifyEvidence(evidence) {
     evidence.cleanup.workspace.name !== evidence.run.resources.workspace
   ) {
     failures.push("runtime resources and cleanup are not bound to the evidence run");
+  }
+  return failures;
+}
+
+
+function verifyAcceptance(evidenceBytes, evidence, evidenceFile, acceptance) {
+  const failures = [];
+  if (!validateAcceptanceSchema(acceptance)) {
+    failures.push(
+      ...validateAcceptanceSchema.errors.map(
+        (error) => `acceptance${error.instancePath || "/"} ${error.message}`,
+      ),
+    );
+    return failures;
+  }
+  const expectedDigest = createHash("sha256").update(evidenceBytes).digest("hex");
+  const expectedFile = evidenceFile.replaceAll("\\", "/");
+  if (
+    acceptance.evidence.file !== expectedFile ||
+    acceptance.evidence.sha256 !== expectedDigest ||
+    acceptance.evidence.runID !== evidence.run.id
+  ) {
+    failures.push("acceptance does not bind the exact evidence record");
+  }
+  if (
+    acceptance.workflow.path !== evidence.run.provenance.workflow ||
+    acceptance.workflow.runID !== evidence.run.provenance.workflowRunID ||
+    acceptance.workflow.headCommit !== evidence.run.provenance.sourceCommit
+  ) {
+    failures.push("acceptance does not bind the evidence workflow provenance");
+  }
+  if (
+    acceptance.artifact.name !== evidence.run.provenance.artifactName ||
+    acceptance.artifact.name !== expectedProvenance.artifactName
+  ) {
+    failures.push("acceptance does not bind the evidence artifact identity");
   }
   return failures;
 }
@@ -521,6 +567,60 @@ function runSelfTest() {
     const passed = verifyEvidence(evidence).length === 0;
     return passed === shouldPass ? [] : [`self-test failed: ${name}`];
   });
+  const evidenceBytes = Buffer.from(JSON.stringify(valid));
+  const evidenceFile = "deploy/openshell/evidence/representative-runtime.json";
+  const acceptance = {
+    schemaVersion: "dataground.dev.openshell-runtime-conformance-acceptance/v1",
+    evidence: {
+      file: evidenceFile,
+      sha256: createHash("sha256").update(evidenceBytes).digest("hex"),
+      runID: valid.run.id,
+    },
+    workflow: {
+      path: valid.run.provenance.workflow,
+      runID: valid.run.provenance.workflowRunID,
+      headCommit: valid.run.provenance.sourceCommit,
+    },
+    artifact: {
+      name: valid.run.provenance.artifactName,
+      id: 456,
+      archiveDigest: `sha256:${"b".repeat(64)}`,
+    },
+  };
+  const acceptanceCases = [
+    ["representative acceptance", acceptance, true],
+    [
+      "evidence digest substitution",
+      {
+        ...acceptance,
+        evidence: { ...acceptance.evidence, sha256: "c".repeat(64) },
+      },
+      false,
+    ],
+    [
+      "workflow run substitution",
+      {
+        ...acceptance,
+        workflow: { ...acceptance.workflow, runID: acceptance.workflow.runID + 1 },
+      },
+      false,
+    ],
+    [
+      "artifact extension",
+      {
+        ...acceptance,
+        artifact: { ...acceptance.artifact, producerDigest: "d".repeat(64) },
+      },
+      false,
+    ],
+  ];
+  failures.push(
+    ...acceptanceCases.flatMap(([name, candidate, shouldPass]) => {
+      const passed =
+        verifyAcceptance(evidenceBytes, valid, evidenceFile, candidate).length === 0;
+      return passed === shouldPass ? [] : [`self-test failed: ${name}`];
+    }),
+  );
   if (failures.length > 0) {
     throw new Error(failures.join("\n"));
   }
@@ -530,22 +630,30 @@ async function readJSON(path) {
   return JSON.parse(await readFile(path, "utf8"));
 }
 
-const argument = process.argv[2];
-if (argument === "--self-test") {
+const [argument, acceptanceArgument, ...extraArguments] = process.argv.slice(2);
+if (argument === "--self-test" && acceptanceArgument === undefined) {
   runSelfTest();
   console.log("OpenShell runtime evidence verifier is internally consistent.");
-} else if (argument) {
-  const evidence = await readJSON(resolve(process.cwd(), argument));
+} else if (argument && extraArguments.length === 0) {
+  const evidencePath = resolve(process.cwd(), argument);
+  const evidenceBytes = await readFile(evidencePath);
+  const evidence = JSON.parse(evidenceBytes.toString("utf8"));
   const failures = verifyEvidence(evidence);
+  if (acceptanceArgument) {
+    const acceptance = await readJSON(resolve(process.cwd(), acceptanceArgument));
+    failures.push(...verifyAcceptance(evidenceBytes, evidence, argument, acceptance));
+  }
   if (failures.length > 0) {
     console.error(failures.map((failure) => `- ${failure}`).join("\n"));
     process.exitCode = 1;
+  } else if (acceptanceArgument) {
+    console.log("OpenShell runtime conformance evidence and acceptance are valid.");
   } else {
     console.log("OpenShell runtime conformance evidence is valid.");
   }
 } else {
   console.error(
-    "usage: node scripts/check-openshell-runtime-evidence.mjs <evidence.json> | --self-test",
+    "usage: node scripts/check-openshell-runtime-evidence.mjs <evidence.json> [acceptance.json] | --self-test",
   );
   process.exitCode = 2;
 }
