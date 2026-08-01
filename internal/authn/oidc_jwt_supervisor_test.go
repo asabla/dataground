@@ -17,12 +17,12 @@ func TestOIDCJWTKeysetRefreshPolicyRejectsUnsafeBounds(t *testing.T) {
 		t.Fatal("valid refresh policy was rejected")
 	}
 	for name, policy := range map[string]OIDCJWTKeysetRefreshPolicy{
-		"zero interval":     {Timeout: time.Second},
-		"short interval":    {Interval: time.Millisecond, Timeout: time.Millisecond},
-		"long interval":     {Interval: time.Hour + time.Second, Timeout: time.Second},
-		"zero timeout":      {Interval: time.Minute},
-		"short timeout":     {Interval: time.Minute, Timeout: time.Millisecond},
-		"long timeout":      {Interval: time.Hour, Timeout: time.Minute + time.Second},
+		"zero interval":      {Timeout: time.Second},
+		"short interval":     {Interval: time.Millisecond, Timeout: time.Millisecond},
+		"long interval":      {Interval: time.Hour + time.Second, Timeout: time.Second},
+		"zero timeout":       {Interval: time.Minute},
+		"short timeout":      {Interval: time.Minute, Timeout: time.Millisecond},
+		"long timeout":       {Interval: time.Hour, Timeout: time.Minute + time.Second},
 		"timeout after tick": {Interval: time.Second, Timeout: 2 * time.Second},
 	} {
 		t.Run(name, func(t *testing.T) {
