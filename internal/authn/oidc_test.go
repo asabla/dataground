@@ -126,11 +126,11 @@ func TestOIDCAuthenticatorSanitizesVerifierFailureAndPreservesCancellation(t *te
 	t.Parallel()
 
 	for name, verifierError := range map[string]error{
-		"invalid":      authn.ErrInvalidCredential,
-		"unavailable":  authn.ErrUnavailable,
+		"invalid":       authn.ErrInvalidCredential,
+		"unavailable":   authn.ErrUnavailable,
 		"private error": errors.New("private provider detail"),
-		"cancelled":    context.Canceled,
-		"deadline":     context.DeadlineExceeded,
+		"cancelled":     context.Canceled,
+		"deadline":      context.DeadlineExceeded,
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
