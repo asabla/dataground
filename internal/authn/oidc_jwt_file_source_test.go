@@ -56,6 +56,13 @@ func TestOIDCJWTKeysetFileSourceRejectsUnsafePathsAndFiles(t *testing.T) {
 	}
 
 	directory := t.TempDir()
+	missing, err := NewOIDCJWTKeysetFileSource(filepath.Join(directory, "missing.json"))
+	if err != nil {
+		t.Fatalf("create missing source: %v", err)
+	}
+	if _, err := missing.Load(context.Background()); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("missing publication error = %v", err)
+	}
 	source, err := NewOIDCJWTKeysetFileSource(directory)
 	if err != nil {
 		t.Fatalf("create directory source: %v", err)
