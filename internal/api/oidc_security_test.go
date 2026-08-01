@@ -7,6 +7,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -58,6 +60,25 @@ func TestDurableOIDCDPoPAssemblyValidatesHTTPBoundaryBeforeSourceIO(t *testing.T
 	}
 	if source.calls != 0 {
 		t.Fatalf("invalid HTTP boundary contacted keyset source %d times", source.calls)
+	}
+}
+
+func TestDurableOIDCDPoPAssemblyNilHandlerFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	var assembly *api.DurableOIDCDPoPAssembly
+	request := httptest.NewRequest(http.MethodPost, "/v1/unavailable", nil)
+	request.Header.Set("Authorization", "Bearer secret")
+	request.Header.Set("DPoP", "proof")
+	response := httptest.NewRecorder()
+
+	assembly.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusServiceUnavailable)
+	}
+	if request.Header.Get("Authorization") != "" || request.Header.Get("DPoP") != "" {
+		t.Fatal("unavailable assembly retained credential headers")
 	}
 }
 
