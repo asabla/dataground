@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,14 +22,26 @@ const testOIDCJWTKeyID = "provider-signing-key-1"
 
 func TestPinnedOIDCJWTVerifierAcceptsBoundSignedAccessToken(t *testing.T) {
 	fixture := newOIDCJWTFixture(t)
-	token := fixture.sign(t, validOIDCJWTClaims(time.Now()), jose.RS256, testOIDCJWTKeyID, nil)
+	now := time.Now()
+	thumbprintDigest := sha256.Sum256([]byte("proof-key"))
+	thumbprint := base64.RawURLEncoding.EncodeToString(thumbprintDigest[:])
+	token := fixture.signPayload(t, []byte(fmt.Sprintf(
+		`{"iss":%q,"sub":%q,"aud":%q,"exp":%d,"iat":%d,"cnf":{"jkt":%q}}`,
+		testOIDCIssuer,
+		testOIDCSubject,
+		testOIDCAudience,
+		now.Add(5*time.Minute).Unix(),
+		now.Unix(),
+		thumbprint,
+	)), jose.RS256, testOIDCJWTKeyID, nil)
 
 	verified, err := fixture.verifier.Verify(context.Background(), []byte(token))
 	if err != nil {
 		t.Fatalf("verify signed access token: %v", err)
 	}
 	if verified.Issuer != testOIDCIssuer || verified.Subject != testOIDCSubject ||
-		len(verified.Audiences) != 1 || verified.Audiences[0] != testOIDCAudience {
+		len(verified.Audiences) != 1 || verified.Audiences[0] != testOIDCAudience ||
+		verified.ConfirmationThumbprint != thumbprint {
 		t.Fatalf("verified token = %#v", verified)
 	}
 }
