@@ -188,6 +188,42 @@ func TestAuditedInvocationCedarEvaluatorRejectsIncompleteAssemblyAndSerializatio
 	}
 }
 
+func TestAuditedCedarInvocationAuthorizerDoesNotInventLookupDecisions(t *testing.T) {
+	t.Parallel()
+
+	recorder := &invocationDecisionRecorderStub{}
+	authorizer, err := NewAuditedCedarInvocationAuthorizer(
+		invocationAuthorizationPolicySourceFunc(func(
+			context.Context,
+			InvocationAuthorizationPolicyScope,
+		) (InvocationAuthorizationPolicy, error) {
+			return InvocationAuthorizationPolicy{}, errors.New("database detail")
+		}),
+		recorder,
+	)
+	if err != nil {
+		t.Fatalf("construct audited authorizer: %v", err)
+	}
+	_, input := invocationAuthorizationAuditFixture(t)
+	request := InvocationAuthorizationRequest{
+		Action:            InvocationAuthorizationAdmit,
+		IsolationDomainID: input.IsolationDomainID,
+		OperationID:       input.OperationID,
+		InvocationID:      input.Resource.ID,
+		ServiceID:         input.ServiceID,
+		RevisionID:        input.RevisionID,
+		ActorID:           input.Principal.ID,
+		CorrelationID:     input.CorrelationID,
+	}
+	got := authorizer.decision.AuthorizeInvocationEffect(context.Background(), request)
+	if !errors.Is(got, ErrInvocationAuthorizationPolicyUnavailable) {
+		t.Fatalf("authorization error = %v, want unavailable", got)
+	}
+	if len(recorder.records) != 0 {
+		t.Fatalf("lookup failure record count = %d, want 0", len(recorder.records))
+	}
+}
+
 func invocationAuthorizationAuditFixture(
 	t *testing.T,
 ) (InvocationAuthorizationPolicy, InvocationCedarInput) {
