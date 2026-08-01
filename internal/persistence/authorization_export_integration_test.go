@@ -1,7 +1,10 @@
 package persistence_test
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -215,6 +218,82 @@ func TestAuthorizationAuditExportRejectsInvalidRequestsAndSerializesClosedRecord
 			t.Fatalf("unknown export source %q", record.Source)
 		}
 	}
+	reason := "incident review"
+	reasonDigest := sha256.Sum256([]byte(reason))
+	request := persistence.AuthorizationAuditExportRequest{
+		ExportID:          "aex_00000000000000000001",
+		IsolationDomainID: domainID,
+		RequestedBy:       "operator@example.invalid",
+		ReasonDigest:      reasonDigest[:],
+		CorrelationID:     "cor_00000000000000000005",
+		Limit:             10,
+	}
+	documentBytes, err := repository.ExportAuthorizationDecisionsAudited(ctx, request)
+	if err != nil {
+		t.Fatalf("export audited document: %v", err)
+	}
+	var document persistence.AuthorizationAuditExportDocument
+	if err := json.Unmarshal(documentBytes, &document); err != nil {
+		t.Fatalf("decode audited document: %v", err)
+	}
+	if document.Content.ExportID != request.ExportID ||
+		document.Content.RequestedBy != request.RequestedBy ||
+		document.Content.CorrelationID != request.CorrelationID ||
+		len(document.Content.Records) != 2 {
+		t.Fatalf("audited document = %#v", document)
+	}
+	contentBytes, err := json.Marshal(document.Content)
+	if err != nil {
+		t.Fatalf("encode audited content: %v", err)
+	}
+	contentDigest := sha256.Sum256(contentBytes)
+	if document.ContentSHA256 != "sha256:"+hex.EncodeToString(contentDigest[:]) {
+		t.Fatalf("content digest = %q", document.ContentSHA256)
+	}
+	replayed, err := repository.ExportAuthorizationDecisionsAudited(ctx, request)
+	if err != nil {
+		t.Fatalf("replay audited export: %v", err)
+	}
+	if !bytes.Equal(replayed, documentBytes) {
+		t.Fatal("audited export replay changed bytes")
+	}
+	conflict := request
+	conflict.RequestedBy = "different-operator@example.invalid"
+	if _, err := repository.ExportAuthorizationDecisionsAudited(
+		ctx,
+		conflict,
+	); !errors.Is(err, persistence.ErrAuthorizationExportConflict) {
+		t.Fatalf("conflicting export error = %v", err)
+	}
+	if strings.Contains(string(documentBytes), reason) {
+		t.Fatal("audited export retained the free-text reason")
+	}
+	var storedReasonDigest []byte
+	var receipts int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*), min(reason_digest)
+		FROM authorization_audit_exports
+		WHERE export_id = $1
+	`, request.ExportID).Scan(&receipts, &storedReasonDigest); err != nil {
+		t.Fatalf("read export receipt: %v", err)
+	}
+	if receipts != 1 || !bytes.Equal(storedReasonDigest, reasonDigest[:]) {
+		t.Fatalf("export receipt = %d %x", receipts, storedReasonDigest)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE authorization_audit_exports
+		SET record_count = 0
+		WHERE export_id = $1
+	`, request.ExportID); err == nil {
+		t.Fatal("authorization export receipt update was accepted")
+	}
+	if _, err := pool.Exec(ctx, `
+		DELETE FROM authorization_audit_exports
+		WHERE export_id = $1
+	`, request.ExportID); err == nil {
+		t.Fatal("authorization export receipt deletion was accepted")
+	}
+
 }
 
 func exportAPIDecision(domainID string, correlationID string) authz.DecisionRecord {
