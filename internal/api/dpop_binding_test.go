@@ -58,7 +58,7 @@ func TestDPoPRequestBinderUsesOnlyPinnedOriginAndCanonicalPath(t *testing.T) {
 	replays := &dpopBindingReplayStore{}
 	verifier, err := authn.NewDPoPTokenVerifier(authn.DPoPConfig{
 		Verifier: &dpopBindingTokenVerifier{thumbprint: thumbprint},
-		Replays: replays, ClockSkew: 30 * time.Second, MaximumProofAge: time.Minute,
+		Replays:  replays, ClockSkew: 30 * time.Second, MaximumProofAge: time.Minute,
 	})
 	if err != nil {
 		t.Fatalf("create DPoP verifier: %v", err)
@@ -162,18 +162,18 @@ func TestDPoPBoundHandlerRejectsBindingFailureEvenWhenAuthenticatorAcceptsEmptyI
 func TestDPoPRequestBinderRejectsUntrustedOrigins(t *testing.T) {
 	t.Parallel()
 	for name, origin := range map[string]string{
-		"plaintext": "http://api.example.invalid",
-		"path": "https://api.example.invalid/v1",
-		"query": "https://api.example.invalid?tenant=other",
-		"userinfo": "https://user@api.example.invalid",
-		"uppercase": "https://API.example.invalid",
-		"default port": "https://api.example.invalid:443",
-		"padded port": "https://api.example.invalid:08443",
-		"zero port": "https://api.example.invalid:0",
-		"overflow port": "https://api.example.invalid:65536",
-		"empty port": "https://api.example.invalid:",
-		"trailing dot": "https://api.example.invalid.",
-		"unicode host": "https://äpple.example.invalid",
+		"plaintext":      "http://api.example.invalid",
+		"path":           "https://api.example.invalid/v1",
+		"query":          "https://api.example.invalid?tenant=other",
+		"userinfo":       "https://user@api.example.invalid",
+		"uppercase":      "https://API.example.invalid",
+		"default port":   "https://api.example.invalid:443",
+		"padded port":    "https://api.example.invalid:08443",
+		"zero port":      "https://api.example.invalid:0",
+		"overflow port":  "https://api.example.invalid:65536",
+		"empty port":     "https://api.example.invalid:",
+		"trailing dot":   "https://api.example.invalid.",
+		"unicode host":   "https://äpple.example.invalid",
 		"trailing slash": "https://api.example.invalid/",
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -257,9 +257,9 @@ func (verifier *dpopBindingTokenVerifier) Verify(
 		return authn.VerifiedOIDCToken{}, authn.ErrUnavailable
 	}
 	return authn.VerifiedOIDCToken{
-		Issuer: "https://identity.example.invalid",
-		Subject: "provider-subject",
-		Audiences: []string{authn.APIAudience},
+		Issuer:                 "https://identity.example.invalid",
+		Subject:                "provider-subject",
+		Audiences:              []string{authn.APIAudience},
 		ConfirmationThumbprint: verifier.thumbprint,
 	}, nil
 }
