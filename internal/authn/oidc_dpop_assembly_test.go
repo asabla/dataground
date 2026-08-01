@@ -61,6 +61,23 @@ func TestReloadableOIDCDPoPAuthenticatorRejectsInvalidProfileBeforeSourceIO(t *t
 	}
 }
 
+func TestReloadableOIDCDPoPAuthenticatorFailsClosedWithoutContext(t *testing.T) {
+	t.Parallel()
+
+	source := &assemblyKeysetSource{snapshot: assemblyKeysetSnapshot(1)}
+	authenticator, err := authn.NewReloadableOIDCDPoPAuthenticator(
+		context.Background(),
+		assemblyAuthenticationConfig(source),
+	)
+	if err != nil {
+		t.Fatalf("assemble OIDC DPoP authenticator: %v", err)
+	}
+	if _, err := authenticator.Authenticate(nil, bytes.Repeat([]byte("x"), 32));
+		!errors.Is(err, authn.ErrUnavailable) {
+		t.Fatalf("nil-context authentication error = %v, want unavailable", err)
+	}
+}
+
 func assemblyAuthenticationConfig(source authn.OIDCJWTKeysetSource) authn.ReloadableOIDCDPoPConfig {
 	return authn.ReloadableOIDCDPoPConfig{
 		Issuer:               "https://identity.example.invalid",
