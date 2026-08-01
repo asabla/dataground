@@ -15,6 +15,8 @@ const (
 	maximumOIDCJWTKeysetRefreshTimeout  = time.Minute
 )
 
+// ErrOIDCJWTKeysetRefreshAlreadyRunning prevents two deployment lifecycles
+// from owning the same serving verifier.
 var ErrOIDCJWTKeysetRefreshAlreadyRunning = errors.New("OIDC JWT keyset refresh is already running")
 
 type OIDCJWTKeysetRefreshFailure string
@@ -28,6 +30,8 @@ const (
 	OIDCJWTKeysetRefreshFailureTimeout     OIDCJWTKeysetRefreshFailure = "timeout"
 )
 
+// OIDCJWTKeysetRefreshPolicy bounds publication polling and each source call.
+// The timeout must not exceed the interval.
 type OIDCJWTKeysetRefreshPolicy struct {
 	Interval time.Duration
 	Timeout  time.Duration
