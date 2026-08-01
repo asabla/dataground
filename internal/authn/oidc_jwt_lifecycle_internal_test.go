@@ -2,9 +2,14 @@ package authn
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
+
+	jose "github.com/go-jose/go-jose/v4"
 )
 
 func TestReloadableOIDCJWTVerifierFailsClosedAfterSnapshotExpiry(t *testing.T) {
@@ -59,6 +64,41 @@ func TestReloadableOIDCJWTVerifierHoldsGenerationThroughVerification(t *testing.
 	verifier.mu.Unlock()
 }
 
+func TestReloadableOIDCJWTVerifierDoesNotInstallAfterCancellation(t *testing.T) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jwks, err := json.Marshal(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{
+		Key: &privateKey.PublicKey, KeyID: "lifecycle-key-1", Algorithm: "RS256", Use: "sig",
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.August, 1, 12, 0, 0, 0, time.UTC)
+	ctx, cancel := context.WithCancel(context.Background())
+	verifier := &ReloadableOIDCJWTVerifier{
+		issuer:          "https://identity.example.invalid",
+		audience:        APIAudience,
+		algorithms:      []string{"RS256"},
+		clockSkew:       30 * time.Second,
+		maximumLifetime: time.Hour,
+		source: lifecycleKeysetSource{snapshot: OIDCJWTKeysetSnapshot{
+			Sequence: 1, JWKS: jwks, ExpiresAt: now.Add(time.Hour),
+		}},
+		now: func() time.Time {
+			cancel()
+			return now
+		},
+	}
+	if err := verifier.Refresh(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled refresh = %v", err)
+	}
+	if verifier.sequence != 0 || verifier.verifier != nil {
+		t.Fatal("cancelled refresh installed a keyset")
+	}
+}
+
 type lifecycleTokenVerifier struct {
 	called bool
 }
@@ -66,6 +106,16 @@ type lifecycleTokenVerifier struct {
 type blockingLifecycleTokenVerifier struct {
 	started chan struct{}
 	release chan struct{}
+}
+
+type lifecycleKeysetSource struct {
+	snapshot OIDCJWTKeysetSnapshot
+}
+
+func (source lifecycleKeysetSource) Load(context.Context) (OIDCJWTKeysetSnapshot, error) {
+	snapshot := source.snapshot
+	snapshot.JWKS = append([]byte(nil), snapshot.JWKS...)
+	return snapshot, nil
 }
 
 func (verifier *blockingLifecycleTokenVerifier) Verify(
