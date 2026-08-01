@@ -36,20 +36,20 @@ func TestAuditedInvocationCedarEvaluatorRecordsCompletedOutcomes(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		evaluation error
+		evaluation  error
 		wantOutcome authz.Outcome
 		wantError   error
 	}{
 		{name: "allowed", wantOutcome: authz.OutcomeAllowed},
 		{
 			name:        "denied",
-			evaluation: ErrInvocationAuthorizationDenied,
+			evaluation:  ErrInvocationAuthorizationDenied,
 			wantOutcome: authz.OutcomeDenied,
 			wantError:   ErrInvocationAuthorizationDenied,
 		},
 		{
 			name:        "unavailable",
-			evaluation: errors.New("Cedar diagnostic detail"),
+			evaluation:  errors.New("Cedar diagnostic detail"),
 			wantOutcome: authz.OutcomeUnavailable,
 			wantError:   errors.New("Cedar diagnostic detail"),
 		},
