@@ -1,3 +1,4 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
 package persistence
 
 import (
@@ -17,24 +18,24 @@ import (
 )
 
 const (
-	AuthorizationAuditExportSchema = "dataground.dev.authorization-audit-export/v1"
+	AuthorizationAuditExportSchema  = "dataground.dev.authorization-audit-export/v1"
 	maximumAuthorizationExportLimit = 1000
 	authorizationExportCursorPrefix = "v1."
 	authorizationExportCursorBytes  = 33
 )
 
 var (
-	ErrAuthorizationExportInvalid = errors.New("authorization audit export request is invalid")
+	ErrAuthorizationExportInvalid    = errors.New("authorization audit export request is invalid")
 	authorizationExportDomainPattern = regexp.MustCompile(`^iso_[0-9a-z]{20,32}$`)
 )
 
 type AuthorizationAuditExport struct {
-	SchemaVersion     string                              `json:"schemaVersion"`
-	IsolationDomainID string                              `json:"isolationDomainId"`
-	Cursor            string                              `json:"cursor"`
-	NextCursor        string                              `json:"nextCursor"`
-	Complete          bool                                `json:"complete"`
-	Records           []AuthorizationAuditExportRecord    `json:"records"`
+	SchemaVersion     string                           `json:"schemaVersion"`
+	IsolationDomainID string                           `json:"isolationDomainId"`
+	Cursor            string                           `json:"cursor"`
+	NextCursor        string                           `json:"nextCursor"`
+	Complete          bool                             `json:"complete"`
+	Records           []AuthorizationAuditExportRecord `json:"records"`
 }
 
 type AuthorizationAuditExportRecord struct {
@@ -368,4 +369,3 @@ func encodeAuthorizationExportCursor(cursor authorizationExportCursor) (string, 
 	}
 	return authorizationExportCursorPrefix + base64.RawURLEncoding.EncodeToString(encoded), nil
 }
-
