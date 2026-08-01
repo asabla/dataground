@@ -39,9 +39,7 @@ func NewReloadableOIDCDPoPAuthenticator(
 		nilDPoPDependency(config.ReplayStore) {
 		return nil, errors.New("OIDC DPoP dependencies are required")
 	}
-	if config.DPoPClockSkew < 0 || config.DPoPClockSkew > maximumDPoPClockSkew ||
-		config.MaximumProofAge < minimumDPoPProofAge ||
-		config.MaximumProofAge > maximumDPoPProofAge {
+	if !validDPoPTimeBounds(config.DPoPClockSkew, config.MaximumProofAge) {
 		return nil, errors.New("OIDC DPoP profile is invalid")
 	}
 	keysets, err := NewReloadableOIDCJWTVerifier(ctx, ReloadableOIDCJWTConfig{
