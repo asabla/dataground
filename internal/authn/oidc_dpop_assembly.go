@@ -82,7 +82,7 @@ func (authenticator *ReloadableOIDCDPoPAuthenticator) Authenticate(
 	bearerToken []byte,
 ) (Principal, error) {
 	if authenticator == nil || nilOIDCDependency(authenticator.authenticator) ||
-		nilOIDCDependency(authenticator.keysets) {
+		nilOIDCDependency(authenticator.keysets) || ctx == nil {
 		return Principal{}, ErrUnavailable
 	}
 	return authenticator.authenticator.Authenticate(ctx, bearerToken)
