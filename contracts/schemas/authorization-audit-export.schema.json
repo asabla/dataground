@@ -1,0 +1,263 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dataground:schema:authorization-audit-export:v1",
+  "title": "DataGround authorization audit export",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "isolationDomainId",
+    "cursor",
+    "nextCursor",
+    "complete",
+    "records"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "dataground.dev.authorization-audit-export/v1"
+    },
+    "isolationDomainId": {
+      "$ref": "#/$defs/isolationDomainId"
+    },
+    "cursor": {
+      "$ref": "#/$defs/cursor"
+    },
+    "nextCursor": {
+      "type": "string",
+      "pattern": "^v1\\.[A-Za-z0-9_-]{44}$"
+    },
+    "complete": {
+      "type": "boolean"
+    },
+    "records": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/apiDecision"
+          },
+          {
+            "$ref": "#/$defs/invocationDecision"
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "cursor": {
+      "type": "string",
+      "pattern": "^(?:|v1\\.[A-Za-z0-9_-]{44})$"
+    },
+    "isolationDomainId": {
+      "type": "string",
+      "pattern": "^iso_[0-9a-z]{20,32}$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9223372036854775807
+    },
+    "recordedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "resourceId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{2,127}$"
+    },
+    "outcome": {
+      "enum": [
+        "allowed",
+        "denied",
+        "unavailable"
+      ]
+    },
+    "policySetId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "policyDigest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "correlationId": {
+      "type": "string",
+      "pattern": "^cor_[0-9a-z]{20,32}$"
+    },
+    "commonProperties": {
+      "type": "object",
+      "properties": {
+        "sequence": {
+          "$ref": "#/$defs/sequence"
+        },
+        "recordedAt": {
+          "$ref": "#/$defs/recordedAt"
+        },
+        "outcome": {
+          "$ref": "#/$defs/outcome"
+        },
+        "policySetId": {
+          "$ref": "#/$defs/policySetId"
+        },
+        "policyDigest": {
+          "$ref": "#/$defs/policyDigest"
+        },
+        "correlationId": {
+          "$ref": "#/$defs/correlationId"
+        }
+      }
+    },
+    "apiDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "sequence",
+        "recordedAt",
+        "principalId",
+        "principalKind",
+        "action",
+        "resourceType",
+        "resourceId",
+        "outcome",
+        "policySetId",
+        "policyDigest",
+        "correlationId"
+      ],
+      "properties": {
+        "source": {
+          "const": "api"
+        },
+        "sequence": {
+          "$ref": "#/$defs/sequence"
+        },
+        "recordedAt": {
+          "$ref": "#/$defs/recordedAt"
+        },
+        "principalId": {
+          "$ref": "#/$defs/resourceId"
+        },
+        "principalKind": {
+          "enum": [
+            "human",
+            "service",
+            "platform-service",
+            "sandbox-workload",
+            "distributed-compute-workload"
+          ]
+        },
+        "action": {
+          "enum": [
+            "createAgentService",
+            "createServiceRevision",
+            "publishServiceRevision",
+            "assignServiceAlias",
+            "invokeAgentService",
+            "readInvocation",
+            "readOperation",
+            "cancelInvocation",
+            "readInvocationEvents",
+            "readInvocationArtifact"
+          ]
+        },
+        "resourceType": {
+          "enum": [
+            "DataGround::IsolationDomain",
+            "DataGround::AgentService",
+            "DataGround::ServiceRevision",
+            "DataGround::Invocation",
+            "DataGround::Operation",
+            "DataGround::Artifact"
+          ]
+        },
+        "resourceId": {
+          "$ref": "#/$defs/resourceId"
+        },
+        "outcome": {
+          "$ref": "#/$defs/outcome"
+        },
+        "policySetId": {
+          "$ref": "#/$defs/policySetId"
+        },
+        "policyDigest": {
+          "$ref": "#/$defs/policyDigest"
+        },
+        "correlationId": {
+          "$ref": "#/$defs/correlationId"
+        }
+      }
+    },
+    "invocationDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "sequence",
+        "recordedAt",
+        "actorId",
+        "action",
+        "operationId",
+        "invocationId",
+        "serviceId",
+        "revisionId",
+        "outcome",
+        "policySetId",
+        "policyDigest",
+        "correlationId"
+      ],
+      "properties": {
+        "source": {
+          "const": "invocation"
+        },
+        "sequence": {
+          "$ref": "#/$defs/sequence"
+        },
+        "recordedAt": {
+          "$ref": "#/$defs/recordedAt"
+        },
+        "actorId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "action": {
+          "enum": [
+            "admit",
+            "run",
+            "cancel"
+          ]
+        },
+        "operationId": {
+          "type": "string",
+          "pattern": "^op_[0-9a-z]{20,32}$"
+        },
+        "invocationId": {
+          "type": "string",
+          "pattern": "^inv_[0-9a-z]{20,32}$"
+        },
+        "serviceId": {
+          "type": "string",
+          "pattern": "^svc_[0-9a-z]{20,32}$"
+        },
+        "revisionId": {
+          "type": "string",
+          "pattern": "^rev_[0-9a-z]{20,32}$"
+        },
+        "outcome": {
+          "$ref": "#/$defs/outcome"
+        },
+        "policySetId": {
+          "$ref": "#/$defs/policySetId"
+        },
+        "policyDigest": {
+          "$ref": "#/$defs/policyDigest"
+        },
+        "correlationId": {
+          "$ref": "#/$defs/correlationId"
+        }
+      }
+    }
+  }
+}
