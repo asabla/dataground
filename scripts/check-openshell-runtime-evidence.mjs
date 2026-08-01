@@ -221,7 +221,6 @@ function verifyEvidence(evidence) {
   return failures;
 }
 
-
 function verifyAcceptance(evidenceBytes, evidence, evidenceFile, acceptance) {
   const failures = [];
   if (!validateAcceptanceSchema(acceptance)) {
@@ -616,8 +615,7 @@ function runSelfTest() {
   ];
   failures.push(
     ...acceptanceCases.flatMap(([name, candidate, shouldPass]) => {
-      const passed =
-        verifyAcceptance(evidenceBytes, valid, evidenceFile, candidate).length === 0;
+      const passed = verifyAcceptance(evidenceBytes, valid, evidenceFile, candidate).length === 0;
       return passed === shouldPass ? [] : [`self-test failed: ${name}`];
     }),
   );
