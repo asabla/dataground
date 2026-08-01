@@ -2,7 +2,7 @@
 
 ## Scope and invariants
 
-The initial durable slice owns two explicit finite state machines: service publication and invocation execution. PostgreSQL is authoritative for desired and observed state, state-machine version, generation, attempt, durable due time and deadline, lease owner and fencing token, error classification, terminal result, command idempotency, external-effect observation, event replay, outbox delivery state, command audit correlation, and completed API authorization decisions.
+The initial durable slice owns two explicit finite state machines: service publication and invocation execution. PostgreSQL is authoritative for desired and observed state, state-machine version, generation, attempt, durable due time and deadline, lease owner and fencing token, error classification, terminal result, command idempotency, external-effect observation, event replay, outbox delivery state, command audit correlation, completed API authorization decisions, and completed invocation Cedar decisions when the explicit durable evaluator is composed.
 
 There is no generic workflow table or user-authored workflow language. The worker's polling ticker is only a wake-up mechanism; `due_at` remains the durable timer. Every claimed operation is selected fairly from the oldest due operation per isolation domain. A transition can commit only while the worker still owns the matching lease owner and fencing token.
 
