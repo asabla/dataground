@@ -1,3 +1,4 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
 package persistence
 
 import (
@@ -32,7 +33,7 @@ func TestAuthorizationExportCursorRejectsInvalidValues(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]string{
-		"unknown version": "v2.AQ",
+		"unknown version":  "v2.AQ",
 		"invalid encoding": "v1.***",
 		"wrong length":     "v1.AQ",
 	}
