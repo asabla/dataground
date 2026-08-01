@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/asabla/dataground/internal/authn"
@@ -25,12 +26,16 @@ func newProtectedRoute(
 	authenticator authn.Authenticator,
 	authorizer authz.Authorizer,
 	dpopBinder *DPoPRequestBinder,
+	rateLimiter AuthenticationRateLimiter,
 ) (func(authz.Action, authz.ResourceType, string, http.HandlerFunc) http.Handler, error) {
 	if authenticator == nil || isNilInterface(authenticator) {
 		return nil, errors.New("API authenticator is required")
 	}
 	if authorizer == nil || isNilInterface(authorizer) {
 		return nil, errors.New("API authorizer is required")
+	}
+	if rateLimiter != nil && isNilInterface(rateLimiter) {
+		return nil, errors.New("authentication rate limiter is invalid")
 	}
 	return func(
 		action authz.Action,
@@ -69,6 +74,41 @@ func newProtectedRoute(
 					true,
 				)})
 				return
+			}
+
+			if rateLimiter != nil {
+				decision, limitErr := rateLimiter.AllowAuthentication(
+					authenticationContext,
+					authenticationRateLimitRequest(domainID, bearerToken),
+				)
+				if limitErr != nil || !decision.Valid() {
+					clear(bearerToken)
+					bearerToken = nil
+					request.Header.Del("DPoP")
+					writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeErrorWithCorrelation(
+						correlationID,
+						"AUTHENTICATION_RATE_LIMIT_UNAVAILABLE",
+						"Authentication admission is temporarily unavailable.",
+						true,
+					)})
+					return
+				}
+				if !decision.Allowed {
+					clear(bearerToken)
+					bearerToken = nil
+					request.Header.Del("DPoP")
+					response.Header().Set(
+						"Retry-After",
+						strconv.FormatInt(authenticationRetryAfterSeconds(decision.RetryAfter), 10),
+					)
+					writeJSON(response, http.StatusTooManyRequests, ErrorEnvelope{Error: safeErrorWithCorrelation(
+						correlationID,
+						"AUTHENTICATION_RATE_LIMITED",
+						"Too many authentication requests.",
+						true,
+					)})
+					return
+				}
 			}
 
 			bindingInvalid := false
