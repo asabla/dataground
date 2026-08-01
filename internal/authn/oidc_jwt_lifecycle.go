@@ -119,6 +119,9 @@ func (verifier *ReloadableOIDCJWTVerifier) Refresh(ctx context.Context) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
+		if errors.Is(err, ErrOIDCJWTKeysetInvalid) {
+			return ErrOIDCJWTKeysetInvalid
+		}
 		return ErrUnavailable
 	}
 	if err := ctx.Err(); err != nil {
