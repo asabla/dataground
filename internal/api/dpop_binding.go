@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -126,8 +127,16 @@ func validExternalOrigin(value string) bool {
 	}
 	hostname := parsed.Hostname()
 	if hostname == "" || strings.HasSuffix(hostname, ".") ||
-		parsed.Host != strings.ToLower(parsed.Host) || parsed.Port() == "443" {
+		parsed.Host != strings.ToLower(parsed.Host) ||
+		strings.HasSuffix(parsed.Host, ":") {
 		return false
+	}
+	if port := parsed.Port(); port != "" {
+		number, err := strconv.Atoi(port)
+		if err != nil || number < 1 || number > 65535 ||
+			number == 443 || strconv.Itoa(number) != port {
+			return false
+		}
 	}
 	return validExternalHostname(hostname)
 }
