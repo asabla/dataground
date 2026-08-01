@@ -6,9 +6,11 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"testing"
 	"time"
 
@@ -75,6 +77,60 @@ func TestDurableOIDCDPoPAssemblyRejectsUnconfiguredRepositoryBeforeSourceIO(t *t
 	}
 	if source.calls != 0 {
 		t.Fatalf("unconfigured repository contacted keyset source %d times", source.calls)
+	}
+}
+
+func TestDurableOIDCDPoPAssemblyRejectsInvalidRefreshPolicyBeforeSourceIO(t *testing.T) {
+	t.Parallel()
+
+	source := &apiAssemblyKeysetSource{snapshot: apiAssemblyKeysetSnapshot(1)}
+	config := apiAssemblyConfig(t, source)
+	config.KeysetRefresh = authn.OIDCJWTKeysetRefreshPolicy{}
+	if _, err := api.NewDurableOIDCDPoPAssembly(context.Background(), config); err == nil {
+		t.Fatal("invalid keyset refresh policy was accepted")
+	}
+	if source.calls != 0 {
+		t.Fatalf("invalid refresh policy contacted keyset source %d times", source.calls)
+	}
+}
+
+func TestDurableOIDCDPoPAssemblyKeysetReadinessTracksLifecycleOwnership(t *testing.T) {
+	t.Parallel()
+
+	source := &apiAssemblyKeysetSource{snapshot: apiAssemblyKeysetSnapshot(1)}
+	assembly, err := api.NewDurableOIDCDPoPAssembly(
+		context.Background(),
+		apiAssemblyConfig(t, source),
+	)
+	if err != nil {
+		t.Fatalf("assemble durable OIDC DPoP API: %v", err)
+	}
+	if err := assembly.OIDCKeysetReady(context.Background()); !errors.Is(err, authn.ErrUnavailable) {
+		t.Fatalf("stopped keyset lifecycle readiness = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	finished := make(chan error, 1)
+	go func() { finished <- assembly.RunOIDCKeysetRefresh(ctx) }()
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	for !assembly.OIDCKeysetRefreshStatus().Running {
+		select {
+		case <-deadline.C:
+			t.Fatal("keyset refresh lifecycle did not acquire ownership")
+		default:
+			runtime.Gosched()
+		}
+	}
+	if err := assembly.OIDCKeysetReady(context.Background()); err != nil {
+		t.Fatalf("running keyset lifecycle readiness = %v", err)
+	}
+	cancel()
+	if err := <-finished; !errors.Is(err, context.Canceled) {
+		t.Fatalf("keyset refresh lifecycle exit = %v", err)
+	}
+	if err := assembly.OIDCKeysetReady(context.Background()); !errors.Is(err, authn.ErrUnavailable) {
+		t.Fatalf("stopped keyset lifecycle remained ready: %v", err)
 	}
 }
 
