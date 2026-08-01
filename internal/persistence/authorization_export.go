@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -362,7 +361,3 @@ func encodeAuthorizationExportCursor(cursor authorizationExportCursor) (string, 
 	return authorizationExportCursorPrefix + base64.RawURLEncoding.EncodeToString(encoded), nil
 }
 
-func (AuthorizationAuditExport) MarshalJSON() ([]byte, error) {
-	type exportAlias AuthorizationAuditExport
-	return json.Marshal(exportAlias{})
-}
