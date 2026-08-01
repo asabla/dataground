@@ -73,6 +73,10 @@ func TestPinnedOIDCJWTVerifierRejectsInvalidSignatureHeaderAndClaims(t *testing.
 	wrongIssuer.Issuer = "https://other.example.invalid"
 	wrongAudience := validOIDCJWTClaims(now)
 	wrongAudience.Audience = jwt.Audience{"other-api"}
+	duplicateAudience := validOIDCJWTClaims(now)
+	duplicateAudience.Audience = jwt.Audience{testOIDCAudience, testOIDCAudience}
+	controlSubject := validOIDCJWTClaims(now)
+	controlSubject.Subject = "subject\t0001"
 	duplicatePayload := fixture.signPayload(t, []byte(fmt.Sprintf(
 		`{"iss":%q,"sub":%q,"sub":%q,"aud":%q,"exp":%d,"iat":%d}`,
 		testOIDCIssuer,
@@ -84,19 +88,21 @@ func TestPinnedOIDCJWTVerifierRejectsInvalidSignatureHeaderAndClaims(t *testing.
 	)), jose.RS256, testOIDCJWTKeyID, nil)
 
 	tests := map[string]string{
-		"wrong signature":   wrongSignature,
-		"unknown key":       unknownKey,
-		"wrong algorithm":   wrongAlgorithm,
-		"extra header":      extraHeader,
-		"expired":           fixture.sign(t, expiredClaims, jose.RS256, testOIDCJWTKeyID, nil),
-		"future not before": fixture.sign(t, futureClaims, jose.RS256, testOIDCJWTKeyID, nil),
-		"missing expiry":    fixture.sign(t, missingExpiry, jose.RS256, testOIDCJWTKeyID, nil),
-		"missing issued at": fixture.sign(t, missingIssuedAt, jose.RS256, testOIDCJWTKeyID, nil),
-		"excess lifetime":   fixture.sign(t, tooLong, jose.RS256, testOIDCJWTKeyID, nil),
-		"wrong issuer":      fixture.sign(t, wrongIssuer, jose.RS256, testOIDCJWTKeyID, nil),
-		"wrong audience":    fixture.sign(t, wrongAudience, jose.RS256, testOIDCJWTKeyID, nil),
-		"duplicate claim":   duplicatePayload,
-		"not compact":       "not-a-compact-signed-jwt-with-at-least-thirty-two-bytes",
+		"wrong signature":    wrongSignature,
+		"unknown key":        unknownKey,
+		"wrong algorithm":    wrongAlgorithm,
+		"extra header":       extraHeader,
+		"expired":            fixture.sign(t, expiredClaims, jose.RS256, testOIDCJWTKeyID, nil),
+		"future not before":  fixture.sign(t, futureClaims, jose.RS256, testOIDCJWTKeyID, nil),
+		"missing expiry":     fixture.sign(t, missingExpiry, jose.RS256, testOIDCJWTKeyID, nil),
+		"missing issued at":  fixture.sign(t, missingIssuedAt, jose.RS256, testOIDCJWTKeyID, nil),
+		"excess lifetime":    fixture.sign(t, tooLong, jose.RS256, testOIDCJWTKeyID, nil),
+		"wrong issuer":       fixture.sign(t, wrongIssuer, jose.RS256, testOIDCJWTKeyID, nil),
+		"wrong audience":     fixture.sign(t, wrongAudience, jose.RS256, testOIDCJWTKeyID, nil),
+		"duplicate audience": fixture.sign(t, duplicateAudience, jose.RS256, testOIDCJWTKeyID, nil),
+		"control subject":    fixture.sign(t, controlSubject, jose.RS256, testOIDCJWTKeyID, nil),
+		"duplicate claim":    duplicatePayload,
+		"not compact":        "not-a-compact-signed-jwt-with-at-least-thirty-two-bytes",
 	}
 	for name, token := range tests {
 		t.Run(name, func(t *testing.T) {
