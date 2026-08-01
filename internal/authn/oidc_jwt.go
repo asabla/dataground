@@ -26,6 +26,7 @@ const (
 	maximumOIDCTokenLifetime = 24 * time.Hour
 	minimumOIDCTokenLifetime = time.Minute
 	maximumOIDCHeaderBytes   = 2 << 10
+	maximumOIDCJSONDepth     = 32
 )
 
 type PinnedOIDCJWTConfig struct {
@@ -335,13 +336,16 @@ func requireUniqueJSONObject(content []byte) error {
 	if delimiter, ok := token.(json.Delim); !ok || delimiter != '{' {
 		return errors.New("JSON value must be an object")
 	}
-	if err := requireUniqueJSONContainer(decoder, '}'); err != nil {
+	if err := requireUniqueJSONContainer(decoder, '}', 1); err != nil {
 		return err
 	}
 	return requireJSONDecoderEOF(decoder)
 }
 
-func requireUniqueJSONContainer(decoder *json.Decoder, closing json.Delim) error {
+func requireUniqueJSONContainer(decoder *json.Decoder, closing json.Delim, depth int) error {
+	if depth > maximumOIDCJSONDepth {
+		return errors.New("JSON nesting is too deep")
+	}
 	seen := map[string]struct{}{}
 	for decoder.More() {
 		if closing == '}' {
@@ -365,11 +369,11 @@ func requireUniqueJSONContainer(decoder *json.Decoder, closing json.Delim) error
 		if delimiter, ok := value.(json.Delim); ok {
 			switch delimiter {
 			case '{':
-				if err := requireUniqueJSONContainer(decoder, '}'); err != nil {
+				if err := requireUniqueJSONContainer(decoder, '}', depth+1); err != nil {
 					return err
 				}
 			case '[':
-				if err := requireUniqueJSONContainer(decoder, ']'); err != nil {
+				if err := requireUniqueJSONContainer(decoder, ']', depth+1); err != nil {
 					return err
 				}
 			default:
