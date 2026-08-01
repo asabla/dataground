@@ -44,8 +44,7 @@ func TestReloadableOIDCJWTVerifierRotatesCompleteKeysets(t *testing.T) {
 	if err := verifier.Refresh(context.Background()); err != nil {
 		t.Fatalf("refresh keyset: %v", err)
 	}
-	if _, err := verifier.Verify(context.Background(), []byte(firstToken));
-		!errors.Is(err, authn.ErrInvalidCredential) {
+	if _, err := verifier.Verify(context.Background(), []byte(firstToken)); !errors.Is(err, authn.ErrInvalidCredential) {
 		t.Fatalf("retired key verification = %v", err)
 	}
 	secondFixture := oidcJWTFixture{privateKey: secondKey}
@@ -79,15 +78,13 @@ func TestReloadableOIDCJWTVerifierRejectsRollbackAndConflictingReuse(t *testing.
 	source.setSnapshot(oidcJWTKeysetSnapshot(
 		t, 1, expiresAt, &firstKey.PublicKey, "lifecycle-key-1",
 	))
-	if err := verifier.Refresh(context.Background());
-		!errors.Is(err, authn.ErrOIDCJWTKeysetRollback) {
+	if err := verifier.Refresh(context.Background()); !errors.Is(err, authn.ErrOIDCJWTKeysetRollback) {
 		t.Fatalf("keyset rollback = %v", err)
 	}
 	source.setSnapshot(oidcJWTKeysetSnapshot(
 		t, 2, expiresAt, &firstKey.PublicKey, "lifecycle-key-1",
 	))
-	if err := verifier.Refresh(context.Background());
-		!errors.Is(err, authn.ErrOIDCJWTKeysetConflict) {
+	if err := verifier.Refresh(context.Background()); !errors.Is(err, authn.ErrOIDCJWTKeysetConflict) {
 		t.Fatalf("conflicting keyset sequence = %v", err)
 	}
 	if _, err := verifier.Verify(context.Background(), []byte(secondToken)); err != nil {
@@ -186,8 +183,7 @@ func TestReloadableOIDCJWTVerifierPreservesCancellationAndCannotSerialize(t *tes
 	if err := verifier.Refresh(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled refresh = %v", err)
 	}
-	if _, err := verifier.Verify(ctx, []byte("token-with-at-least-thirty-two-bytes"));
-		!errors.Is(err, context.Canceled) {
+	if _, err := verifier.Verify(ctx, []byte("token-with-at-least-thirty-two-bytes")); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled verification = %v", err)
 	}
 	if _, err := json.Marshal(verifier); err == nil {
