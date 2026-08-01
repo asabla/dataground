@@ -26,6 +26,9 @@ type OIDCJWTKeysetSnapshot struct {
 	ExpiresAt time.Time
 }
 
+// OIDCJWTKeysetSource loads one complete deployment publication. Load must
+// honor cancellation and transfer an owned JWKS copy to keep refresh timeouts
+// and transient key material bounded.
 type OIDCJWTKeysetSource interface {
 	Load(context.Context) (OIDCJWTKeysetSnapshot, error)
 }
