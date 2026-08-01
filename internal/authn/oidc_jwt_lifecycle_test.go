@@ -34,6 +34,9 @@ func TestReloadableOIDCJWTVerifierRotatesCompleteKeysets(t *testing.T) {
 	if _, err := verifier.Verify(context.Background(), []byte(firstToken)); err != nil {
 		t.Fatalf("verify initial keyset: %v", err)
 	}
+	if err := verifier.Refresh(context.Background()); err != nil {
+		t.Fatalf("replay initial keyset: %v", err)
+	}
 
 	source.setSnapshot(oidcJWTKeysetSnapshot(
 		t, 2, time.Now().Add(time.Hour), &secondKey.PublicKey, "lifecycle-key-2",
@@ -129,6 +132,24 @@ func TestReloadableOIDCJWTVerifierRejectsInvalidSourcesAndSnapshots(t *testing.T
 	}
 }
 
+func TestReloadableOIDCJWTVerifierValidatesProfileBeforeLoadingSource(t *testing.T) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := &oidcJWTKeysetSource{snapshot: oidcJWTKeysetSnapshot(
+		t, 1, time.Now().Add(time.Hour), &privateKey.PublicKey, "lifecycle-key-1",
+	)}
+	config := reloadableOIDCJWTConfig(source)
+	config.Issuer = "http://identity.example.invalid"
+	if _, err := authn.NewReloadableOIDCJWTVerifier(context.Background(), config); err == nil {
+		t.Fatal("invalid reloadable profile was accepted")
+	}
+	if loads := source.loadCount(); loads != 0 {
+		t.Fatalf("invalid profile loaded source %d times", loads)
+	}
+}
+
 func TestReloadableOIDCJWTVerifierRetainsValidGenerationWhenSourceIsUnavailable(t *testing.T) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -178,6 +199,7 @@ type oidcJWTKeysetSource struct {
 	mu       sync.Mutex
 	snapshot authn.OIDCJWTKeysetSnapshot
 	err      error
+	loads    int
 }
 
 func (source *oidcJWTKeysetSource) Load(
@@ -188,12 +210,19 @@ func (source *oidcJWTKeysetSource) Load(
 	}
 	source.mu.Lock()
 	defer source.mu.Unlock()
+	source.loads++
 	if source.err != nil {
 		return authn.OIDCJWTKeysetSnapshot{}, source.err
 	}
 	snapshot := source.snapshot
 	snapshot.JWKS = append([]byte(nil), snapshot.JWKS...)
 	return snapshot, nil
+}
+
+func (source *oidcJWTKeysetSource) loadCount() int {
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	return source.loads
 }
 
 func (source *oidcJWTKeysetSource) setError(err error) {
