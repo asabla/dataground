@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/asabla/dataground/internal/authn"
 	"github.com/asabla/dataground/internal/authz"
@@ -78,47 +79,29 @@ func newProtectedRoute(
 
 			if rateLimiter != nil {
 				if authenticationContext.Err() != nil {
-					clear(bearerToken)
-					bearerToken = nil
-					request.Header.Del("DPoP")
-					writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeErrorWithCorrelation(
-						correlationID,
-						"AUTHENTICATION_RATE_LIMIT_UNAVAILABLE",
-						"Authentication admission is temporarily unavailable.",
-						true,
-					)})
+					writeAuthenticationRateLimitUnavailable(
+						response, request, bearerToken, correlationID,
+					)
 					return
 				}
-				decision, limitErr := rateLimiter.AllowAuthentication(
-					authenticationContext,
-					authenticationRateLimitRequest(domainID, bearerToken),
-				)
+				limitRequest := authenticationRateLimitRequest(domainID, bearerToken)
+				if !limitRequest.Valid() {
+					writeAuthenticationRateLimitUnavailable(
+						response, request, bearerToken, correlationID,
+					)
+					return
+				}
+				decision, limitErr := rateLimiter.AllowAuthentication(authenticationContext, limitRequest)
 				if limitErr != nil || authenticationContext.Err() != nil || !decision.Valid() {
-					clear(bearerToken)
-					bearerToken = nil
-					request.Header.Del("DPoP")
-					writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeErrorWithCorrelation(
-						correlationID,
-						"AUTHENTICATION_RATE_LIMIT_UNAVAILABLE",
-						"Authentication admission is temporarily unavailable.",
-						true,
-					)})
+					writeAuthenticationRateLimitUnavailable(
+						response, request, bearerToken, correlationID,
+					)
 					return
 				}
 				if !decision.Allowed {
-					clear(bearerToken)
-					bearerToken = nil
-					request.Header.Del("DPoP")
-					response.Header().Set(
-						"Retry-After",
-						strconv.FormatInt(authenticationRetryAfterSeconds(decision.RetryAfter), 10),
+					writeAuthenticationRateLimited(
+						response, request, bearerToken, correlationID, decision.RetryAfter,
 					)
-					writeJSON(response, http.StatusTooManyRequests, ErrorEnvelope{Error: safeErrorWithCorrelation(
-						correlationID,
-						"AUTHENTICATION_RATE_LIMITED",
-						"Too many authentication requests.",
-						true,
-					)})
 					return
 				}
 			}
@@ -217,6 +200,43 @@ func newProtectedRoute(
 			next.ServeHTTP(response, request.WithContext(ctx))
 		})
 	}, nil
+}
+
+func writeAuthenticationRateLimitUnavailable(
+	response http.ResponseWriter,
+	request *http.Request,
+	bearerToken []byte,
+	correlationID string,
+) {
+	clear(bearerToken)
+	request.Header.Del("DPoP")
+	writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeErrorWithCorrelation(
+		correlationID,
+		"AUTHENTICATION_RATE_LIMIT_UNAVAILABLE",
+		"Authentication admission is temporarily unavailable.",
+		true,
+	)})
+}
+
+func writeAuthenticationRateLimited(
+	response http.ResponseWriter,
+	request *http.Request,
+	bearerToken []byte,
+	correlationID string,
+	retryAfter time.Duration,
+) {
+	clear(bearerToken)
+	request.Header.Del("DPoP")
+	response.Header().Set(
+		"Retry-After",
+		strconv.FormatInt(authenticationRetryAfterSeconds(retryAfter), 10),
+	)
+	writeJSON(response, http.StatusTooManyRequests, ErrorEnvelope{Error: safeErrorWithCorrelation(
+		correlationID,
+		"AUTHENTICATION_RATE_LIMITED",
+		"Too many authentication requests.",
+		true,
+	)})
 }
 
 func parseBearerToken(values []string) ([]byte, bool) {
