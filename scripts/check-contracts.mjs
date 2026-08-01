@@ -176,9 +176,7 @@ for (const fixture of fixtureManifest.fixtures) {
     `${fixture.file} expected valid=${fixture.valid}; ${ajv.errorsText(validate.errors)}`,
   );
   if (fixture.document === "authorization-audit-export" && fixture.valid) {
-    const digest = createHash("sha256")
-      .update(JSON.stringify(value.content))
-      .digest("hex");
+    const digest = createHash("sha256").update(JSON.stringify(value.content)).digest("hex");
     assert.equal(
       value.contentSha256,
       `sha256:${digest}`,
