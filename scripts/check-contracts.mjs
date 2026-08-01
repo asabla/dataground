@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -174,6 +175,16 @@ for (const fixture of fixtureManifest.fixtures) {
     fixture.valid,
     `${fixture.file} expected valid=${fixture.valid}; ${ajv.errorsText(validate.errors)}`,
   );
+  if (fixture.document === "authorization-audit-export" && fixture.valid) {
+    const digest = createHash("sha256")
+      .update(JSON.stringify(value.content))
+      .digest("hex");
+    assert.equal(
+      value.contentSha256,
+      `sha256:${digest}`,
+      `${fixture.file} must bind its canonical content bytes`,
+    );
+  }
 }
 
 const baseline = await readJson("contracts/compatibility/v1-baseline.json");
