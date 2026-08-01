@@ -16,10 +16,10 @@ import (
 // durable OIDC and DPoP security chain. It does not define ingress, keyset
 // refresh scheduling, rate-limit policy, or executable activation.
 type DurableOIDCDPoPConfig struct {
-	Repository     *persistence.Repository
-	Authorizer     authz.Authorizer
-	RateLimiter    AuthenticationRateLimiter
-	ExternalOrigin string
+	Repository      *persistence.Repository
+	Authorizer      authz.Authorizer
+	RateLimiter     AuthenticationRateLimiter
+	ExternalOrigin  string
 	OIDC            authn.ReloadableOIDCJWTConfig
 	DPoPClockSkew   time.Duration
 	MaximumProofAge time.Duration
