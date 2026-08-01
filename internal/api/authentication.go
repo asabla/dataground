@@ -77,11 +77,23 @@ func newProtectedRoute(
 			}
 
 			if rateLimiter != nil {
+				if authenticationContext.Err() != nil {
+					clear(bearerToken)
+					bearerToken = nil
+					request.Header.Del("DPoP")
+					writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeErrorWithCorrelation(
+						correlationID,
+						"AUTHENTICATION_RATE_LIMIT_UNAVAILABLE",
+						"Authentication admission is temporarily unavailable.",
+						true,
+					)})
+					return
+				}
 				decision, limitErr := rateLimiter.AllowAuthentication(
 					authenticationContext,
 					authenticationRateLimitRequest(domainID, bearerToken),
 				)
-				if limitErr != nil || !decision.Valid() {
+				if limitErr != nil || authenticationContext.Err() != nil || !decision.Valid() {
 					clear(bearerToken)
 					bearerToken = nil
 					request.Header.Del("DPoP")
