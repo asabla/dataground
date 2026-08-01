@@ -29,7 +29,7 @@ func NewDurableHandler(
 	authenticator authn.Authenticator,
 	authorizer authz.Authorizer,
 ) (http.Handler, error) {
-	return newDurableHandler(repository, authenticator, authorizer, nil)
+	return newDurableHandler(repository, authenticator, authorizer, nil, nil)
 }
 
 func NewDurableDPoPBoundHandler(
@@ -41,7 +41,23 @@ func NewDurableDPoPBoundHandler(
 	if binder == nil {
 		return nil, errors.New("DPoP request binder is required")
 	}
-	return newDurableHandler(repository, authenticator, authorizer, binder)
+	return newDurableHandler(repository, authenticator, authorizer, binder, nil)
+}
+
+func NewDurableRateLimitedDPoPHandler(
+	repository *persistence.Repository,
+	authenticator authn.Authenticator,
+	authorizer authz.Authorizer,
+	binder *DPoPRequestBinder,
+	rateLimiter AuthenticationRateLimiter,
+) (http.Handler, error) {
+	if binder == nil {
+		return nil, errors.New("DPoP request binder is required")
+	}
+	if rateLimiter == nil || isNilInterface(rateLimiter) {
+		return nil, errors.New("authentication rate limiter is required")
+	}
+	return newDurableHandler(repository, authenticator, authorizer, binder, rateLimiter)
 }
 
 func newDurableHandler(
@@ -49,8 +65,9 @@ func newDurableHandler(
 	authenticator authn.Authenticator,
 	authorizer authz.Authorizer,
 	binder *DPoPRequestBinder,
+	rateLimiter AuthenticationRateLimiter,
 ) (http.Handler, error) {
-	protected, err := newProtectedRoute(authenticator, authorizer, binder)
+	protected, err := newProtectedRoute(authenticator, authorizer, binder, rateLimiter)
 	if err != nil {
 		return nil, err
 	}
