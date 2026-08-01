@@ -1,8 +1,45 @@
 {
   "content": {
+    "schemaVersion": "dataground.dev.authorization-audit-export/v1",
     "exportId": "aex_00000000000000000001",
+    "isolationDomainId": "iso_00000000000000000001",
     "requestedBy": "operator@example.invalid",
-    "correlationId": "cor_00000000000000000005"
+    "correlationId": "cor_00000000000000000005",
+    "cursor": "",
+    "nextCursor": "v1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "complete": true,
+    "records": [
+      {
+        "source": "api",
+        "sequence": "1",
+        "recordedAt": "2026-08-01T10:00:00Z",
+        "principalId": "usr_00000000000000000001",
+        "principalKind": "human",
+        "action": "readInvocation",
+        "resourceType": "DataGround::Invocation",
+        "resourceId": "inv_00000000000000000001",
+        "outcome": "allowed",
+        "policySetId": "policy.api.v1",
+        "policyDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "correlationId": "cor_00000000000000000001",
+        "actorId": "operator@example.invalid"
+      },
+      {
+        "source": "invocation",
+        "sequence": "2",
+        "recordedAt": "2026-08-01T10:00:01Z",
+        "actorId": "operator@example.invalid",
+        "action": "run",
+        "operationId": "op_00000000000000000001",
+        "invocationId": "inv_00000000000000000001",
+        "serviceId": "svc_00000000000000000001",
+        "revisionId": "rev_00000000000000000001",
+        "outcome": "allowed",
+        "policySetId": "policy.invocation.v1",
+        "policyDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "correlationId": "cor_00000000000000000002"
+      }
+    ]
   },
   "contentSha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
 }
