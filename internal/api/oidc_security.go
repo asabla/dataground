@@ -90,8 +90,16 @@ func NewDurableOIDCDPoPAssembly(
 }
 
 func (assembly *DurableOIDCDPoPAssembly) Handler() http.Handler {
-	if assembly == nil {
-		return nil
+	if assembly == nil || assembly.handler == nil {
+		return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+			request.Header.Del("Authorization")
+			request.Header.Del("DPoP")
+			writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
+				"AUTHENTICATION_UNAVAILABLE",
+				"Authentication is temporarily unavailable.",
+				true,
+			)})
+		})
 	}
 	return assembly.handler
 }
