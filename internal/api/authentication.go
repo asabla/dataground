@@ -24,6 +24,7 @@ type authenticatedCorrelationKey struct{}
 func newProtectedRoute(
 	authenticator authn.Authenticator,
 	authorizer authz.Authorizer,
+	dpopBinder *DPoPRequestBinder,
 ) (func(authz.Action, authz.ResourceType, string, http.HandlerFunc) http.Handler, error) {
 	if authenticator == nil || isNilInterface(authenticator) {
 		return nil, errors.New("API authenticator is required")
@@ -68,6 +69,18 @@ func newProtectedRoute(
 					true,
 				)})
 				return
+			}
+
+			if dpopBinder != nil {
+				boundContext, bindErr := dpopBinder.bind(request.WithContext(authenticationContext), domainID)
+				if bindErr != nil {
+					clear(bearerToken)
+					bearerToken = nil
+				} else {
+					authenticationContext = boundContext
+				}
+			} else {
+				request.Header.Del("DPoP")
 			}
 
 			principal, err := authenticator.Authenticate(authenticationContext, bearerToken)
