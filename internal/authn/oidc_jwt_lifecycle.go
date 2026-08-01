@@ -141,9 +141,9 @@ func (verifier *ReloadableOIDCJWTVerifier) Verify(
 		return VerifiedOIDCToken{}, err
 	}
 	verifier.mu.RLock()
+	defer verifier.mu.RUnlock()
 	delegate := verifier.verifier
 	expiresAt := verifier.expiresAt
-	verifier.mu.RUnlock()
 	if delegate == nil || expiresAt.IsZero() || !verifier.now().Before(expiresAt) {
 		return VerifiedOIDCToken{}, ErrUnavailable
 	}
