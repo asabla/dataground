@@ -45,6 +45,7 @@ func (policy OIDCJWTKeysetRefreshPolicy) Valid() bool {
 // key material, key identifiers, issuer data, source errors, and keyset digests.
 type OIDCJWTKeysetRefreshStatus struct {
 	Running             bool
+	Refreshing          bool
 	LastAttemptAt       time.Time
 	LastSuccessAt       time.Time
 	ConsecutiveFailures uint64
@@ -106,6 +107,7 @@ func (supervisor *OIDCJWTKeysetRefreshSupervisor) Run(ctx context.Context) error
 	defer func() {
 		supervisor.mu.Lock()
 		supervisor.status.Running = false
+		supervisor.status.Refreshing = false
 		supervisor.mu.Unlock()
 	}()
 
@@ -117,15 +119,21 @@ func (supervisor *OIDCJWTKeysetRefreshSupervisor) Run(ctx context.Context) error
 			return ErrUnavailable
 		}
 		attemptedAt := supervisor.now().UTC()
+		supervisor.beginRefresh(attemptedAt)
 		attemptCtx, cancel := context.WithTimeout(ctx, supervisor.policy.Timeout)
 		err := supervisor.target.Refresh(attemptCtx)
 		attemptErr := attemptCtx.Err()
 		cancel()
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
-		}
 		if err != nil && errors.Is(attemptErr, context.DeadlineExceeded) {
 			err = context.DeadlineExceeded
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			if err == nil {
+				supervisor.recordRefresh(attemptedAt, nil)
+			} else {
+				supervisor.finishCancelledRefresh()
+			}
+			return ctxErr
 		}
 		supervisor.recordRefresh(attemptedAt, err)
 	}
@@ -156,9 +164,23 @@ func (supervisor *OIDCJWTKeysetRefreshSupervisor) Status() OIDCJWTKeysetRefreshS
 	return supervisor.status
 }
 
+func (supervisor *OIDCJWTKeysetRefreshSupervisor) beginRefresh(attemptedAt time.Time) {
+	supervisor.mu.Lock()
+	defer supervisor.mu.Unlock()
+	supervisor.status.Refreshing = true
+	supervisor.status.LastAttemptAt = attemptedAt
+}
+
+func (supervisor *OIDCJWTKeysetRefreshSupervisor) finishCancelledRefresh() {
+	supervisor.mu.Lock()
+	defer supervisor.mu.Unlock()
+	supervisor.status.Refreshing = false
+}
+
 func (supervisor *OIDCJWTKeysetRefreshSupervisor) recordRefresh(attemptedAt time.Time, err error) {
 	supervisor.mu.Lock()
 	defer supervisor.mu.Unlock()
+	supervisor.status.Refreshing = false
 	supervisor.status.LastAttemptAt = attemptedAt
 	if err == nil {
 		supervisor.status.LastSuccessAt = attemptedAt
