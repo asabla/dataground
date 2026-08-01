@@ -56,12 +56,17 @@ func main() {
 		}
 		defer pool.Close()
 		repository := persistence.NewRepository(pool)
+		auditedAuthenticator, auditErr := authn.NewAuditedAuthenticator(authenticator, repository)
+		if auditErr != nil {
+			logger.Error("durable authentication audit assembly failed", "error", auditErr)
+			os.Exit(1)
+		}
 		auditedAuthorizer, auditErr := authz.NewAuditedAuthorizer(authorizer, repository)
 		if auditErr != nil {
 			logger.Error("durable authorization audit assembly failed", "error", auditErr)
 			os.Exit(1)
 		}
-		handler, err = api.NewDurableHandler(repository, authenticator, auditedAuthorizer)
+		handler, err = api.NewDurableHandler(repository, auditedAuthenticator, auditedAuthorizer)
 		if err != nil {
 			logger.Error("durable API security assembly failed", "error", err)
 			os.Exit(1)

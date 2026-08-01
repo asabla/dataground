@@ -232,6 +232,10 @@ func nilOIDCDependency(value any) bool {
 	}
 }
 
+func (*OIDCAuthenticator) AuthenticationMethod() AuthenticationMethod {
+	return AuthenticationMethodOIDC
+}
+
 func (*OIDCAuthenticator) MarshalJSON() ([]byte, error) {
 	return nil, errors.New("authenticators cannot be serialized")
 }
