@@ -79,6 +79,13 @@ func TestRateLimitedDPoPHandlerRejectsBeforeBindingOrAuthentication(t *testing.T
 	if got.IsolationDomainID() != testDomain || got.CredentialDigest() != sha256.Sum256([]byte(testToken)) {
 		t.Fatalf("rate limit request = %#v", got)
 	}
+	encodedRequest, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("encode rate limit request: %v", err)
+	}
+	if string(encodedRequest) != "{}" {
+		t.Fatalf("serialized rate limit request = %s, want {}", encodedRequest)
+	}
 	var problem api.ErrorEnvelope
 	if err := json.NewDecoder(response.Body).Decode(&problem); err != nil {
 		t.Fatalf("decode response: %v", err)
