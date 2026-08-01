@@ -78,18 +78,16 @@ func apiAssemblyConfig(
 		Authorizer:     authorizer,
 		RateLimiter:    apiAssemblyRateLimiter{},
 		ExternalOrigin: "https://api.example.invalid",
-		Authentication: authn.ReloadableOIDCDPoPConfig{
-			Issuer:               "https://identity.example.invalid",
-			Audience:             authn.APIAudience,
-			Algorithms:           []string{"EdDSA"},
-			KeysetSource:         source,
-			IdentityResolver:     apiAssemblyIdentityResolver{},
-			ReplayStore:          apiAssemblyReplayStore{},
-			JWTClockSkew:         30 * time.Second,
-			MaximumTokenLifetime: time.Hour,
-			DPoPClockSkew:        30 * time.Second,
-			MaximumProofAge:      time.Minute,
+		OIDC: authn.ReloadableOIDCJWTConfig{
+			Issuer:          "https://identity.example.invalid",
+			Audience:        authn.APIAudience,
+			Algorithms:      []string{"EdDSA"},
+			Source:          source,
+			ClockSkew:       30 * time.Second,
+			MaximumLifetime: time.Hour,
 		},
+		DPoPClockSkew:   30 * time.Second,
+		MaximumProofAge: time.Minute,
 	}
 }
 
@@ -117,24 +115,6 @@ func (source *apiAssemblyKeysetSource) Load(context.Context) (authn.OIDCJWTKeyse
 	return snapshot, nil
 }
 
-type apiAssemblyIdentityResolver struct{}
-
-func (apiAssemblyIdentityResolver) Resolve(
-	context.Context,
-	authn.OIDCIdentity,
-) (authn.OIDCIdentityBinding, error) {
-	return authn.OIDCIdentityBinding{}, authn.ErrIdentityNotFound
-}
-
-type apiAssemblyReplayStore struct{}
-
-func (apiAssemblyReplayStore) ReserveDPoPProof(
-	context.Context,
-	authn.DPoPReplayReservation,
-) error {
-	return authn.ErrUnavailable
-}
-
 type apiAssemblyRateLimiter struct{}
 
 func (apiAssemblyRateLimiter) AllowAuthentication(
@@ -145,6 +125,4 @@ func (apiAssemblyRateLimiter) AllowAuthentication(
 }
 
 var _ authn.OIDCJWTKeysetSource = (*apiAssemblyKeysetSource)(nil)
-var _ authn.OIDCIdentityResolver = apiAssemblyIdentityResolver{}
-var _ authn.DPoPReplayStore = apiAssemblyReplayStore{}
 var _ api.AuthenticationRateLimiter = apiAssemblyRateLimiter{}
