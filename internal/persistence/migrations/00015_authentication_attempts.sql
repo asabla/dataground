@@ -11,23 +11,19 @@ CREATE TABLE authentication_attempts (
         CHECK (outcome IN ('authenticated', 'rejected', 'scope-denied', 'unavailable')),
     correlation_id text NOT NULL,
     recorded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    UNIQUE (isolation_domain_id, correlation_id),
     CHECK (isolation_domain_id ~ '^iso_[0-9a-z]{20,32}$'),
     CHECK (principal_id IS NULL OR principal_id ~ '^[a-z][a-z0-9_-]{2,127}$'),
     CHECK (
         principal_kind IS NULL
-        OR principal_kind IN (
-            'human',
-            'service',
-            'platform-service',
-            'sandbox-workload',
-            'distributed-compute-workload'
-        )
+        OR principal_kind IN ('human', 'service')
     ),
     CHECK ((principal_id IS NULL) = (principal_kind IS NULL)),
     CHECK (
         (outcome = 'authenticated' AND principal_id IS NOT NULL)
         OR (outcome <> 'authenticated' AND principal_id IS NULL)
     ),
+    CHECK (method <> 'development-bearer' OR principal_kind IS NULL OR principal_kind = 'human'),
     CHECK (correlation_id ~ '^cor_[0-9a-z]{20,32}$')
 );
 
