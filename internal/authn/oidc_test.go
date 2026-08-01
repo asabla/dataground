@@ -63,6 +63,10 @@ func TestOIDCAuthenticatorRejectsUntrustedIssuerAudienceAndSubject(t *testing.T)
 		"missing subject": {
 			Issuer: testOIDCIssuer, Audiences: []string{testOIDCAudience},
 		},
+		"control subject": {
+			Issuer: testOIDCIssuer, Subject: "subject\\t0001",
+			Audiences: []string{testOIDCAudience},
+		},
 		"wrong audience": {
 			Issuer: testOIDCIssuer, Subject: testOIDCSubject,
 			Audiences: []string{"another-audience"},
@@ -177,6 +181,12 @@ func TestOIDCAuthenticatorRejectsIncompleteAssemblyAndSerialization(t *testing.T
 		Verifier: &recordingOIDCVerifier{}, Resolver: &recordingOIDCResolver{},
 	}); err == nil {
 		t.Fatal("plaintext issuer was accepted")
+	}
+	if _, err := authn.NewOIDCAuthenticator(authn.OIDCConfig{
+		Issuer: testOIDCIssuer, Audience: "other-api",
+		Verifier: &recordingOIDCVerifier{}, Resolver: &recordingOIDCResolver{},
+	}); err == nil {
+		t.Fatal("non-API audience was accepted")
 	}
 
 	authenticator := newOIDCAuthenticator(
