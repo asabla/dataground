@@ -7,7 +7,8 @@ CREATE TABLE oidc_dpop_replays (
     proof_id_digest bytea NOT NULL,
     expires_at timestamptz NOT NULL,
     reserved_at timestamptz NOT NULL DEFAULT clock_timestamp(),
-    UNIQUE (key_thumbprint_digest, proof_id_digest),
+    CONSTRAINT oidc_dpop_replays_proof_key
+        UNIQUE (key_thumbprint_digest, proof_id_digest),
     CHECK (isolation_domain_id ~ '^iso_[0-9a-z]{20,32}$'),
     CHECK (octet_length(key_thumbprint_digest) = 32),
     CHECK (octet_length(proof_id_digest) = 32),
@@ -22,16 +23,19 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    IF TG_OP = 'INSERT' AND NEW.expires_at > clock_timestamp() + interval '7 minutes' THEN
-        RAISE EXCEPTION 'DPoP replay reservation lifetime is invalid';
-    END IF;
-    IF TG_OP = 'UPDATE' THEN
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.expires_at > clock_timestamp() + interval '7 minutes' THEN
+            RAISE EXCEPTION 'DPoP replay reservation lifetime is invalid';
+        END IF;
+        RETURN NEW;
+    ELSIF TG_OP = 'UPDATE' THEN
         RAISE EXCEPTION 'DPoP replay reservations are immutable';
+    ELSE
+        IF OLD.expires_at > clock_timestamp() THEN
+            RAISE EXCEPTION 'active DPoP replay reservations cannot be deleted';
+        END IF;
+        RETURN OLD;
     END IF;
-    IF TG_OP = 'DELETE' AND OLD.expires_at > clock_timestamp() THEN
-        RAISE EXCEPTION 'active DPoP replay reservations cannot be deleted';
-    END IF;
-    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
 END;
 $$;
 
