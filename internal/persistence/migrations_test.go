@@ -61,12 +61,13 @@ func TestMigrationsRoundTrip(t *testing.T) {
 		      'invocation_authorization_decisions',
 		      'authorization_audit_exports',
 		      'oidc_identity_bindings',
-		      'oidc_identity_revocations'
+		      'oidc_identity_revocations',
+		      'authentication_attempts'
 		  )
 	`).Scan(&tables); err != nil {
 		t.Fatalf("inspect migrated tables: %v", err)
 	}
-	if tables != 17 {
-		t.Fatalf("expected 17 representative tables, got %d", tables)
+	if tables != 18 {
+		t.Fatalf("expected 18 representative tables, got %d", tables)
 	}
 }
