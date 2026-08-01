@@ -21,6 +21,7 @@ type DurableOIDCDPoPConfig struct {
 	RateLimiter     AuthenticationRateLimiter
 	ExternalOrigin  string
 	OIDC            authn.ReloadableOIDCJWTConfig
+	KeysetRefresh   authn.OIDCJWTKeysetRefreshPolicy
 	DPoPClockSkew   time.Duration
 	MaximumProofAge time.Duration
 }
@@ -31,6 +32,7 @@ type DurableOIDCDPoPConfig struct {
 type DurableOIDCDPoPAssembly struct {
 	handler       http.Handler
 	authenticator *authn.ReloadableOIDCDPoPAuthenticator
+	keysets       *authn.OIDCJWTKeysetRefreshSupervisor
 }
 
 func NewDurableOIDCDPoPAssembly(
@@ -45,6 +47,9 @@ func NewDurableOIDCDPoPAssembly(
 	}
 	if config.RateLimiter == nil || isNilInterface(config.RateLimiter) {
 		return nil, errors.New("durable OIDC DPoP rate limiter is required")
+	}
+	if !config.KeysetRefresh.Valid() {
+		return nil, errors.New("durable OIDC DPoP keyset refresh policy is invalid")
 	}
 	binder, err := NewDPoPRequestBinder(config.ExternalOrigin)
 	if err != nil {
@@ -69,6 +74,10 @@ func NewDurableOIDCDPoPAssembly(
 	if err != nil {
 		return nil, err
 	}
+	keysets, err := authenticator.NewKeysetRefreshSupervisor(config.KeysetRefresh)
+	if err != nil {
+		return nil, err
+	}
 	auditedAuthenticator, err := authn.NewAuditedAuthenticator(authenticator, config.Repository)
 	if err != nil {
 		return nil, err
@@ -84,8 +93,9 @@ func NewDurableOIDCDPoPAssembly(
 		return nil, err
 	}
 	return &DurableOIDCDPoPAssembly{
-		handler:       handler,
+		handler:       oidcKeysetReadyHandler(handler, keysets),
 		authenticator: authenticator,
+		keysets:       keysets,
 	}, nil
 }
 
@@ -104,11 +114,51 @@ func (assembly *DurableOIDCDPoPAssembly) Handler() http.Handler {
 	return assembly.handler
 }
 
+func (assembly *DurableOIDCDPoPAssembly) RunOIDCKeysetRefresh(ctx context.Context) error {
+	if assembly == nil || assembly.keysets == nil {
+		return authn.ErrUnavailable
+	}
+	return assembly.keysets.Run(ctx)
+}
+
+func (assembly *DurableOIDCDPoPAssembly) OIDCKeysetReady(ctx context.Context) error {
+	if assembly == nil || assembly.keysets == nil {
+		return authn.ErrUnavailable
+	}
+	return assembly.keysets.Ready(ctx)
+}
+
+func (assembly *DurableOIDCDPoPAssembly) OIDCKeysetRefreshStatus() authn.OIDCJWTKeysetRefreshStatus {
+	if assembly == nil || assembly.keysets == nil {
+		return authn.OIDCJWTKeysetRefreshStatus{}
+	}
+	return assembly.keysets.Status()
+}
+
 func (assembly *DurableOIDCDPoPAssembly) RefreshOIDCKeyset(ctx context.Context) error {
 	if assembly == nil || assembly.authenticator == nil {
 		return authn.ErrUnavailable
 	}
 	return assembly.authenticator.RefreshKeyset(ctx)
+}
+
+func oidcKeysetReadyHandler(
+	handler http.Handler,
+	keysets *authn.OIDCJWTKeysetRefreshSupervisor,
+) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodGet && request.URL.Path == "/readyz" {
+			if err := keysets.Ready(request.Context()); err != nil {
+				writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
+					"OIDC_KEYSET_UNAVAILABLE",
+					"OIDC signing keys are unavailable.",
+					true,
+				)})
+				return
+			}
+		}
+		handler.ServeHTTP(response, request)
+	})
 }
 
 func (*DurableOIDCDPoPAssembly) MarshalJSON() ([]byte, error) {
