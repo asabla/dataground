@@ -88,6 +88,15 @@ func (authenticator *ReloadableOIDCDPoPAuthenticator) Authenticate(
 	return authenticator.authenticator.Authenticate(ctx, bearerToken)
 }
 
+func (authenticator *ReloadableOIDCDPoPAuthenticator) NewKeysetRefreshSupervisor(
+	policy OIDCJWTKeysetRefreshPolicy,
+) (*OIDCJWTKeysetRefreshSupervisor, error) {
+	if authenticator == nil || nilOIDCDependency(authenticator.keysets) {
+		return nil, ErrUnavailable
+	}
+	return NewOIDCJWTKeysetRefreshSupervisor(authenticator.keysets, policy)
+}
+
 func (authenticator *ReloadableOIDCDPoPAuthenticator) RefreshKeyset(ctx context.Context) error {
 	if authenticator == nil || nilOIDCDependency(authenticator.keysets) {
 		return ErrUnavailable
