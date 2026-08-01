@@ -70,6 +70,8 @@ func TestDPoPTokenVerifierRejectsUnboundMalformedAndReplayedProofs(t *testing.T)
 		"wrong URI":            {delegate: fixture.verified(fixture.thumbprint), proof: validProof, method: testDPoPMethod, uri: "https://api.example.invalid/other"},
 		"wrong access token":   {delegate: fixture.verified(fixture.thumbprint), proof: fixture.proof(t, testDPoPMethod, testDPoPURI, now, "proof-id-00000000000003", otherToken), method: testDPoPMethod, uri: testDPoPURI},
 		"expired proof":        {delegate: fixture.verified(fixture.thumbprint), proof: fixture.proof(t, testDPoPMethod, testDPoPURI, now.Add(-10*time.Minute), "proof-id-00000000000004", fixture.accessToken), method: testDPoPMethod, uri: testDPoPURI},
+		"future proof":         {delegate: fixture.verified(fixture.thumbprint), proof: fixture.proof(t, testDPoPMethod, testDPoPURI, now.Add(5*time.Minute), "proof-id-00000000000006", fixture.accessToken), method: testDPoPMethod, uri: testDPoPURI},
+		"corrupted signature":  {delegate: fixture.verified(fixture.thumbprint), proof: corruptDPoPProof(validProof), method: testDPoPMethod, uri: testDPoPURI},
 		"replayed proof":       {delegate: fixture.verified(fixture.thumbprint), proof: validProof, method: testDPoPMethod, uri: testDPoPURI, replay: authn.ErrDPoPProofReplayed},
 	}
 	for name, test := range tests {
@@ -80,6 +82,30 @@ func TestDPoPTokenVerifierRejectsUnboundMalformedAndReplayedProofs(t *testing.T)
 			ctx := fixture.context(t, test.method, test.uri, test.proof)
 			if _, err := verifier.Verify(ctx, fixture.accessToken); !errors.Is(err, authn.ErrInvalidCredential) {
 				t.Fatalf("error = %v, want invalid credential", err)
+			}
+		})
+	}
+}
+
+func TestDPoPRequestRejectsUntrustedExternalURIForms(t *testing.T) {
+	t.Parallel()
+	fixture := newDPoPFixture(t)
+	proof := fixture.proof(t, testDPoPMethod, testDPoPURI, time.Now(), "proof-id-00000000000007", fixture.accessToken)
+	for name, uri := range map[string]string{
+		"plaintext":    "http://api.example.invalid/resource",
+		"userinfo":     "https://user@api.example.invalid/resource",
+		"uppercase":    "https://API.example.invalid/resource",
+		"default port": "https://api.example.invalid:443/resource",
+		"trailing dot": "https://api.example.invalid./resource",
+		"query":        "https://api.example.invalid/resource?scope=other",
+		"fragment":     "https://api.example.invalid/resource#other",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := authn.WithDPoPRequest(context.Background(), authn.DPoPRequest{
+				IsolationDomainID: testDomain, Method: testDPoPMethod, ExternalURI: uri, Proof: proof,
+			}); err == nil {
+				t.Fatal("untrusted external URI was accepted")
 			}
 		})
 	}
@@ -202,6 +228,16 @@ func dpopThumbprint(t *testing.T, key *ecdsa.PublicKey) string {
 		t.Fatalf("compute DPoP thumbprint: %v", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(thumbprint)
+}
+
+func corruptDPoPProof(proof []byte) []byte {
+	corrupted := append([]byte(nil), proof...)
+	if corrupted[len(corrupted)-1] == 'A' {
+		corrupted[len(corrupted)-1] = 'B'
+	} else {
+		corrupted[len(corrupted)-1] = 'A'
+	}
+	return corrupted
 }
 
 func newDPoPVerifier(
