@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"reflect"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -37,7 +39,7 @@ type OIDCIdentity struct {
 type OIDCIdentityBinding struct {
 	PrincipalID       string
 	PrincipalKind     PrincipalKind
-	IsolationDomains  []string
+	IsolationDomains []string
 }
 
 type OIDCIdentityResolver interface {
@@ -62,7 +64,7 @@ func NewOIDCAuthenticator(config OIDCConfig) (*OIDCAuthenticator, error) {
 	if !validOIDCIssuer(config.Issuer) {
 		return nil, errors.New("OIDC issuer is invalid")
 	}
-	if !validOIDCValue(config.Audience) {
+	if config.Audience != APIAudience {
 		return nil, errors.New("OIDC audience is invalid")
 	}
 	if nilOIDCDependency(config.Verifier) {
