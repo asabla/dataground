@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/asabla/dataground/internal/authn"
@@ -38,7 +39,8 @@ type AuthorizationAuditExport struct {
 
 type AuthorizationAuditExportRecord struct {
 	Source        string    `json:"source"`
-	Sequence      int64     `json:"sequence"`
+	Sequence      string    `json:"sequence"`
+	sequenceValue int64     `json:"-"`
 	RecordedAt    time.Time `json:"recordedAt"`
 	PrincipalID   string    `json:"principalId,omitempty"`
 	PrincipalKind string    `json:"principalKind,omitempty"`
@@ -195,7 +197,7 @@ func (repository *Repository) ExportAuthorizationDecisions(
 		var record AuthorizationAuditExportRecord
 		if err := rows.Scan(
 			&record.Source,
-			&record.Sequence,
+			&record.sequenceValue,
 			&record.RecordedAt,
 			&record.PrincipalID,
 			&record.PrincipalKind,
@@ -214,6 +216,7 @@ func (repository *Repository) ExportAuthorizationDecisions(
 		); err != nil {
 			return AuthorizationAuditExport{}, fmt.Errorf("scan authorization audit export: %w", err)
 		}
+		record.Sequence = strconv.FormatInt(record.sequenceValue, 10)
 		if !record.valid(isolationDomainID) {
 			return AuthorizationAuditExport{}, errors.New("stored authorization audit record is invalid")
 		}
@@ -231,9 +234,9 @@ func (repository *Repository) ExportAuthorizationDecisions(
 	for _, record := range records {
 		switch record.Source {
 		case "api":
-			cursor.apiAfter = record.Sequence
+			cursor.apiAfter = record.sequenceValue
 		case "invocation":
-			cursor.invocationAfter = record.Sequence
+			cursor.invocationAfter = record.sequenceValue
 		}
 	}
 	nextCursor, err := encodeAuthorizationExportCursor(cursor)
@@ -254,7 +257,7 @@ func (repository *Repository) ExportAuthorizationDecisions(
 }
 
 func (record AuthorizationAuditExportRecord) valid(isolationDomainID string) bool {
-	if record.Sequence < 1 || record.RecordedAt.IsZero() {
+	if record.sequenceValue < 1 || record.Sequence != strconv.FormatInt(record.sequenceValue, 10) || record.RecordedAt.IsZero() {
 		return false
 	}
 	switch record.Source {
