@@ -63,6 +63,19 @@ func TestOIDCJWTKeysetFileSourceRejectsUnsafePathsAndFiles(t *testing.T) {
 	if _, err := source.Load(context.Background()); !errors.Is(err, ErrOIDCJWTKeysetInvalid) {
 		t.Fatalf("directory publication error = %v", err)
 	}
+	target := filepath.Join(t.TempDir(), "target.json")
+	writeOIDCJWTKeysetPublication(t, target, 1, time.Now().Add(time.Hour), `{"keys":[]}`)
+	symlink := filepath.Join(t.TempDir(), "keyset-link.json")
+	if err := os.Symlink(target, symlink); err != nil {
+		t.Fatalf("create publication symlink: %v", err)
+	}
+	source, err = NewOIDCJWTKeysetFileSource(symlink)
+	if err != nil {
+		t.Fatalf("create symlink source: %v", err)
+	}
+	if _, err := source.Load(context.Background()); !errors.Is(err, ErrOIDCJWTKeysetInvalid) {
+		t.Fatalf("symlink publication error = %v", err)
+	}
 
 	path := filepath.Join(t.TempDir(), "writable-keyset.json")
 	writeOIDCJWTKeysetPublication(t, path, 1, time.Now().Add(time.Hour), `{"keys":[]}`)
