@@ -112,8 +112,8 @@ func (verifier *PinnedOIDCJWTVerifier) Verify(
 		return VerifiedOIDCToken{}, err
 	}
 	now := time.Now()
-	if claims.Expiry == nil || claims.IssuedAt == nil || claims.Subject == "" ||
-		len(claims.Audience) == 0 ||
+	if claims.Expiry == nil || claims.IssuedAt == nil ||
+		!validPinnedOIDCJWTClaims(claims, verifier.issuer, verifier.audience) ||
 		claims.ValidateWithLeeway(jwt.Expected{
 			Issuer:      verifier.issuer,
 			AnyAudience: jwt.Audience{verifier.audience},
@@ -132,6 +132,28 @@ func (verifier *PinnedOIDCJWTVerifier) Verify(
 		Subject:   claims.Subject,
 		Audiences: append([]string(nil), claims.Audience...),
 	}, nil
+}
+
+func validPinnedOIDCJWTClaims(claims jwt.Claims, issuer string, audience string) bool {
+	if claims.Issuer != issuer || !validOIDCValue(claims.Subject) ||
+		len(claims.Audience) == 0 || len(claims.Audience) > maximumOIDCAudiences {
+		return false
+	}
+	seen := make(map[string]struct{}, len(claims.Audience))
+	foundAudience := false
+	for _, value := range claims.Audience {
+		if !validOIDCValue(value) {
+			return false
+		}
+		if _, duplicate := seen[value]; duplicate {
+			return false
+		}
+		seen[value] = struct{}{}
+		if value == audience {
+			foundAudience = true
+		}
+	}
+	return foundAudience
 }
 
 type compactOIDCJWTHeader struct {
