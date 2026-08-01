@@ -1,8 +1,8 @@
 # Authorization audit export
 
-Durable deployments can export completed API-entry and invocation-effect authorization decisions with the internal `dataground-audit-export` operator command. The command is scoped to one isolation domain. Its database credential and surrounding administrative channel are the authorization boundary; this is not a public API.
+Durable deployments can export completed API-entry and invocation-effect authorization decisions with the internal `dataground-audit-export` operator command. The command is scoped to one isolation domain and reads both append-only decision tables through a repeatable-read PostgreSQL snapshot. Database credentials are the administrative authorization boundary; this is not a public API.
 
-Start a frozen export with an empty cursor and a stable export identity:
+Start a frozen export with a new stable export identifier and an empty cursor:
 
 ```shell
 DATAGROUND_DATABASE_URL='postgres://dataground:dataground@127.0.0.1:5432/dataground?sslmode=disable' \
@@ -10,17 +10,15 @@ go run ./cmd/dataground-audit-export \
   -export-id aex_00000000000000000001 \
   -isolation-domain iso_00000000000000000001 \
   -actor operator@example.invalid \
-  -reason 'incident evidence export' \
+  -reason 'security review' \
   -correlation-id cor_00000000000000000001 \
   -limit 500
 ```
 
-The command writes one `dataground.dev.authorization-audit-export/v1` JSON document to standard output. Its `content` object carries the exact export, operator, scope, correlation, cursor, records, and completion state; `contentSha256` binds the canonical compact JSON encoding of that object. Pass the exact `content.nextCursor` value as `-cursor` with a new export ID and correlation ID to read the next page. `content.complete: true` means the frozen snapshot has no further records.
+The command writes one `dataground.dev.authorization-audit-export/v1` JSON document to standard output. Its `content` contains the attributed export page and `contentSha256` binds the exact compact content encoding retained by the export receipt. Pass `content.nextCursor` as `-cursor` with a new export ID and correlation ID to read the next page. `content.complete: true` means that the frozen snapshot has no further records. A new empty-cursor run captures a new snapshot and can include decisions committed after the earlier run began.
 
-The first page captures independent high-water marks for the API and invocation decision identities. Pages preserve API sequence order followed by invocation sequence order; `recordedAt` remains evidence and is not presented as a global ordering guarantee across the two streams. The opaque cursor is versioned, bounds both streams independently, and contains no credential or policy content. A new empty-cursor run captures a new snapshot and may include decisions committed after an earlier run began.
+Every page requires a stable export ID, operator identity, reason, and correlation ID. PostgreSQL records an append-only receipt containing the scope, attribution, reason digest, request digest, frozen cursor, record count, and content digest. It never stores the free-text reason. Exact replay under the same export ID returns the same document; changed attribution, scope, cursor, limit, or reason under that ID fails as a conflict. The opaque cursor is versioned, bounds API and invocation sequences independently, and must be stored without modification. It contains no credential or policy content.
 
-Every page requires a stable `export-id`. Before document bytes are released, PostgreSQL stores an append-only receipt binding the exact request digest, actor, reason digest, correlation, frozen cursor, limit, record count, and content digest. An identical retry reconstructs and verifies the same page. Reusing the export ID with changed attribution, scope, cursor, reason, correlation, or limit fails, and a failed or uncertain receipt write releases no evidence.
+The canonical output schema is `contracts/schemas/authorization-audit-export.schema.json`. API records contain the validated principal, action, resource, outcome, correlation, and immutable policy identity. Invocation records contain the durable actor, operation, invocation, service, revision, phase, outcome, correlation, and immutable policy identity. Sequences are decimal strings so their full PostgreSQL 64-bit precision survives JSON consumers.
 
-The canonical output schema is `contracts/schemas/authorization-audit-export.schema.json`. API records contain the validated principal, action, resource, outcome, correlation, and immutable policy identity. Invocation records contain the durable actor, operation, invocation, service, revision, phase, outcome, correlation, and immutable policy identity. Neither shape can carry tokens, policy bytes, Cedar diagnostics, request bodies, prompts, schemas, artifact content, provider data, or runtime output.
-
-A page contains at most 1,000 records. Export transport, delivery acknowledgement, retention schedules, legal hold, deletion policy, encryption, and production access control remain deployment and compliance boundaries; the command does not claim to implement them.
+The export excludes bearer tokens, prompts, request bodies, schemas, policy bytes, Cedar diagnostics, runtime inputs and outputs, artifacts, provider data, and free-text operator reasons. It does not sign, encrypt, upload, acknowledge, retain, or delete records. The content digest is an append-only database receipt, not a signature or external authenticity proof. Operators must route standard output into an appropriately protected sink and manage delivery, access, retention, legal hold, and deletion under a separately reviewed deployment policy. Authorization decisions and export receipts remain append-only and unchanged by later exports.
