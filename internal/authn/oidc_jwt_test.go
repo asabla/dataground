@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -86,6 +87,16 @@ func TestPinnedOIDCJWTVerifierRejectsInvalidSignatureHeaderAndClaims(t *testing.
 		now.Add(5*time.Minute).Unix(),
 		now.Unix(),
 	)), jose.RS256, testOIDCJWTKeyID, nil)
+	deepPayload := fixture.signPayload(t, []byte(fmt.Sprintf(
+		`{"iss":%q,"sub":%q,"aud":%q,"exp":%d,"iat":%d,"nested":%s0%s}`,
+		testOIDCIssuer,
+		testOIDCSubject,
+		testOIDCAudience,
+		now.Add(5*time.Minute).Unix(),
+		now.Unix(),
+		strings.Repeat("[", 33),
+		strings.Repeat("]", 33),
+	)), jose.RS256, testOIDCJWTKeyID, nil)
 
 	tests := map[string]string{
 		"wrong signature":    wrongSignature,
@@ -102,6 +113,7 @@ func TestPinnedOIDCJWTVerifierRejectsInvalidSignatureHeaderAndClaims(t *testing.
 		"duplicate audience": fixture.sign(t, duplicateAudience, jose.RS256, testOIDCJWTKeyID, nil),
 		"control subject":    fixture.sign(t, controlSubject, jose.RS256, testOIDCJWTKeyID, nil),
 		"duplicate claim":    duplicatePayload,
+		"excess JSON depth":  deepPayload,
 		"not compact":        "not-a-compact-signed-jwt-with-at-least-thirty-two-bytes",
 	}
 	for name, token := range tests {
@@ -113,6 +125,36 @@ func TestPinnedOIDCJWTVerifierRejectsInvalidSignatureHeaderAndClaims(t *testing.
 				t.Fatalf("error = %v, want invalid credential", err)
 			}
 		})
+	}
+}
+
+func TestPinnedOIDCJWTVerifierSupportsReviewedKeyRollover(t *testing.T) {
+	firstKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier, err := authn.NewPinnedOIDCJWTVerifier(authn.PinnedOIDCJWTConfig{
+		Issuer:     testOIDCIssuer,
+		Audience:   testOIDCAudience,
+		Algorithms: []string{"RS256"},
+		JWKS: marshalOIDCJWKS(t, []jose.JSONWebKey{
+			oidcJWTJWK(&firstKey.PublicKey, jose.RS256, "rollover-key-1"),
+			oidcJWTJWK(&secondKey.PublicKey, jose.RS256, "rollover-key-2"),
+		}),
+		ClockSkew:       30 * time.Second,
+		MaximumLifetime: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("create rollover verifier: %v", err)
+	}
+	fixture := oidcJWTFixture{privateKey: secondKey, verifier: verifier}
+	token := fixture.sign(t, validOIDCJWTClaims(time.Now()), jose.RS256, "rollover-key-2", nil)
+	if _, err := verifier.Verify(context.Background(), []byte(token)); err != nil {
+		t.Fatalf("verify rollover key: %v", err)
 	}
 }
 
