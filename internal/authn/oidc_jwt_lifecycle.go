@@ -11,6 +11,12 @@ import (
 
 const maximumOIDCJWTKeysetSnapshotLifetime = 24 * time.Hour
 
+var (
+	ErrOIDCJWTKeysetInvalid  = errors.New("OIDC JWT keyset snapshot is invalid")
+	ErrOIDCJWTKeysetRollback = errors.New("OIDC JWT keyset snapshot rollback is invalid")
+	ErrOIDCJWTKeysetConflict = errors.New("OIDC JWT keyset snapshot sequence conflicts")
+)
+
 // OIDCJWTKeysetSnapshot is one deployment-published signing-key generation.
 // Load transfers ownership of JWKS to the verifier so its transient copy can
 // be cleared after the immutable verifier has been assembled.
@@ -96,7 +102,7 @@ func (verifier *ReloadableOIDCJWTVerifier) Refresh(ctx context.Context) error {
 	now := verifier.now()
 	if snapshot.Sequence == 0 || !snapshot.ExpiresAt.After(now) ||
 		snapshot.ExpiresAt.After(now.Add(maximumOIDCJWTKeysetSnapshotLifetime)) {
-		return errors.New("OIDC JWT keyset snapshot is invalid")
+		return ErrOIDCJWTKeysetInvalid
 	}
 	candidate, err := NewPinnedOIDCJWTVerifier(PinnedOIDCJWTConfig{
 		Issuer:          verifier.issuer,
@@ -107,7 +113,7 @@ func (verifier *ReloadableOIDCJWTVerifier) Refresh(ctx context.Context) error {
 		MaximumLifetime: verifier.maximumLifetime,
 	})
 	if err != nil {
-		return errors.New("OIDC JWT keyset snapshot is invalid")
+		return ErrOIDCJWTKeysetInvalid
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -121,11 +127,11 @@ func (verifier *ReloadableOIDCJWTVerifier) Refresh(ctx context.Context) error {
 		return err
 	}
 	if snapshot.Sequence < verifier.sequence {
-		return errors.New("OIDC JWT keyset snapshot rollback is invalid")
+		return ErrOIDCJWTKeysetRollback
 	}
 	if snapshot.Sequence == verifier.sequence {
 		if digest != verifier.digest || !expiresAt.Equal(verifier.expiresAt) {
-			return errors.New("OIDC JWT keyset snapshot sequence conflicts")
+			return ErrOIDCJWTKeysetConflict
 		}
 		return nil
 	}
