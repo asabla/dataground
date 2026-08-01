@@ -131,6 +131,9 @@ for (const forbiddenName of [
 }
 
 const releaseManifest = await readJson("contracts/schemas/release-manifest.schema.json");
+const authorizationAuditExport = await readJson(
+  "contracts/schemas/authorization-audit-export.schema.json",
+);
 assert.equal(
   releaseManifest.$schema,
   "https://json-schema.org/draft/2020-12/schema",
@@ -150,14 +153,21 @@ const ajv = new Ajv2020({ allErrors: true, strict: false });
 addFormats(ajv);
 ajv.addSchema(openApi, "urn:dataground:openapi:v1");
 const validateReleaseManifest = ajv.compile(releaseManifest);
+const validateAuthorizationAuditExport = ajv.compile(authorizationAuditExport);
 const fixtureManifest = await readJson("contracts/fixtures/manifest.json");
 
 for (const fixture of fixtureManifest.fixtures) {
   const value = await readJson(`contracts/fixtures/${fixture.file}`);
-  const validate =
-    fixture.document === "release-manifest"
-      ? validateReleaseManifest
-      : ajv.compile({ $ref: `urn:dataground:openapi:v1#/components/schemas/${fixture.schema}` });
+  let validate;
+  if (fixture.document === "release-manifest") {
+    validate = validateReleaseManifest;
+  } else if (fixture.document === "authorization-audit-export") {
+    validate = validateAuthorizationAuditExport;
+  } else {
+    validate = ajv.compile({
+      $ref: `urn:dataground:openapi:v1#/components/schemas/${fixture.schema}`,
+    });
+  }
   const actual = validate(value);
   assert.equal(
     actual,
