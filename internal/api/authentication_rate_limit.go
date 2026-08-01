@@ -17,7 +17,8 @@ type AuthenticationRateLimitRequest struct {
 }
 
 func (request AuthenticationRateLimitRequest) Valid() bool {
-	return isolationDomainPattern.MatchString(request.IsolationDomainID)
+	return isolationDomainPattern.MatchString(request.IsolationDomainID) &&
+		request.CredentialDigest != [sha256.Size]byte{}
 }
 
 // AuthenticationRateLimitDecision either admits the request or supplies a
