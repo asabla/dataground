@@ -71,11 +71,13 @@ func newProtectedRoute(
 				return
 			}
 
+			bindingInvalid := false
 			if dpopBinder != nil {
 				boundContext, bindErr := dpopBinder.bind(request.WithContext(authenticationContext), domainID)
 				if bindErr != nil {
 					clear(bearerToken)
 					bearerToken = nil
+					bindingInvalid = true
 				} else {
 					authenticationContext = boundContext
 				}
@@ -84,6 +86,10 @@ func newProtectedRoute(
 			}
 
 			principal, err := authenticator.Authenticate(authenticationContext, bearerToken)
+			if bindingInvalid {
+				principal = authn.Principal{}
+				err = authn.ErrInvalidCredential
+			}
 			if err != nil {
 				if errors.Is(err, authn.ErrInvalidCredential) {
 					writeAuthenticationRequired(response, correlationID)
