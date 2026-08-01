@@ -2,6 +2,8 @@ package authn
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	jose "github.com/go-jose/go-jose/v4"
 )
 
 func TestOIDCJWTKeysetFileSourceLoadsOwnedPublication(t *testing.T) {
@@ -35,6 +39,45 @@ func TestOIDCJWTKeysetFileSourceLoadsOwnedPublication(t *testing.T) {
 	}
 	if _, err := json.Marshal(source); err == nil {
 		t.Fatal("file source serialized its publication path")
+	}
+}
+
+func TestOIDCJWTKeysetFileSourceInitializesAndRefreshesVerifier(t *testing.T) {
+	t.Parallel()
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate signing key: %v", err)
+	}
+	jwks, err := json.Marshal(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{
+		Key:       &privateKey.PublicKey,
+		KeyID:     "publication-key-1",
+		Algorithm: string(jose.RS256),
+		Use:       "sig",
+	}}})
+	if err != nil {
+		t.Fatalf("marshal JWKS: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "keyset.json")
+	writeOIDCJWTKeysetPublication(t, path, 1, time.Now().Add(time.Hour), string(jwks))
+	source, err := NewOIDCJWTKeysetFileSource(path)
+	if err != nil {
+		t.Fatalf("create file source: %v", err)
+	}
+	verifier, err := NewReloadableOIDCJWTVerifier(context.Background(), ReloadableOIDCJWTConfig{
+		Issuer:          "https://identity.example.invalid",
+		Audience:        APIAudience,
+		Algorithms:      []string{"RS256"},
+		ClockSkew:       30 * time.Second,
+		MaximumLifetime: time.Hour,
+		Source:          source,
+	})
+	if err != nil {
+		t.Fatalf("initialize verifier from file publication: %v", err)
+	}
+	writeOIDCJWTKeysetPublication(t, path, 2, time.Now().Add(2*time.Hour), string(jwks))
+	if err := verifier.Refresh(context.Background()); err != nil {
+		t.Fatalf("refresh verifier from file publication: %v", err)
 	}
 }
 
