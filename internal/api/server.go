@@ -57,6 +57,14 @@ func NewHandler(authenticator authn.Authenticator, authorizer authz.Authorizer) 
 	return NewServer().Handler(authenticator, authorizer)
 }
 
+func NewDPoPBoundHandler(
+	authenticator authn.Authenticator,
+	authorizer authz.Authorizer,
+	binder *DPoPRequestBinder,
+) (http.Handler, error) {
+	return NewServer().DPoPBoundHandler(authenticator, authorizer, binder)
+}
+
 func NewServer() *Server {
 	return &Server{
 		services:             make(map[string]AgentService),
@@ -76,7 +84,26 @@ func (server *Server) Handler(
 	authenticator authn.Authenticator,
 	authorizer authz.Authorizer,
 ) (http.Handler, error) {
-	protected, err := newProtectedRoute(authenticator, authorizer)
+	return server.handler(authenticator, authorizer, nil)
+}
+
+func (server *Server) DPoPBoundHandler(
+	authenticator authn.Authenticator,
+	authorizer authz.Authorizer,
+	binder *DPoPRequestBinder,
+) (http.Handler, error) {
+	if binder == nil {
+		return nil, errors.New("DPoP request binder is required")
+	}
+	return server.handler(authenticator, authorizer, binder)
+}
+
+func (server *Server) handler(
+	authenticator authn.Authenticator,
+	authorizer authz.Authorizer,
+	binder *DPoPRequestBinder,
+) (http.Handler, error) {
+	protected, err := newProtectedRoute(authenticator, authorizer, binder)
 	if err != nil {
 		return nil, err
 	}
