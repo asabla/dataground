@@ -66,7 +66,8 @@ func (record AuthenticationAttemptRecord) Valid() bool {
 	}
 	hasPrincipal := record.PrincipalID != "" || record.PrincipalKind != ""
 	if record.Outcome == AuthenticationOutcomeAuthenticated {
-		return principalIDPattern.MatchString(record.PrincipalID) && validPrincipalKind(record.PrincipalKind)
+		return principalIDPattern.MatchString(record.PrincipalID) &&
+			validAuthenticationPrincipalKind(record.Method, record.PrincipalKind)
 	}
 	return !hasPrincipal
 }
@@ -211,6 +212,17 @@ func validAuthenticationOutcome(outcome AuthenticationOutcome) bool {
 	}
 }
 
+func validAuthenticationPrincipalKind(method AuthenticationMethod, kind PrincipalKind) bool {
+	switch method {
+	case AuthenticationMethodDevelopmentBearer:
+		return kind == PrincipalHuman
+	case AuthenticationMethodOIDC:
+		return kind == PrincipalHuman || kind == PrincipalService
+	default:
+		return false
+	}
+}
+
 func nilAuthenticationDependency(value any) bool {
 	if value == nil {
 		return true
@@ -226,4 +238,3 @@ func nilAuthenticationDependency(value any) bool {
 
 var _ Authenticator = (*AuditedAuthenticator)(nil)
 var _ json.Marshaler = (*AuditedAuthenticator)(nil)
-
