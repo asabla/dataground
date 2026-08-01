@@ -1,30 +1,8 @@
 {
   "content": {
-    "schemaVersion": "dataground.dev.authorization-audit-export/v1",
     "exportId": "aex_00000000000000000001",
-    "isolationDomainId": "iso_00000000000000000001",
     "requestedBy": "operator@example.invalid",
-    "correlationId": "cor_00000000000000000003",
-    "cursor": "",
-    "nextCursor": "v1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-    "complete": true,
-    "records": [
-      {
-        "source": "api",
-        "sequence": "1",
-        "recordedAt": "2026-08-01T10:00:00Z",
-        "principalId": "usr_00000000000000000001",
-        "principalKind": "human",
-        "actorId": "operator@example.invalid",
-        "action": "readInvocation",
-        "resourceType": "DataGround::Invocation",
-        "resourceId": "inv_00000000000000000001",
-        "outcome": "allowed",
-        "policySetId": "policy.api.v1",
-        "policyDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-        "correlationId": "cor_00000000000000000001"
-      }
-    ]
+    "correlationId": "cor_00000000000000000005"
   },
   "contentSha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
 }
