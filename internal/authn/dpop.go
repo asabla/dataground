@@ -104,8 +104,7 @@ func NewDPoPTokenVerifier(config DPoPConfig) (*DPoPTokenVerifier, error) {
 	if nilDPoPDependency(config.Verifier) || nilDPoPDependency(config.Replays) {
 		return nil, errors.New("DPoP dependencies are required")
 	}
-	if config.ClockSkew < 0 || config.ClockSkew > maximumDPoPClockSkew ||
-		config.MaximumProofAge < minimumDPoPProofAge || config.MaximumProofAge > maximumDPoPProofAge {
+	if !validDPoPTimeBounds(config.ClockSkew, config.MaximumProofAge) {
 		return nil, errors.New("DPoP time bounds are invalid")
 	}
 	return &DPoPTokenVerifier{
@@ -114,6 +113,12 @@ func NewDPoPTokenVerifier(config DPoPConfig) (*DPoPTokenVerifier, error) {
 		clockSkew:       config.ClockSkew,
 		maximumProofAge: config.MaximumProofAge,
 	}, nil
+}
+
+func validDPoPTimeBounds(clockSkew, maximumProofAge time.Duration) bool {
+	return clockSkew >= 0 && clockSkew <= maximumDPoPClockSkew &&
+		maximumProofAge >= minimumDPoPProofAge &&
+		maximumProofAge <= maximumDPoPProofAge
 }
 
 func (verifier *DPoPTokenVerifier) Verify(

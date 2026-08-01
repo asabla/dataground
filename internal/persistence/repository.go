@@ -107,6 +107,10 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool, now: func() time.Time { return time.Now().UTC() }}
 }
 
+func (repository *Repository) Configured() bool {
+	return repository != nil && repository.pool != nil
+}
+
 func (repository *Repository) Ready(ctx context.Context) error {
 	return repository.pool.Ping(ctx)
 }
