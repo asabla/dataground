@@ -72,8 +72,7 @@ func TestReloadableOIDCDPoPAuthenticatorFailsClosedWithoutContext(t *testing.T) 
 	if err != nil {
 		t.Fatalf("assemble OIDC DPoP authenticator: %v", err)
 	}
-	if _, err := authenticator.Authenticate(nil, bytes.Repeat([]byte("x"), 32));
-		!errors.Is(err, authn.ErrUnavailable) {
+	if _, err := authenticator.Authenticate(nil, bytes.Repeat([]byte("x"), 32)); !errors.Is(err, authn.ErrUnavailable) {
 		t.Fatalf("nil-context authentication error = %v, want unavailable", err)
 	}
 }
