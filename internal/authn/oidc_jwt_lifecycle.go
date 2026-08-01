@@ -43,7 +43,8 @@ type ReloadableOIDCJWTConfig struct {
 // It never merges keysets, falls back to an older generation, or fetches keys
 // from token-controlled metadata.
 type ReloadableOIDCJWTVerifier struct {
-	mu sync.RWMutex
+	refreshMu sync.Mutex
+	mu        sync.RWMutex
 
 	issuer          string
 	audience        string
@@ -104,6 +105,11 @@ func (verifier *ReloadableOIDCJWTVerifier) Refresh(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	verifier.refreshMu.Lock()
+	defer verifier.refreshMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	snapshot, err := verifier.source.Load(ctx)
 	defer clear(snapshot.JWKS)
 	if err != nil {
@@ -155,6 +161,25 @@ func (verifier *ReloadableOIDCJWTVerifier) Refresh(ctx context.Context) error {
 	verifier.digest = digest
 	verifier.expiresAt = expiresAt
 	verifier.verifier = candidate
+	return nil
+}
+
+func (verifier *ReloadableOIDCJWTVerifier) Ready(ctx context.Context) error {
+	if verifier == nil || ctx == nil || verifier.now == nil {
+		return ErrUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	verifier.mu.RLock()
+	defer verifier.mu.RUnlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if verifier.verifier == nil || verifier.expiresAt.IsZero() ||
+		!verifier.now().Before(verifier.expiresAt) {
+		return ErrUnavailable
+	}
 	return nil
 }
 
