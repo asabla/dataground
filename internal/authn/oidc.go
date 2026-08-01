@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	maximumOIDCAudiences = 16
+	maximumOIDCAudiences  = 16
 	maximumOIDCValueBytes = 512
 )
 
@@ -37,8 +37,8 @@ type OIDCIdentity struct {
 }
 
 type OIDCIdentityBinding struct {
-	PrincipalID       string
-	PrincipalKind     PrincipalKind
+	PrincipalID      string
+	PrincipalKind    PrincipalKind
 	IsolationDomains []string
 }
 
