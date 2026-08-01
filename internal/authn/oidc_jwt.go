@@ -107,7 +107,8 @@ func (verifier *PinnedOIDCJWTVerifier) Verify(
 		return VerifiedOIDCToken{}, ErrInvalidCredential
 	}
 	var claims jwt.Claims
-	if err := parsed.Claims(key.Key, &claims); err != nil {
+	var binding oidcJWTBindingClaims
+	if err := parsed.Claims(key.Key, &claims, &binding); err != nil {
 		return VerifiedOIDCToken{}, ErrInvalidCredential
 	}
 	if err := ctx.Err(); err != nil {
@@ -126,14 +127,26 @@ func (verifier *PinnedOIDCJWTVerifier) Verify(
 	issuedAt := claims.IssuedAt.Time()
 	expiresAt := claims.Expiry.Time()
 	if !expiresAt.After(issuedAt) || expiresAt.Sub(issuedAt) > verifier.maximumLifetime ||
-		(claims.NotBefore != nil && !expiresAt.After(claims.NotBefore.Time())) {
+		(claims.NotBefore != nil && !expiresAt.After(claims.NotBefore.Time())) ||
+		(binding.Confirmation != nil && !validDPoPThumbprint(binding.Confirmation.JWKThumbprint)) {
 		return VerifiedOIDCToken{}, ErrInvalidCredential
 	}
+	confirmationThumbprint := ""
+	if binding.Confirmation != nil {
+		confirmationThumbprint = binding.Confirmation.JWKThumbprint
+	}
 	return VerifiedOIDCToken{
-		Issuer:    claims.Issuer,
-		Subject:   claims.Subject,
-		Audiences: append([]string(nil), claims.Audience...),
+		Issuer:                 claims.Issuer,
+		Subject:                claims.Subject,
+		Audiences:              append([]string(nil), claims.Audience...),
+		ConfirmationThumbprint: confirmationThumbprint,
 	}, nil
+}
+
+type oidcJWTBindingClaims struct {
+	Confirmation *struct {
+		JWKThumbprint string `json:"jkt"`
+	} `json:"cnf"`
 }
 
 func validPinnedOIDCJWTClaims(claims jwt.Claims, issuer string, audience string) bool {
