@@ -41,6 +41,14 @@ func (source *OIDCJWTKeysetFileSource) Load(ctx context.Context) (OIDCJWTKeysetS
 	if err := ctx.Err(); err != nil {
 		return OIDCJWTKeysetSnapshot{}, err
 	}
+	pathInfo, err := os.Lstat(source.path)
+	if err != nil {
+		return OIDCJWTKeysetSnapshot{}, ErrUnavailable
+	}
+	if !pathInfo.Mode().IsRegular() || pathInfo.Mode().Perm()&0o022 != 0 ||
+		pathInfo.Size() <= 0 || pathInfo.Size() > maximumOIDCJWTKeysetPublicationBytes {
+		return OIDCJWTKeysetSnapshot{}, ErrOIDCJWTKeysetInvalid
+	}
 	file, err := os.Open(source.path)
 	if err != nil {
 		return OIDCJWTKeysetSnapshot{}, ErrUnavailable
@@ -51,7 +59,7 @@ func (source *OIDCJWTKeysetFileSource) Load(ctx context.Context) (OIDCJWTKeysetS
 	if err != nil {
 		return OIDCJWTKeysetSnapshot{}, ErrUnavailable
 	}
-	if !before.Mode().IsRegular() || before.Mode().Perm()&0o022 != 0 ||
+	if !os.SameFile(pathInfo, before) || !before.Mode().IsRegular() || before.Mode().Perm()&0o022 != 0 ||
 		before.Size() <= 0 || before.Size() > maximumOIDCJWTKeysetPublicationBytes {
 		return OIDCJWTKeysetSnapshot{}, ErrOIDCJWTKeysetInvalid
 	}
