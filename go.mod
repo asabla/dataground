@@ -6,6 +6,7 @@ toolchain go1.26.5
 
 require (
 	github.com/cedar-policy/cedar-go v1.8.0
+	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	go.opentelemetry.io/otel v1.44.0
