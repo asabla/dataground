@@ -78,6 +78,17 @@ func newProtectedRoute(
 					clear(bearerToken)
 					bearerToken = nil
 					bindingInvalid = true
+					rejectedContext, rejectionErr := authn.WithRejectedAuthenticationAttempt(authenticationContext)
+					if rejectionErr != nil {
+						writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeErrorWithCorrelation(
+							correlationID,
+							"AUTHENTICATION_UNAVAILABLE",
+							"Authentication is temporarily unavailable.",
+							true,
+						)})
+						return
+					}
+					authenticationContext = rejectedContext
 				} else {
 					authenticationContext = boundContext
 				}
