@@ -65,6 +65,15 @@ func NewDPoPBoundHandler(
 	return NewServer().DPoPBoundHandler(authenticator, authorizer, binder)
 }
 
+func NewRateLimitedDPoPHandler(
+	authenticator authn.Authenticator,
+	authorizer authz.Authorizer,
+	binder *DPoPRequestBinder,
+	rateLimiter AuthenticationRateLimiter,
+) (http.Handler, error) {
+	return NewServer().RateLimitedDPoPHandler(authenticator, authorizer, binder, rateLimiter)
+}
+
 func NewServer() *Server {
 	return &Server{
 		services:             make(map[string]AgentService),
@@ -84,7 +93,7 @@ func (server *Server) Handler(
 	authenticator authn.Authenticator,
 	authorizer authz.Authorizer,
 ) (http.Handler, error) {
-	return server.handler(authenticator, authorizer, nil)
+	return server.handler(authenticator, authorizer, nil, nil)
 }
 
 func (server *Server) DPoPBoundHandler(
@@ -95,15 +104,31 @@ func (server *Server) DPoPBoundHandler(
 	if binder == nil {
 		return nil, errors.New("DPoP request binder is required")
 	}
-	return server.handler(authenticator, authorizer, binder)
+	return server.handler(authenticator, authorizer, binder, nil)
+}
+
+func (server *Server) RateLimitedDPoPHandler(
+	authenticator authn.Authenticator,
+	authorizer authz.Authorizer,
+	binder *DPoPRequestBinder,
+	rateLimiter AuthenticationRateLimiter,
+) (http.Handler, error) {
+	if binder == nil {
+		return nil, errors.New("DPoP request binder is required")
+	}
+	if rateLimiter == nil || isNilInterface(rateLimiter) {
+		return nil, errors.New("authentication rate limiter is required")
+	}
+	return server.handler(authenticator, authorizer, binder, rateLimiter)
 }
 
 func (server *Server) handler(
 	authenticator authn.Authenticator,
 	authorizer authz.Authorizer,
 	binder *DPoPRequestBinder,
+	rateLimiter AuthenticationRateLimiter,
 ) (http.Handler, error) {
-	protected, err := newProtectedRoute(authenticator, authorizer, binder)
+	protected, err := newProtectedRoute(authenticator, authorizer, binder, rateLimiter)
 	if err != nil {
 		return nil, err
 	}
