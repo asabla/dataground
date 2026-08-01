@@ -84,6 +84,7 @@ func TestOIDCJWTKeysetFileSourceRejectsMalformedPublications(t *testing.T) {
 	expiresAt := time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano)
 	for name, content := range map[string]string{
 		"empty":          "",
+		"duplicate field": `{"sequence":1,"sequence":2,"expiresAt":"` + expiresAt + `","jwks":{"keys":[]}}`,
 		"unknown field":  `{"sequence":1,"expiresAt":"` + expiresAt + `","jwks":{"keys":[]},"extra":true}`,
 		"trailing value": `{"sequence":1,"expiresAt":"` + expiresAt + `","jwks":{"keys":[]}} {}`,
 		"zero sequence":  `{"sequence":0,"expiresAt":"` + expiresAt + `","jwks":{"keys":[]}}`,
