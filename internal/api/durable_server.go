@@ -29,7 +29,28 @@ func NewDurableHandler(
 	authenticator authn.Authenticator,
 	authorizer authz.Authorizer,
 ) (http.Handler, error) {
-	protected, err := newProtectedRoute(authenticator, authorizer)
+	return newDurableHandler(repository, authenticator, authorizer, nil)
+}
+
+func NewDurableDPoPBoundHandler(
+	repository *persistence.Repository,
+	authenticator authn.Authenticator,
+	authorizer authz.Authorizer,
+	binder *DPoPRequestBinder,
+) (http.Handler, error) {
+	if binder == nil {
+		return nil, errors.New("DPoP request binder is required")
+	}
+	return newDurableHandler(repository, authenticator, authorizer, binder)
+}
+
+func newDurableHandler(
+	repository *persistence.Repository,
+	authenticator authn.Authenticator,
+	authorizer authz.Authorizer,
+	binder *DPoPRequestBinder,
+) (http.Handler, error) {
+	protected, err := newProtectedRoute(authenticator, authorizer, binder)
 	if err != nil {
 		return nil, err
 	}
