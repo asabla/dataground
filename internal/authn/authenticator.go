@@ -196,6 +196,10 @@ func (authenticator *DevelopmentAuthenticator) Authenticate(ctx context.Context,
 	return authenticator.principal.clone(), nil
 }
 
+func (*DevelopmentAuthenticator) AuthenticationMethod() AuthenticationMethod {
+	return AuthenticationMethodDevelopmentBearer
+}
+
 func (*DevelopmentAuthenticator) MarshalJSON() ([]byte, error) {
 	return nil, errors.New("authenticators cannot be serialized")
 }
