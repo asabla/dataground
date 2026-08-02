@@ -55,6 +55,7 @@ func NewCapacityBoundPostgreSQLAuthenticationRateLimiter(
 		evidence.DeploymentProfile,
 		evidence.GoVersion,
 		policy,
+		evidence.DPoPNonceConfig(),
 	) {
 		return nil, errors.New("authentication rate limit capacity evidence is invalid")
 	}

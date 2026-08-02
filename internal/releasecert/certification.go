@@ -23,17 +23,17 @@ import (
 )
 
 const (
-	StatementContract = "dataground.release-certification/oidc-loopback/v1"
+	StatementContract = "dataground.release-certification/oidc-loopback/v2"
 	SignatureContract = "dataground.release-certification-signature/ed25519/v1"
 	TrustContract     = "dataground.release-certification-trust/ed25519/v1"
-	EnvelopeContract  = "dataground.release-certification-envelope/v1"
+	EnvelopeContract  = "dataground.release-certification-envelope/v2"
 
 	maximumInputBytes    = 1 << 20
 	maximumEvidenceBytes = 4 << 20
 	maximumJSONDepth     = 16
 	maximumValidity      = 31 * 24 * time.Hour
 	maximumClockSkew     = 5 * time.Minute
-	signatureDomain      = "DataGround release certification oidc-loopback v1\n"
+	signatureDomain      = "DataGround release certification oidc-loopback v2\n"
 )
 
 var (
@@ -84,6 +84,12 @@ type Envelope struct {
 	StatementSHA256 string    `json:"statementSha256"`
 	Statement       Statement `json:"statement"`
 	Signature       Signature `json:"signature"`
+}
+
+type dpopNonceCapacityBinding struct {
+	Enabled             *bool  `json:"enabled"`
+	LifetimeNanoseconds int64  `json:"lifetimeNanoseconds"`
+	MaximumActivePerKey uint32 `json:"maximumActivePerKey"`
 }
 
 type InstallRequest struct {
@@ -486,21 +492,25 @@ func verifyArtifacts(statement Statement) error {
 		artifacts[artifact.Kind] = artifact
 	}
 	var evidence struct {
-		Contract          string `json:"contract"`
-		SourceRevision    string `json:"sourceRevision"`
-		GoVersion         string `json:"goVersion"`
-		DeploymentProfile string `json:"deploymentProfile"`
-		Accepted          bool   `json:"accepted"`
+		Contract          string                   `json:"contract"`
+		SourceRevision    string                   `json:"sourceRevision"`
+		GoVersion         string                   `json:"goVersion"`
+		DeploymentProfile string                   `json:"deploymentProfile"`
+		Accepted          bool                     `json:"accepted"`
+		DPoPNonce         dpopNonceCapacityBinding `json:"dpopNonce"`
 	}
 	if err := decodeArtifactJSON(contents["admission-capacity-evidence"], &evidence); err != nil ||
-		evidence.Contract != "dataground.authentication-rate-limit-capacity-evidence/v2" ||
+		evidence.Contract != "dataground.authentication-rate-limit-capacity-evidence/v3" ||
 		evidence.SourceRevision != statement.SourceRevision ||
 		evidence.GoVersion != statement.GoVersion ||
 		evidence.DeploymentProfile != statement.DeploymentProfile || !evidence.Accepted {
 		return errors.New("release certification admission evidence is invalid")
 	}
 	var configuration struct {
-		Contract  string `json:"contract"`
+		Contract string `json:"contract"`
+		DPoP     struct {
+			Nonce json.RawMessage `json:"nonce"`
+		} `json:"dpop"`
 		Admission struct {
 			DeploymentProfile    string `json:"deploymentProfile"`
 			CapacityEvidenceFile string `json:"capacityEvidenceFile"`
@@ -513,12 +523,52 @@ func verifyArtifacts(statement Statement) error {
 	capacity := artifacts["admission-capacity-evidence"]
 	policy := artifacts["api-authorization-policy"]
 	if err := decodeArtifactJSON(contents["oidc-security-configuration"], &configuration); err != nil ||
-		configuration.Contract != "dataground.api-security/oidc-dpop/v3" ||
+		configuration.Contract != "dataground.api-security/oidc-dpop/v4" ||
 		configuration.Admission.DeploymentProfile != statement.DeploymentProfile ||
 		configuration.Admission.CapacityEvidenceFile != capacity.File ||
 		configuration.Admission.CapacityEvidenceHash != capacity.SHA256 ||
 		configuration.Authorization.PolicyFile != policy.File {
 		return errors.New("release certification OIDC configuration binding is invalid")
+	}
+	if err := verifyDPoPNonceCapacityBinding(evidence.DPoPNonce, configuration.DPoP.Nonce); err != nil {
+		return err
+	}
+	return nil
+}
+
+func verifyDPoPNonceCapacityBinding(
+	evidence dpopNonceCapacityBinding,
+	encoded json.RawMessage,
+) error {
+	if evidence.Enabled == nil {
+		return errors.New("release certification DPoP nonce capacity binding is invalid")
+	}
+	if len(encoded) == 0 {
+		if *evidence.Enabled || evidence.LifetimeNanoseconds != 0 || evidence.MaximumActivePerKey != 0 {
+			return errors.New("release certification DPoP nonce capacity binding is invalid")
+		}
+		return nil
+	}
+	if bytes.Equal(bytes.TrimSpace(encoded), []byte("null")) {
+		return errors.New("release certification DPoP nonce capacity binding is invalid")
+	}
+	var configuration struct {
+		Lifetime            string `json:"lifetime"`
+		MaximumActivePerKey uint32 `json:"maximumActivePerKey"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&configuration); err != nil {
+		return errors.New("release certification DPoP nonce capacity binding is invalid")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return errors.New("release certification DPoP nonce capacity binding is invalid")
+	}
+	lifetime, err := time.ParseDuration(configuration.Lifetime)
+	if err != nil || !*evidence.Enabled || lifetime.Nanoseconds() != evidence.LifetimeNanoseconds ||
+		configuration.MaximumActivePerKey != evidence.MaximumActivePerKey {
+		return errors.New("release certification DPoP nonce capacity binding is invalid")
 	}
 	return nil
 }

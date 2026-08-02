@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	authenticationRateLimitCapacityContract = "dataground.authentication-rate-limit-capacity/v2"
+	authenticationRateLimitCapacityContract = "dataground.authentication-rate-limit-capacity/v3"
 	maximumCapacityRequestBytes             = 64 << 10
 	maximumCapacityRequestDepth             = 16
 	maximumCapacityRunDuration              = 30 * time.Minute
@@ -27,6 +27,58 @@ const (
 type durationValue struct {
 	value time.Duration
 	set   bool
+}
+
+type requiredBoolean struct {
+	value bool
+	set   bool
+}
+
+func (value *requiredBoolean) UnmarshalJSON(encoded []byte) error {
+	if value == nil || bytes.Equal(bytes.TrimSpace(encoded), []byte("null")) {
+		return errors.New("boolean is required")
+	}
+	var decoded bool
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		return errors.New("boolean is invalid")
+	}
+	value.value = decoded
+	value.set = true
+	return nil
+}
+
+type dpopNonceCapacityRequest struct {
+	Enabled                    requiredBoolean `json:"enabled"`
+	Lifetime                   durationValue   `json:"lifetime,omitempty"`
+	MaximumActivePerKey        uint32          `json:"maximumActivePerKey,omitempty"`
+	AttemptsPerPhase           uint32          `json:"attemptsPerPhase,omitempty"`
+	Workers                    uint32          `json:"workers,omitempty"`
+	MaximumP99Latency          durationValue   `json:"maximumP99Latency,omitempty"`
+	MinimumThroughputPerSecond uint32          `json:"minimumThroughputPerSecond,omitempty"`
+}
+
+type requiredDPoPNonceCapacityRequest struct {
+	value dpopNonceCapacityRequest
+	set   bool
+}
+
+func (value *requiredDPoPNonceCapacityRequest) UnmarshalJSON(encoded []byte) error {
+	if value == nil || bytes.Equal(bytes.TrimSpace(encoded), []byte("null")) {
+		return errors.New("DPoP nonce capacity request must be an object")
+	}
+	var request dpopNonceCapacityRequest
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		return errors.New("DPoP nonce capacity request is invalid")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return errors.New("DPoP nonce capacity request has trailing data")
+	}
+	value.value = request
+	value.set = true
+	return nil
 }
 
 func (value *durationValue) UnmarshalJSON(encoded []byte) error {
@@ -44,20 +96,21 @@ func (value *durationValue) UnmarshalJSON(encoded []byte) error {
 }
 
 type capacityRequest struct {
-	Contract                   string        `json:"contract"`
-	RunID                      string        `json:"runId"`
-	SourceRevision             string        `json:"sourceRevision"`
-	DeploymentProfile          string        `json:"deploymentProfile"`
-	DatabaseName               string        `json:"databaseName"`
-	Window                     durationValue `json:"window"`
-	GlobalBurst                uint32        `json:"globalBurst"`
-	IsolationDomainBurst       uint32        `json:"isolationDomainBurst"`
-	CredentialBurst            uint32        `json:"credentialBurst"`
-	AttemptsPerPhase           uint32        `json:"attemptsPerPhase"`
-	Workers                    uint32        `json:"workers"`
-	MaximumP99Latency          durationValue `json:"maximumP99Latency"`
-	MinimumThroughputPerSecond uint32        `json:"minimumThroughputPerSecond"`
-	MaximumRunDuration         durationValue `json:"maximumRunDuration"`
+	Contract                   string                           `json:"contract"`
+	RunID                      string                           `json:"runId"`
+	SourceRevision             string                           `json:"sourceRevision"`
+	DeploymentProfile          string                           `json:"deploymentProfile"`
+	DatabaseName               string                           `json:"databaseName"`
+	Window                     durationValue                    `json:"window"`
+	GlobalBurst                uint32                           `json:"globalBurst"`
+	IsolationDomainBurst       uint32                           `json:"isolationDomainBurst"`
+	CredentialBurst            uint32                           `json:"credentialBurst"`
+	AttemptsPerPhase           uint32                           `json:"attemptsPerPhase"`
+	Workers                    uint32                           `json:"workers"`
+	MaximumP99Latency          durationValue                    `json:"maximumP99Latency"`
+	MinimumThroughputPerSecond uint32                           `json:"minimumThroughputPerSecond"`
+	DPoPNonce                  requiredDPoPNonceCapacityRequest `json:"dpopNonce"`
+	MaximumRunDuration         durationValue                    `json:"maximumRunDuration"`
 }
 
 func main() {
@@ -105,8 +158,17 @@ func run(ctx context.Context, arguments []string) error {
 		Workers:           request.Workers,
 		MaximumP99Latency: request.MaximumP99Latency.value,
 		MinimumThroughput: request.MinimumThroughputPerSecond,
+		DPoPNonce: persistence.AuthenticationRateLimitCapacityDPoPNonceConfig{
+			Enabled:             request.DPoPNonce.value.Enabled.value,
+			Lifetime:            request.DPoPNonce.value.Lifetime.value,
+			MaximumActivePerKey: request.DPoPNonce.value.MaximumActivePerKey,
+			AttemptsPerPhase:    request.DPoPNonce.value.AttemptsPerPhase,
+			Workers:             request.DPoPNonce.value.Workers,
+			MaximumP99Latency:   request.DPoPNonce.value.MaximumP99Latency.value,
+			MinimumThroughput:   request.DPoPNonce.value.MinimumThroughputPerSecond,
+		},
 	}
-	if !config.Valid() || !request.MaximumRunDuration.set ||
+	if !config.Valid() || !validDPoPNonceCapacityRequest(request.DPoPNonce) || !request.MaximumRunDuration.set ||
 		request.MaximumRunDuration.value <= 0 || request.MaximumRunDuration.value > maximumCapacityRunDuration {
 		return errors.New("authentication rate limit capacity request is invalid")
 	}
@@ -133,7 +195,8 @@ func run(ctx context.Context, arguments []string) error {
 	if err := database.Close(); err != nil {
 		return err
 	}
-	pool, err := persistence.OpenAuthenticationRateLimitCapacityPool(operationCtx, databaseURL, request.Workers)
+	poolWorkers := max(request.Workers, request.DPoPNonce.value.Workers)
+	pool, err := persistence.OpenAuthenticationRateLimitCapacityPool(operationCtx, databaseURL, poolWorkers)
 	if err != nil {
 		return err
 	}
@@ -204,10 +267,27 @@ func readCapacityRequest(ctx context.Context, path string) (capacityRequest, err
 		return request, errors.New("authentication rate limit capacity request is invalid")
 	}
 	if request.Contract != authenticationRateLimitCapacityContract ||
-		!request.Window.set || !request.MaximumP99Latency.set || !request.MaximumRunDuration.set {
+		!request.Window.set || !request.MaximumP99Latency.set || !request.DPoPNonce.set ||
+		!request.MaximumRunDuration.set || !validDPoPNonceCapacityRequest(request.DPoPNonce) {
 		return request, errors.New("authentication rate limit capacity request is invalid")
 	}
 	return request, nil
+}
+
+func validDPoPNonceCapacityRequest(request requiredDPoPNonceCapacityRequest) bool {
+	if !request.set {
+		return false
+	}
+	value := request.value
+	if !value.Enabled.set {
+		return false
+	}
+	if !value.Enabled.value {
+		return !value.Lifetime.set && value.MaximumActivePerKey == 0 &&
+			value.AttemptsPerPhase == 0 && value.Workers == 0 &&
+			!value.MaximumP99Latency.set && value.MinimumThroughputPerSecond == 0
+	}
+	return value.Lifetime.set && value.MaximumP99Latency.set
 }
 
 func readStableCapacityFile(path string, maximumBytes int64) ([]byte, error) {

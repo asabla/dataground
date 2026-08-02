@@ -24,8 +24,33 @@ func TestReadCapacityRequestAcceptsClosedOwnerOnlyInput(t *testing.T) {
 		request.GlobalBurst != 100 || request.IsolationDomainBurst != 20 ||
 		request.CredentialBurst != 10 || request.AttemptsPerPhase != 200 || request.Workers != 20 ||
 		request.MaximumP99Latency.value != 100*time.Millisecond ||
-		request.MinimumThroughputPerSecond != 50 || request.MaximumRunDuration.value != 10*time.Minute {
+		request.MinimumThroughputPerSecond != 50 || !request.DPoPNonce.value.Enabled.set ||
+		!request.DPoPNonce.value.Enabled.value ||
+		request.DPoPNonce.value.Lifetime.value != time.Minute ||
+		request.DPoPNonce.value.MaximumActivePerKey != 4 ||
+		request.DPoPNonce.value.AttemptsPerPhase != 200 || request.DPoPNonce.value.Workers != 20 ||
+		request.DPoPNonce.value.MaximumP99Latency.value != 100*time.Millisecond ||
+		request.DPoPNonce.value.MinimumThroughputPerSecond != 50 ||
+		request.MaximumRunDuration.value != 10*time.Minute {
 		t.Fatalf("capacity request = %#v", request)
+	}
+}
+
+func TestReadCapacityRequestRequiresExplicitDisabledNonceProfile(t *testing.T) {
+	t.Parallel()
+
+	disabled := strings.Replace(
+		validCapacityRequest(),
+		`"dpopNonce":{"enabled":true,"lifetime":"1m","maximumActivePerKey":4,"attemptsPerPhase":200,"workers":20,"maximumP99Latency":"100ms","minimumThroughputPerSecond":50}`,
+		`"dpopNonce":{"enabled":false}`,
+		1,
+	)
+	request, err := readCapacityRequest(context.Background(), writeCapacityRequest(t, disabled))
+	if err != nil {
+		t.Fatalf("read disabled nonce capacity request: %v", err)
+	}
+	if !request.DPoPNonce.set || !request.DPoPNonce.value.Enabled.set || request.DPoPNonce.value.Enabled.value {
+		t.Fatalf("disabled nonce request = %#v", request.DPoPNonce)
 	}
 }
 
@@ -37,6 +62,10 @@ func TestReadCapacityRequestRejectsAmbiguousOrUnsafeInput(t *testing.T) {
 		"duplicate":        strings.Replace(valid, `"workers":20`, `"workers":20,"workers":21`, 1),
 		"unknown":          strings.Replace(valid, `"contract":`, `"unknown":true,"contract":`, 1),
 		"missing duration": strings.Replace(valid, ",\n\t\t\"maximumRunDuration\":\"10m\"", "", 1),
+		"missing nonce":    strings.Replace(valid, ",\n\t\t\"dpopNonce\":{\"enabled\":true,\"lifetime\":\"1m\",\"maximumActivePerKey\":4,\"attemptsPerPhase\":200,\"workers\":20,\"maximumP99Latency\":\"100ms\",\"minimumThroughputPerSecond\":50}", "", 1),
+		"null nonce":       strings.Replace(valid, `"dpopNonce":{"enabled":true,"lifetime":"1m","maximumActivePerKey":4,"attemptsPerPhase":200,"workers":20,"maximumP99Latency":"100ms","minimumThroughputPerSecond":50}`, `"dpopNonce":null`, 1),
+		"dormant sizing":   strings.Replace(valid, `"dpopNonce":{"enabled":true,"lifetime":"1m","maximumActivePerKey":4,"attemptsPerPhase":200,"workers":20,"maximumP99Latency":"100ms","minimumThroughputPerSecond":50}`, `"dpopNonce":{"enabled":false,"workers":20}`, 1),
+		"missing enabled":  strings.Replace(valid, `"dpopNonce":{"enabled":true,`, `"dpopNonce":{`, 1),
 		"trailing":         valid + `{}`,
 	} {
 		name, content := name, content
@@ -145,7 +174,7 @@ func writeCapacityRequest(t *testing.T, content string) string {
 
 func validCapacityRequest() string {
 	return `{
-		"contract":"dataground.authentication-rate-limit-capacity/v2",
+		"contract":"dataground.authentication-rate-limit-capacity/v3",
 		"runId":"cap_0123456789abcdefghij",
 		"sourceRevision":"0123456789abcdef0123456789abcdef01234567",
 		"deploymentProfile":"team",
@@ -158,6 +187,7 @@ func validCapacityRequest() string {
 		"workers":20,
 		"maximumP99Latency":"100ms",
 		"minimumThroughputPerSecond":50,
+		"dpopNonce":{"enabled":true,"lifetime":"1m","maximumActivePerKey":4,"attemptsPerPhase":200,"workers":20,"maximumP99Latency":"100ms","minimumThroughputPerSecond":50},
 		"maximumRunDuration":"10m"
 	}`
 }
