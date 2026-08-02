@@ -23,24 +23,25 @@ import (
 )
 
 const (
-	StatementContract = "dataground.release-certification/oidc-loopback/v2"
+	StatementContract = "dataground.release-certification/oidc-loopback/v3"
 	SignatureContract = "dataground.release-certification-signature/ed25519/v1"
 	TrustContract     = "dataground.release-certification-trust/ed25519/v1"
-	EnvelopeContract  = "dataground.release-certification-envelope/v2"
+	EnvelopeContract  = "dataground.release-certification-envelope/v3"
 
 	maximumInputBytes    = 1 << 20
 	maximumEvidenceBytes = 4 << 20
 	maximumJSONDepth     = 16
 	maximumValidity      = 31 * 24 * time.Hour
 	maximumClockSkew     = 5 * time.Minute
-	signatureDomain      = "DataGround release certification oidc-loopback v2\n"
+	signatureDomain      = "DataGround release certification oidc-loopback v3\n"
 )
 
 var (
-	idPattern        = regexp.MustCompile(`^[a-z][a-z0-9_-]{2,63}$`)
-	revisionPattern  = regexp.MustCompile(`^[0-9a-f]{40}$`)
-	digestPattern    = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	goVersionPattern = regexp.MustCompile(`^go[0-9]+\.[0-9]+(?:\.[0-9]+)?$`)
+	idPattern         = regexp.MustCompile(`^[a-z][a-z0-9_-]{2,63}$`)
+	providerIDPattern = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,63}$`)
+	revisionPattern   = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	digestPattern     = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	goVersionPattern  = regexp.MustCompile(`^go[0-9]+\.[0-9]+(?:\.[0-9]+)?$`)
 )
 
 type Artifact struct {
@@ -508,7 +509,11 @@ func verifyArtifacts(statement Statement) error {
 	}
 	var configuration struct {
 		Contract string `json:"contract"`
-		DPoP     struct {
+		Provider struct {
+			ID             string `json:"id"`
+			RegistrySHA256 string `json:"registrySha256"`
+		} `json:"provider"`
+		DPoP struct {
 			Nonce json.RawMessage `json:"nonce"`
 		} `json:"dpop"`
 		Admission struct {
@@ -523,7 +528,9 @@ func verifyArtifacts(statement Statement) error {
 	capacity := artifacts["admission-capacity-evidence"]
 	policy := artifacts["api-authorization-policy"]
 	if err := decodeArtifactJSON(contents["oidc-security-configuration"], &configuration); err != nil ||
-		configuration.Contract != "dataground.api-security/oidc-dpop/v4" ||
+		configuration.Contract != "dataground.api-security/oidc-dpop/v5" ||
+		!providerIDPattern.MatchString(configuration.Provider.ID) ||
+		!digestPattern.MatchString(configuration.Provider.RegistrySHA256) ||
 		configuration.Admission.DeploymentProfile != statement.DeploymentProfile ||
 		configuration.Admission.CapacityEvidenceFile != capacity.File ||
 		configuration.Admission.CapacityEvidenceHash != capacity.SHA256 ||

@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	oidcSecurityConfigurationContract = "dataground.api-security/oidc-dpop/v4"
+	oidcSecurityConfigurationContract = "dataground.api-security/oidc-dpop/v5"
 	maximumSecurityConfigurationBytes = 64 << 10
 	maximumAPICedarPolicyBytes        = 1 << 20
 	maximumSecurityConfigurationDepth = 16
@@ -81,7 +81,11 @@ type oidcSecurityConfiguration struct {
 	ExternalOrigin        string   `json:"externalOrigin"`
 	KeysetPublicationFile string   `json:"keysetPublicationFile"`
 	Algorithms            []string `json:"algorithms"`
-	JWT                   struct {
+	Provider              struct {
+		ID             string `json:"id"`
+		RegistrySHA256 string `json:"registrySha256"`
+	} `json:"provider"`
+	JWT struct {
 		ClockSkew       durationValue `json:"clockSkew"`
 		MaximumLifetime durationValue `json:"maximumLifetime"`
 	} `json:"jwt"`
@@ -159,6 +163,7 @@ func loadOIDCSecurityConfigurationForBuild(
 	}
 	if configuration.Contract != oidcSecurityConfigurationContract ||
 		configuration.Issuer == "" || configuration.ExternalOrigin == "" ||
+		!authn.ValidOIDCProviderBinding(configuration.Provider.ID, configuration.Provider.RegistrySHA256) ||
 		len(configuration.Algorithms) == 0 || configuration.Authorization.PolicySetID == "" ||
 		!configuration.JWT.ClockSkew.set || !configuration.JWT.MaximumLifetime.set ||
 		!configuration.DPoP.ClockSkew.set || !configuration.DPoP.MaximumProofAge.set ||
@@ -280,12 +285,14 @@ func composeOIDCSecurity(
 		ReleaseCertificationReadiness: configuration.releaseCertification,
 		ExternalOrigin:                configuration.ExternalOrigin,
 		OIDC: authn.ReloadableOIDCJWTConfig{
-			Issuer:          configuration.Issuer,
-			Audience:        authn.APIAudience,
-			Algorithms:      append([]string(nil), configuration.Algorithms...),
-			ClockSkew:       configuration.JWT.ClockSkew.value,
-			MaximumLifetime: configuration.JWT.MaximumLifetime.value,
-			Source:          source,
+			Issuer:                 configuration.Issuer,
+			Audience:               authn.APIAudience,
+			ProviderID:             configuration.Provider.ID,
+			ProviderRegistrySHA256: configuration.Provider.RegistrySHA256,
+			Algorithms:             append([]string(nil), configuration.Algorithms...),
+			ClockSkew:              configuration.JWT.ClockSkew.value,
+			MaximumLifetime:        configuration.JWT.MaximumLifetime.value,
+			Source:                 source,
 		},
 		KeysetRefresh:   configuration.keysetRefreshPolicy(),
 		DPoPClockSkew:   configuration.DPoP.ClockSkew.value,

@@ -126,12 +126,14 @@ func TestRunRejectsMutableOrPrivateJWKSInput(t *testing.T) {
 
 func testOIDCJWTKeysetCommandRequest(jwksPath, publicationPath string, sequence uint64) string {
 	request := map[string]any{
-		"contract":        oidcJWTKeysetPublicationRequestContract,
-		"sequence":        sequence,
-		"expiresAt":       time.Now().UTC().Add(time.Hour).Truncate(time.Second),
-		"algorithms":      []string{"RS256"},
-		"jwksFile":        jwksPath,
-		"publicationFile": publicationPath,
+		"contract":               oidcJWTKeysetPublicationRequestContract,
+		"sequence":               sequence,
+		"providerId":             "primary",
+		"providerRegistrySha256": strings.Repeat("1", 64),
+		"expiresAt":              time.Now().UTC().Add(time.Hour).Truncate(time.Second),
+		"algorithms":             []string{"RS256"},
+		"jwksFile":               jwksPath,
+		"publicationFile":        publicationPath,
 	}
 	encoded, err := json.Marshal(request)
 	if err != nil {

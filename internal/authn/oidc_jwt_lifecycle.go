@@ -21,9 +21,11 @@ var (
 // Load transfers ownership of JWKS to the verifier so its transient copy can
 // be cleared after the immutable verifier has been assembled.
 type OIDCJWTKeysetSnapshot struct {
-	Sequence  uint64
-	JWKS      []byte
-	ExpiresAt time.Time
+	Sequence               uint64
+	ProviderID             string
+	ProviderRegistrySHA256 string
+	JWKS                   []byte
+	ExpiresAt              time.Time
 }
 
 // OIDCJWTKeysetSource loads one complete deployment publication. Load must
@@ -34,12 +36,14 @@ type OIDCJWTKeysetSource interface {
 }
 
 type ReloadableOIDCJWTConfig struct {
-	Issuer          string
-	Audience        string
-	Algorithms      []string
-	ClockSkew       time.Duration
-	MaximumLifetime time.Duration
-	Source          OIDCJWTKeysetSource
+	Issuer                 string
+	Audience               string
+	ProviderID             string
+	ProviderRegistrySHA256 string
+	Algorithms             []string
+	ClockSkew              time.Duration
+	MaximumLifetime        time.Duration
+	Source                 OIDCJWTKeysetSource
 }
 
 // ReloadableOIDCJWTVerifier atomically replaces a complete pinned verifier.
@@ -49,13 +53,15 @@ type ReloadableOIDCJWTVerifier struct {
 	refreshMu sync.Mutex
 	mu        sync.RWMutex
 
-	issuer          string
-	audience        string
-	algorithms      []string
-	clockSkew       time.Duration
-	maximumLifetime time.Duration
-	source          OIDCJWTKeysetSource
-	now             func() time.Time
+	issuer                 string
+	audience               string
+	providerID             string
+	providerRegistrySHA256 string
+	algorithms             []string
+	clockSkew              time.Duration
+	maximumLifetime        time.Duration
+	source                 OIDCJWTKeysetSource
+	now                    func() time.Time
 
 	sequence  uint64
 	digest    [sha256.Size]byte
@@ -74,13 +80,15 @@ func NewReloadableOIDCJWTVerifier(
 		return nil, errors.New("OIDC JWT keyset source is required")
 	}
 	verifier := &ReloadableOIDCJWTVerifier{
-		issuer:          config.Issuer,
-		audience:        config.Audience,
-		algorithms:      append([]string(nil), config.Algorithms...),
-		clockSkew:       config.ClockSkew,
-		maximumLifetime: config.MaximumLifetime,
-		source:          config.Source,
-		now:             time.Now,
+		issuer:                 config.Issuer,
+		audience:               config.Audience,
+		providerID:             config.ProviderID,
+		providerRegistrySHA256: config.ProviderRegistrySHA256,
+		algorithms:             append([]string(nil), config.Algorithms...),
+		clockSkew:              config.ClockSkew,
+		maximumLifetime:        config.MaximumLifetime,
+		source:                 config.Source,
+		now:                    time.Now,
 	}
 	if err := verifier.Refresh(ctx); err != nil {
 		return nil, err
@@ -90,6 +98,7 @@ func NewReloadableOIDCJWTVerifier(
 
 func validateReloadableOIDCJWTConfig(config ReloadableOIDCJWTConfig) error {
 	if !validOIDCIssuer(config.Issuer) || config.Audience != APIAudience ||
+		!ValidOIDCProviderBinding(config.ProviderID, config.ProviderRegistrySHA256) ||
 		config.ClockSkew < 0 || config.ClockSkew > maximumOIDCClockSkew ||
 		config.MaximumLifetime < minimumOIDCTokenLifetime ||
 		config.MaximumLifetime > maximumOIDCTokenLifetime {
@@ -129,6 +138,8 @@ func (verifier *ReloadableOIDCJWTVerifier) Refresh(ctx context.Context) error {
 	}
 	now := verifier.now()
 	if snapshot.Sequence == 0 || !snapshot.ExpiresAt.After(now) ||
+		snapshot.ProviderID != verifier.providerID ||
+		snapshot.ProviderRegistrySHA256 != verifier.providerRegistrySHA256 ||
 		snapshot.ExpiresAt.After(now.Add(maximumOIDCJWTKeysetSnapshotLifetime)) {
 		return ErrOIDCJWTKeysetInvalid
 	}
@@ -168,6 +179,35 @@ func (verifier *ReloadableOIDCJWTVerifier) Refresh(ctx context.Context) error {
 	verifier.expiresAt = expiresAt
 	verifier.verifier = candidate
 	return nil
+}
+
+// ValidOIDCProviderBinding validates the portable provider identity and exact
+// deployment-registry digest carried by serving keyset generations.
+func ValidOIDCProviderBinding(providerID string, registrySHA256 string) bool {
+	if !ValidOIDCProviderID(providerID) || len(registrySHA256) != sha256.Size*2 {
+		return false
+	}
+	for _, character := range registrySHA256 {
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+// ValidOIDCProviderID validates the bounded portable identity selected from a
+// deployment-owned provider registry.
+func ValidOIDCProviderID(providerID string) bool {
+	if len(providerID) == 0 || len(providerID) > 64 || providerID[0] < 'a' || providerID[0] > 'z' {
+		return false
+	}
+	for _, character := range providerID[1:] {
+		if !((character >= 'a' && character <= 'z') ||
+			(character >= '0' && character <= '9') || character == '-' || character == '_' || character == '.') {
+			return false
+		}
+	}
+	return true
 }
 
 func (verifier *ReloadableOIDCJWTVerifier) Ready(ctx context.Context) error {

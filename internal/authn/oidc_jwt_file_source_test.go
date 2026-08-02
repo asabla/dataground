@@ -30,7 +30,9 @@ func TestOIDCJWTKeysetFileSourceLoadsOwnedPublication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load file publication: %v", err)
 	}
-	if snapshot.Sequence != 7 || !snapshot.ExpiresAt.Equal(expiresAt) || string(snapshot.JWKS) != `{"keys":[]}` {
+	if snapshot.Sequence != 7 || snapshot.ProviderID != "primary" ||
+		snapshot.ProviderRegistrySHA256 != strings.Repeat("1", 64) ||
+		!snapshot.ExpiresAt.Equal(expiresAt) || string(snapshot.JWKS) != `{"keys":[]}` {
 		t.Fatalf("snapshot = %#v", snapshot)
 	}
 	writeOIDCJWTKeysetPublication(t, path, 8, expiresAt.Add(time.Hour), `{"keys":[{}]}`)
@@ -65,12 +67,14 @@ func TestOIDCJWTKeysetFileSourceInitializesAndRefreshesVerifier(t *testing.T) {
 		t.Fatalf("create file source: %v", err)
 	}
 	verifier, err := NewReloadableOIDCJWTVerifier(context.Background(), ReloadableOIDCJWTConfig{
-		Issuer:          "https://identity.example.invalid",
-		Audience:        APIAudience,
-		Algorithms:      []string{"RS256"},
-		ClockSkew:       30 * time.Second,
-		MaximumLifetime: time.Hour,
-		Source:          source,
+		Issuer:                 "https://identity.example.invalid",
+		Audience:               APIAudience,
+		ProviderID:             "primary",
+		ProviderRegistrySHA256: strings.Repeat("1", 64),
+		Algorithms:             []string{"RS256"},
+		ClockSkew:              30 * time.Second,
+		MaximumLifetime:        time.Hour,
+		Source:                 source,
 	})
 	if err != nil {
 		t.Fatalf("initialize verifier from file publication: %v", err)
@@ -145,14 +149,20 @@ func TestOIDCJWTKeysetFileSourceRejectsMalformedPublications(t *testing.T) {
 	t.Parallel()
 
 	expiresAt := time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano)
+	binding := `"contract":"dataground.oidc-keyset-publication/v2","providerId":"primary","providerRegistrySha256":"` +
+		strings.Repeat("1", 64) + `"`
 	for name, content := range map[string]string{
 		"empty":           "",
-		"duplicate field": `{"sequence":1,"sequence":2,"expiresAt":"` + expiresAt + `","jwks":{"keys":[]}}`,
-		"unknown field":   `{"sequence":1,"expiresAt":"` + expiresAt + `","jwks":{"keys":[]},"extra":true}`,
-		"trailing value":  `{"sequence":1,"expiresAt":"` + expiresAt + `","jwks":{"keys":[]}} {}`,
-		"zero sequence":   `{"sequence":0,"expiresAt":"` + expiresAt + `","jwks":{"keys":[]}}`,
-		"missing expiry":  `{"sequence":1,"jwks":{"keys":[]}}`,
-		"missing JWKS":    `{"sequence":1,"expiresAt":"` + expiresAt + `"}`,
+		"duplicate field": `{` + binding + `,"sequence":1,"sequence":2,"expiresAt":"` + expiresAt + `","jwks":{"keys":[]}}`,
+		"unknown field":   `{` + binding + `,"sequence":1,"expiresAt":"` + expiresAt + `","jwks":{"keys":[]},"extra":true}`,
+		"trailing value":  `{` + binding + `,"sequence":1,"expiresAt":"` + expiresAt + `","jwks":{"keys":[]}} {}`,
+		"zero sequence":   `{` + binding + `,"sequence":0,"expiresAt":"` + expiresAt + `","jwks":{"keys":[]}}`,
+		"missing expiry":  `{` + binding + `,"sequence":1,"jwks":{"keys":[]}}`,
+		"missing JWKS":    `{` + binding + `,"sequence":1,"expiresAt":"` + expiresAt + `"}`,
+		"wrong contract": strings.Replace(
+			`{`+binding+`,"sequence":1,"expiresAt":"`+expiresAt+`","jwks":{"keys":[]}}`,
+			"oidc-keyset-publication/v2", "oidc-keyset-publication/v1", 1,
+		),
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -198,7 +208,8 @@ func writeOIDCJWTKeysetPublication(
 	jwks string,
 ) {
 	t.Helper()
-	content := `{"sequence":` + jsonNumber(sequence) + `,"expiresAt":"` +
+	content := `{"contract":"dataground.oidc-keyset-publication/v2","sequence":` + jsonNumber(sequence) +
+		`,"providerId":"primary","providerRegistrySha256":"` + strings.Repeat("1", 64) + `","expiresAt":"` +
 		expiresAt.UTC().Format(time.RFC3339Nano) + `","jwks":` + jwks + `}`
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write publication: %v", err)

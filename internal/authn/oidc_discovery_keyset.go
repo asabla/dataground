@@ -11,10 +11,12 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 )
 
 const maximumOIDCDiscoveryDocumentBytes = 64 << 10
 const maximumOIDCDiscoveryResponseHeaderBytes = 32 << 10
+const maximumOIDCDiscoveryBearerTokenBytes = 8 << 10
 
 var (
 	ErrOIDCDiscoveryInvalid     = errors.New("OIDC discovery metadata is invalid")
@@ -24,22 +26,29 @@ var (
 // OIDCDiscoveryKeysetImportConfig pins the metadata and key endpoints used to
 // import one provider-owned public signing-key set. Transport owns TLS trust.
 type OIDCDiscoveryKeysetImportConfig struct {
-	Issuer       string
-	DiscoveryURL string
-	JWKSURL      string
-	Algorithms   []string
-	Transport    *http.Transport
+	Issuer               string
+	DiscoveryURL         string
+	JWKSURL              string
+	Algorithms           []string
+	DiscoveryBearerToken []byte
+	JWKSBearerToken      []byte
+	Transport            *http.Transport
 }
 
 // OIDCDiscoveryKeysetImporter retrieves provider metadata and public signing
-// keys without following redirects or accepting endpoint changes discovered at
-// runtime.
+// keys once without following redirects or accepting endpoint changes
+// discovered at runtime. The first import attempt consumes its copied endpoint
+// credentials even when the supplied context is invalid or cancelled.
 type OIDCDiscoveryKeysetImporter struct {
-	issuer       string
-	discoveryURL string
-	jwksURL      string
-	algorithms   map[string]struct{}
-	client       *http.Client
+	issuer               string
+	discoveryURL         string
+	jwksURL              string
+	algorithms           map[string]struct{}
+	client               *http.Client
+	mu                   sync.Mutex
+	used                 bool
+	discoveryBearerToken []byte
+	jwksBearerToken      []byte
 }
 
 type oidcDiscoveryDocument struct {
@@ -53,7 +62,9 @@ func NewOIDCDiscoveryKeysetImporter(
 	if !validOIDCIssuer(config.Issuer) ||
 		!validPinnedOIDCHTTPEndpoint(config.DiscoveryURL) ||
 		!validPinnedOIDCHTTPEndpoint(config.JWKSURL) ||
-		config.DiscoveryURL == config.JWKSURL {
+		config.DiscoveryURL == config.JWKSURL ||
+		!validOIDCDiscoveryBearerToken(config.DiscoveryBearerToken) ||
+		!validOIDCDiscoveryBearerToken(config.JWKSBearerToken) {
 		return nil, ErrOIDCDiscoveryInvalid
 	}
 	_, algorithms, err := parseOIDCJWTAlgorithms(config.Algorithms)
@@ -85,6 +96,10 @@ func NewOIDCDiscoveryKeysetImporter(
 		discoveryURL: config.DiscoveryURL,
 		jwksURL:      config.JWKSURL,
 		algorithms:   algorithms,
+		discoveryBearerToken: append(
+			[]byte(nil), config.DiscoveryBearerToken...,
+		),
+		jwksBearerToken: append([]byte(nil), config.JWKSBearerToken...),
 		client: &http.Client{
 			Transport: transport,
 			CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -95,7 +110,16 @@ func NewOIDCDiscoveryKeysetImporter(
 }
 
 func (importer *OIDCDiscoveryKeysetImporter) Import(ctx context.Context) ([]byte, error) {
-	if importer == nil || importer.client == nil || ctx == nil {
+	if importer == nil || importer.client == nil {
+		return nil, ErrOIDCDiscoveryUnavailable
+	}
+	discoveryBearerToken, jwksBearerToken, ok := importer.takeBearerTokens()
+	if !ok {
+		return nil, ErrOIDCDiscoveryUnavailable
+	}
+	defer clear(discoveryBearerToken)
+	defer clear(jwksBearerToken)
+	if ctx == nil {
 		return nil, ErrOIDCDiscoveryUnavailable
 	}
 	if err := ctx.Err(); err != nil {
@@ -104,6 +128,7 @@ func (importer *OIDCDiscoveryKeysetImporter) Import(ctx context.Context) ([]byte
 	metadata, err := importer.fetchJSON(
 		ctx,
 		importer.discoveryURL,
+		discoveryBearerToken,
 		maximumOIDCDiscoveryDocumentBytes,
 		"application/json",
 	)
@@ -124,6 +149,7 @@ func (importer *OIDCDiscoveryKeysetImporter) Import(ctx context.Context) ([]byte
 	jwks, err := importer.fetchJSON(
 		ctx,
 		importer.jwksURL,
+		jwksBearerToken,
 		maximumOIDCJWKSBytes,
 		"application/json",
 		"application/jwk-set+json",
@@ -146,6 +172,7 @@ func (importer *OIDCDiscoveryKeysetImporter) Import(ctx context.Context) ([]byte
 func (importer *OIDCDiscoveryKeysetImporter) fetchJSON(
 	ctx context.Context,
 	endpoint string,
+	bearerToken []byte,
 	maximumBytes int,
 	mediaTypes ...string,
 ) ([]byte, error) {
@@ -154,7 +181,11 @@ func (importer *OIDCDiscoveryKeysetImporter) fetchJSON(
 		return nil, ErrOIDCDiscoveryInvalid
 	}
 	request.Header.Set("Accept", strings.Join(mediaTypes, ", "))
+	if len(bearerToken) != 0 {
+		request.Header.Set("Authorization", "Bearer "+string(bearerToken))
+	}
 	response, err := importer.client.Do(request)
+	request.Header.Del("Authorization")
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
@@ -174,6 +205,42 @@ func (importer *OIDCDiscoveryKeysetImporter) fetchJSON(
 		return nil, ErrOIDCDiscoveryInvalid
 	}
 	return readBoundedOIDCHTTPBody(ctx, response.Body, maximumBytes)
+}
+
+func (importer *OIDCDiscoveryKeysetImporter) takeBearerTokens() ([]byte, []byte, bool) {
+	importer.mu.Lock()
+	defer importer.mu.Unlock()
+	if importer.used {
+		return nil, nil, false
+	}
+	importer.used = true
+	discovery := append([]byte(nil), importer.discoveryBearerToken...)
+	jwks := append([]byte(nil), importer.jwksBearerToken...)
+	clear(importer.discoveryBearerToken)
+	clear(importer.jwksBearerToken)
+	importer.discoveryBearerToken = nil
+	importer.jwksBearerToken = nil
+	return discovery, jwks, true
+}
+
+func validOIDCDiscoveryBearerToken(token []byte) bool {
+	if len(token) > maximumOIDCDiscoveryBearerTokenBytes {
+		return false
+	}
+	padding := false
+	for _, value := range token {
+		if value == '=' {
+			padding = true
+			continue
+		}
+		if padding || !((value >= 'a' && value <= 'z') ||
+			(value >= 'A' && value <= 'Z') ||
+			(value >= '0' && value <= '9') ||
+			strings.ContainsRune("-._~+/", rune(value))) {
+			return false
+		}
+	}
+	return true
 }
 
 func readBoundedOIDCHTTPBody(ctx context.Context, reader io.Reader, maximumBytes int) ([]byte, error) {

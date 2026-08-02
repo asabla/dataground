@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -309,12 +310,14 @@ func apiAssemblyConfig(
 		ReleaseCertificationReadiness: apiAssemblyReadiness{},
 		ExternalOrigin:                "https://api.example.invalid",
 		OIDC: authn.ReloadableOIDCJWTConfig{
-			Issuer:          "https://identity.example.invalid",
-			Audience:        authn.APIAudience,
-			Algorithms:      []string{"EdDSA"},
-			Source:          source,
-			ClockSkew:       30 * time.Second,
-			MaximumLifetime: time.Hour,
+			Issuer:                 "https://identity.example.invalid",
+			Audience:               authn.APIAudience,
+			ProviderID:             "primary",
+			ProviderRegistrySHA256: strings.Repeat("1", 64),
+			Algorithms:             []string{"EdDSA"},
+			Source:                 source,
+			ClockSkew:              30 * time.Second,
+			MaximumLifetime:        time.Hour,
 		},
 		KeysetRefresh: authn.OIDCJWTKeysetRefreshPolicy{
 			Interval: time.Minute,
@@ -344,7 +347,9 @@ func apiAssemblyRepository(t *testing.T) *persistence.Repository {
 func apiAssemblyKeysetSnapshot(sequence uint64) authn.OIDCJWTKeysetSnapshot {
 	x := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{2}, ed25519.PublicKeySize))
 	return authn.OIDCJWTKeysetSnapshot{
-		Sequence: sequence,
+		Sequence:               sequence,
+		ProviderID:             "primary",
+		ProviderRegistrySHA256: strings.Repeat("1", 64),
 		JWKS: []byte(fmt.Sprintf(
 			`{"keys":[{"kty":"OKP","use":"sig","kid":"provider-key","alg":"EdDSA","crv":"Ed25519","x":%q}]}`,
 			x,
