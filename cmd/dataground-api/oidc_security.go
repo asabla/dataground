@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -101,7 +102,9 @@ func loadOIDCSecurityConfiguration(path string) (oidcSecurityConfiguration, []by
 		!configuration.JWT.ClockSkew.set || !configuration.JWT.MaximumLifetime.set ||
 		!configuration.DPoP.ClockSkew.set || !configuration.DPoP.MaximumProofAge.set ||
 		!configuration.KeysetRefresh.Interval.set || !configuration.KeysetRefresh.Timeout.set ||
-		configuration.Admission.Generation == 0 || !configuration.Admission.Window.set {
+		configuration.Admission.Generation == 0 ||
+		configuration.Admission.Generation > math.MaxInt64 ||
+		!configuration.Admission.Window.set {
 		return configuration, nil, errors.New("OIDC security configuration is incomplete")
 	}
 	if _, err := authn.NewOIDCJWTKeysetFileSource(configuration.KeysetPublicationFile); err != nil {
