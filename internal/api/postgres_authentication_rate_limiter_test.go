@@ -17,17 +17,18 @@ func TestPostgreSQLAuthenticationRateLimiterValidatesComposition(t *testing.T) {
 	policy := persistence.AuthenticationRateLimitPolicy{
 		Window: time.Minute, GlobalBurst: 100, IsolationDomainBurst: 20, CredentialBurst: 5,
 	}
-	if _, err := NewPostgreSQLAuthenticationRateLimiter(nil, policy); err == nil {
+	if _, err := NewPostgreSQLAuthenticationRateLimiter(nil, 1, policy); err == nil {
 		t.Fatal("nil repository was accepted")
 	}
 	repository := persistence.NewRepository(&pgxpool.Pool{})
 	if _, err := NewPostgreSQLAuthenticationRateLimiter(
 		repository,
+		1,
 		persistence.AuthenticationRateLimitPolicy{},
 	); err == nil {
 		t.Fatal("invalid policy was accepted")
 	}
-	limiter, err := NewPostgreSQLAuthenticationRateLimiter(repository, policy)
+	limiter, err := NewPostgreSQLAuthenticationRateLimiter(repository, 1, policy)
 	if err != nil {
 		t.Fatalf("create limiter: %v", err)
 	}
