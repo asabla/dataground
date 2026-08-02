@@ -218,6 +218,21 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 			Window: time.Hour, GlobalBurst: 2, IsolationDomainBurst: 2, CredentialBurst: 2,
 		}
 		activate(t, 1, first)
+		activate(t, 1, first)
+		gapReason := sha256.Sum256([]byte("invalid generation gap"))
+		if err := repository.ActivateAuthenticationRateLimitPolicy(
+			ctx,
+			persistence.AuthenticationRateLimitPolicyActivation{
+				Contract:      "dataground.authentication-rate-limit-policy/v1",
+				Generation:    3,
+				Policy:        first,
+				ActivatedBy:   "test-operator",
+				CorrelationID: "cor_0123456789abcdefghil",
+				ReasonDigest:  append([]byte(nil), gapReason[:]...),
+			},
+		); !errors.Is(err, persistence.ErrAuthenticationRateLimitConflict) {
+			t.Fatalf("generation gap error = %v", err)
+		}
 		if result, err := repository.AllowAuthentication(ctx, domain, credential, 1, first); err != nil || !result.Allowed {
 			t.Fatalf("first-generation admission = %#v, %v", result, err)
 		}
@@ -242,6 +257,20 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 			ctx, domain, credential, 1, first,
 		); !errors.Is(err, persistence.ErrAuthenticationRateLimitConflict) {
 			t.Fatalf("stale policy error = %v", err)
+		}
+		correlationReuseReason := sha256.Sum256([]byte("conflicting correlation reuse"))
+		if err := repository.ActivateAuthenticationRateLimitPolicy(
+			ctx,
+			persistence.AuthenticationRateLimitPolicyActivation{
+				Contract:      "dataground.authentication-rate-limit-policy/v1",
+				Generation:    3,
+				Policy:        second,
+				ActivatedBy:   "test-operator",
+				CorrelationID: "cor_0123456789abcdefghik",
+				ReasonDigest:  append([]byte(nil), correlationReuseReason[:]...),
+			},
+		); !errors.Is(err, persistence.ErrAuthenticationRateLimitConflict) {
+			t.Fatalf("correlation reuse error = %v", err)
 		}
 		if result, err := repository.AllowAuthentication(
 			ctx, domain, credential, 2, second,
