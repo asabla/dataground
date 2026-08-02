@@ -78,7 +78,7 @@ func (repository *Repository) AllowAuthentication(
 		authenticationRateLimitCoordinationLockKey); err != nil {
 		return AuthenticationRateLimitResult{}, fmt.Errorf("lock authentication admission policy: %w", err)
 	}
-	if err := requireActiveAuthenticationRateLimitPolicy(ctx, tx, generation, policy); err != nil {
+	if err := requireActiveAuthenticationRateLimitPolicy(ctx, tx, generation, policy, nil); err != nil {
 		return AuthenticationRateLimitResult{}, err
 	}
 	policyDigest := policy.digest()
