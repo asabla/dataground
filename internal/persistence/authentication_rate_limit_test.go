@@ -77,3 +77,25 @@ func TestAuthenticationRateLimitDigestsSeparateScopesAndCredentials(t *testing.T
 		t.Fatal("rate limit subjects were not domain-separated")
 	}
 }
+
+func TestAuthenticationRateLimitPolicyDigestBindsEveryField(t *testing.T) {
+	t.Parallel()
+
+	policy := AuthenticationRateLimitPolicy{
+		Window: time.Minute, GlobalBurst: 100, IsolationDomainBurst: 20, CredentialBurst: 5,
+	}
+	want := policy.digest()
+	mutations := []func(*AuthenticationRateLimitPolicy){
+		func(candidate *AuthenticationRateLimitPolicy) { candidate.Window++ },
+		func(candidate *AuthenticationRateLimitPolicy) { candidate.GlobalBurst++ },
+		func(candidate *AuthenticationRateLimitPolicy) { candidate.IsolationDomainBurst++ },
+		func(candidate *AuthenticationRateLimitPolicy) { candidate.CredentialBurst++ },
+	}
+	for _, mutate := range mutations {
+		candidate := policy
+		mutate(&candidate)
+		if candidate.digest() == want {
+			t.Fatal("policy mutation retained the active digest")
+		}
+	}
+}
