@@ -69,6 +69,10 @@ func PublishOIDCJWTKeysetFile(ctx context.Context, publication OIDCJWTKeysetFile
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	identity, err := inspectOIDCJWTKeysetPublicationTarget(publication.Path)
+	if err != nil {
+		return err
+	}
 
 	current, exists, err := loadCurrentOIDCJWTKeysetPublication(ctx, source, algorithms)
 	if err != nil {
@@ -82,6 +86,9 @@ func PublishOIDCJWTKeysetFile(ctx context.Context, publication OIDCJWTKeysetFile
 		case publication.Sequence == current.Sequence:
 			if !expiresAt.Equal(current.ExpiresAt) || !bytes.Equal(canonicalJWKS, current.JWKS) {
 				return ErrOIDCJWTKeysetConflict
+			}
+			if err := requireUnchangedOIDCJWTKeysetPublicationTarget(publication.Path, identity); err != nil {
+				return err
 			}
 			return syncOIDCJWTKeysetPublicationDirectory(publication.Path)
 		}
@@ -97,10 +104,6 @@ func PublishOIDCJWTKeysetFile(ctx context.Context, publication OIDCJWTKeysetFile
 		return ErrOIDCJWTKeysetInvalid
 	}
 	defer clear(encoded)
-	identity, err := inspectOIDCJWTKeysetPublicationTarget(publication.Path)
-	if err != nil {
-		return err
-	}
 	if err := writeAtomicOIDCJWTKeysetPublication(ctx, publication.Path, encoded, identity); err != nil {
 		return err
 	}
@@ -239,6 +242,22 @@ func inspectOIDCJWTKeysetPublicationTarget(path string) (oidcJWTKeysetPublicatio
 	return oidcJWTKeysetPublicationTarget{exists: true, info: info}, nil
 }
 
+func requireUnchangedOIDCJWTKeysetPublicationTarget(
+	path string,
+	expected oidcJWTKeysetPublicationTarget,
+) error {
+	actual, err := inspectOIDCJWTKeysetPublicationTarget(path)
+	if err != nil {
+		return err
+	}
+	if actual.exists != expected.exists ||
+		(actual.exists && (!os.SameFile(actual.info, expected.info) || actual.info.Size() != expected.info.Size() ||
+			!actual.info.ModTime().Equal(expected.info.ModTime()) || actual.info.Mode() != expected.info.Mode())) {
+		return errors.New("OIDC JWT keyset publication target changed during publication")
+	}
+	return nil
+}
+
 func writeAtomicOIDCJWTKeysetPublication(
 	ctx context.Context,
 	targetPath string,
@@ -276,14 +295,8 @@ func writeAtomicOIDCJWTKeysetPublication(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	actual, err := inspectOIDCJWTKeysetPublicationTarget(targetPath)
-	if err != nil {
+	if err := requireUnchangedOIDCJWTKeysetPublicationTarget(targetPath, expected); err != nil {
 		return err
-	}
-	if actual.exists != expected.exists ||
-		(actual.exists && (!os.SameFile(actual.info, expected.info) || actual.info.Size() != expected.info.Size() ||
-			!actual.info.ModTime().Equal(expected.info.ModTime()) || actual.info.Mode() != expected.info.Mode())) {
-		return errors.New("OIDC JWT keyset publication target changed during publication")
 	}
 	if err := os.Rename(temporaryPath, targetPath); err != nil {
 		return fmt.Errorf("install OIDC JWT keyset publication: %w", err)
