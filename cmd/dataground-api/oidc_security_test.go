@@ -57,13 +57,46 @@ func TestLoadOIDCSecurityConfigurationOwnsStrictDeploymentInputs(t *testing.T) {
 		configuration.Authorization.PolicyFile != policy ||
 		configuration.JWT.MaximumLifetime.value != time.Hour ||
 		configuration.Admission.Generation != 1 ||
-		configuration.Admission.CredentialBurst != 10 {
+		configuration.Admission.CredentialBurst != 10 ||
+		!configuration.DPoP.Nonce.set ||
+		configuration.DPoP.Nonce.value.Lifetime.value != time.Minute ||
+		configuration.DPoP.Nonce.value.MaximumActivePerKey != 4 {
 		t.Fatalf("loaded configuration = %#v", configuration)
 	}
 	if string(policyBytes) != `permit(principal, action, resource);` {
 		t.Fatalf("loaded policy = %q", policyBytes)
 	}
 	clear(policyBytes)
+
+	withoutNonce := strings.Replace(
+		startupConfiguration(keysets, policy, evidence, evidenceHash),
+		`,"nonce":{"lifetime":"1m","maximumActivePerKey":4}`,
+		``,
+		1,
+	)
+	withoutNoncePath := writeStartupFile(t, directory, "security-without-nonce.json", withoutNonce)
+	withoutNonceCertification, withoutNonceTrust := writeStartupReleaseCertification(
+		t,
+		directory,
+		withoutNoncePath,
+		policy,
+		evidence,
+		"0123456789abcdef0123456789abcdef01234567",
+		"go1.26.5",
+		now,
+	)
+	configuration, policyBytes, err = loadOIDCSecurityConfigurationForBuild(
+		withoutNoncePath,
+		withoutNonceCertification,
+		withoutNonceTrust,
+		"0123456789abcdef0123456789abcdef01234567",
+		"go1.26.5",
+		now,
+	)
+	clear(policyBytes)
+	if err != nil || configuration.DPoP.Nonce.set {
+		t.Fatalf("load configuration without nonce policy: %#v, %v", configuration.DPoP.Nonce, err)
+	}
 }
 
 func TestLoadOIDCSecurityConfigurationRejectsAmbiguousOrUnsafeFiles(t *testing.T) {
@@ -76,7 +109,7 @@ func TestLoadOIDCSecurityConfigurationRejectsAmbiguousOrUnsafeFiles(t *testing.T
 
 	tests := map[string]func() string{
 		"old contract": func() string {
-			return strings.Replace(valid, oidcSecurityConfigurationContract, "dataground.api-security/oidc-dpop/v1", 1)
+			return strings.Replace(valid, oidcSecurityConfigurationContract, "dataground.api-security/oidc-dpop/v2", 1)
 		},
 		"duplicate member": func() string {
 			return strings.Replace(valid, `"issuer":`, `"issuer":"https://duplicate.example.invalid","issuer":`, 1)
@@ -89,6 +122,23 @@ func TestLoadOIDCSecurityConfigurationRejectsAmbiguousOrUnsafeFiles(t *testing.T
 		},
 		"missing duration": func() string {
 			return strings.Replace(valid, `"clockSkew":"30s",`, ``, 1)
+		},
+		"invalid nonce lifetime": func() string {
+			return strings.Replace(valid, `"lifetime":"1m"`, `"lifetime":"1h"`, 1)
+		},
+		"invalid nonce overlap": func() string {
+			return strings.Replace(valid, `"maximumActivePerKey":4`, `"maximumActivePerKey":0`, 1)
+		},
+		"null nonce policy": func() string {
+			return strings.Replace(
+				valid,
+				`"nonce":{"lifetime":"1m","maximumActivePerKey":4}`,
+				`"nonce":null`,
+				1,
+			)
+		},
+		"unknown nonce member": func() string {
+			return strings.Replace(valid, `"nonce":{`, `"nonce":{"unknown":true,`, 1)
 		},
 		"unsupported admission generation": func() string {
 			return strings.Replace(
@@ -267,6 +317,7 @@ func startupConfiguration(keysets, policy, evidence, evidenceHash string) string
 		},
 		"dpop": map[string]any{
 			"clockSkew": "30s", "maximumProofAge": "1m",
+			"nonce": map[string]any{"lifetime": "1m", "maximumActivePerKey": 4},
 		},
 		"keysetRefresh": map[string]any{
 			"interval": "1m", "timeout": "5s",
