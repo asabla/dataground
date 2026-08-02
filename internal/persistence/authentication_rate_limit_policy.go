@@ -15,15 +15,15 @@ import (
 )
 
 const (
-	authenticationRateLimitPolicyContract       = "dataground.authentication-rate-limit-policy/v1"
-	authenticationRateLimitCoordinationLockKey  = int64(0x444741555448524c)
+	authenticationRateLimitPolicyContract      = "dataground.authentication-rate-limit-policy/v1"
+	authenticationRateLimitCoordinationLockKey = int64(0x444741555448524c)
 )
 
 var (
 	ErrAuthenticationRateLimitPolicyActivationInvalid = errors.New("authentication rate limit policy activation is invalid")
 	ErrAuthenticationRateLimitPolicyInactive          = errors.New("authentication rate limit policy is not active")
-	authenticationRateLimitActorPattern                = regexp.MustCompile(`^[a-z][a-z0-9_-]{2,127}$`)
-	authenticationRateLimitCorrelationPattern          = regexp.MustCompile(`^cor_[0-9a-z]{20,32}$`)
+	authenticationRateLimitActorPattern               = regexp.MustCompile(`^[a-z][a-z0-9_-]{2,127}$`)
+	authenticationRateLimitCorrelationPattern         = regexp.MustCompile(`^cor_[0-9a-z]{20,32}$`)
 )
 
 // AuthenticationRateLimitPolicyActivation is one immutable operator-attributed
@@ -170,12 +170,12 @@ func requireActiveAuthenticationRateLimitPolicy(
 	policy AuthenticationRateLimitPolicy,
 ) error {
 	var (
-		activeGeneration uint64
-		policyDigest     []byte
+		activeGeneration  uint64
+		policyDigest      []byte
 		windowNanoseconds int64
-		globalBurst      uint32
-		domainBurst      uint32
-		credentialBurst  uint32
+		globalBurst       uint32
+		domainBurst       uint32
+		credentialBurst   uint32
 	)
 	err := querier.QueryRow(ctx, `
 		SELECT
@@ -221,8 +221,8 @@ func getAuthenticationRateLimitPolicyActivation(
 	generation uint64,
 ) (AuthenticationRateLimitPolicyActivation, error) {
 	var (
-		activation       AuthenticationRateLimitPolicyActivation
-		policyDigest     []byte
+		activation        AuthenticationRateLimitPolicyActivation
+		policyDigest      []byte
 		windowNanoseconds int64
 	)
 	err := querier.QueryRow(ctx, `
