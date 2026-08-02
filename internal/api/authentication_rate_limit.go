@@ -50,11 +50,11 @@ type AuthenticationRateLimiter interface {
 
 func authenticationRateLimitRequest(
 	isolationDomainID string,
-	bearerToken []byte,
+	accessToken []byte,
 ) AuthenticationRateLimitRequest {
 	return AuthenticationRateLimitRequest{
 		isolationDomainID: isolationDomainID,
-		credentialDigest:  sha256.Sum256(bearerToken),
+		credentialDigest:  sha256.Sum256(accessToken),
 	}
 }
 
