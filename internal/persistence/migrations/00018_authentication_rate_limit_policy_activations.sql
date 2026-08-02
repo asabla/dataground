@@ -53,6 +53,12 @@ CREATE INDEX authentication_rate_limit_buckets_generation_reclamation_idx
 
 -- dataground:down
 
+DELETE FROM authentication_rate_limit_buckets
+WHERE policy_generation <> (
+    SELECT max(generation)
+    FROM authentication_rate_limit_policy_activations
+);
+
 DROP INDEX authentication_rate_limit_buckets_generation_reclamation_idx;
 
 ALTER TABLE authentication_rate_limit_buckets
