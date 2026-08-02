@@ -24,6 +24,7 @@ func TestLoadOIDCSecurityConfigurationOwnsStrictDeploymentInputs(t *testing.T) {
 		configuration.KeysetPublicationFile != keysets ||
 		configuration.Authorization.PolicyFile != policy ||
 		configuration.JWT.MaximumLifetime.value != time.Hour ||
+		configuration.Admission.Generation != 1 ||
 		configuration.Admission.CredentialBurst != 10 {
 		t.Fatalf("loaded configuration = %#v", configuration)
 	}
@@ -113,7 +114,7 @@ func startupConfiguration(keysets, policy string) string {
 			"interval": "1m", "timeout": "5s",
 		},
 		"admission": map[string]any{
-			"window": "1m", "globalBurst": 100, "isolationDomainBurst": 20, "credentialBurst": 10,
+			"generation": uint64(1), "window": "1m", "globalBurst": 100, "isolationDomainBurst": 20, "credentialBurst": 10,
 		},
 		"authorization": map[string]any{
 			"policySetId": "deployment-api", "policyFile": policy,
