@@ -513,7 +513,7 @@ func verifyArtifacts(statement Statement) error {
 	capacity := artifacts["admission-capacity-evidence"]
 	policy := artifacts["api-authorization-policy"]
 	if err := decodeArtifactJSON(contents["oidc-security-configuration"], &configuration); err != nil ||
-		configuration.Contract != "dataground.api-security/oidc-dpop/v2" ||
+		configuration.Contract != "dataground.api-security/oidc-dpop/v3" ||
 		configuration.Admission.DeploymentProfile != statement.DeploymentProfile ||
 		configuration.Admission.CapacityEvidenceFile != capacity.File ||
 		configuration.Admission.CapacityEvidenceHash != capacity.SHA256 ||
