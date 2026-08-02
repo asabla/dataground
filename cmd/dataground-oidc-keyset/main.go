@@ -40,6 +40,12 @@ func main() {
 }
 
 func run(ctx context.Context, arguments []string) error {
+	if ctx == nil {
+		return errors.New("OIDC keyset publication context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	flags := flag.NewFlagSet("dataground-oidc-keyset", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var requestFile string
@@ -54,6 +60,9 @@ func run(ctx context.Context, arguments []string) error {
 	if err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	jwks, err := readStableOIDCJWTKeysetFile(
 		request.JWKSFile,
 		maximumOIDCJWTKeysetInputBytes,
@@ -64,6 +73,9 @@ func run(ctx context.Context, arguments []string) error {
 		return err
 	}
 	defer clear(jwks)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	operationCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	return authn.PublishOIDCJWTKeysetFile(operationCtx, authn.OIDCJWTKeysetFilePublication{
