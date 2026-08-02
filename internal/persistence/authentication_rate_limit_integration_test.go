@@ -336,7 +336,7 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 			t.Fatalf("read capacity database name: %v", err)
 		}
 		config := persistence.AuthenticationRateLimitCapacityConfig{
-			Contract:          "dataground.authentication-rate-limit-capacity/v1",
+			Contract:          "dataground.authentication-rate-limit-capacity/v2",
 			RunID:             "cap_0123456789abcdefghij",
 			SourceRevision:    "0123456789abcdef0123456789abcdef01234567",
 			DeploymentProfile: "developer",
@@ -353,7 +353,7 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 		if err != nil {
 			t.Fatalf("measure authentication rate limit capacity: %v", err)
 		}
-		if evidence.Contract != "dataground.authentication-rate-limit-capacity-evidence/v1" ||
+		if evidence.Contract != "dataground.authentication-rate-limit-capacity-evidence/v2" ||
 			evidence.RunID != config.RunID || evidence.SourceRevision != config.SourceRevision ||
 			evidence.DatabaseName != config.DatabaseName ||
 			!evidence.Accepted || evidence.GoVersion == "" || evidence.PostgreSQLServerVersion <= 0 ||
@@ -367,6 +367,30 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 				!phase.P99LatencyAccepted || !phase.MinimumThroughputAccepted {
 				t.Fatalf("capacity phase %d = %#v", index, phase)
 			}
+		}
+		if !evidence.AcceptedFor(
+			config.SourceRevision,
+			config.DeploymentProfile,
+			evidence.GoVersion,
+			config.Policy,
+		) {
+			t.Fatal("capacity evidence did not validate for its exact profile")
+		}
+		if err := repository.AuthenticationRateLimitCapacityReady(ctx, evidence); err != nil {
+			t.Fatalf("capacity serving profile readiness: %v", err)
+		}
+		if err := repository.AuthenticationRateLimitPolicyAndCapacityReady(
+			ctx,
+			3,
+			config.Policy,
+			evidence,
+		); err != nil {
+			t.Fatalf("capacity-bound policy readiness: %v", err)
+		}
+		mismatched := evidence
+		mismatched.PostgreSQLMaxConnections++
+		if err := repository.AuthenticationRateLimitCapacityReady(ctx, mismatched); !errors.Is(err, persistence.ErrAuthenticationRateLimitCapacityInvalid) {
+			t.Fatalf("mismatched capacity serving profile error = %v", err)
 		}
 		if _, err := repository.MeasureAuthenticationRateLimitCapacity(ctx, config); !errors.Is(err, persistence.ErrAuthenticationRateLimitCapacityInvalid) {
 			t.Fatalf("capacity database reuse error = %v", err)
