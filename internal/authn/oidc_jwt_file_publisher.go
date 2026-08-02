@@ -17,6 +17,9 @@ import (
 
 const oidcJWTKeysetPublicationLockPollInterval = 100 * time.Millisecond
 
+// ErrOIDCJWTKeysetPublicationUncertain means the replacement became visible
+// but its directory entry could not be confirmed durable. Exact replay is the
+// safe recovery action.
 var ErrOIDCJWTKeysetPublicationUncertain = errors.New("OIDC JWT keyset publication durability is uncertain")
 
 // OIDCJWTKeysetFilePublication is one complete public signing-key generation
