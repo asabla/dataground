@@ -1,7 +1,10 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/asabla/dataground/internal/releasecert"
 )
 
 func TestLoadOIDCSecurityConfigurationOwnsStrictDeploymentInputs(t *testing.T) {
@@ -24,11 +29,25 @@ func TestLoadOIDCSecurityConfigurationOwnsStrictDeploymentInputs(t *testing.T) {
 		"security.json",
 		startupConfiguration(keysets, policy, evidence, evidenceHash),
 	)
+	now := time.Now().UTC()
+	certification, trust := writeStartupReleaseCertification(
+		t,
+		directory,
+		configurationPath,
+		policy,
+		evidence,
+		"0123456789abcdef0123456789abcdef01234567",
+		"go1.26.5",
+		now,
+	)
 
 	configuration, policyBytes, err := loadOIDCSecurityConfigurationForBuild(
 		configurationPath,
+		certification,
+		trust,
 		"0123456789abcdef0123456789abcdef01234567",
 		"go1.26.5",
+		now,
 	)
 	if err != nil {
 		t.Fatalf("load OIDC security configuration: %v", err)
@@ -88,8 +107,11 @@ func TestLoadOIDCSecurityConfigurationRejectsAmbiguousOrUnsafeFiles(t *testing.T
 			path := writeStartupFile(t, t.TempDir(), "security.json", mutate())
 			if _, _, err := loadOIDCSecurityConfigurationForBuild(
 				path,
+				"",
+				"",
 				"0123456789abcdef0123456789abcdef01234567",
 				"go1.26.5",
+				time.Now().UTC(),
 			); err == nil {
 				t.Fatal("invalid configuration was accepted")
 			}
@@ -102,8 +124,11 @@ func TestLoadOIDCSecurityConfigurationRejectsAmbiguousOrUnsafeFiles(t *testing.T
 	}
 	if _, _, err := loadOIDCSecurityConfigurationForBuild(
 		unsafePath,
+		"",
+		"",
 		"0123456789abcdef0123456789abcdef01234567",
 		"go1.26.5",
+		time.Now().UTC(),
 	); err == nil {
 		t.Fatal("group-writable configuration was accepted")
 	}
@@ -113,8 +138,11 @@ func TestLoadOIDCSecurityConfigurationRejectsAmbiguousOrUnsafeFiles(t *testing.T
 	}
 	if _, _, err := loadOIDCSecurityConfigurationForBuild(
 		symlink,
+		"",
+		"",
 		"0123456789abcdef0123456789abcdef01234567",
 		"go1.26.5",
+		time.Now().UTC(),
 	); err == nil {
 		t.Fatal("configuration symlink was accepted")
 	}
@@ -128,31 +156,88 @@ func TestLoadOIDCSecurityConfigurationRejectsUnboundCapacityEvidence(t *testing.
 	policy := writeStartupFile(t, directory, "api.cedar", `permit(principal, action, resource);`)
 	evidence, evidenceHash := writeStartupCapacityEvidence(t, directory)
 
-	load := func(configuration, sourceRevision, goVersion string) error {
-		path := writeStartupFile(t, t.TempDir(), "security.json", configuration)
-		_, policyBytes, err := loadOIDCSecurityConfigurationForBuild(path, sourceRevision, goVersion)
+	load := func(configuration, sourceRevision, goVersion string, certify bool) error {
+		testDirectory := t.TempDir()
+		path := writeStartupFile(t, testDirectory, "security.json", configuration)
+		certification, trust := "", ""
+		if certify {
+			certification, trust = writeStartupReleaseCertification(
+				t,
+				testDirectory,
+				path,
+				policy,
+				evidence,
+				sourceRevision,
+				goVersion,
+				time.Now().UTC(),
+			)
+		}
+		_, policyBytes, err := loadOIDCSecurityConfigurationForBuild(
+			path,
+			certification,
+			trust,
+			sourceRevision,
+			goVersion,
+			time.Now().UTC(),
+		)
 		clear(policyBytes)
 		return err
 	}
 	valid := startupConfiguration(keysets, policy, evidence, evidenceHash)
-	if err := load(valid, revision, "go1.26.5"); err != nil {
+	if err := load(valid, revision, "go1.26.5", true); err != nil {
 		t.Fatalf("load bound capacity evidence: %v", err)
 	}
-	if err := load(valid, "1123456789abcdef0123456789abcdef01234567", "go1.26.5"); err == nil {
+	if err := load(valid, "1123456789abcdef0123456789abcdef01234567", "go1.26.5", false); err == nil {
 		t.Fatal("evidence from another revision was accepted")
 	}
-	if err := load(valid, revision, "go1.26.6"); err == nil {
+	if err := load(valid, revision, "go1.26.6", false); err == nil {
 		t.Fatal("evidence from another Go runtime was accepted")
 	}
 	wrongHash := strings.Repeat("0", sha256.Size*2)
-	if err := load(startupConfiguration(keysets, policy, evidence, wrongHash), revision, "go1.26.5"); err == nil {
+	if err := load(startupConfiguration(keysets, policy, evidence, wrongHash), revision, "go1.26.5", false); err == nil {
 		t.Fatal("evidence with a mismatched digest was accepted")
 	}
 	if err := os.Chmod(evidence, 0o640); err != nil {
 		t.Fatalf("make capacity evidence group-readable: %v", err)
 	}
-	if err := load(valid, revision, "go1.26.5"); err == nil {
+	if err := load(valid, revision, "go1.26.5", false); err == nil {
 		t.Fatal("non-owner-only capacity evidence was accepted")
+	}
+}
+
+func TestLoadOIDCSecurityConfigurationRejectsUnsignedOrMismatchedCertification(t *testing.T) {
+	t.Parallel()
+	const revision = "0123456789abcdef0123456789abcdef01234567"
+	directory := t.TempDir()
+	keysets := writeStartupFile(t, directory, "keysets.json", `{}`)
+	policy := writeStartupFile(t, directory, "api.cedar", `permit(principal, action, resource);`)
+	evidence, evidenceHash := writeStartupCapacityEvidence(t, directory)
+	configurationPath := writeStartupFile(
+		t,
+		directory,
+		"security.json",
+		startupConfiguration(keysets, policy, evidence, evidenceHash),
+	)
+	now := time.Now().UTC()
+	certification, trust := writeStartupReleaseCertification(
+		t, directory, configurationPath, policy, evidence, revision, "go1.26.5", now,
+	)
+
+	if _, _, err := loadOIDCSecurityConfigurationForBuild(
+		configurationPath, "", trust, revision, "go1.26.5", now,
+	); err == nil {
+		t.Fatal("missing release certification was accepted")
+	}
+	otherConfiguration := writeStartupFile(
+		t,
+		directory,
+		"other-security.json",
+		startupConfiguration(keysets, policy, evidence, evidenceHash),
+	)
+	if _, _, err := loadOIDCSecurityConfigurationForBuild(
+		otherConfiguration, certification, trust, revision, "go1.26.5", now,
+	); err == nil {
+		t.Fatal("certification for another configuration path was accepted")
 	}
 }
 
@@ -248,6 +333,103 @@ func writeStartupCapacityEvidence(t *testing.T, directory string) (string, strin
 	path := writeStartupFile(t, directory, "capacity.json", string(encoded))
 	digest := sha256.Sum256(encoded)
 	return path, hex.EncodeToString(digest[:])
+}
+
+func writeStartupReleaseCertification(
+	t *testing.T,
+	directory string,
+	configurationPath string,
+	policyPath string,
+	evidencePath string,
+	sourceRevision string,
+	goVersion string,
+	now time.Time,
+) (string, string) {
+	t.Helper()
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate release certification key: %v", err)
+	}
+	trust := releasecert.TrustProfile{
+		Contract: releasecert.TrustContract,
+		Keys: []releasecert.TrustedKey{{
+			KeyID:     "release_test_key",
+			PublicKey: base64.RawURLEncoding.EncodeToString(publicKey),
+		}},
+	}
+	trustPath := writeStartupCanonicalFile(t, directory, "release-trust.json", trust)
+	trustDigest := startupFileDigest(t, trustPath)
+	statement := releasecert.Statement{
+		Contract:           releasecert.StatementContract,
+		ReleaseID:          "release_test_01",
+		SourceRevision:     sourceRevision,
+		GoVersion:          goVersion,
+		DeploymentProfile:  "team",
+		TrustProfileSHA256: trustDigest,
+		IssuedAt:           now.Add(-time.Minute).Format(time.RFC3339Nano),
+		ExpiresAt:          now.Add(time.Hour).Format(time.RFC3339Nano),
+		ReviewerID:         "reviewer_test",
+		Reason:             "reviewed test release evidence",
+		Artifacts: []releasecert.Artifact{
+			{Kind: "admission-capacity-evidence", File: evidencePath, SHA256: startupFileDigest(t, evidencePath)},
+			{Kind: "api-authorization-policy", File: policyPath, SHA256: startupFileDigest(t, policyPath)},
+			{Kind: "oidc-security-configuration", File: configurationPath, SHA256: startupFileDigest(t, configurationPath)},
+		},
+	}
+	statementPath := writeStartupCanonicalFile(t, directory, "release-statement.json", statement)
+	messagePath := filepath.Join(directory, "release-signing-message")
+	if err := releasecert.PrepareSigningMessage(releasecert.PrepareRequest{
+		StatementFile:      statementPath,
+		TrustProfileFile:   trustPath,
+		SigningMessageFile: messagePath,
+		SourceRevision:     sourceRevision,
+		GoVersion:          goVersion,
+		Now:                now,
+	}); err != nil {
+		t.Fatalf("prepare release certification signing message: %v", err)
+	}
+	message, err := os.ReadFile(messagePath)
+	if err != nil {
+		t.Fatalf("read release certification signing message: %v", err)
+	}
+	signaturePath := writeStartupCanonicalFile(t, directory, "release-signature.json", releasecert.Signature{
+		Contract:  releasecert.SignatureContract,
+		KeyID:     "release_test_key",
+		Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, message)),
+	})
+	certificationPath := filepath.Join(directory, "release-certification.json")
+	if err := releasecert.Install(releasecert.InstallRequest{
+		StatementFile:    statementPath,
+		SignatureFile:    signaturePath,
+		TrustProfileFile: trustPath,
+		OutputFile:       certificationPath,
+		SourceRevision:   sourceRevision,
+		GoVersion:        goVersion,
+		Now:              now,
+	}); err != nil {
+		t.Fatalf("install release certification: %v", err)
+	}
+	return certificationPath, trustPath
+}
+
+func writeStartupCanonicalFile(t *testing.T, directory, name string, value any) string {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("encode %s: %v", name, err)
+	}
+	encoded = append(encoded, '\n')
+	return writeStartupFile(t, directory, name, string(encoded))
+}
+
+func startupFileDigest(t *testing.T, path string) string {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	digest := sha256.Sum256(content)
+	return hex.EncodeToString(digest[:])
 }
 
 func startupPolicyDigest(window time.Duration, global, domain, credential uint32) string {
