@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	authenticationRateLimitCapacityContract = "dataground.authentication-rate-limit-capacity/v1"
+	authenticationRateLimitCapacityContract = "dataground.authentication-rate-limit-capacity/v2"
 	maximumCapacityRequestBytes             = 64 << 10
 	maximumCapacityRequestDepth             = 16
 	maximumCapacityRunDuration              = 30 * time.Minute
