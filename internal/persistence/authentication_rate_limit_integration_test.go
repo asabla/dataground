@@ -336,7 +336,7 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 			t.Fatalf("read capacity database name: %v", err)
 		}
 		config := persistence.AuthenticationRateLimitCapacityConfig{
-			Contract:          "dataground.authentication-rate-limit-capacity/v2",
+			Contract:          "dataground.authentication-rate-limit-capacity/v3",
 			RunID:             "cap_0123456789abcdefghij",
 			SourceRevision:    "0123456789abcdef0123456789abcdef01234567",
 			DeploymentProfile: "developer",
@@ -348,17 +348,21 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 			Workers:           4,
 			MaximumP99Latency: time.Minute,
 			MinimumThroughput: 1,
+			DPoPNonce: persistence.AuthenticationRateLimitCapacityDPoPNonceConfig{
+				Enabled: true, Lifetime: time.Minute, MaximumActivePerKey: 2,
+				AttemptsPerPhase: 12, Workers: 4, MaximumP99Latency: time.Minute, MinimumThroughput: 1,
+			},
 		}
 		evidence, err := repository.MeasureAuthenticationRateLimitCapacity(ctx, config)
 		if err != nil {
 			t.Fatalf("measure authentication rate limit capacity: %v", err)
 		}
-		if evidence.Contract != "dataground.authentication-rate-limit-capacity-evidence/v2" ||
+		if evidence.Contract != "dataground.authentication-rate-limit-capacity-evidence/v3" ||
 			evidence.RunID != config.RunID || evidence.SourceRevision != config.SourceRevision ||
 			evidence.DatabaseName != config.DatabaseName ||
 			!evidence.Accepted || evidence.GoVersion == "" || evidence.PostgreSQLServerVersion <= 0 ||
 			evidence.PostgreSQLMaxConnections <= 0 ||
-			len(evidence.Phases) != 3 || evidence.RecordedAt == "" {
+			len(evidence.Phases) != 3 || len(evidence.DPoPNoncePhases) != 3 || evidence.RecordedAt == "" {
 			t.Fatalf("capacity evidence = %#v", evidence)
 		}
 		expectedAllowed := []uint32{4, 6, 8}
@@ -368,11 +372,19 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 				t.Fatalf("capacity phase %d = %#v", index, phase)
 			}
 		}
+		expectedNonceRows := []uint32{2, 12, 4}
+		for index, phase := range evidence.DPoPNoncePhases {
+			if phase.ActiveRows != expectedNonceRows[index] || !phase.P99LatencyAccepted ||
+				!phase.MinimumThroughputAccepted || !phase.LifetimeAccepted || !phase.ActiveRowsAccepted {
+				t.Fatalf("DPoP nonce capacity phase %d = %#v", index, phase)
+			}
+		}
 		if !evidence.AcceptedFor(
 			config.SourceRevision,
 			config.DeploymentProfile,
 			evidence.GoVersion,
 			config.Policy,
+			config.DPoPNonce,
 		) {
 			t.Fatal("capacity evidence did not validate for its exact profile")
 		}

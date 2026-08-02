@@ -75,6 +75,13 @@ func TestLoadOIDCSecurityConfigurationOwnsStrictDeploymentInputs(t *testing.T) {
 		1,
 	)
 	withoutNonceDirectory := t.TempDir()
+	withoutNonceEvidence, withoutNonceEvidenceHash := writeStartupCapacityEvidenceWithNonce(
+		t,
+		withoutNonceDirectory,
+		false,
+	)
+	withoutNonce = strings.Replace(withoutNonce, evidence, withoutNonceEvidence, 1)
+	withoutNonce = strings.Replace(withoutNonce, evidenceHash, withoutNonceEvidenceHash, 1)
 	withoutNoncePath := writeStartupFile(
 		t,
 		withoutNonceDirectory,
@@ -86,7 +93,7 @@ func TestLoadOIDCSecurityConfigurationOwnsStrictDeploymentInputs(t *testing.T) {
 		withoutNonceDirectory,
 		withoutNoncePath,
 		policy,
-		evidence,
+		withoutNonceEvidence,
 		"0123456789abcdef0123456789abcdef01234567",
 		"go1.26.5",
 		now,
@@ -115,7 +122,7 @@ func TestLoadOIDCSecurityConfigurationRejectsAmbiguousOrUnsafeFiles(t *testing.T
 
 	tests := map[string]func() string{
 		"old contract": func() string {
-			return strings.Replace(valid, oidcSecurityConfigurationContract, "dataground.api-security/oidc-dpop/v2", 1)
+			return strings.Replace(valid, oidcSecurityConfigurationContract, "dataground.api-security/oidc-dpop/v3", 1)
 		},
 		"duplicate member": func() string {
 			return strings.Replace(valid, `"issuer":`, `"issuer":"https://duplicate.example.invalid","issuer":`, 1)
@@ -344,6 +351,10 @@ func startupConfiguration(keysets, policy, evidence, evidenceHash string) string
 }
 
 func writeStartupCapacityEvidence(t *testing.T, directory string) (string, string) {
+	return writeStartupCapacityEvidenceWithNonce(t, directory, true)
+}
+
+func writeStartupCapacityEvidenceWithNonce(t *testing.T, directory string, nonceEnabled bool) (string, string) {
 	t.Helper()
 	policyDigest := startupPolicyDigest(time.Minute, 100, 20, 10)
 	bursts := []uint32{10, 20, 100}
@@ -362,8 +373,30 @@ func writeStartupCapacityEvidence(t *testing.T, directory string) (string, strin
 			"p99LatencyAccepted":        true, "minimumThroughputAccepted": true,
 		})
 	}
+	nonceNames := []string{"nonce-issue-shared-key", "nonce-issue-distinct-keys", "nonce-validate"}
+	nonceChallenges := []uint32{200, 200, 0}
+	nonceValidated := []uint32{0, 0, 200}
+	nonceRows := []uint32{4, 200, 20}
+	noncePhases := make([]map[string]any, 0, len(nonceNames))
+	for index, name := range nonceNames {
+		if !nonceEnabled {
+			break
+		}
+		noncePhases = append(noncePhases, map[string]any{
+			"name": name, "attempts": 200, "workers": 20,
+			"challenges": nonceChallenges[index], "validated": nonceValidated[index], "activeRows": nonceRows[index],
+			"durationNanoseconds":       int64(100 * time.Millisecond),
+			"p50LatencyNanoseconds":     int64(time.Millisecond),
+			"p95LatencyNanoseconds":     int64(2 * time.Millisecond),
+			"p99LatencyNanoseconds":     int64(3 * time.Millisecond),
+			"maximumLatencyNanoseconds": int64(4 * time.Millisecond),
+			"completedPerSecondMilli":   2_000_000,
+			"p99LatencyAccepted":        true, "minimumThroughputAccepted": true,
+			"lifetimeAccepted": true, "activeRowsAccepted": true,
+		})
+	}
 	evidence := map[string]any{
-		"contract":                 "dataground.authentication-rate-limit-capacity-evidence/v2",
+		"contract":                 "dataground.authentication-rate-limit-capacity-evidence/v3",
 		"runId":                    "cap_0123456789abcdefghij",
 		"sourceRevision":           "0123456789abcdef0123456789abcdef01234567",
 		"deploymentProfile":        "team",
@@ -381,6 +414,15 @@ func writeStartupCapacityEvidence(t *testing.T, directory string) (string, strin
 		"maximumP99LatencyNanoseconds": int64(100 * time.Millisecond),
 		"minimumThroughputPerSecond":   50,
 		"phases":                       phases,
+		"dpopNonce":                    map[string]any{"enabled": nonceEnabled},
+		"dpopNoncePhases":              noncePhases,
+	}
+	if nonceEnabled {
+		evidence["dpopNonce"] = map[string]any{
+			"enabled": true, "lifetimeNanoseconds": int64(time.Minute), "maximumActivePerKey": 4,
+			"attemptsPerPhase": 200, "workers": 20,
+			"maximumP99LatencyNanoseconds": int64(100 * time.Millisecond), "minimumThroughputPerSecond": 50,
+		}
 	}
 	encoded, err := json.MarshalIndent(evidence, "", "  ")
 	if err != nil {

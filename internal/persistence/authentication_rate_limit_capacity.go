@@ -1,12 +1,15 @@
 package persistence
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"runtime"
 	"sort"
@@ -15,13 +18,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/asabla/dataground/internal/authn"
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
-	authenticationRateLimitCapacityRequestContract  = "dataground.authentication-rate-limit-capacity/v2"
-	authenticationRateLimitCapacityEvidenceContract = "dataground.authentication-rate-limit-capacity-evidence/v2"
+	authenticationRateLimitCapacityRequestContract  = "dataground.authentication-rate-limit-capacity/v3"
+	authenticationRateLimitCapacityEvidenceContract = "dataground.authentication-rate-limit-capacity-evidence/v3"
 	maximumAuthenticationRateLimitCapacityAttempts  = 100_000
 	maximumAuthenticationRateLimitCapacityWorkers   = 256
 	maximumAuthenticationRateLimitCapacityDuration  = 30 * time.Minute
@@ -48,6 +52,7 @@ type AuthenticationRateLimitCapacityConfig struct {
 	Workers           uint32
 	MaximumP99Latency time.Duration
 	MinimumThroughput uint32
+	DPoPNonce         AuthenticationRateLimitCapacityDPoPNonceConfig
 }
 
 func (config AuthenticationRateLimitCapacityConfig) Valid() bool {
@@ -58,6 +63,35 @@ func (config AuthenticationRateLimitCapacityConfig) Valid() bool {
 		validAuthenticationRateLimitCapacityDatabaseName(config.DatabaseName) &&
 		config.Policy.Valid() &&
 		config.AttemptsPerPhase > config.Policy.GlobalBurst &&
+		config.AttemptsPerPhase <= maximumAuthenticationRateLimitCapacityAttempts &&
+		config.Workers > 0 && config.Workers <= maximumAuthenticationRateLimitCapacityWorkers &&
+		config.Workers <= config.AttemptsPerPhase &&
+		config.MaximumP99Latency > 0 && config.MaximumP99Latency <= time.Minute &&
+		config.MinimumThroughput > 0 && config.DPoPNonce.Valid()
+}
+
+// AuthenticationRateLimitCapacityDPoPNonceConfig makes nonce capacity an
+// explicit part of the measured authentication profile. Disabled profiles
+// carry no latent sizing values; enabled profiles bind the exact serving
+// lifetime, overlap, load shape, and acceptance thresholds.
+type AuthenticationRateLimitCapacityDPoPNonceConfig struct {
+	Enabled             bool
+	Lifetime            time.Duration
+	MaximumActivePerKey uint32
+	AttemptsPerPhase    uint32
+	Workers             uint32
+	MaximumP99Latency   time.Duration
+	MinimumThroughput   uint32
+}
+
+func (config AuthenticationRateLimitCapacityDPoPNonceConfig) Valid() bool {
+	if !config.Enabled {
+		return config.Lifetime == 0 && config.MaximumActivePerKey == 0 &&
+			config.AttemptsPerPhase == 0 && config.Workers == 0 &&
+			config.MaximumP99Latency == 0 && config.MinimumThroughput == 0
+	}
+	return authn.ValidDPoPNoncePolicyParameters(config.Lifetime, config.MaximumActivePerKey) &&
+		config.AttemptsPerPhase > config.MaximumActivePerKey &&
 		config.AttemptsPerPhase <= maximumAuthenticationRateLimitCapacityAttempts &&
 		config.Workers > 0 && config.Workers <= maximumAuthenticationRateLimitCapacityWorkers &&
 		config.Workers <= config.AttemptsPerPhase &&
@@ -99,21 +133,108 @@ type AuthenticationRateLimitCapacityPhase struct {
 	MinimumThroughputAccepted bool   `json:"minimumThroughputAccepted"`
 }
 
+type AuthenticationRateLimitCapacityDPoPNoncePolicy struct {
+	Enabled                      bool   `json:"enabled"`
+	LifetimeNanoseconds          int64  `json:"lifetimeNanoseconds"`
+	MaximumActivePerKey          uint32 `json:"maximumActivePerKey"`
+	AttemptsPerPhase             uint32 `json:"attemptsPerPhase"`
+	Workers                      uint32 `json:"workers"`
+	MaximumP99LatencyNanoseconds int64  `json:"maximumP99LatencyNanoseconds"`
+	MinimumThroughputPerSecond   uint32 `json:"minimumThroughputPerSecond"`
+	enabledSet                   bool
+}
+
+func (policy *AuthenticationRateLimitCapacityDPoPNoncePolicy) UnmarshalJSON(encoded []byte) error {
+	if policy == nil || bytes.Equal(bytes.TrimSpace(encoded), []byte("null")) {
+		return errors.New("DPoP nonce capacity policy must be an object")
+	}
+	var decoded struct {
+		Enabled                      *bool  `json:"enabled"`
+		LifetimeNanoseconds          int64  `json:"lifetimeNanoseconds"`
+		MaximumActivePerKey          uint32 `json:"maximumActivePerKey"`
+		AttemptsPerPhase             uint32 `json:"attemptsPerPhase"`
+		Workers                      uint32 `json:"workers"`
+		MaximumP99LatencyNanoseconds int64  `json:"maximumP99LatencyNanoseconds"`
+		MinimumThroughputPerSecond   uint32 `json:"minimumThroughputPerSecond"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decoded); err != nil || decoded.Enabled == nil {
+		return errors.New("DPoP nonce capacity policy is invalid")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return errors.New("DPoP nonce capacity policy has trailing data")
+	}
+	*policy = AuthenticationRateLimitCapacityDPoPNoncePolicy{
+		Enabled:                      *decoded.Enabled,
+		LifetimeNanoseconds:          decoded.LifetimeNanoseconds,
+		MaximumActivePerKey:          decoded.MaximumActivePerKey,
+		AttemptsPerPhase:             decoded.AttemptsPerPhase,
+		Workers:                      decoded.Workers,
+		MaximumP99LatencyNanoseconds: decoded.MaximumP99LatencyNanoseconds,
+		MinimumThroughputPerSecond:   decoded.MinimumThroughputPerSecond,
+		enabledSet:                   true,
+	}
+	return nil
+}
+
+func (policy AuthenticationRateLimitCapacityDPoPNoncePolicy) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Enabled                      bool   `json:"enabled"`
+		LifetimeNanoseconds          int64  `json:"lifetimeNanoseconds"`
+		MaximumActivePerKey          uint32 `json:"maximumActivePerKey"`
+		AttemptsPerPhase             uint32 `json:"attemptsPerPhase"`
+		Workers                      uint32 `json:"workers"`
+		MaximumP99LatencyNanoseconds int64  `json:"maximumP99LatencyNanoseconds"`
+		MinimumThroughputPerSecond   uint32 `json:"minimumThroughputPerSecond"`
+	}{
+		Enabled:                      policy.Enabled,
+		LifetimeNanoseconds:          policy.LifetimeNanoseconds,
+		MaximumActivePerKey:          policy.MaximumActivePerKey,
+		AttemptsPerPhase:             policy.AttemptsPerPhase,
+		Workers:                      policy.Workers,
+		MaximumP99LatencyNanoseconds: policy.MaximumP99LatencyNanoseconds,
+		MinimumThroughputPerSecond:   policy.MinimumThroughputPerSecond,
+	})
+}
+
+type AuthenticationRateLimitCapacityDPoPNoncePhase struct {
+	Name                      string `json:"name"`
+	Attempts                  uint32 `json:"attempts"`
+	Workers                   uint32 `json:"workers"`
+	Challenges                uint32 `json:"challenges"`
+	Validated                 uint32 `json:"validated"`
+	ActiveRows                uint32 `json:"activeRows"`
+	DurationNanoseconds       int64  `json:"durationNanoseconds"`
+	P50LatencyNanoseconds     int64  `json:"p50LatencyNanoseconds"`
+	P95LatencyNanoseconds     int64  `json:"p95LatencyNanoseconds"`
+	P99LatencyNanoseconds     int64  `json:"p99LatencyNanoseconds"`
+	MaximumLatencyNanoseconds int64  `json:"maximumLatencyNanoseconds"`
+	CompletedPerSecondMilli   uint64 `json:"completedPerSecondMilli"`
+	P99LatencyAccepted        bool   `json:"p99LatencyAccepted"`
+	MinimumThroughputAccepted bool   `json:"minimumThroughputAccepted"`
+	LifetimeAccepted          bool   `json:"lifetimeAccepted"`
+	ActiveRowsAccepted        bool   `json:"activeRowsAccepted"`
+}
+
 type AuthenticationRateLimitCapacityEvidence struct {
-	Contract                     string                                 `json:"contract"`
-	RunID                        string                                 `json:"runId"`
-	SourceRevision               string                                 `json:"sourceRevision"`
-	DeploymentProfile            string                                 `json:"deploymentProfile"`
-	DatabaseName                 string                                 `json:"databaseName"`
-	GoVersion                    string                                 `json:"goVersion"`
-	PostgreSQLServerVersion      int                                    `json:"postgresqlServerVersion"`
-	PostgreSQLMaxConnections     int                                    `json:"postgresqlMaxConnections"`
-	RecordedAt                   string                                 `json:"recordedAt"`
-	Accepted                     bool                                   `json:"accepted"`
-	Policy                       AuthenticationRateLimitCapacityPolicy  `json:"policy"`
-	MaximumP99LatencyNanoseconds int64                                  `json:"maximumP99LatencyNanoseconds"`
-	MinimumThroughputPerSecond   uint32                                 `json:"minimumThroughputPerSecond"`
-	Phases                       []AuthenticationRateLimitCapacityPhase `json:"phases"`
+	Contract                     string                                          `json:"contract"`
+	RunID                        string                                          `json:"runId"`
+	SourceRevision               string                                          `json:"sourceRevision"`
+	DeploymentProfile            string                                          `json:"deploymentProfile"`
+	DatabaseName                 string                                          `json:"databaseName"`
+	GoVersion                    string                                          `json:"goVersion"`
+	PostgreSQLServerVersion      int                                             `json:"postgresqlServerVersion"`
+	PostgreSQLMaxConnections     int                                             `json:"postgresqlMaxConnections"`
+	RecordedAt                   string                                          `json:"recordedAt"`
+	Accepted                     bool                                            `json:"accepted"`
+	Policy                       AuthenticationRateLimitCapacityPolicy           `json:"policy"`
+	MaximumP99LatencyNanoseconds int64                                           `json:"maximumP99LatencyNanoseconds"`
+	MinimumThroughputPerSecond   uint32                                          `json:"minimumThroughputPerSecond"`
+	Phases                       []AuthenticationRateLimitCapacityPhase          `json:"phases"`
+	DPoPNonce                    AuthenticationRateLimitCapacityDPoPNoncePolicy  `json:"dpopNonce"`
+	DPoPNoncePhases              []AuthenticationRateLimitCapacityDPoPNoncePhase `json:"dpopNoncePhases"`
 }
 
 // AcceptedFor reports whether a capacity record is internally consistent and
@@ -125,6 +246,7 @@ func (evidence AuthenticationRateLimitCapacityEvidence) AcceptedFor(
 	deploymentProfile string,
 	goVersion string,
 	policy AuthenticationRateLimitPolicy,
+	nonce AuthenticationRateLimitCapacityDPoPNonceConfig,
 ) bool {
 	if evidence.Contract != authenticationRateLimitCapacityEvidenceContract ||
 		!authenticationRateLimitCapacityRunPattern.MatchString(evidence.RunID) ||
@@ -138,7 +260,9 @@ func (evidence AuthenticationRateLimitCapacityEvidence) AcceptedFor(
 		evidence.MaximumP99LatencyNanoseconds <= 0 ||
 		evidence.MaximumP99LatencyNanoseconds > time.Minute.Nanoseconds() ||
 		evidence.MinimumThroughputPerSecond == 0 || !policy.Valid() ||
-		!evidence.capacityPolicyMatches(policy) || len(evidence.Phases) != 3 {
+		!nonce.Valid() ||
+		!evidence.capacityPolicyMatches(policy) || len(evidence.Phases) != 3 ||
+		!evidence.capacityDPoPNonceMatches(nonce) {
 		return false
 	}
 	recordedAt, err := time.Parse(time.RFC3339Nano, evidence.RecordedAt)
@@ -179,7 +303,107 @@ func (evidence AuthenticationRateLimitCapacityEvidence) AcceptedFor(
 			accepted = false
 		}
 	}
+	if nonce.Enabled {
+		if len(evidence.DPoPNoncePhases) != 3 {
+			return false
+		}
+		expectedNames := [...]string{"nonce-issue-shared-key", "nonce-issue-distinct-keys", "nonce-validate"}
+		for index, phase := range evidence.DPoPNoncePhases {
+			if uint64(evidence.PostgreSQLMaxConnections) < uint64(phase.Workers) {
+				return false
+			}
+			if !validAuthenticationRateLimitCapacityDPoPNoncePhase(
+				phase,
+				expectedNames[index],
+				nonce,
+			) {
+				return false
+			}
+			if !phase.P99LatencyAccepted || !phase.MinimumThroughputAccepted ||
+				!phase.LifetimeAccepted || !phase.ActiveRowsAccepted {
+				accepted = false
+			}
+		}
+	} else if evidence.DPoPNoncePhases == nil || len(evidence.DPoPNoncePhases) != 0 {
+		return false
+	}
 	return evidence.Accepted && accepted
+}
+
+func (evidence AuthenticationRateLimitCapacityEvidence) capacityDPoPNonceMatches(
+	config AuthenticationRateLimitCapacityDPoPNonceConfig,
+) bool {
+	nonce := evidence.DPoPNonce
+	return nonce.enabledSet && nonce.Enabled == config.Enabled &&
+		nonce.LifetimeNanoseconds == config.Lifetime.Nanoseconds() &&
+		nonce.MaximumActivePerKey == config.MaximumActivePerKey &&
+		nonce.AttemptsPerPhase == config.AttemptsPerPhase &&
+		nonce.Workers == config.Workers &&
+		nonce.MaximumP99LatencyNanoseconds == config.MaximumP99Latency.Nanoseconds() &&
+		nonce.MinimumThroughputPerSecond == config.MinimumThroughput
+}
+
+// DPoPNonceConfig returns the exact nonce profile represented by this record.
+// Callers still need AcceptedFor to prove that the complete record is
+// internally consistent and matches their serving configuration.
+func (evidence AuthenticationRateLimitCapacityEvidence) DPoPNonceConfig() AuthenticationRateLimitCapacityDPoPNonceConfig {
+	return AuthenticationRateLimitCapacityDPoPNonceConfig{
+		Enabled:             evidence.DPoPNonce.Enabled,
+		Lifetime:            time.Duration(evidence.DPoPNonce.LifetimeNanoseconds),
+		MaximumActivePerKey: evidence.DPoPNonce.MaximumActivePerKey,
+		AttemptsPerPhase:    evidence.DPoPNonce.AttemptsPerPhase,
+		Workers:             evidence.DPoPNonce.Workers,
+		MaximumP99Latency:   time.Duration(evidence.DPoPNonce.MaximumP99LatencyNanoseconds),
+		MinimumThroughput:   evidence.DPoPNonce.MinimumThroughputPerSecond,
+	}
+}
+
+func validAuthenticationRateLimitCapacityDPoPNoncePhase(
+	phase AuthenticationRateLimitCapacityDPoPNoncePhase,
+	expectedName string,
+	config AuthenticationRateLimitCapacityDPoPNonceConfig,
+) bool {
+	if phase.Name != expectedName || phase.Attempts != config.AttemptsPerPhase ||
+		phase.Workers != config.Workers || phase.DurationNanoseconds <= 0 ||
+		phase.DurationNanoseconds > maximumAuthenticationRateLimitCapacityDuration.Nanoseconds() ||
+		phase.P50LatencyNanoseconds <= 0 ||
+		phase.P50LatencyNanoseconds > phase.P95LatencyNanoseconds ||
+		phase.P95LatencyNanoseconds > phase.P99LatencyNanoseconds ||
+		phase.P99LatencyNanoseconds > phase.MaximumLatencyNanoseconds ||
+		phase.MaximumLatencyNanoseconds > phase.DurationNanoseconds ||
+		phase.CompletedPerSecondMilli != capacityCompletedPerSecondMilli(
+			phase.Attempts,
+			time.Duration(phase.DurationNanoseconds),
+		) ||
+		phase.P99LatencyAccepted !=
+			(phase.P99LatencyNanoseconds <= config.MaximumP99Latency.Nanoseconds()) ||
+		phase.MinimumThroughputAccepted !=
+			(phase.CompletedPerSecondMilli >= uint64(config.MinimumThroughput)*1000) ||
+		phase.LifetimeAccepted != (phase.DurationNanoseconds < config.Lifetime.Nanoseconds()) {
+		return false
+	}
+	var expectedRows uint32
+	switch expectedName {
+	case "nonce-issue-shared-key":
+		expectedRows = min(phase.Attempts, config.MaximumActivePerKey)
+		if phase.Challenges != phase.Attempts || phase.Validated != 0 {
+			return false
+		}
+	case "nonce-issue-distinct-keys":
+		expectedRows = phase.Attempts
+		if phase.Challenges != phase.Attempts || phase.Validated != 0 {
+			return false
+		}
+	case "nonce-validate":
+		expectedRows = config.Workers
+		if phase.Challenges != 0 || phase.Validated != phase.Attempts {
+			return false
+		}
+	default:
+		return false
+	}
+	return phase.ActiveRows <= phase.Attempts &&
+		phase.ActiveRowsAccepted == (phase.ActiveRows == expectedRows)
 }
 
 func (evidence AuthenticationRateLimitCapacityEvidence) capacityPolicyMatches(
@@ -321,6 +545,8 @@ func (repository *Repository) MeasureAuthenticationRateLimitCapacity(
 		MinimumThroughputPerSecond:   config.MinimumThroughput,
 		Accepted:                     true,
 		Phases:                       make([]AuthenticationRateLimitCapacityPhase, 0, 3),
+		DPoPNonce:                    authenticationRateLimitCapacityDPoPNoncePolicy(config.DPoPNonce),
+		DPoPNoncePhases:              make([]AuthenticationRateLimitCapacityDPoPNoncePhase, 0, 3),
 	}
 
 	phaseFactories := []struct {
@@ -358,6 +584,20 @@ func (repository *Repository) MeasureAuthenticationRateLimitCapacity(
 				expectedBurst,
 				config.Policy.Window,
 			) {
+			evidence.Accepted = false
+		}
+	}
+	if config.DPoPNonce.Enabled {
+		noncePhases, accepted, err := repository.measureAuthenticationRateLimitCapacityDPoPNonce(
+			ctx,
+			config.RunID,
+			config.DPoPNonce,
+		)
+		if err != nil {
+			return AuthenticationRateLimitCapacityEvidence{}, err
+		}
+		evidence.DPoPNoncePhases = noncePhases
+		if !accepted {
 			evidence.Accepted = false
 		}
 	}
@@ -405,6 +645,7 @@ func (repository *Repository) requireFreshAuthenticationRateLimitCapacityDatabas
 		maxConnectionsRaw string
 		activations       int
 		buckets           int
+		nonces            int
 	)
 	err := repository.pool.QueryRow(ctx, `
 		SELECT
@@ -412,18 +653,34 @@ func (repository *Repository) requireFreshAuthenticationRateLimitCapacityDatabas
 			current_setting('server_version_num'),
 			current_setting('max_connections'),
 			(SELECT count(*) FROM authentication_rate_limit_policy_activations),
-			(SELECT count(*) FROM authentication_rate_limit_buckets)
-	`).Scan(&actualName, &serverVersionRaw, &maxConnectionsRaw, &activations, &buckets)
+			(SELECT count(*) FROM authentication_rate_limit_buckets),
+			(SELECT count(*) FROM oidc_dpop_nonces)
+	`).Scan(&actualName, &serverVersionRaw, &maxConnectionsRaw, &activations, &buckets, &nonces)
 	if err != nil {
 		return 0, 0, fmt.Errorf("inspect authentication rate limit capacity database: %w", err)
 	}
 	serverVersion, err := strconv.Atoi(serverVersionRaw)
 	maximumConnections, connectionsErr := strconv.Atoi(maxConnectionsRaw)
 	if err != nil || connectionsErr != nil || serverVersion <= 0 || maximumConnections <= 0 ||
-		actualName != expectedName || activations != 0 || buckets != 0 {
+		actualName != expectedName || activations != 0 || buckets != 0 || nonces != 0 {
 		return 0, 0, ErrAuthenticationRateLimitCapacityInvalid
 	}
 	return serverVersion, maximumConnections, nil
+}
+
+func authenticationRateLimitCapacityDPoPNoncePolicy(
+	config AuthenticationRateLimitCapacityDPoPNonceConfig,
+) AuthenticationRateLimitCapacityDPoPNoncePolicy {
+	return AuthenticationRateLimitCapacityDPoPNoncePolicy{
+		Enabled:                      config.Enabled,
+		LifetimeNanoseconds:          config.Lifetime.Nanoseconds(),
+		MaximumActivePerKey:          config.MaximumActivePerKey,
+		AttemptsPerPhase:             config.AttemptsPerPhase,
+		Workers:                      config.Workers,
+		MaximumP99LatencyNanoseconds: config.MaximumP99Latency.Nanoseconds(),
+		MinimumThroughputPerSecond:   config.MinimumThroughput,
+		enabledSet:                   true,
+	}
 }
 
 func (repository *Repository) activateAuthenticationRateLimitCapacityGeneration(

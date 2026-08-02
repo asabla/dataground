@@ -10,6 +10,7 @@ import (
 	"io"
 	"runtime"
 	"runtime/debug"
+	"time"
 
 	"github.com/asabla/dataground/internal/persistence"
 )
@@ -54,6 +55,9 @@ func loadAuthenticationRateLimitCapacityEvidence(
 	goVersion string,
 	deploymentProfile string,
 	policy persistence.AuthenticationRateLimitPolicy,
+	nonceEnabled bool,
+	nonceLifetime time.Duration,
+	nonceMaximumActivePerKey uint32,
 ) (persistence.AuthenticationRateLimitCapacityEvidence, error) {
 	var evidence persistence.AuthenticationRateLimitCapacityEvidence
 	expectedDigest, err := hex.DecodeString(expectedDigestHex)
@@ -82,7 +86,10 @@ func loadAuthenticationRateLimitCapacityEvidence(
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return evidence, errors.New("authentication admission capacity evidence is invalid")
 	}
-	if !evidence.AcceptedFor(sourceRevision, deploymentProfile, goVersion, policy) {
+	nonce := evidence.DPoPNonceConfig()
+	if nonce.Enabled != nonceEnabled || nonce.Lifetime != nonceLifetime ||
+		nonce.MaximumActivePerKey != nonceMaximumActivePerKey ||
+		!evidence.AcceptedFor(sourceRevision, deploymentProfile, goVersion, policy, nonce) {
 		return evidence, errors.New("authentication admission capacity evidence is not accepted for this deployment")
 	}
 	return evidence, nil

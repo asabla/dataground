@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	oidcSecurityConfigurationContract = "dataground.api-security/oidc-dpop/v3"
+	oidcSecurityConfigurationContract = "dataground.api-security/oidc-dpop/v4"
 	maximumSecurityConfigurationBytes = 64 << 10
 	maximumAPICedarPolicyBytes        = 1 << 20
 	maximumSecurityConfigurationDepth = 16
@@ -201,6 +201,7 @@ func loadOIDCSecurityConfigurationForBuild(
 		clear(policy)
 		return configuration, nil, errors.New("OIDC security policy is invalid")
 	}
+	nonceEnabled, nonceLifetime, nonceMaximumActivePerKey := configuration.capacityDPoPNonceParameters()
 	evidence, err := loadAuthenticationRateLimitCapacityEvidence(
 		configuration.Admission.CapacityEvidenceFile,
 		configuration.Admission.CapacityEvidenceHash,
@@ -208,6 +209,9 @@ func loadOIDCSecurityConfigurationForBuild(
 		goVersion,
 		configuration.Admission.DeploymentProfile,
 		configuration.admissionPolicy(),
+		nonceEnabled,
+		nonceLifetime,
+		nonceMaximumActivePerKey,
 	)
 	if err != nil {
 		clear(policy)
@@ -229,6 +233,14 @@ func loadOIDCSecurityConfigurationForBuild(
 	}
 	configuration.releaseCertification = certification
 	return configuration, policy, nil
+}
+
+func (configuration oidcSecurityConfiguration) capacityDPoPNonceParameters() (bool, time.Duration, uint32) {
+	if !configuration.DPoP.Nonce.set {
+		return false, 0, 0
+	}
+	nonce := configuration.DPoP.Nonce.value
+	return true, nonce.Lifetime.value, nonce.MaximumActivePerKey
 }
 
 func composeOIDCSecurity(

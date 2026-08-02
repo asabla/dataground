@@ -87,6 +87,37 @@ func TestPrepareSigningMessage(t *testing.T) {
 	}
 }
 
+func TestDPoPNonceCapacityBindingRequiresExactConfiguration(t *testing.T) {
+	t.Parallel()
+	disabled := false
+	if err := verifyDPoPNonceCapacityBinding(dpopNonceCapacityBinding{Enabled: &disabled}, nil); err != nil {
+		t.Fatalf("disabled nonce binding: %v", err)
+	}
+	if err := verifyDPoPNonceCapacityBinding(dpopNonceCapacityBinding{Enabled: &disabled}, []byte("null")); err == nil {
+		t.Fatal("null nonce configuration was accepted")
+	}
+	enabledValue := true
+	enabled := dpopNonceCapacityBinding{
+		Enabled: &enabledValue, LifetimeNanoseconds: time.Minute.Nanoseconds(), MaximumActivePerKey: 4,
+	}
+	if err := verifyDPoPNonceCapacityBinding(dpopNonceCapacityBinding{}, nil); err == nil {
+		t.Fatal("missing nonce capacity enabled state was accepted")
+	}
+	configuration := []byte(`{"lifetime":"1m","maximumActivePerKey":4}`)
+	if err := verifyDPoPNonceCapacityBinding(enabled, configuration); err != nil {
+		t.Fatalf("enabled nonce binding: %v", err)
+	}
+	for _, invalid := range [][]byte{
+		[]byte(`{"lifetime":"2m","maximumActivePerKey":4}`),
+		[]byte(`{"lifetime":"1m","maximumActivePerKey":3}`),
+		[]byte(`{"lifetime":"1m","maximumActivePerKey":4,"unknown":true}`),
+	} {
+		if err := verifyDPoPNonceCapacityBinding(enabled, invalid); err == nil {
+			t.Fatalf("invalid nonce binding %s was accepted", invalid)
+		}
+	}
+}
+
 func TestCertificationRejectsSignatureAndArtifactSubstitution(t *testing.T) {
 	t.Parallel()
 
@@ -101,6 +132,20 @@ func TestCertificationRejectsSignatureAndArtifactSubstitution(t *testing.T) {
 		writeCanonicalPrivate(t, fixture.signatureFile, fixture.signature)
 		if err := Install(fixture.installRequest()); err == nil || !strings.Contains(err.Error(), "does not verify") {
 			t.Fatalf("signature substitution error = %v", err)
+		}
+	})
+
+	t.Run("previous signing domain", func(t *testing.T) {
+		fixture := newCertificationFixture(t)
+		statementBytes, err := os.ReadFile(fixture.statementFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		message := append([]byte("DataGround release certification oidc-loopback v1\n"), statementBytes...)
+		fixture.signature.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(fixture.privateKey, message))
+		writeCanonicalPrivate(t, fixture.signatureFile, fixture.signature)
+		if err := Install(fixture.installRequest()); err == nil || !strings.Contains(err.Error(), "does not verify") {
+			t.Fatalf("previous signing domain error = %v", err)
 		}
 	})
 
@@ -291,8 +336,13 @@ func newCertificationFixture(t *testing.T) *certificationFixture {
 		GoVersion         string `json:"goVersion"`
 		DeploymentProfile string `json:"deploymentProfile"`
 		Accepted          bool   `json:"accepted"`
+		DPoPNonce         struct {
+			Enabled             bool   `json:"enabled"`
+			LifetimeNanoseconds int64  `json:"lifetimeNanoseconds"`
+			MaximumActivePerKey uint32 `json:"maximumActivePerKey"`
+		} `json:"dpopNonce"`
 	}{
-		Contract:          "dataground.authentication-rate-limit-capacity-evidence/v2",
+		Contract:          "dataground.authentication-rate-limit-capacity-evidence/v3",
 		SourceRevision:    testRevision,
 		GoVersion:         testGoVersion,
 		DeploymentProfile: "team",
@@ -316,7 +366,7 @@ func newCertificationFixture(t *testing.T) *certificationFixture {
 			PolicyFile string `json:"policyFile"`
 		} `json:"authorization"`
 	}{
-		Contract: "dataground.api-security/oidc-dpop/v3",
+		Contract: "dataground.api-security/oidc-dpop/v4",
 		Admission: struct {
 			DeploymentProfile    string `json:"deploymentProfile"`
 			CapacityEvidenceFile string `json:"capacityEvidenceFile"`

@@ -1,6 +1,6 @@
 # Signed release certification
 
-DataGround defines a narrow signed certification profile for the loopback OIDC deployment slice. It binds one clean source revision and released Go runtime to the exact OIDC security configuration, accepted admission-capacity evidence, Cedar API policy, reviewer attribution, validity window, and deployment-owned Ed25519 trust profile. The profile makes this evidence independently verifiable; it does not certify provider-side DPoP issuance, TLS ingress, non-loopback activation, images, infrastructure, backup or recovery, or the complete release-candidate gate.
+DataGround defines a narrow signed certification profile for the loopback OIDC deployment slice. It binds one clean source revision and released Go runtime to the exact OIDC security configuration, accepted admission and DPoP nonce capacity evidence, Cedar API policy, reviewer attribution, validity window, and deployment-owned Ed25519 trust profile. The profile makes this evidence independently verifiable; it does not certify provider-side DPoP issuance, TLS ingress, non-loopback activation, images, infrastructure, backup or recovery, or the complete release-candidate gate.
 
 `dataground-release-certification` never generates, loads, or stores a private signing key. A deployment must keep signing in its reviewed HSM, KMS, or offline process. The repository command validates inputs, prepares the exact domain-separated signing message, verifies the detached signature against the pinned public trust profile, and installs a new immutable envelope.
 
@@ -17,10 +17,10 @@ The trust profile has this shape. `publicKey` is the raw 32-byte Ed25519 public 
 The statement has this exact member and artifact order:
 
 ```json
-{"contract":"dataground.release-certification/oidc-loopback/v1","releaseId":"release_2026_08_02","sourceRevision":"0123456789abcdef0123456789abcdef01234567","goVersion":"go1.26.5","deploymentProfile":"team","trustProfileSha256":"REPLACE_WITH_LOWERCASE_SHA256","issuedAt":"2026-08-02T12:00:00Z","expiresAt":"2026-08-03T12:00:00Z","reviewerId":"reviewer_01","reason":"reviewed loopback OIDC release evidence","artifacts":[{"kind":"admission-capacity-evidence","file":"/var/lib/dataground/evidence/admission-capacity.json","sha256":"REPLACE_WITH_LOWERCASE_SHA256"},{"kind":"api-authorization-policy","file":"/etc/dataground/api-policy.cedar","sha256":"REPLACE_WITH_LOWERCASE_SHA256"},{"kind":"oidc-security-configuration","file":"/etc/dataground/api-security.json","sha256":"REPLACE_WITH_LOWERCASE_SHA256"}]}
+{"contract":"dataground.release-certification/oidc-loopback/v2","releaseId":"release_2026_08_02","sourceRevision":"0123456789abcdef0123456789abcdef01234567","goVersion":"go1.26.5","deploymentProfile":"team","trustProfileSha256":"REPLACE_WITH_LOWERCASE_SHA256","issuedAt":"2026-08-02T12:00:00Z","expiresAt":"2026-08-03T12:00:00Z","reviewerId":"reviewer_01","reason":"reviewed loopback OIDC release evidence","artifacts":[{"kind":"admission-capacity-evidence","file":"/var/lib/dataground/evidence/admission-capacity.json","sha256":"REPLACE_WITH_LOWERCASE_SHA256"},{"kind":"api-authorization-policy","file":"/etc/dataground/api-policy.cedar","sha256":"REPLACE_WITH_LOWERCASE_SHA256"},{"kind":"oidc-security-configuration","file":"/etc/dataground/api-security.json","sha256":"REPLACE_WITH_LOWERCASE_SHA256"}]}
 ```
 
-The trust-profile digest covers its exact canonical bytes, including the final newline. The source revision must match the clean executable build, `goVersion` must match that build and the capacity evidence, issuance cannot be more than five minutes in the future, and validity cannot exceed 31 days. The capacity record must use the v2 contract, be accepted, and match the statement's source revision, Go runtime, and deployment profile. The OIDC configuration must use its v3 contract and refer to the exact signed capacity-evidence path and digest, Cedar-policy path, deployment profile, and any selected DPoP nonce policy.
+The trust-profile digest covers its exact canonical bytes, including the final newline. The source revision must match the clean executable build, `goVersion` must match that build and the capacity evidence, issuance cannot be more than five minutes in the future, and validity cannot exceed 31 days. The capacity record must use the v3 contract, be accepted, and match the statement's source revision, Go runtime, and deployment profile. The OIDC configuration must use its v4 contract and refer to the exact signed capacity-evidence path and digest, Cedar-policy path, deployment profile, and the exact enabled or disabled DPoP nonce policy represented by the evidence.
 
 ## Preparation, signing, and installation
 
@@ -33,7 +33,7 @@ go run ./cmd/dataground-release-certification \
   -signing-message-file /run/dataground/release-signing-message
 ```
 
-The command validates every binding before it writes the owner-only message. The message is the ASCII domain `DataGround release certification oidc-loopback v1` followed by a newline and the exact canonical statement bytes. Sign that complete file as raw Ed25519 input in the deployment's external signing system. Place the resulting 64-byte signature in this closed canonical file as unpadded base64url:
+The command validates every binding before it writes the owner-only message. The message is the ASCII domain `DataGround release certification oidc-loopback v2` followed by a newline and the exact canonical statement bytes. Sign that complete file as raw Ed25519 input in the deployment's external signing system. Place the resulting 64-byte signature in this closed canonical file as unpadded base64url:
 
 ```json
 {"contract":"dataground.release-certification-signature/ed25519/v1","keyId":"release_key_01","signature":"REPLACE_WITH_UNPADDED_BASE64URL_SIGNATURE"}
