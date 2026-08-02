@@ -14,7 +14,7 @@ import (
 
 // DurableOIDCDPoPConfig supplies deployment-owned dependencies for the full
 // durable OIDC and DPoP security chain. It does not define ingress, keyset
-// refresh scheduling, rate-limit policy, or executable activation.
+// publication, rate-limit policy selection, or executable activation.
 type DurableOIDCDPoPConfig struct {
 	Repository      *persistence.Repository
 	Authorizer      authz.Authorizer
@@ -102,8 +102,7 @@ func NewDurableOIDCDPoPAssembly(
 func (assembly *DurableOIDCDPoPAssembly) Handler() http.Handler {
 	if assembly == nil || assembly.handler == nil {
 		return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-			request.Header.Del("Authorization")
-			request.Header.Del("DPoP")
+			clearOIDCSecurityHeaders(request)
 			writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
 				"AUTHENTICATION_UNAVAILABLE",
 				"Authentication is temporarily unavailable.",
@@ -147,18 +146,30 @@ func oidcKeysetReadyHandler(
 	keysets *authn.OIDCJWTKeysetRefreshSupervisor,
 ) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if request.Method == http.MethodGet && request.URL.Path == "/readyz" {
-			if err := keysets.Ready(request.Context()); err != nil {
-				writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
-					"OIDC_KEYSET_UNAVAILABLE",
-					"OIDC signing keys are unavailable.",
-					true,
-				)})
-				return
-			}
+		if request.Method == http.MethodGet && request.URL.Path == "/livez" {
+			clearOIDCSecurityHeaders(request)
+			handler.ServeHTTP(response, request)
+			return
+		}
+		if err := keysets.Ready(request.Context()); err != nil {
+			clearOIDCSecurityHeaders(request)
+			writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
+				"OIDC_KEYSET_UNAVAILABLE",
+				"OIDC signing keys are unavailable.",
+				true,
+			)})
+			return
 		}
 		handler.ServeHTTP(response, request)
 	})
+}
+
+func clearOIDCSecurityHeaders(request *http.Request) {
+	if request == nil {
+		return
+	}
+	request.Header.Del("Authorization")
+	request.Header.Del("DPoP")
 }
 
 func (*DurableOIDCDPoPAssembly) MarshalJSON() ([]byte, error) {
