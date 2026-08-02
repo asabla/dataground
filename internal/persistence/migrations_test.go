@@ -68,7 +68,7 @@ func TestMigrationsRoundTrip(t *testing.T) {
 	`).Scan(&tables); err != nil {
 		t.Fatalf("inspect migrated tables: %v", err)
 	}
-	if tables != 19 {
-		t.Fatalf("expected 19 representative tables, got %d", tables)
+	if tables != 20 {
+		t.Fatalf("expected 20 representative tables, got %d", tables)
 	}
 }
