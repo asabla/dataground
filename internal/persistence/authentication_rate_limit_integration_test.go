@@ -157,7 +157,7 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 				decode(repeat('01', 32), 'hex'),
 				clock_timestamp() - interval '2 hours',
 				clock_timestamp() - interval '2 hours'
-			FROM generate_series(1, 140) AS value
+			FROM generate_series(1, 140) AS series(value)
 		`); err != nil {
 			t.Fatalf("seed stale buckets: %v", err)
 		}
