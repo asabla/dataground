@@ -13,7 +13,7 @@ import (
 
 func TestOIDCProviderCredentialPublicationLifecycle(t *testing.T) {
 	t.Parallel()
-	directory := t.TempDir()
+	directory := ownerOnlyOIDCTestDirectory(t)
 	path := filepath.Join(directory, "provider-credential.json")
 	now := time.Now().UTC().Truncate(time.Second)
 	binding := strings.Repeat("1", 64)
@@ -66,7 +66,7 @@ func TestOIDCProviderCredentialPublicationLifecycle(t *testing.T) {
 
 func TestOIDCProviderCredentialPublicationRejectsGenerationAndBindingDrift(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "provider-credential.json")
+	path := filepath.Join(ownerOnlyOIDCTestDirectory(t), "provider-credential.json")
 	now := time.Now().UTC().Truncate(time.Second)
 	publication := OIDCProviderCredentialPublication{
 		Path: path, Generation: 1, ProviderID: "primary", ProviderRegistrySHA256: strings.Repeat("1", 64),
@@ -106,7 +106,7 @@ func TestOIDCProviderCredentialPublicationRejectsGenerationAndBindingDrift(t *te
 
 func TestOIDCProviderCredentialRejectsExpiredAndUnsafeFiles(t *testing.T) {
 	t.Parallel()
-	directory := t.TempDir()
+	directory := ownerOnlyOIDCTestDirectory(t)
 	path := filepath.Join(directory, "expired.json")
 	now := time.Now().UTC().Truncate(time.Second)
 	publication := OIDCProviderCredentialPublication{
@@ -126,6 +126,15 @@ func TestOIDCProviderCredentialRejectsExpiredAndUnsafeFiles(t *testing.T) {
 	); !errors.Is(err, ErrOIDCProviderCredentialInvalid) {
 		t.Fatalf("unsafe file error = %v", err)
 	}
+}
+
+func ownerOnlyOIDCTestDirectory(t *testing.T) string {
+	t.Helper()
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return directory
 }
 
 func TestOIDCProviderCredentialPublicationCannotBeSerialized(t *testing.T) {

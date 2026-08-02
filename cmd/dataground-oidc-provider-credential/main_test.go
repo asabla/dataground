@@ -15,7 +15,7 @@ import (
 
 func TestRunActivatesAndRevokesOIDCProviderCredential(t *testing.T) {
 	t.Parallel()
-	directory := t.TempDir()
+	directory := ownerOnlyOIDCTestDirectory(t)
 	publication := filepath.Join(directory, "credential.json")
 	token := writeOIDCProviderCredentialCommandFile(t, directory, "token", "provider-secret", 0o600)
 	activate := writeOIDCProviderCredentialCommandRequest(t, directory, "activate.json", map[string]any{
@@ -54,7 +54,7 @@ func TestRunActivatesAndRevokesOIDCProviderCredential(t *testing.T) {
 
 func TestReadOIDCProviderCredentialRequestRejectsAmbiguousOperations(t *testing.T) {
 	t.Parallel()
-	directory := t.TempDir()
+	directory := ownerOnlyOIDCTestDirectory(t)
 	publication := filepath.Join(directory, "credential.json")
 	token := writeOIDCProviderCredentialCommandFile(t, directory, "token", "provider-secret", 0o600)
 	base := map[string]any{
@@ -81,7 +81,9 @@ func TestReadOIDCProviderCredentialRequestRejectsAmbiguousOperations(t *testing.
 				value[key] = member
 			}
 			mutate(value)
-			path := writeOIDCProviderCredentialCommandRequest(t, t.TempDir(), "request.json", value)
+			path := writeOIDCProviderCredentialCommandRequest(
+				t, ownerOnlyOIDCTestDirectory(t), "request.json", value,
+			)
 			if _, err := readOIDCProviderCredentialRequest(path); err == nil {
 				t.Fatal("ambiguous request was accepted")
 			}
@@ -91,7 +93,7 @@ func TestReadOIDCProviderCredentialRequestRejectsAmbiguousOperations(t *testing.
 
 func TestReadOIDCProviderCredentialRequestRejectsDuplicateAndReadableInput(t *testing.T) {
 	t.Parallel()
-	directory := t.TempDir()
+	directory := ownerOnlyOIDCTestDirectory(t)
 	path := writeOIDCProviderCredentialCommandFile(
 		t, directory, "duplicate.json",
 		`{"contract":"dataground.oidc-provider-credential-request/v1","generation":1,"generation":2}`,
@@ -104,6 +106,15 @@ func TestReadOIDCProviderCredentialRequestRejectsDuplicateAndReadableInput(t *te
 	if _, err := readOIDCProviderCredentialRequest(readable); err == nil {
 		t.Fatal("group-readable request was accepted")
 	}
+}
+
+func ownerOnlyOIDCTestDirectory(t *testing.T) string {
+	t.Helper()
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return directory
 }
 
 func writeOIDCProviderCredentialCommandRequest(t *testing.T, directory, name string, value map[string]any) string {
