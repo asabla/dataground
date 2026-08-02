@@ -147,7 +147,16 @@ func assembleAPIRuntime(ctx context.Context, address string) (*apiRuntime, error
 		if _, exists := os.LookupEnv("DATAGROUND_DEVELOPMENT_BEARER_TOKEN"); exists {
 			return nil, errors.New("development bearer credentials cannot be configured in OIDC mode")
 		}
-		configuration, policy, err := loadOIDCSecurityConfiguration(configurationPath)
+		certificationPath := os.Getenv("DATAGROUND_RELEASE_CERTIFICATION_FILE")
+		trustProfilePath := os.Getenv("DATAGROUND_RELEASE_CERTIFICATION_TRUST_FILE")
+		if certificationPath == "" || trustProfilePath == "" {
+			return nil, errors.New("OIDC mode requires release certification and trust profile files")
+		}
+		configuration, policy, err := loadOIDCSecurityConfiguration(
+			configurationPath,
+			certificationPath,
+			trustProfilePath,
+		)
 		if err != nil {
 			return nil, err
 		}
