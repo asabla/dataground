@@ -236,6 +236,31 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 		if result, err := repository.AllowAuthentication(ctx, domain, credential, 1, first); err != nil || !result.Allowed {
 			t.Fatalf("first-generation admission = %#v, %v", result, err)
 		}
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO authentication_rate_limit_buckets (
+				scope,
+				subject_digest,
+				policy_generation,
+				policy_digest,
+				theoretical_arrival_at,
+				updated_at
+			)
+			SELECT
+				'credential',
+				decode(lpad(to_hex(value + 1000), 64, '0'), 'hex'),
+				1,
+				(
+					SELECT policy_digest
+					FROM authentication_rate_limit_buckets
+					WHERE policy_generation = 1
+					LIMIT 1
+				),
+				clock_timestamp() - interval '2 hours',
+				clock_timestamp() - interval '2 hours'
+			FROM generate_series(1, 140) AS series(value)
+		`); err != nil {
+			t.Fatalf("seed retired-generation buckets: %v", err)
+		}
 		second := persistence.AuthenticationRateLimitPolicy{
 			Window: time.Minute, GlobalBurst: 20, IsolationDomainBurst: 10, CredentialBurst: 5,
 		}
@@ -277,28 +302,30 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 		); err != nil || !result.Allowed {
 			t.Fatalf("replacement policy admission = %#v, %v", result, err)
 		}
-		var generations []int64
 		rows, err := pool.Query(ctx, `
-			SELECT DISTINCT policy_generation
+			SELECT policy_generation, count(*)
 			FROM authentication_rate_limit_buckets
+			GROUP BY policy_generation
 			ORDER BY policy_generation
 		`)
 		if err != nil {
-			t.Fatalf("inspect active bucket generations: %v", err)
+			t.Fatalf("inspect bucket generations: %v", err)
 		}
 		defer rows.Close()
+		counts := make(map[int64]int)
 		for rows.Next() {
 			var generation int64
-			if err := rows.Scan(&generation); err != nil {
+			var count int
+			if err := rows.Scan(&generation, &count); err != nil {
 				t.Fatal(err)
 			}
-			generations = append(generations, generation)
+			counts[generation] = count
 		}
 		if err := rows.Err(); err != nil {
 			t.Fatal(err)
 		}
-		if len(generations) != 1 || generations[0] != 2 {
-			t.Fatalf("bucket generations = %v, want [2]", generations)
+		if counts[1] != 15 || counts[2] != 3 || len(counts) != 2 {
+			t.Fatalf("bucket generation counts = %v, want map[1:15 2:3]", counts)
 		}
 	})
 
