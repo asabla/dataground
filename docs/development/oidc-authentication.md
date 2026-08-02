@@ -140,8 +140,14 @@ The opt-in API profile incorporates one record only when its owner-only path and
 
 `ReloadableOIDCDPoPAuthenticator` owns one reloadable keyset verifier, DPoP verifier, replay store, and identity resolver. `DurableOIDCDPoPAssembly` binds that chain to one trusted external origin, deployment rate limiter, durable API repository, audited authenticator, and audited authorizer. The assembly exposes only its HTTP handler, the exact serving verifier's refresh lifecycle, minimized refresh status, and readiness, so callers cannot supervise or rotate a verifier that is not serving the handler. Every route except liveness fails closed and consumes credential headers unless the refresh lifecycle owns a still-valid generation. Static HTTP and DPoP profile errors fail before the keyset source is contacted.
 
-Provider selection, provider revocation policy, authenticated non-public metadata endpoints, group-to-membership administration, HTTPS ingress deployment, provider-side DPoP issuance, optional nonce policy, signed release certification, workload identity, and production conformance remain unresolved. The opt-in OIDC profile and default static development identity both require explicit loopback listeners and must not bind publicly.
+Provider selection, provider revocation policy, authenticated non-public metadata endpoints, group-to-membership administration, HTTPS ingress deployment, provider-side DPoP issuance, optional nonce policy, production release certification beyond the signed loopback OIDC slice, workload identity, and production conformance remain unresolved. The opt-in OIDC profile and default static development identity both require explicit loopback listeners and must not bind publicly.
 
+
+## Signed loopback release certification
+
+`dataground-release-certification` can bind one clean build and released Go runtime to the exact owner-only OIDC security configuration, accepted admission-capacity record, Cedar API policy, reviewer attribution, bounded validity window, and deployment-owned Ed25519 trust profile. It prepares the exact domain-separated message for an external signer, verifies the detached signature without loading private key material, and installs a new immutable envelope through durable same-directory linking. Exact replay re-syncs the directory; a different existing envelope conflicts.
+
+The statement cross-checks the capacity record's accepted status, source revision, Go runtime, and deployment profile, then requires the OIDC configuration to name that exact capacity file and digest and the exact Cedar policy path. The signed profile remains limited to loopback OIDC and is not provider issuance, ingress evidence, infrastructure certification, or non-loopback activation. See [signed release certification](release-certification.md) for the closed contracts and operator procedure.
 
 ## Loopback executable activation
 
@@ -201,4 +207,4 @@ The optional API request binder supplies that trusted HTTP composition. It accep
 
 Before a verified token can reach identity resolution, PostgreSQL reserves SHA-256 digests of the JWK thumbprint and proof identifier in one exact isolation domain. The raw proof, access token, token digest, public key, method, URI, issuer, and subject are not persisted. Active reservations are immutable and cannot be deleted; bounded domain-scoped cleanup can reclaim expired rows.
 
-This is not production API activation. A deployment still needs an authorization server that issues DPoP-bound access tokens, reviewed TLS ingress that routes the configured origin without rewriting its canonical path, optional nonce policy, provider selection and authenticated non-public metadata endpoints where required, signed release certification, and reviewed non-loopback deployment activation. The executable's OIDC profile therefore remains loopback-only.
+This is not production API activation. A deployment still needs an authorization server that issues DPoP-bound access tokens, reviewed TLS ingress that routes the configured origin without rewriting its canonical path, optional nonce policy, provider selection and authenticated non-public metadata endpoints where required, complete production release certification beyond the signed loopback slice, and reviewed non-loopback deployment activation. The executable's OIDC profile therefore remains loopback-only.
