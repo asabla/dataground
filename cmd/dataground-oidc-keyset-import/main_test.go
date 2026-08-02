@@ -60,7 +60,7 @@ func TestRunImportsSelectedAuthenticatedOIDCProvider(t *testing.T) {
 	}))
 	defer server.Close()
 
-	directory := t.TempDir()
+	directory := ownerOnlyOIDCTestDirectory(t)
 	discoveryCredential := filepath.Join(directory, "discovery-credential.json")
 	jwksCredential := filepath.Join(directory, "jwks-credential.json")
 	registryPath, registryDigest := writeOIDCProviderRegistry(t, directory, []map[string]any{{
@@ -119,7 +119,7 @@ func TestRunImportsSelectedAuthenticatedOIDCProvider(t *testing.T) {
 func TestLoadOIDCProviderProfileRejectsRegistryDriftAndFallback(t *testing.T) {
 	t.Parallel()
 
-	directory := t.TempDir()
+	directory := ownerOnlyOIDCTestDirectory(t)
 	profile := testOIDCProviderProfile("primary")
 	registryPath, registryDigest := writeOIDCProviderRegistry(t, directory, []map[string]any{profile})
 	publicationPath := filepath.Join(directory, "keysets.json")
@@ -151,7 +151,7 @@ func TestLoadOIDCProviderProfileRejectsRegistryDriftAndFallback(t *testing.T) {
 	})
 
 	t.Run("duplicate profile", func(t *testing.T) {
-		duplicateDirectory := t.TempDir()
+		duplicateDirectory := ownerOnlyOIDCTestDirectory(t)
 		path, digest := writeOIDCProviderRegistry(
 			t, duplicateDirectory, []map[string]any{profile, profile},
 		)
@@ -169,7 +169,7 @@ func TestLoadOIDCProviderProfileRejectsRegistryDriftAndFallback(t *testing.T) {
 	})
 
 	t.Run("null credential reference", func(t *testing.T) {
-		nullDirectory := t.TempDir()
+		nullDirectory := ownerOnlyOIDCTestDirectory(t)
 		nullProfile := testOIDCProviderProfile("primary")
 		nullProfile["discoveryAuthentication"] = map[string]any{
 			"kind": "none", "credentialFile": nil,
@@ -189,7 +189,7 @@ func TestLoadOIDCProviderProfileRejectsRegistryDriftAndFallback(t *testing.T) {
 	})
 
 	t.Run("legacy raw token profile", func(t *testing.T) {
-		legacyDirectory := t.TempDir()
+		legacyDirectory := ownerOnlyOIDCTestDirectory(t)
 		legacyProfile := testOIDCProviderProfile("primary")
 		legacyProfile["discoveryAuthentication"] = map[string]any{
 			"kind": "bearer-token-file", "tokenFile": filepath.Join(legacyDirectory, "token"),
@@ -223,7 +223,7 @@ func TestRunRejectsUnsafeOIDCProviderCredentials(t *testing.T) {
 		name, test := name, test
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			directory := t.TempDir()
+			directory := ownerOnlyOIDCTestDirectory(t)
 			credential := filepath.Join(directory, "credential.json")
 			profile := testOIDCProviderProfile("primary")
 			profile["discoveryAuthentication"] = map[string]any{
@@ -252,7 +252,7 @@ func TestRunRejectsUnsafeOIDCProviderCredentials(t *testing.T) {
 
 func TestRunRejectsRevokedOIDCProviderCredentialBeforeProviderAccess(t *testing.T) {
 	t.Parallel()
-	directory := t.TempDir()
+	directory := ownerOnlyOIDCTestDirectory(t)
 	credential := filepath.Join(directory, "credential.json")
 	profile := testOIDCProviderProfile("primary")
 	profile["discoveryAuthentication"] = map[string]any{
@@ -278,7 +278,7 @@ func TestRunRejectsRevokedOIDCProviderCredentialBeforeProviderAccess(t *testing.
 func TestLoadOIDCProviderProfileRejectsSharedEndpointCredential(t *testing.T) {
 	t.Parallel()
 
-	directory := t.TempDir()
+	directory := ownerOnlyOIDCTestDirectory(t)
 	credential := filepath.Join(directory, "shared.json")
 	profile := testOIDCProviderProfile("primary")
 	authentication := map[string]any{"kind": "bearer-credential-file", "credentialFile": credential}
@@ -300,7 +300,7 @@ func TestLoadOIDCProviderProfileRejectsSharedEndpointCredential(t *testing.T) {
 func TestReadOIDCKeysetImportRequestRejectsDuplicateMembers(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "request.json")
+	path := filepath.Join(ownerOnlyOIDCTestDirectory(t), "request.json")
 	content := []byte(`{"contract":"dataground.oidc-keyset-import/oidc-discovery/v3","sequence":1,"sequence":2}`)
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatal(err)
@@ -317,7 +317,7 @@ func TestReadOIDCKeysetImportRequestRejectsPathCollisions(t *testing.T) {
 		field := field
 		t.Run(field, func(t *testing.T) {
 			t.Parallel()
-			directory := t.TempDir()
+			directory := ownerOnlyOIDCTestDirectory(t)
 			requestPath := filepath.Join(directory, "request.json")
 			request := map[string]any{
 				"contract":               oidcKeysetImportRequestContract,
@@ -427,4 +427,13 @@ func publishOIDCProviderCredentialForImport(
 	}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func ownerOnlyOIDCTestDirectory(t *testing.T) string {
+	t.Helper()
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return directory
 }
