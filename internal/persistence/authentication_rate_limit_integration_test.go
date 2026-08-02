@@ -3,6 +3,7 @@ package persistence_test
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -59,6 +60,13 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 		result, err := repository.AllowAuthentication(ctx, domain, credential, policy)
 		if err != nil || result.Allowed || result.RetryAfter <= 0 || result.RetryAfter > time.Hour {
 			t.Fatalf("credential denial = %#v, %v", result, err)
+		}
+		conflicting := policy
+		conflicting.GlobalBurst++
+		if _, err := repository.AllowAuthentication(
+			ctx, domain, credential, conflicting,
+		); !errors.Is(err, persistence.ErrAuthenticationRateLimitConflict) {
+			t.Fatalf("conflicting policy error = %v", err)
 		}
 	})
 
