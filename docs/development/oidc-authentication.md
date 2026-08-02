@@ -113,7 +113,7 @@ The owner-only request fixes the deployment profile, candidate policy, load shap
 
 ```json
 {
-  "contract": "dataground.authentication-rate-limit-capacity/v1",
+  "contract": "dataground.authentication-rate-limit-capacity/v2",
   "runId": "cap_0123456789abcdefghij",
   "sourceRevision": "0123456789abcdef0123456789abcdef01234567",
   "deploymentProfile": "team",
@@ -130,24 +130,26 @@ The owner-only request fixes the deployment profile, candidate policy, load shap
 }
 ```
 
-Replace `sourceRevision` with the full commit SHA being certified, then create the request with mode `0600` at an absolute canonical path. The command rejects dirty or mismatched build metadata before database access. Create and migrate a dedicated database with `capacity` in its name, then run `DATAGROUND_DATABASE_URL=... go run ./cmd/dataground-auth-rate-limit-capacity -request-file /run/dataground/admission-capacity.json -output-file /var/lib/dataground/evidence/admission-capacity.json`. The output directory must already exist, must not be a symlink or writable by group or other users, and the output file must not exist. The probe gives its PostgreSQL pool exactly the requested bounded worker count. Cancellation or limiter failure produces no artifact. A completed threshold miss writes the canonical record with `accepted` set to `false` and exits unsuccessfully, preserving measurements without making them eligible for certification.
+Replace `sourceRevision` with the full commit SHA being certified, set `attemptsPerPhase` above `globalBurst`, then create the request with mode `0600` at an absolute canonical path. The command rejects dirty or mismatched build metadata before database access. Create and migrate a dedicated database with `capacity` in its name, then run `DATAGROUND_DATABASE_URL=... go run ./cmd/dataground-auth-rate-limit-capacity -request-file /run/dataground/admission-capacity.json -output-file /var/lib/dataground/evidence/admission-capacity.json`. The output directory must already exist, must not be a symlink or writable by group or other users, and the output file must not exist. The probe gives its PostgreSQL pool exactly the requested bounded worker count. Cancellation or limiter failure produces no artifact. Acceptance requires each phase to exercise denial and to stay within the GCRA burst-and-refill bound in addition to meeting the declared p99 and throughput thresholds. A completed threshold or admission-semantics miss writes the canonical record with `accepted` set to `false` and exits unsuccessfully, preserving measurements without making it eligible for deployment.
 
 Treat the database as consumed after the command begins, even when a later phase or evidence installation fails. Preserve it for diagnosis and start any retry with a newly created, empty database and a new run identifier. If output installation reports an error, inspect the requested target and adjacent `.dataground-auth-capacity-*` file before cleanup because the durable link may have succeeded before directory synchronization became uncertain.
 
-The canonical evidence records the exact source revision, Go runtime, policy digest, PostgreSQL server version and connection ceiling, fixed load shape, observed allow and deny counts, integer latency percentiles, throughput, and threshold outcomes. Synthetic isolation domains and credential material are never included. One successful record covers only its exact database, policy, worker count, attempt count, and deployment profile; it is an input to a release certification manifest, not a universal capacity claim. No capacity record is incorporated in the repository yet.
+The canonical evidence records the exact source revision, Go runtime, policy digest, PostgreSQL server version and connection ceiling, fixed load shape, observed allow and deny counts, integer latency percentiles, throughput, and threshold outcomes. Synthetic isolation domains and credential material are never included. One successful record covers only its exact database, policy, worker count, attempt count, and deployment profile; it is an input to a release certification manifest, not a universal capacity claim.
+
+The opt-in API profile incorporates one record only when its owner-only path and lowercase SHA-256 digest are pinned in the immutable security configuration. Startup strictly revalidates every evidence member and phase, requires `accepted: true`, and binds the record to the exact clean executable revision, Go runtime, deployment profile, and configured policy before PostgreSQL access. Readiness then continuously requires the serving database's PostgreSQL version and `max_connections` ceiling to match the measured profile, in addition to the active policy-generation check. File pinning is deployment-local evidence incorporation, not a signature, infrastructure certification, or repository release-manifest endorsement; changes to the executable, Go runtime, policy, deployment profile, server version, connection ceiling, or evidence bytes require a new accepted run and configuration digest.
 
 `ReloadableOIDCDPoPAuthenticator` owns one reloadable keyset verifier, DPoP verifier, replay store, and identity resolver. `DurableOIDCDPoPAssembly` binds that chain to one trusted external origin, deployment rate limiter, durable API repository, audited authenticator, and audited authorizer. The assembly exposes only its HTTP handler, the exact serving verifier's refresh lifecycle, minimized refresh status, and readiness, so callers cannot supervise or rotate a verifier that is not serving the handler. Every route except liveness fails closed and consumes credential headers unless the refresh lifecycle owns a still-valid generation. Static HTTP and DPoP profile errors fail before the keyset source is contacted.
 
-Provider selection, provider revocation policy, authenticated non-public metadata endpoints, group-to-membership administration, HTTPS ingress deployment, provider-side DPoP issuance, optional nonce policy, incorporated deployment capacity evidence, workload identity, and production conformance remain unresolved. The opt-in OIDC profile and default static development identity both require explicit loopback listeners and must not bind publicly.
+Provider selection, provider revocation policy, authenticated non-public metadata endpoints, group-to-membership administration, HTTPS ingress deployment, provider-side DPoP issuance, optional nonce policy, signed release certification, workload identity, and production conformance remain unresolved. The opt-in OIDC profile and default static development identity both require explicit loopback listeners and must not bind publicly.
 
 
 ## Loopback executable activation
 
-Set `DATAGROUND_API_SECURITY_CONFIG_FILE` to the absolute canonical path of one non-empty regular JSON file no larger than 64 KiB. The configuration file and referenced Cedar policy must not be symlinks or writable by group or other users, and startup verifies that each file remains the same size, mode, and identity across its bounded read. OIDC mode rejects a simultaneously configured development bearer credential and requires `DATAGROUND_DATABASE_URL` at the current schema.
+Set `DATAGROUND_API_SECURITY_CONFIG_FILE` to the absolute canonical path of one non-empty regular JSON file no larger than 64 KiB. The configuration file and referenced Cedar policy must not be symlinks or writable by group or other users; the capacity evidence must be owner-only. Startup verifies that every file remains the same path, size, mode, and identity across its bounded read. OIDC mode rejects a simultaneously configured development bearer credential and requires `DATAGROUND_DATABASE_URL` at the current schema.
 
 ```json
 {
-  "contract": "dataground.api-security/oidc-dpop/v1",
+  "contract": "dataground.api-security/oidc-dpop/v2",
   "issuer": "https://identity.example.invalid/realms/dataground",
   "externalOrigin": "https://api.example.invalid",
   "keysetPublicationFile": "/etc/dataground/oidc-keysets.json",
@@ -169,7 +171,10 @@ Set `DATAGROUND_API_SECURITY_CONFIG_FILE` to the absolute canonical path of one 
     "window": "1m",
     "globalBurst": 100,
     "isolationDomainBurst": 20,
-    "credentialBurst": 10
+    "credentialBurst": 10,
+    "deploymentProfile": "team",
+    "capacityEvidenceFile": "/var/lib/dataground/evidence/admission-capacity.json",
+    "capacityEvidenceSha256": "REPLACE_WITH_LOWERCASE_SHA256"
   },
   "authorization": {
     "policySetId": "deployment-api-v1",
@@ -186,7 +191,7 @@ DATAGROUND_API_SECURITY_CONFIG_FILE='/etc/dataground/api-security.json' \\
 go run ./cmd/dataground-api
 ```
 
-The values above describe the contract shape, not recommended production capacity. Deployments must select and validate the complete JWT, DPoP, refresh, admission, and Cedar profile. The keyset publication uses the separate atomic envelope and owner-operated publisher described above. Startup reads and validates the closed configuration, filesystem boundaries, Cedar policy, external origin, refresh policy, and admission policy before contacting PostgreSQL. It then completes the cryptographic profile assembly against the current durable repository and loads the initial keyset. The refresh lifecycle and HTTP server share cancellation: an unexpected lifecycle exit shuts the server down, while stopped or expired refresh ownership makes every non-liveness route unavailable and consumes bearer and DPoP headers. Public binding remains prohibited.
+The values above describe the contract shape, not recommended production capacity. Deployments must select and validate the complete JWT, DPoP, refresh, admission, and Cedar profile, run the capacity command from the same clean source revision, and replace the evidence digest placeholder with the exact artifact hash. The keyset publication uses the separate atomic envelope and owner-operated publisher described above. Startup reads and validates the closed configuration, clean build provenance, filesystem boundaries, Cedar policy, capacity evidence, external origin, refresh policy, and admission policy before contacting PostgreSQL. It then completes the cryptographic profile assembly against the current durable repository and loads the initial keyset. The refresh lifecycle and HTTP server share cancellation: an unexpected lifecycle exit shuts the server down, while stopped or expired refresh ownership or a changed PostgreSQL capacity profile makes every non-liveness route unavailable and consumes bearer and DPoP headers. Public binding remains prohibited.
 
 ## DPoP request binding
 
@@ -196,4 +201,4 @@ The optional API request binder supplies that trusted HTTP composition. It accep
 
 Before a verified token can reach identity resolution, PostgreSQL reserves SHA-256 digests of the JWK thumbprint and proof identifier in one exact isolation domain. The raw proof, access token, token digest, public key, method, URI, issuer, and subject are not persisted. Active reservations are immutable and cannot be deleted; bounded domain-scoped cleanup can reclaim expired rows.
 
-This is not production API activation. A deployment still needs an authorization server that issues DPoP-bound access tokens, reviewed TLS ingress that routes the configured origin without rewriting its canonical path, optional nonce policy, provider selection and authenticated non-public metadata endpoints where required, an accepted capacity record from the exact deployment profile, and reviewed non-loopback deployment activation. The executable's OIDC profile therefore remains loopback-only.
+This is not production API activation. A deployment still needs an authorization server that issues DPoP-bound access tokens, reviewed TLS ingress that routes the configured origin without rewriting its canonical path, optional nonce policy, provider selection and authenticated non-public metadata endpoints where required, signed release certification, and reviewed non-loopback deployment activation. The executable's OIDC profile therefore remains loopback-only.
