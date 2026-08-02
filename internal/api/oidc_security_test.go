@@ -94,6 +94,20 @@ func TestDurableOIDCDPoPAssemblyRejectsInvalidRefreshPolicyBeforeSourceIO(t *tes
 	}
 }
 
+func TestDurableOIDCDPoPAssemblyRejectsMissingReleaseCertificationBeforeSourceIO(t *testing.T) {
+	t.Parallel()
+
+	source := &apiAssemblyKeysetSource{snapshot: apiAssemblyKeysetSnapshot(1)}
+	config := apiAssemblyConfig(t, source)
+	config.ReleaseCertificationReadiness = nil
+	if _, err := api.NewDurableOIDCDPoPAssembly(context.Background(), config); err == nil {
+		t.Fatal("missing release certification readiness was accepted")
+	}
+	if source.calls != 0 {
+		t.Fatalf("missing release certification contacted keyset source %d times", source.calls)
+	}
+}
+
 func TestDurableOIDCDPoPAssemblyKeysetReadinessTracksLifecycleOwnership(t *testing.T) {
 	t.Parallel()
 
@@ -202,6 +216,61 @@ func TestDurableOIDCDPoPAssemblyFailsClosedWhenAdmissionPolicyIsInactive(t *test
 	}
 }
 
+func TestDurableOIDCDPoPAssemblyFailsClosedWhenReleaseCertificationExpires(t *testing.T) {
+	t.Parallel()
+
+	source := &apiAssemblyKeysetSource{snapshot: apiAssemblyKeysetSnapshot(1)}
+	config := apiAssemblyConfig(t, source)
+	config.ReleaseCertificationReadiness = apiAssemblyReadiness{err: errors.New("expired certification")}
+	assembly, err := api.NewDurableOIDCDPoPAssembly(context.Background(), config)
+	if err != nil {
+		t.Fatalf("assemble durable OIDC DPoP API: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	finished := make(chan error, 1)
+	go func() { finished <- assembly.RunOIDCKeysetRefresh(ctx) }()
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	for !assembly.OIDCKeysetRefreshStatus().Running {
+		select {
+		case <-deadline.C:
+			t.Fatal("keyset refresh lifecycle did not acquire ownership")
+		default:
+			runtime.Gosched()
+		}
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	request.Header.Set("Authorization", "Bearer credential")
+	request.Header.Set("DPoP", "proof")
+	response := httptest.NewRecorder()
+	assembly.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expired certification status = %d, want %d", response.Code, http.StatusServiceUnavailable)
+	}
+	var problem api.ErrorEnvelope
+	if err := json.NewDecoder(response.Body).Decode(&problem); err != nil {
+		t.Fatalf("decode expired certification response: %v", err)
+	}
+	if problem.Error.Code != "RELEASE_CERTIFICATION_UNAVAILABLE" || !problem.Error.Retryable {
+		t.Fatalf("expired certification problem = %#v", problem.Error)
+	}
+	if request.Header.Get("Authorization") != "" || request.Header.Get("DPoP") != "" {
+		t.Fatal("expired certification retained credential headers")
+	}
+
+	livenessRequest := httptest.NewRequest(http.MethodGet, "/livez", nil)
+	liveness := httptest.NewRecorder()
+	assembly.Handler().ServeHTTP(liveness, livenessRequest)
+	if liveness.Code != http.StatusOK {
+		t.Fatalf("liveness status = %d, want %d", liveness.Code, http.StatusOK)
+	}
+	cancel()
+	if err := <-finished; !errors.Is(err, context.Canceled) {
+		t.Fatalf("keyset refresh lifecycle exit = %v", err)
+	}
+}
+
 func TestDurableOIDCDPoPAssemblyNilHandlerFailsClosed(t *testing.T) {
 	t.Parallel()
 
@@ -234,10 +303,11 @@ func apiAssemblyConfig(
 		t.Fatalf("create test authorizer: %v", err)
 	}
 	return api.DurableOIDCDPoPConfig{
-		Repository:     apiAssemblyRepository(t),
-		Authorizer:     authorizer,
-		RateLimiter:    apiAssemblyRateLimiter{},
-		ExternalOrigin: "https://api.example.invalid",
+		Repository:                    apiAssemblyRepository(t),
+		Authorizer:                    authorizer,
+		RateLimiter:                   apiAssemblyRateLimiter{},
+		ReleaseCertificationReadiness: apiAssemblyReadiness{},
+		ExternalOrigin:                "https://api.example.invalid",
 		OIDC: authn.ReloadableOIDCJWTConfig{
 			Issuer:          "https://identity.example.invalid",
 			Audience:        authn.APIAudience,
@@ -299,6 +369,14 @@ type apiAssemblyRateLimiter struct {
 	readyErr error
 }
 
+type apiAssemblyReadiness struct {
+	err error
+}
+
+func (readiness apiAssemblyReadiness) Ready(context.Context) error {
+	return readiness.err
+}
+
 func (limiter apiAssemblyRateLimiter) Ready(context.Context) error {
 	return limiter.readyErr
 }
@@ -312,3 +390,4 @@ func (apiAssemblyRateLimiter) AllowAuthentication(
 
 var _ authn.OIDCJWTKeysetSource = (*apiAssemblyKeysetSource)(nil)
 var _ api.AuthenticationRateLimiter = apiAssemblyRateLimiter{}
+var _ api.ReleaseCertificationReadiness = apiAssemblyReadiness{}
