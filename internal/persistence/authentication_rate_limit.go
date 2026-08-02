@@ -169,7 +169,7 @@ func lockAuthenticationRateLimitBucket(
 		INSERT INTO authentication_rate_limit_buckets (
 			scope, subject_digest, policy_generation, policy_digest, theoretical_arrival_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $5)
-		ON CONFLICT (scope, subject_digest) DO NOTHING
+		ON CONFLICT (policy_generation, scope, subject_digest) DO NOTHING
 	`, scope, digest[:], generation, policyDigest[:], now)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("initialize authentication rate limit bucket: %w", err)
