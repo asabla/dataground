@@ -77,14 +77,14 @@ func TestMigrationsRoundTrip(t *testing.T) {
 	var rateLimitBucketPrimaryKey string
 	if err := database.QueryRowContext(ctx, `
 		SELECT string_agg(attribute.attname, ',' ORDER BY key.ordinality)
-		FROM pg_constraint AS constraint
-		CROSS JOIN LATERAL unnest(constraint.conkey)
+		FROM pg_constraint AS policy_constraint
+		CROSS JOIN LATERAL unnest(policy_constraint.conkey)
 		    WITH ORDINALITY AS key(attribute_number, ordinality)
 		JOIN pg_attribute AS attribute
-		  ON attribute.attrelid = constraint.conrelid
+		  ON attribute.attrelid = policy_constraint.conrelid
 		 AND attribute.attnum = key.attribute_number
-		WHERE constraint.conrelid = 'authentication_rate_limit_buckets'::regclass
-		  AND constraint.contype = 'p'
+		WHERE policy_constraint.conrelid = 'authentication_rate_limit_buckets'::regclass
+		  AND policy_constraint.contype = 'p'
 	`).Scan(&rateLimitBucketPrimaryKey); err != nil {
 		t.Fatalf("inspect authentication rate limit bucket identity: %v", err)
 	}
