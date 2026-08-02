@@ -120,7 +120,7 @@ func TestOIDCDiscoveryKeysetImporterRejectsUnsafeBearerCredentials(t *testing.T)
 	for name, token := range map[string][]byte{
 		"header injection": []byte("token\r\nInjected"),
 		"embedded padding": []byte("token=invalid"),
-		"oversized":        make([]byte, maximumOIDCDiscoveryBearerTokenBytes+1),
+		"oversized":        make([]byte, maximumOIDCProviderBearerTokenBytes+1),
 	} {
 		name, token := name, token
 		t.Run(name, func(t *testing.T) {
