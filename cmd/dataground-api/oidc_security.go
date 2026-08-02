@@ -64,6 +64,7 @@ type oidcSecurityConfiguration struct {
 		Timeout  durationValue `json:"timeout"`
 	} `json:"keysetRefresh"`
 	Admission struct {
+		Generation           uint64        `json:"generation"`
 		Window               durationValue `json:"window"`
 		GlobalBurst          uint32        `json:"globalBurst"`
 		IsolationDomainBurst uint32        `json:"isolationDomainBurst"`
@@ -100,7 +101,7 @@ func loadOIDCSecurityConfiguration(path string) (oidcSecurityConfiguration, []by
 		!configuration.JWT.ClockSkew.set || !configuration.JWT.MaximumLifetime.set ||
 		!configuration.DPoP.ClockSkew.set || !configuration.DPoP.MaximumProofAge.set ||
 		!configuration.KeysetRefresh.Interval.set || !configuration.KeysetRefresh.Timeout.set ||
-		!configuration.Admission.Window.set {
+		configuration.Admission.Generation == 0 || !configuration.Admission.Window.set {
 		return configuration, nil, errors.New("OIDC security configuration is incomplete")
 	}
 	if _, err := authn.NewOIDCJWTKeysetFileSource(configuration.KeysetPublicationFile); err != nil {
@@ -156,7 +157,11 @@ func composeOIDCSecurity(
 	if err != nil {
 		return nil, err
 	}
-	limiter, err := api.NewPostgreSQLAuthenticationRateLimiter(repository, configuration.admissionPolicy())
+	limiter, err := api.NewPostgreSQLAuthenticationRateLimiter(
+		repository,
+		configuration.Admission.Generation,
+		configuration.admissionPolicy(),
+	)
 	if err != nil {
 		return nil, err
 	}
