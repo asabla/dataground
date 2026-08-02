@@ -93,6 +93,8 @@ The result must be one completed effect, an explicit recoverable state, or a saf
 - Known limitations, optional degradation and unsupported combinations are explicit.
 - Rosetta-dependent functionality remains disabled unless its contract and conformance gate pass.
 
+The signed loopback OIDC certification profile covers only its exact identity configuration, Cedar policy, accepted admission evidence, source revision, and Go runtime. It does not satisfy the complete release-candidate gate or authorize public activation.
+
 ## Evidence record
 
 Each gate stores:
