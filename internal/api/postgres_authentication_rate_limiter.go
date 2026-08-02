@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 
 	"github.com/asabla/dataground/internal/persistence"
 )
@@ -24,7 +25,7 @@ func NewPostgreSQLAuthenticationRateLimiter(
 	if repository == nil || !repository.Configured() {
 		return nil, errors.New("authentication rate limit repository is required")
 	}
-	if generation == 0 || !policy.Valid() {
+	if generation == 0 || generation > math.MaxInt64 || !policy.Valid() {
 		return nil, errors.New("authentication rate limit policy is invalid")
 	}
 	return &PostgreSQLAuthenticationRateLimiter{
