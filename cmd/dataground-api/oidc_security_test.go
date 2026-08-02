@@ -74,10 +74,16 @@ func TestLoadOIDCSecurityConfigurationOwnsStrictDeploymentInputs(t *testing.T) {
 		``,
 		1,
 	)
-	withoutNoncePath := writeStartupFile(t, directory, "security-without-nonce.json", withoutNonce)
+	withoutNonceDirectory := t.TempDir()
+	withoutNoncePath := writeStartupFile(
+		t,
+		withoutNonceDirectory,
+		"security-without-nonce.json",
+		withoutNonce,
+	)
 	withoutNonceCertification, withoutNonceTrust := writeStartupReleaseCertification(
 		t,
-		directory,
+		withoutNonceDirectory,
 		withoutNoncePath,
 		policy,
 		evidence,
