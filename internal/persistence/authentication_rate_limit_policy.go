@@ -78,6 +78,18 @@ func (repository *Repository) ActivateAuthenticationRateLimitPolicy(
 	`).Scan(&currentGeneration); err != nil {
 		return fmt.Errorf("read active authentication rate limit policy generation: %w", err)
 	}
+	var correlatedGeneration uint64
+	correlationErr := tx.QueryRow(ctx, `
+		SELECT generation
+		FROM authentication_rate_limit_policy_activations
+		WHERE activation_correlation_id = $1
+	`, activation.CorrelationID).Scan(&correlatedGeneration)
+	if correlationErr == nil && correlatedGeneration != activation.Generation {
+		return ErrAuthenticationRateLimitConflict
+	}
+	if correlationErr != nil && !errors.Is(correlationErr, pgx.ErrNoRows) {
+		return fmt.Errorf("read authentication rate limit policy correlation: %w", correlationErr)
+	}
 	if activation.Generation <= currentGeneration {
 		existing, err := getAuthenticationRateLimitPolicyActivation(ctx, tx, activation.Generation)
 		if err != nil {
