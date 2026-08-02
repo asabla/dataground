@@ -329,4 +329,48 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 		}
 	})
 
+	t.Run("capacity evidence", func(t *testing.T) {
+		reset(t)
+		var databaseName string
+		if err := pool.QueryRow(ctx, `SELECT current_database()`).Scan(&databaseName); err != nil {
+			t.Fatalf("read capacity database name: %v", err)
+		}
+		config := persistence.AuthenticationRateLimitCapacityConfig{
+			Contract:          "dataground.authentication-rate-limit-capacity/v1",
+			RunID:             "cap_0123456789abcdefghij",
+			SourceRevision:    "0123456789abcdef0123456789abcdef01234567",
+			DeploymentProfile: "developer",
+			DatabaseName:      databaseName,
+			Policy: persistence.AuthenticationRateLimitPolicy{
+				Window: time.Hour, GlobalBurst: 8, IsolationDomainBurst: 6, CredentialBurst: 4,
+			},
+			AttemptsPerPhase:  12,
+			Workers:           4,
+			MaximumP99Latency: time.Minute,
+			MinimumThroughput: 1,
+		}
+		evidence, err := repository.MeasureAuthenticationRateLimitCapacity(ctx, config)
+		if err != nil {
+			t.Fatalf("measure authentication rate limit capacity: %v", err)
+		}
+		if evidence.Contract != "dataground.authentication-rate-limit-capacity-evidence/v1" ||
+			evidence.RunID != config.RunID || evidence.SourceRevision != config.SourceRevision ||
+			evidence.DatabaseName != config.DatabaseName ||
+			!evidence.Accepted || evidence.GoVersion == "" || evidence.PostgreSQLServerVersion <= 0 ||
+			evidence.PostgreSQLMaxConnections <= 0 ||
+			len(evidence.Phases) != 3 || evidence.RecordedAt == "" {
+			t.Fatalf("capacity evidence = %#v", evidence)
+		}
+		expectedAllowed := []uint32{4, 6, 8}
+		for index, phase := range evidence.Phases {
+			if phase.Allowed != expectedAllowed[index] || phase.Denied != 12-expectedAllowed[index] ||
+				!phase.P99LatencyAccepted || !phase.MinimumThroughputAccepted {
+				t.Fatalf("capacity phase %d = %#v", index, phase)
+			}
+		}
+		if _, err := repository.MeasureAuthenticationRateLimitCapacity(ctx, config); !errors.Is(err, persistence.ErrAuthenticationRateLimitCapacityInvalid) {
+			t.Fatalf("capacity database reuse error = %v", err)
+		}
+	})
+
 }
