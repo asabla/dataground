@@ -98,14 +98,14 @@ func (repository *Repository) AllowAuthentication(
 	}
 	global := advanceAuthenticationRateLimitBucket(now, globalArrival, policy.Window, policy.GlobalBurst)
 	if err := storeAuthenticationRateLimitBucket(
-		ctx, tx, "global", authenticationRateLimitGlobalDigest, global, now,
+		ctx, tx, "global", authenticationRateLimitGlobalDigest, generation, global, now,
 	); err != nil {
 		return AuthenticationRateLimitResult{}, err
 	}
 	if !global.result.Allowed {
 		return commitAuthenticationRateLimitResult(ctx, tx, global.result)
 	}
-	if err := reclaimAuthenticationRateLimitBuckets(ctx, tx, now.Add(-policy.Window)); err != nil {
+	if err := reclaimAuthenticationRateLimitBuckets(ctx, tx, generation, now.Add(-policy.Window)); err != nil {
 		return AuthenticationRateLimitResult{}, err
 	}
 
@@ -150,7 +150,7 @@ func consumeAuthenticationRateLimitBucket(
 		return AuthenticationRateLimitResult{}, err
 	}
 	advance := advanceAuthenticationRateLimitBucket(now, arrival, window, burst)
-	if err := storeAuthenticationRateLimitBucket(ctx, tx, scope, digest, advance, now); err != nil {
+	if err := storeAuthenticationRateLimitBucket(ctx, tx, scope, digest, generation, advance, now); err != nil {
 		return AuthenticationRateLimitResult{}, err
 	}
 	return advance.result, nil
@@ -180,9 +180,11 @@ func lockAuthenticationRateLimitBucket(
 	if err := tx.QueryRow(ctx, `
 		SELECT policy_generation, policy_digest, theoretical_arrival_at
 		FROM authentication_rate_limit_buckets
-		WHERE scope = $1 AND subject_digest = $2
+		WHERE policy_generation = $3
+		  AND scope = $1
+		  AND subject_digest = $2
 		FOR UPDATE
-	`, scope, digest[:]).Scan(&storedGeneration, &storedPolicyDigest, &arrival); err != nil {
+	`, scope, digest[:], generation).Scan(&storedGeneration, &storedPolicyDigest, &arrival); err != nil {
 		return time.Time{}, fmt.Errorf("lock authentication rate limit bucket: %w", err)
 	}
 	if storedGeneration != generation || len(storedPolicyDigest) != sha256.Size ||
@@ -197,14 +199,17 @@ func storeAuthenticationRateLimitBucket(
 	tx pgx.Tx,
 	scope string,
 	digest [sha256.Size]byte,
+	generation uint64,
 	advance authenticationRateLimitAdvance,
 	now time.Time,
 ) error {
 	_, err := tx.Exec(ctx, `
 		UPDATE authentication_rate_limit_buckets
-		SET theoretical_arrival_at = $3, updated_at = $4
-		WHERE scope = $1 AND subject_digest = $2
-	`, scope, digest[:], advance.nextArrival, now)
+		SET theoretical_arrival_at = $4, updated_at = $5
+		WHERE policy_generation = $3
+		  AND scope = $1
+		  AND subject_digest = $2
+	`, scope, digest[:], generation, advance.nextArrival, now)
 	if err != nil {
 		return fmt.Errorf("update authentication rate limit bucket: %w", err)
 	}
@@ -234,21 +239,32 @@ func advanceAuthenticationRateLimitBucket(
 	}
 }
 
-func reclaimAuthenticationRateLimitBuckets(ctx context.Context, tx pgx.Tx, staleBefore time.Time) error {
+func reclaimAuthenticationRateLimitBuckets(
+	ctx context.Context,
+	tx pgx.Tx,
+	activeGeneration uint64,
+	staleBefore time.Time,
+) error {
 	_, err := tx.Exec(ctx, `
 		WITH stale AS (
-			SELECT scope, subject_digest
+			SELECT policy_generation, scope, subject_digest
 			FROM authentication_rate_limit_buckets
-			WHERE scope <> 'global' AND updated_at <= $1
-			ORDER BY updated_at, scope, subject_digest
-			LIMIT $2
+			WHERE policy_generation <> $1
+			   OR (
+					policy_generation = $1
+					AND scope <> 'global'
+					AND updated_at <= $2
+			   )
+			ORDER BY policy_generation, updated_at, scope, subject_digest
+			LIMIT $3
 			FOR UPDATE SKIP LOCKED
 		)
 		DELETE FROM authentication_rate_limit_buckets AS bucket
 		USING stale
-		WHERE bucket.scope = stale.scope
+		WHERE bucket.policy_generation = stale.policy_generation
+		  AND bucket.scope = stale.scope
 		  AND bucket.subject_digest = stale.subject_digest
-	`, staleBefore, authenticationRateLimitCleanupBatch)
+	`, activeGeneration, staleBefore, authenticationRateLimitCleanupBatch)
 	if err != nil {
 		return fmt.Errorf("reclaim authentication rate limit buckets: %w", err)
 	}
