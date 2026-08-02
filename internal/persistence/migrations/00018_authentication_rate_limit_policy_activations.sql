@@ -40,16 +40,27 @@ FOR EACH ROW EXECUTE FUNCTION reject_authentication_rate_limit_policy_activation
 TRUNCATE authentication_rate_limit_buckets;
 
 ALTER TABLE authentication_rate_limit_buckets
+    DROP CONSTRAINT authentication_rate_limit_buckets_pkey,
     ADD COLUMN policy_generation bigint NOT NULL,
+    ADD CONSTRAINT authentication_rate_limit_buckets_pkey
+        PRIMARY KEY (policy_generation, scope, subject_digest),
     ADD CONSTRAINT authentication_rate_limit_buckets_policy_generation_fk
         FOREIGN KEY (policy_generation)
         REFERENCES authentication_rate_limit_policy_activations (generation);
 
+CREATE INDEX authentication_rate_limit_buckets_generation_reclamation_idx
+    ON authentication_rate_limit_buckets (policy_generation, updated_at, scope, subject_digest);
+
 -- dataground:down
+
+DROP INDEX authentication_rate_limit_buckets_generation_reclamation_idx;
 
 ALTER TABLE authentication_rate_limit_buckets
     DROP CONSTRAINT authentication_rate_limit_buckets_policy_generation_fk,
-    DROP COLUMN policy_generation;
+    DROP CONSTRAINT authentication_rate_limit_buckets_pkey,
+    DROP COLUMN policy_generation,
+    ADD CONSTRAINT authentication_rate_limit_buckets_pkey
+        PRIMARY KEY (scope, subject_digest);
 
 DROP TABLE authentication_rate_limit_policy_activations;
 DROP FUNCTION reject_authentication_rate_limit_policy_activation_mutation();
