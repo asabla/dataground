@@ -156,11 +156,11 @@ func TestPublishOIDCJWTKeysetFileRejectsUnsafeInputs(t *testing.T) {
 		"key-1",
 	)
 	tests := map[string]OIDCJWTKeysetFilePublication{
-		"relative path":       {Path: "keysets.json", Sequence: 1, ExpiresAt: expiresAt, Algorithms: valid.Algorithms, JWKS: valid.JWKS},
-		"zero sequence":       {Path: valid.Path, ExpiresAt: expiresAt, Algorithms: valid.Algorithms, JWKS: valid.JWKS},
-		"expired generation":  {Path: valid.Path, Sequence: 1, ExpiresAt: time.Now().Add(-time.Minute), Algorithms: valid.Algorithms, JWKS: valid.JWKS},
+		"relative path":         {Path: "keysets.json", Sequence: 1, ExpiresAt: expiresAt, Algorithms: valid.Algorithms, JWKS: valid.JWKS},
+		"zero sequence":         {Path: valid.Path, ExpiresAt: expiresAt, Algorithms: valid.Algorithms, JWKS: valid.JWKS},
+		"expired generation":    {Path: valid.Path, Sequence: 1, ExpiresAt: time.Now().Add(-time.Minute), Algorithms: valid.Algorithms, JWKS: valid.JWKS},
 		"unsupported algorithm": {Path: valid.Path, Sequence: 1, ExpiresAt: expiresAt, Algorithms: []string{"HS256"}, JWKS: valid.JWKS},
-		"malformed JWKS":      {Path: valid.Path, Sequence: 1, ExpiresAt: expiresAt, Algorithms: valid.Algorithms, JWKS: []byte(`{"keys":[]}`)},
+		"malformed JWKS":        {Path: valid.Path, Sequence: 1, ExpiresAt: expiresAt, Algorithms: valid.Algorithms, JWKS: []byte(`{"keys":[]}`)},
 	}
 	for name, publication := range tests {
 		name, publication := name, publication
