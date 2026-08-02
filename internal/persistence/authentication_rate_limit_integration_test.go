@@ -106,7 +106,7 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 		}
 		activate(t, 1, policy)
 		for _, digest := range [][sha256.Size]byte{credential, otherCredential} {
-			result, err := repository.AllowAuthentication(ctx, domain, digest, policy)
+			result, err := repository.AllowAuthentication(ctx, domain, digest, 1, policy)
 			if err != nil || !result.Allowed {
 				t.Fatalf("domain admission = %#v, %v", result, err)
 			}
