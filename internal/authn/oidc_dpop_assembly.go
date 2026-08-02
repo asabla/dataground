@@ -17,6 +17,7 @@ type ReloadableOIDCDPoPConfig struct {
 	KeysetSource         OIDCJWTKeysetSource
 	IdentityResolver     OIDCIdentityResolver
 	ReplayStore          DPoPReplayStore
+	Nonce                DPoPNoncePolicy
 	JWTClockSkew         time.Duration
 	MaximumTokenLifetime time.Duration
 	DPoPClockSkew        time.Duration
@@ -39,7 +40,7 @@ func NewReloadableOIDCDPoPAuthenticator(
 		nilDPoPDependency(config.ReplayStore) {
 		return nil, errors.New("OIDC DPoP dependencies are required")
 	}
-	if !validDPoPTimeBounds(config.DPoPClockSkew, config.MaximumProofAge) {
+	if !validDPoPTimeBounds(config.DPoPClockSkew, config.MaximumProofAge) || !config.Nonce.Valid() {
 		return nil, errors.New("OIDC DPoP profile is invalid")
 	}
 	keysets, err := NewReloadableOIDCJWTVerifier(ctx, ReloadableOIDCJWTConfig{
@@ -56,6 +57,7 @@ func NewReloadableOIDCDPoPAuthenticator(
 	dpop, err := NewDPoPTokenVerifier(DPoPConfig{
 		Verifier:        keysets,
 		Replays:         config.ReplayStore,
+		Nonce:           config.Nonce,
 		ClockSkew:       config.DPoPClockSkew,
 		MaximumProofAge: config.MaximumProofAge,
 	})
