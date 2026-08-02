@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,13 +79,16 @@ func TestReloadableOIDCJWTVerifierDoesNotInstallAfterCancellation(t *testing.T) 
 	now := time.Date(2026, time.August, 1, 12, 0, 0, 0, time.UTC)
 	ctx, cancel := context.WithCancel(context.Background())
 	verifier := &ReloadableOIDCJWTVerifier{
-		issuer:          "https://identity.example.invalid",
-		audience:        APIAudience,
-		algorithms:      []string{"RS256"},
-		clockSkew:       30 * time.Second,
-		maximumLifetime: time.Hour,
+		issuer:                 "https://identity.example.invalid",
+		audience:               APIAudience,
+		providerID:             "primary",
+		providerRegistrySHA256: strings.Repeat("1", 64),
+		algorithms:             []string{"RS256"},
+		clockSkew:              30 * time.Second,
+		maximumLifetime:        time.Hour,
 		source: lifecycleKeysetSource{snapshot: OIDCJWTKeysetSnapshot{
-			Sequence: 1, JWKS: jwks, ExpiresAt: now.Add(time.Hour),
+			Sequence: 1, ProviderID: "primary", ProviderRegistrySHA256: strings.Repeat("1", 64),
+			JWKS: jwks, ExpiresAt: now.Add(time.Hour),
 		}},
 		now: func() time.Time {
 			cancel()

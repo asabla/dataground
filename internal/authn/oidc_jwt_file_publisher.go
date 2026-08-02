@@ -22,15 +22,17 @@ const oidcJWTKeysetPublicationLockPollInterval = 100 * time.Millisecond
 // safe recovery action.
 var ErrOIDCJWTKeysetPublicationUncertain = errors.New("OIDC JWT keyset publication durability is uncertain")
 
-// OIDCJWTKeysetFilePublication is one complete public signing-key generation
-// to publish through the atomic file contract consumed by
+// OIDCJWTKeysetFilePublication is one complete provider-bound public signing-
+// key generation to publish through the atomic file contract consumed by
 // OIDCJWTKeysetFileSource. JWKS is copied and never modified.
 type OIDCJWTKeysetFilePublication struct {
-	Path       string
-	Sequence   uint64
-	ExpiresAt  time.Time
-	Algorithms []string
-	JWKS       []byte
+	Path                   string
+	Sequence               uint64
+	ProviderID             string
+	ProviderRegistrySHA256 string
+	ExpiresAt              time.Time
+	Algorithms             []string
+	JWKS                   []byte
 }
 
 // PublishOIDCJWTKeysetFile validates and canonically publishes one complete
@@ -50,7 +52,9 @@ func PublishOIDCJWTKeysetFile(ctx context.Context, publication OIDCJWTKeysetFile
 	}
 	now := time.Now()
 	expiresAt := publication.ExpiresAt.UTC()
-	if publication.Sequence == 0 || publication.ExpiresAt.IsZero() ||
+	if publication.Sequence == 0 ||
+		!ValidOIDCProviderBinding(publication.ProviderID, publication.ProviderRegistrySHA256) ||
+		publication.ExpiresAt.IsZero() ||
 		!expiresAt.After(now) || expiresAt.After(now.Add(maximumOIDCJWTKeysetSnapshotLifetime)) {
 		return ErrOIDCJWTKeysetInvalid
 	}
@@ -87,7 +91,9 @@ func PublishOIDCJWTKeysetFile(ctx context.Context, publication OIDCJWTKeysetFile
 		case publication.Sequence < current.Sequence:
 			return ErrOIDCJWTKeysetRollback
 		case publication.Sequence == current.Sequence:
-			if !expiresAt.Equal(current.ExpiresAt) || !bytes.Equal(canonicalJWKS, current.JWKS) {
+			if publication.ProviderID != current.ProviderID ||
+				publication.ProviderRegistrySHA256 != current.ProviderRegistrySHA256 ||
+				!expiresAt.Equal(current.ExpiresAt) || !bytes.Equal(canonicalJWKS, current.JWKS) {
 				return ErrOIDCJWTKeysetConflict
 			}
 			if err := requireUnchangedOIDCJWTKeysetPublicationTarget(publication.Path, identity); err != nil {
@@ -98,9 +104,12 @@ func PublishOIDCJWTKeysetFile(ctx context.Context, publication OIDCJWTKeysetFile
 	}
 
 	encoded, err := json.Marshal(oidcJWTKeysetPublication{
-		Sequence:  publication.Sequence,
-		ExpiresAt: expiresAt,
-		JWKS:      json.RawMessage(canonicalJWKS),
+		Contract:               oidcJWTKeysetPublicationContract,
+		Sequence:               publication.Sequence,
+		ProviderID:             publication.ProviderID,
+		ProviderRegistrySHA256: publication.ProviderRegistrySHA256,
+		ExpiresAt:              expiresAt,
+		JWKS:                   json.RawMessage(canonicalJWKS),
 	})
 	if err != nil || len(encoded) == 0 || len(encoded) > maximumOIDCJWTKeysetPublicationBytes {
 		clear(encoded)
@@ -120,7 +129,9 @@ func PublishOIDCJWTKeysetFile(ctx context.Context, publication OIDCJWTKeysetFile
 		return ErrOIDCJWTKeysetInvalid
 	}
 	defer clear(installedJWKS)
-	if installed.Sequence != publication.Sequence || !installed.ExpiresAt.Equal(expiresAt) ||
+	if installed.Sequence != publication.Sequence || installed.ProviderID != publication.ProviderID ||
+		installed.ProviderRegistrySHA256 != publication.ProviderRegistrySHA256 ||
+		!installed.ExpiresAt.Equal(expiresAt) ||
 		!bytes.Equal(installedJWKS, canonicalJWKS) {
 		return ErrOIDCJWTKeysetConflict
 	}

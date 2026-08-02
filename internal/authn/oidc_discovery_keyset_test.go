@@ -21,6 +21,10 @@ func TestOIDCDiscoveryKeysetImporterPinsMetadataAndCanonicalizesKeys(t *testing.
 	issuer := "https://issuer.example.test/realm"
 	jwks := testOIDCDiscoveryJWKS(t)
 	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "" {
+			http.Error(response, "unexpected credentials", http.StatusBadRequest)
+			return
+		}
 		response.Header().Set("Content-Type", "application/json")
 		switch request.URL.Path {
 		case "/.well-known/openid-configuration":
@@ -54,6 +58,107 @@ func TestOIDCDiscoveryKeysetImporterPinsMetadataAndCanonicalizesKeys(t *testing.
 	defer clear(imported)
 	if _, err := parseOIDCJWKS(imported, map[string]struct{}{"RS256": {}}); err != nil {
 		t.Fatalf("parse imported JWKS: %v", err)
+	}
+}
+
+func TestOIDCDiscoveryKeysetImporterAppliesEndpointSpecificBearerCredentials(t *testing.T) {
+	t.Parallel()
+
+	issuer := "https://issuer.example.test/realm"
+	jwks := testOIDCDiscoveryJWKS(t)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/.well-known/openid-configuration":
+			if request.Header.Get("Authorization") != "Bearer metadata-token" {
+				http.Error(response, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			_ = json.NewEncoder(response).Encode(map[string]string{
+				"issuer": issuer, "jwks_uri": "https://" + request.Host + "/jwks",
+			})
+		case "/jwks":
+			if request.Header.Get("Authorization") != "Bearer key-token" {
+				http.Error(response, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			_, _ = response.Write(jwks)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+	metadataToken := []byte("metadata-token")
+	keyToken := []byte("key-token")
+	importer, err := NewOIDCDiscoveryKeysetImporter(OIDCDiscoveryKeysetImportConfig{
+		Issuer:               issuer,
+		DiscoveryURL:         server.URL + "/.well-known/openid-configuration",
+		JWKSURL:              server.URL + "/jwks",
+		Algorithms:           []string{"RS256"},
+		DiscoveryBearerToken: metadataToken,
+		JWKSBearerToken:      keyToken,
+		Transport:            server.Client().Transport.(*http.Transport),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clear(metadataToken)
+	clear(keyToken)
+	imported, err := importer.Import(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	clear(imported)
+	if _, err := importer.Import(context.Background()); !errors.Is(err, ErrOIDCDiscoveryUnavailable) {
+		t.Fatalf("reused importer error = %v", err)
+	}
+}
+
+func TestOIDCDiscoveryKeysetImporterRejectsUnsafeBearerCredentials(t *testing.T) {
+	t.Parallel()
+
+	for name, token := range map[string][]byte{
+		"header injection": []byte("token\r\nInjected"),
+		"embedded padding": []byte("token=invalid"),
+		"oversized":        make([]byte, maximumOIDCDiscoveryBearerTokenBytes+1),
+	} {
+		name, token := name, token
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := NewOIDCDiscoveryKeysetImporter(OIDCDiscoveryKeysetImportConfig{
+				Issuer:               "https://issuer.example.test",
+				DiscoveryURL:         "https://issuer.example.test/.well-known/openid-configuration",
+				JWKSURL:              "https://issuer.example.test/jwks",
+				Algorithms:           []string{"RS256"},
+				DiscoveryBearerToken: token,
+			})
+			if !errors.Is(err, ErrOIDCDiscoveryInvalid) {
+				t.Fatalf("credential error = %v", err)
+			}
+		})
+	}
+}
+
+func TestOIDCDiscoveryKeysetImporterConsumesCredentialsOnCancelledAttempt(t *testing.T) {
+	t.Parallel()
+
+	importer, err := NewOIDCDiscoveryKeysetImporter(OIDCDiscoveryKeysetImportConfig{
+		Issuer:               "https://issuer.example.test",
+		DiscoveryURL:         "https://issuer.example.test/.well-known/openid-configuration",
+		JWKSURL:              "https://issuer.example.test/jwks",
+		Algorithms:           []string{"RS256"},
+		DiscoveryBearerToken: []byte("provider-token"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := importer.Import(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled import error = %v", err)
+	}
+	if _, err := importer.Import(context.Background()); !errors.Is(err, ErrOIDCDiscoveryUnavailable) {
+		t.Fatalf("reused importer error = %v", err)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -95,7 +96,8 @@ func TestReloadableOIDCJWTVerifierRejectsRollbackAndConflictingReuse(t *testing.
 func TestReloadableOIDCJWTVerifierRejectsInvalidSourcesAndSnapshots(t *testing.T) {
 	var typedNil *oidcJWTKeysetSource
 	if _, err := authn.NewReloadableOIDCJWTVerifier(context.Background(), authn.ReloadableOIDCJWTConfig{
-		Issuer: testOIDCIssuer, Audience: testOIDCAudience, Algorithms: []string{"RS256"},
+		Issuer: testOIDCIssuer, Audience: testOIDCAudience, ProviderID: "primary",
+		ProviderRegistrySHA256: strings.Repeat("1", 64), Algorithms: []string{"RS256"},
 		ClockSkew: 30 * time.Second, MaximumLifetime: time.Hour, Source: typedNil,
 	}); err == nil {
 		t.Fatal("typed-nil keyset source was accepted")
@@ -105,7 +107,12 @@ func TestReloadableOIDCJWTVerifierRejectsInvalidSourcesAndSnapshots(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	wrongProvider := oidcJWTKeysetSnapshot(
+		t, 1, time.Now().Add(time.Hour), &privateKey.PublicKey, "lifecycle-key-1",
+	)
+	wrongProvider.ProviderID = "secondary"
 	for name, snapshot := range map[string]authn.OIDCJWTKeysetSnapshot{
+		"provider mismatch": wrongProvider,
 		"zero sequence": oidcJWTKeysetSnapshot(
 			t, 0, time.Now().Add(time.Hour), &privateKey.PublicKey, "lifecycle-key-1",
 		),
@@ -246,7 +253,9 @@ func oidcJWTKeysetSnapshot(
 ) authn.OIDCJWTKeysetSnapshot {
 	t.Helper()
 	return authn.OIDCJWTKeysetSnapshot{
-		Sequence: sequence,
+		Sequence:               sequence,
+		ProviderID:             "primary",
+		ProviderRegistrySHA256: strings.Repeat("1", 64),
 		JWKS: marshalOIDCJWKS(t, []jose.JSONWebKey{
 			oidcJWTJWK(key, jose.RS256, keyID),
 		}),
@@ -271,11 +280,13 @@ func newReloadableOIDCJWTVerifier(
 
 func reloadableOIDCJWTConfig(source authn.OIDCJWTKeysetSource) authn.ReloadableOIDCJWTConfig {
 	return authn.ReloadableOIDCJWTConfig{
-		Issuer:          testOIDCIssuer,
-		Audience:        testOIDCAudience,
-		Algorithms:      []string{"RS256"},
-		ClockSkew:       30 * time.Second,
-		MaximumLifetime: time.Hour,
-		Source:          source,
+		Issuer:                 testOIDCIssuer,
+		Audience:               testOIDCAudience,
+		ProviderID:             "primary",
+		ProviderRegistrySHA256: strings.Repeat("1", 64),
+		Algorithms:             []string{"RS256"},
+		ClockSkew:              30 * time.Second,
+		MaximumLifetime:        time.Hour,
+		Source:                 source,
 	}
 }

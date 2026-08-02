@@ -122,7 +122,7 @@ func TestLoadOIDCSecurityConfigurationRejectsAmbiguousOrUnsafeFiles(t *testing.T
 
 	tests := map[string]func() string{
 		"old contract": func() string {
-			return strings.Replace(valid, oidcSecurityConfigurationContract, "dataground.api-security/oidc-dpop/v3", 1)
+			return strings.Replace(valid, oidcSecurityConfigurationContract, "dataground.api-security/oidc-dpop/v4", 1)
 		},
 		"duplicate member": func() string {
 			return strings.Replace(valid, `"issuer":`, `"issuer":"https://duplicate.example.invalid","issuer":`, 1)
@@ -132,6 +132,12 @@ func TestLoadOIDCSecurityConfigurationRejectsAmbiguousOrUnsafeFiles(t *testing.T
 		},
 		"invalid duration": func() string {
 			return strings.Replace(valid, `"maximumLifetime":"1h"`, `"maximumLifetime":"forever"`, 1)
+		},
+		"invalid provider": func() string {
+			return strings.Replace(valid, `"id":"primary"`, `"id":""`, 1)
+		},
+		"invalid provider registry digest": func() string {
+			return strings.Replace(valid, strings.Repeat("1", sha256.Size*2), "invalid", 1)
 		},
 		"missing duration": func() string {
 			return strings.Replace(valid, `"clockSkew":"30s",`, ``, 1)
@@ -325,6 +331,9 @@ func startupConfiguration(keysets, policy, evidence, evidenceHash string) string
 		"externalOrigin":        "https://api.example.invalid",
 		"keysetPublicationFile": keysets,
 		"algorithms":            []string{"EdDSA"},
+		"provider": map[string]any{
+			"id": "primary", "registrySha256": strings.Repeat("1", sha256.Size*2),
+		},
 		"jwt": map[string]any{
 			"clockSkew": "30s", "maximumLifetime": "1h",
 		},

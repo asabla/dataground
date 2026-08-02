@@ -141,7 +141,7 @@ func TestCertificationRejectsSignatureAndArtifactSubstitution(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		message := append([]byte("DataGround release certification oidc-loopback v1\n"), statementBytes...)
+		message := append([]byte("DataGround release certification oidc-loopback v2\n"), statementBytes...)
 		fixture.signature.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(fixture.privateKey, message))
 		writeCanonicalPrivate(t, fixture.signatureFile, fixture.signature)
 		if err := Install(fixture.installRequest()); err == nil || !strings.Contains(err.Error(), "does not verify") {
@@ -356,7 +356,11 @@ func newCertificationFixture(t *testing.T) *certificationFixture {
 	policyDigest := sha256.Sum256(policyBytes)
 	configurationFile := filepath.Join(directory, "oidc-security-configuration.json")
 	configurationBytes := writeCanonicalPrivate(t, configurationFile, struct {
-		Contract  string `json:"contract"`
+		Contract string `json:"contract"`
+		Provider struct {
+			ID             string `json:"id"`
+			RegistrySHA256 string `json:"registrySha256"`
+		} `json:"provider"`
 		Admission struct {
 			DeploymentProfile    string `json:"deploymentProfile"`
 			CapacityEvidenceFile string `json:"capacityEvidenceFile"`
@@ -366,7 +370,11 @@ func newCertificationFixture(t *testing.T) *certificationFixture {
 			PolicyFile string `json:"policyFile"`
 		} `json:"authorization"`
 	}{
-		Contract: "dataground.api-security/oidc-dpop/v4",
+		Contract: "dataground.api-security/oidc-dpop/v5",
+		Provider: struct {
+			ID             string `json:"id"`
+			RegistrySHA256 string `json:"registrySha256"`
+		}{ID: "primary", RegistrySHA256: strings.Repeat("1", sha256.Size*2)},
 		Admission: struct {
 			DeploymentProfile    string `json:"deploymentProfile"`
 			CapacityEvidenceFile string `json:"capacityEvidenceFile"`

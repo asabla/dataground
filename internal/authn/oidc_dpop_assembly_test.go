@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,23 +80,27 @@ func TestReloadableOIDCDPoPAuthenticatorFailsClosedWithoutContext(t *testing.T) 
 
 func assemblyAuthenticationConfig(source authn.OIDCJWTKeysetSource) authn.ReloadableOIDCDPoPConfig {
 	return authn.ReloadableOIDCDPoPConfig{
-		Issuer:               "https://identity.example.invalid",
-		Audience:             authn.APIAudience,
-		Algorithms:           []string{"EdDSA"},
-		KeysetSource:         source,
-		IdentityResolver:     assemblyIdentityResolver{},
-		ReplayStore:          assemblyReplayStore{},
-		JWTClockSkew:         30 * time.Second,
-		MaximumTokenLifetime: time.Hour,
-		DPoPClockSkew:        30 * time.Second,
-		MaximumProofAge:      time.Minute,
+		Issuer:                 "https://identity.example.invalid",
+		Audience:               authn.APIAudience,
+		ProviderID:             "primary",
+		ProviderRegistrySHA256: strings.Repeat("1", 64),
+		Algorithms:             []string{"EdDSA"},
+		KeysetSource:           source,
+		IdentityResolver:       assemblyIdentityResolver{},
+		ReplayStore:            assemblyReplayStore{},
+		JWTClockSkew:           30 * time.Second,
+		MaximumTokenLifetime:   time.Hour,
+		DPoPClockSkew:          30 * time.Second,
+		MaximumProofAge:        time.Minute,
 	}
 }
 
 func assemblyKeysetSnapshot(sequence uint64) authn.OIDCJWTKeysetSnapshot {
 	x := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{1}, ed25519.PublicKeySize))
 	return authn.OIDCJWTKeysetSnapshot{
-		Sequence: sequence,
+		Sequence:               sequence,
+		ProviderID:             "primary",
+		ProviderRegistrySHA256: strings.Repeat("1", 64),
 		JWKS: []byte(fmt.Sprintf(
 			`{"keys":[{"kty":"OKP","use":"sig","kid":"provider-key","alg":"EdDSA","crv":"Ed25519","x":%q}]}`,
 			x,

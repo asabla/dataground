@@ -17,19 +17,21 @@ import (
 )
 
 const (
-	oidcJWTKeysetPublicationRequestContract = "dataground.oidc-keyset-publication/v1"
+	oidcJWTKeysetPublicationRequestContract = "dataground.oidc-keyset-publication-request/v2"
 	maximumOIDCJWTKeysetRequestBytes        = 64 << 10
 	maximumOIDCJWTKeysetInputBytes          = 256 << 10
 	maximumOIDCJWTKeysetRequestDepth        = 16
 )
 
 type oidcJWTKeysetPublicationRequest struct {
-	Contract        string    `json:"contract"`
-	Sequence        uint64    `json:"sequence"`
-	ExpiresAt       time.Time `json:"expiresAt"`
-	Algorithms      []string  `json:"algorithms"`
-	JWKSFile        string    `json:"jwksFile"`
-	PublicationFile string    `json:"publicationFile"`
+	Contract               string    `json:"contract"`
+	Sequence               uint64    `json:"sequence"`
+	ProviderID             string    `json:"providerId"`
+	ProviderRegistrySHA256 string    `json:"providerRegistrySha256"`
+	ExpiresAt              time.Time `json:"expiresAt"`
+	Algorithms             []string  `json:"algorithms"`
+	JWKSFile               string    `json:"jwksFile"`
+	PublicationFile        string    `json:"publicationFile"`
 }
 
 func main() {
@@ -79,11 +81,13 @@ func run(ctx context.Context, arguments []string) error {
 	operationCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	return authn.PublishOIDCJWTKeysetFile(operationCtx, authn.OIDCJWTKeysetFilePublication{
-		Path:       request.PublicationFile,
-		Sequence:   request.Sequence,
-		ExpiresAt:  request.ExpiresAt,
-		Algorithms: append([]string(nil), request.Algorithms...),
-		JWKS:       jwks,
+		Path:                   request.PublicationFile,
+		Sequence:               request.Sequence,
+		ProviderID:             request.ProviderID,
+		ProviderRegistrySHA256: request.ProviderRegistrySHA256,
+		ExpiresAt:              request.ExpiresAt,
+		Algorithms:             append([]string(nil), request.Algorithms...),
+		JWKS:                   jwks,
 	})
 }
 
@@ -113,6 +117,7 @@ func readOIDCJWTKeysetPublicationRequest(path string) (oidcJWTKeysetPublicationR
 	}
 	if request.Contract != oidcJWTKeysetPublicationRequestContract || request.Sequence == 0 ||
 		request.ExpiresAt.IsZero() || len(request.Algorithms) == 0 ||
+		!authn.ValidOIDCProviderBinding(request.ProviderID, request.ProviderRegistrySHA256) ||
 		!validAbsoluteCanonicalPath(request.JWKSFile) ||
 		!validAbsoluteCanonicalPath(request.PublicationFile) ||
 		request.JWKSFile == request.PublicationFile {

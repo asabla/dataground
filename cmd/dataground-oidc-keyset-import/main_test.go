@@ -4,11 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,7 +19,7 @@ import (
 	jose "github.com/go-jose/go-jose/v4"
 )
 
-func TestRunImportsAndPublishesPinnedOIDCKeyset(t *testing.T) {
+func TestRunImportsSelectedAuthenticatedOIDCProvider(t *testing.T) {
 	t.Parallel()
 
 	issuer := "https://issuer.example.test/realm"
@@ -37,11 +40,19 @@ func TestRunImportsAndPublishesPinnedOIDCKeyset(t *testing.T) {
 		response.Header().Set("Content-Type", "application/json")
 		switch request.URL.Path {
 		case "/.well-known/openid-configuration":
+			if request.Header.Get("Authorization") != "Bearer discovery-secret" {
+				http.Error(response, "unauthorized", http.StatusUnauthorized)
+				return
+			}
 			_ = json.NewEncoder(response).Encode(map[string]string{
 				"issuer":   issuer,
 				"jwks_uri": "https://" + request.Host + "/jwks",
 			})
 		case "/jwks":
+			if request.Header.Get("Authorization") != "Bearer jwks-secret" {
+				http.Error(response, "unauthorized", http.StatusUnauthorized)
+				return
+			}
 			_, _ = response.Write(jwks)
 		default:
 			http.NotFound(response, request)
@@ -50,25 +61,25 @@ func TestRunImportsAndPublishesPinnedOIDCKeyset(t *testing.T) {
 	defer server.Close()
 
 	directory := t.TempDir()
+	discoveryToken := writeOIDCKeysetImportFile(t, directory, "discovery.token", "discovery-secret", 0o600)
+	jwksToken := writeOIDCKeysetImportFile(t, directory, "jwks.token", "jwks-secret", 0o600)
+	registryPath, registryDigest := writeOIDCProviderRegistry(t, directory, []map[string]any{{
+		"id":           "primary",
+		"issuer":       issuer,
+		"discoveryUrl": server.URL + "/.well-known/openid-configuration",
+		"jwksUrl":      server.URL + "/jwks",
+		"algorithms":   []string{"RS256"},
+		"discoveryAuthentication": map[string]any{
+			"kind": "bearer-token-file", "tokenFile": discoveryToken,
+		},
+		"jwksAuthentication": map[string]any{
+			"kind": "bearer-token-file", "tokenFile": jwksToken,
+		},
+	}})
 	publicationPath := filepath.Join(directory, "keysets.json")
-	requestPath := filepath.Join(directory, "request.json")
-	request := map[string]any{
-		"contract":        oidcKeysetImportRequestContract,
-		"issuer":          issuer,
-		"discoveryUrl":    server.URL + "/.well-known/openid-configuration",
-		"jwksUrl":         server.URL + "/jwks",
-		"sequence":        1,
-		"expiresAt":       time.Now().UTC().Add(time.Hour).Truncate(time.Second),
-		"algorithms":      []string{"RS256"},
-		"publicationFile": publicationPath,
-	}
-	encoded, err := json.Marshal(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(requestPath, encoded, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	requestPath := writeOIDCKeysetImportRequest(
+		t, directory, "primary", registryPath, registryDigest, publicationPath,
+	)
 	if err := runWithTransport(
 		context.Background(),
 		[]string{"-request-file", requestPath},
@@ -85,8 +96,9 @@ func TestRunImportsAndPublishesPinnedOIDCKeyset(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer clear(snapshot.JWKS)
-	if snapshot.Sequence != 1 {
-		t.Fatalf("published sequence = %d, want 1", snapshot.Sequence)
+	if snapshot.Sequence != 1 || snapshot.ProviderID != "primary" ||
+		snapshot.ProviderRegistrySHA256 != registryDigest {
+		t.Fatalf("published binding = %#v", snapshot)
 	}
 	if _, err := authn.NewPinnedOIDCJWTVerifier(authn.PinnedOIDCJWTConfig{
 		Issuer:          issuer,
@@ -100,15 +112,257 @@ func TestRunImportsAndPublishesPinnedOIDCKeyset(t *testing.T) {
 	}
 }
 
+func TestLoadOIDCProviderProfileRejectsRegistryDriftAndFallback(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	profile := testOIDCProviderProfile("primary")
+	registryPath, registryDigest := writeOIDCProviderRegistry(t, directory, []map[string]any{profile})
+	publicationPath := filepath.Join(directory, "keysets.json")
+
+	t.Run("unknown provider", func(t *testing.T) {
+		requestPath := writeOIDCKeysetImportRequest(
+			t, directory, "fallback", registryPath, registryDigest, publicationPath,
+		)
+		request, err := readOIDCKeysetImportRequest(requestPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := loadOIDCProviderProfile(request); err == nil {
+			t.Fatal("unregistered provider was accepted")
+		}
+	})
+
+	t.Run("digest drift", func(t *testing.T) {
+		requestPath := writeOIDCKeysetImportRequest(
+			t, directory, "primary", registryPath, strings.Repeat("0", sha256.Size*2), publicationPath,
+		)
+		request, err := readOIDCKeysetImportRequest(requestPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := loadOIDCProviderProfile(request); err == nil {
+			t.Fatal("registry digest drift was accepted")
+		}
+	})
+
+	t.Run("duplicate profile", func(t *testing.T) {
+		duplicateDirectory := t.TempDir()
+		path, digest := writeOIDCProviderRegistry(
+			t, duplicateDirectory, []map[string]any{profile, profile},
+		)
+		requestPath := writeOIDCKeysetImportRequest(
+			t, duplicateDirectory, "primary", path, digest,
+			filepath.Join(duplicateDirectory, "keysets.json"),
+		)
+		request, err := readOIDCKeysetImportRequest(requestPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := loadOIDCProviderProfile(request); err == nil {
+			t.Fatal("duplicate provider profile was accepted")
+		}
+	})
+
+	t.Run("null credential reference", func(t *testing.T) {
+		nullDirectory := t.TempDir()
+		nullProfile := testOIDCProviderProfile("primary")
+		nullProfile["discoveryAuthentication"] = map[string]any{
+			"kind": "none", "tokenFile": nil,
+		}
+		path, digest := writeOIDCProviderRegistry(t, nullDirectory, []map[string]any{nullProfile})
+		requestPath := writeOIDCKeysetImportRequest(
+			t, nullDirectory, "primary", path, digest,
+			filepath.Join(nullDirectory, "keysets.json"),
+		)
+		request, err := readOIDCKeysetImportRequest(requestPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := loadOIDCProviderProfile(request); err == nil {
+			t.Fatal("null provider credential reference was accepted")
+		}
+	})
+}
+
+func TestRunRejectsUnsafeOIDCProviderCredentials(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		content string
+		mode    os.FileMode
+	}{
+		"group readable":   {content: "provider-secret", mode: 0o640},
+		"header injection": {content: "provider-secret\nInjected", mode: 0o600},
+		"empty":            {content: "", mode: 0o600},
+	}
+	for name, test := range tests {
+		name, test := name, test
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			directory := t.TempDir()
+			token := writeOIDCKeysetImportFile(t, directory, "token", test.content, test.mode)
+			profile := testOIDCProviderProfile("primary")
+			profile["discoveryAuthentication"] = map[string]any{
+				"kind": "bearer-token-file", "tokenFile": token,
+			}
+			registryPath, digest := writeOIDCProviderRegistry(t, directory, []map[string]any{profile})
+			requestPath := writeOIDCKeysetImportRequest(
+				t, directory, "primary", registryPath, digest, filepath.Join(directory, "keysets.json"),
+			)
+			if err := run(context.Background(), []string{"-request-file", requestPath}); err == nil {
+				t.Fatal("unsafe provider credential was accepted")
+			}
+		})
+	}
+}
+
+func TestLoadOIDCProviderBearerTokensSnapshotsSharedCredentialOnce(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	tokenFile := writeOIDCKeysetImportFile(t, directory, "shared.token", "shared-secret", 0o600)
+	authentication := oidcProviderEndpointAuthentication{
+		Kind:      "bearer-token-file",
+		TokenFile: json.RawMessage(fmt.Sprintf("%q", tokenFile)),
+	}
+	request := oidcKeysetImportRequest{
+		requestFile:          filepath.Join(directory, "request.json"),
+		ProviderRegistryFile: filepath.Join(directory, "providers.json"),
+		PublicationFile:      filepath.Join(directory, "keysets.json"),
+	}
+	discoveryToken, jwksToken, err := loadOIDCProviderBearerTokens(oidcProviderProfile{
+		DiscoveryAuthentication: authentication,
+		JWKSAuthentication:      authentication,
+	}, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(discoveryToken)
+	defer clear(jwksToken)
+	if string(discoveryToken) != "shared-secret" || string(jwksToken) != "shared-secret" {
+		t.Fatalf("tokens = %q, %q", discoveryToken, jwksToken)
+	}
+	discoveryToken[0] = 'x'
+	if string(jwksToken) != "shared-secret" {
+		t.Fatal("endpoint credentials share mutable storage")
+	}
+}
+
 func TestReadOIDCKeysetImportRequestRejectsDuplicateMembers(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "request.json")
-	content := []byte(`{"contract":"dataground.oidc-keyset-import/oidc-discovery/v1","sequence":1,"sequence":2}`)
+	content := []byte(`{"contract":"dataground.oidc-keyset-import/oidc-discovery/v2","sequence":1,"sequence":2}`)
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := readOIDCKeysetImportRequest(path); err == nil {
 		t.Fatal("duplicate request member was accepted")
 	}
+}
+
+func TestReadOIDCKeysetImportRequestRejectsPathCollisions(t *testing.T) {
+	t.Parallel()
+
+	for _, field := range []string{"providerRegistryFile", "publicationFile"} {
+		field := field
+		t.Run(field, func(t *testing.T) {
+			t.Parallel()
+			directory := t.TempDir()
+			requestPath := filepath.Join(directory, "request.json")
+			request := map[string]any{
+				"contract":               oidcKeysetImportRequestContract,
+				"providerId":             "primary",
+				"providerRegistryFile":   filepath.Join(directory, "providers.json"),
+				"providerRegistrySha256": strings.Repeat("0", sha256.Size*2),
+				"sequence":               1,
+				"expiresAt":              time.Now().UTC().Add(time.Hour).Truncate(time.Second),
+				"publicationFile":        filepath.Join(directory, "keysets.json"),
+			}
+			request[field] = requestPath
+			encoded, err := json.Marshal(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(requestPath, encoded, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := readOIDCKeysetImportRequest(requestPath); err == nil {
+				t.Fatalf("%s may replace the request", field)
+			}
+		})
+	}
+}
+
+func testOIDCProviderProfile(id string) map[string]any {
+	return map[string]any{
+		"id":                      id,
+		"issuer":                  "https://issuer.example.test/realm",
+		"discoveryUrl":            "https://issuer.example.test/realm/.well-known/openid-configuration",
+		"jwksUrl":                 "https://issuer.example.test/realm/jwks",
+		"algorithms":              []string{"RS256"},
+		"discoveryAuthentication": map[string]any{"kind": "none"},
+		"jwksAuthentication":      map[string]any{"kind": "none"},
+	}
+}
+
+func writeOIDCProviderRegistry(
+	t *testing.T,
+	directory string,
+	profiles []map[string]any,
+) (string, string) {
+	t.Helper()
+	encoded, err := json.Marshal(map[string]any{
+		"contract": oidcProviderRegistryContract,
+		"profiles": profiles,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := writeOIDCKeysetImportFile(t, directory, "providers.json", string(encoded), 0o600)
+	digest := sha256.Sum256(encoded)
+	return path, fmt.Sprintf("%x", digest)
+}
+
+func writeOIDCKeysetImportRequest(
+	t *testing.T,
+	directory string,
+	providerID string,
+	registryPath string,
+	registryDigest string,
+	publicationPath string,
+) string {
+	t.Helper()
+	encoded, err := json.Marshal(map[string]any{
+		"contract":               oidcKeysetImportRequestContract,
+		"providerId":             providerID,
+		"providerRegistryFile":   registryPath,
+		"providerRegistrySha256": registryDigest,
+		"sequence":               1,
+		"expiresAt":              time.Now().UTC().Add(time.Hour).Truncate(time.Second),
+		"publicationFile":        publicationPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return writeOIDCKeysetImportFile(t, directory, providerID+"-request.json", string(encoded), 0o600)
+}
+
+func writeOIDCKeysetImportFile(
+	t *testing.T,
+	directory string,
+	name string,
+	content string,
+	mode os.FileMode,
+) string {
+	t.Helper()
+	path := filepath.Join(directory, name)
+	if err := os.WriteFile(path, []byte(content), mode); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, mode); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

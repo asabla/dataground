@@ -71,17 +71,19 @@ func NewDurableOIDCDPoPAssembly(
 		return nil, err
 	}
 	authenticator, err := authn.NewReloadableOIDCDPoPAuthenticator(ctx, authn.ReloadableOIDCDPoPConfig{
-		Issuer:               config.OIDC.Issuer,
-		Audience:             config.OIDC.Audience,
-		Algorithms:           append([]string(nil), config.OIDC.Algorithms...),
-		KeysetSource:         config.OIDC.Source,
-		IdentityResolver:     config.Repository,
-		ReplayStore:          config.Repository,
-		JWTClockSkew:         config.OIDC.ClockSkew,
-		MaximumTokenLifetime: config.OIDC.MaximumLifetime,
-		DPoPClockSkew:        config.DPoPClockSkew,
-		MaximumProofAge:      config.MaximumProofAge,
-		Nonce:                config.DPoPNonce,
+		Issuer:                 config.OIDC.Issuer,
+		Audience:               config.OIDC.Audience,
+		ProviderID:             config.OIDC.ProviderID,
+		ProviderRegistrySHA256: config.OIDC.ProviderRegistrySHA256,
+		Algorithms:             append([]string(nil), config.OIDC.Algorithms...),
+		KeysetSource:           config.OIDC.Source,
+		IdentityResolver:       config.Repository,
+		ReplayStore:            config.Repository,
+		JWTClockSkew:           config.OIDC.ClockSkew,
+		MaximumTokenLifetime:   config.OIDC.MaximumLifetime,
+		DPoPClockSkew:          config.DPoPClockSkew,
+		MaximumProofAge:        config.MaximumProofAge,
+		Nonce:                  config.DPoPNonce,
 	})
 	if err != nil {
 		return nil, err

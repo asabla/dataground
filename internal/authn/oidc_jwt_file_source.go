@@ -13,6 +13,7 @@ import (
 )
 
 const maximumOIDCJWTKeysetPublicationBytes = maximumOIDCJWKSBytes + (4 << 10)
+const oidcJWTKeysetPublicationContract = "dataground.oidc-keyset-publication/v2"
 
 // OIDCJWTKeysetFileSource reads complete, atomically replaced deployment
 // publications. The file contains public keys, but must not be writable by
@@ -22,9 +23,12 @@ type OIDCJWTKeysetFileSource struct {
 }
 
 type oidcJWTKeysetPublication struct {
-	Sequence  uint64          `json:"sequence"`
-	ExpiresAt time.Time       `json:"expiresAt"`
-	JWKS      json.RawMessage `json:"jwks"`
+	Contract               string          `json:"contract"`
+	Sequence               uint64          `json:"sequence"`
+	ProviderID             string          `json:"providerId"`
+	ProviderRegistrySHA256 string          `json:"providerRegistrySha256"`
+	ExpiresAt              time.Time       `json:"expiresAt"`
+	JWKS                   json.RawMessage `json:"jwks"`
 }
 
 func NewOIDCJWTKeysetFileSource(path string) (*OIDCJWTKeysetFileSource, error) {
@@ -97,7 +101,9 @@ func (source *OIDCJWTKeysetFileSource) Load(ctx context.Context) (OIDCJWTKeysetS
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return OIDCJWTKeysetSnapshot{}, ErrOIDCJWTKeysetInvalid
 	}
-	if publication.Sequence == 0 || publication.ExpiresAt.IsZero() ||
+	if publication.Contract != oidcJWTKeysetPublicationContract || publication.Sequence == 0 ||
+		!ValidOIDCProviderBinding(publication.ProviderID, publication.ProviderRegistrySHA256) ||
+		publication.ExpiresAt.IsZero() ||
 		len(publication.JWKS) == 0 || len(publication.JWKS) > maximumOIDCJWKSBytes {
 		return OIDCJWTKeysetSnapshot{}, ErrOIDCJWTKeysetInvalid
 	}
@@ -105,9 +111,11 @@ func (source *OIDCJWTKeysetFileSource) Load(ctx context.Context) (OIDCJWTKeysetS
 		return OIDCJWTKeysetSnapshot{}, err
 	}
 	return OIDCJWTKeysetSnapshot{
-		Sequence:  publication.Sequence,
-		ExpiresAt: publication.ExpiresAt.UTC(),
-		JWKS:      append([]byte(nil), publication.JWKS...),
+		Sequence:               publication.Sequence,
+		ProviderID:             publication.ProviderID,
+		ProviderRegistrySHA256: publication.ProviderRegistrySHA256,
+		ExpiresAt:              publication.ExpiresAt.UTC(),
+		JWKS:                   append([]byte(nil), publication.JWKS...),
 	}, nil
 }
 

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -74,6 +75,11 @@ func TestPublishOIDCJWTKeysetFileRejectsRollbackAndSequenceConflict(t *testing.T
 	conflict := testOIDCJWTKeysetFilePublication(t, path, 4, expiresAt, "key-conflict")
 	if err := PublishOIDCJWTKeysetFile(context.Background(), conflict); !errors.Is(err, ErrOIDCJWTKeysetConflict) {
 		t.Fatalf("conflict error = %v", err)
+	}
+	bindingConflict := current
+	bindingConflict.ProviderID = "secondary"
+	if err := PublishOIDCJWTKeysetFile(context.Background(), bindingConflict); !errors.Is(err, ErrOIDCJWTKeysetConflict) {
+		t.Fatalf("provider binding conflict error = %v", err)
 	}
 }
 
@@ -155,12 +161,25 @@ func TestPublishOIDCJWTKeysetFileRejectsUnsafeInputs(t *testing.T) {
 		expiresAt,
 		"key-1",
 	)
+	relative := valid
+	relative.Path = "keysets.json"
+	zeroSequence := valid
+	zeroSequence.Sequence = 0
+	expired := valid
+	expired.ExpiresAt = time.Now().Add(-time.Minute)
+	unsupported := valid
+	unsupported.Algorithms = []string{"HS256"}
+	malformed := valid
+	malformed.JWKS = []byte(`{"keys":[]}`)
+	missingProvider := valid
+	missingProvider.ProviderID = ""
 	tests := map[string]OIDCJWTKeysetFilePublication{
-		"relative path":         {Path: "keysets.json", Sequence: 1, ExpiresAt: expiresAt, Algorithms: valid.Algorithms, JWKS: valid.JWKS},
-		"zero sequence":         {Path: valid.Path, ExpiresAt: expiresAt, Algorithms: valid.Algorithms, JWKS: valid.JWKS},
-		"expired generation":    {Path: valid.Path, Sequence: 1, ExpiresAt: time.Now().Add(-time.Minute), Algorithms: valid.Algorithms, JWKS: valid.JWKS},
-		"unsupported algorithm": {Path: valid.Path, Sequence: 1, ExpiresAt: expiresAt, Algorithms: []string{"HS256"}, JWKS: valid.JWKS},
-		"malformed JWKS":        {Path: valid.Path, Sequence: 1, ExpiresAt: expiresAt, Algorithms: valid.Algorithms, JWKS: []byte(`{"keys":[]}`)},
+		"relative path":         relative,
+		"zero sequence":         zeroSequence,
+		"expired generation":    expired,
+		"unsupported algorithm": unsupported,
+		"malformed JWKS":        malformed,
+		"missing provider":      missingProvider,
 	}
 	for name, publication := range tests {
 		name, publication := name, publication
@@ -205,10 +224,12 @@ func testOIDCJWTKeysetFilePublication(
 		t.Fatal(err)
 	}
 	return OIDCJWTKeysetFilePublication{
-		Path:       path,
-		Sequence:   sequence,
-		ExpiresAt:  expiresAt,
-		Algorithms: []string{"RS256"},
-		JWKS:       jwks,
+		Path:                   path,
+		Sequence:               sequence,
+		ProviderID:             "primary",
+		ProviderRegistrySHA256: strings.Repeat("1", 64),
+		ExpiresAt:              expiresAt,
+		Algorithms:             []string{"RS256"},
+		JWKS:                   jwks,
 	}
 }
