@@ -138,4 +138,55 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 		}
 	})
 
+	t.Run("bounded reclamation", func(t *testing.T) {
+		reset(t)
+		policy := persistence.AuthenticationRateLimitPolicy{
+			Window: time.Hour, GlobalBurst: 1000, IsolationDomainBurst: 100, CredentialBurst: 10,
+		}
+		result, err := repository.AllowAuthentication(ctx, domain, credential, policy)
+		if err != nil || !result.Allowed {
+			t.Fatalf("seed admission = %#v, %v", result, err)
+		}
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO authentication_rate_limit_buckets (
+				scope, subject_digest, policy_digest, theoretical_arrival_at, updated_at
+			)
+			SELECT
+				'credential',
+				decode(lpad(to_hex(value), 64, '0'), 'hex'),
+				decode(repeat('01', 32), 'hex'),
+				clock_timestamp() - interval '2 hours',
+				clock_timestamp() - interval '2 hours'
+			FROM generate_series(1, 140) AS value
+		`); err != nil {
+			t.Fatalf("seed stale buckets: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+			UPDATE authentication_rate_limit_buckets
+			SET theoretical_arrival_at = clock_timestamp() - interval '2 hours',
+			    updated_at = clock_timestamp() - interval '2 hours'
+			WHERE scope <> 'global'
+		`); err != nil {
+			t.Fatalf("age admission buckets: %v", err)
+		}
+		newDomain := identity.New("iso")
+		newCredential := sha256.Sum256([]byte("reclamation-credential"))
+		result, err = repository.AllowAuthentication(ctx, newDomain, newCredential, policy)
+		if err != nil || !result.Allowed {
+			t.Fatalf("admission with reclamation = %#v, %v", result, err)
+		}
+		var stale int
+		if err := pool.QueryRow(ctx, `
+			SELECT count(*)
+			FROM authentication_rate_limit_buckets
+			WHERE scope <> 'global'
+			  AND updated_at <= clock_timestamp() - interval '1 hour'
+		`).Scan(&stale); err != nil {
+			t.Fatalf("count stale buckets: %v", err)
+		}
+		if stale != 14 {
+			t.Fatalf("stale buckets after one cleanup = %d, want 14", stale)
+		}
+	})
+
 }
