@@ -21,86 +21,226 @@ import (
 
 const defaultAddress = "127.0.0.1:8080"
 
+type apiRuntime struct {
+	handler           http.Handler
+	pool              *pgxpool.Pool
+	securityLifecycle func(context.Context) error
+	mode              string
+}
+
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	if err := runAPI(logger); err != nil {
+		logger.Error("DataGround API stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func runAPI(logger *slog.Logger) error {
+	if logger == nil {
+		return errors.New("API logger is required")
+	}
 	address := os.Getenv("DATAGROUND_HTTP_ADDRESS")
 	if address == "" {
 		address = defaultAddress
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	authenticator, authorizer, err := developmentSecurity(address)
+	signalCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	ctx, cancel := context.WithCancel(signalCtx)
+	defer cancel()
+
+	runtime, err := assembleAPIRuntime(ctx, address)
 	if err != nil {
-		logger.Error("development security configuration failed", "error", err)
-		os.Exit(1)
+		return err
 	}
-	handler, err := api.NewHandler(authenticator, authorizer)
+	defer runtime.Close()
+	listener, err := net.Listen("tcp", address)
 	if err != nil {
-		logger.Error("API authentication assembly failed", "error", err)
-		os.Exit(1)
-	}
-	var pool *pgxpool.Pool
-	if databaseURL := os.Getenv("DATAGROUND_DATABASE_URL"); databaseURL != "" {
-		startupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		database, err := persistence.OpenSQL(startupCtx, databaseURL)
-		if err == nil {
-			err = persistence.RequireCurrentSchema(startupCtx, database)
-			database.Close()
-		}
-		if err == nil {
-			pool, err = persistence.OpenPool(startupCtx, databaseURL)
-		}
-		cancel()
-		if err != nil {
-			logger.Error("durable API startup failed", "error", err)
-			os.Exit(1)
-		}
-		defer pool.Close()
-		repository := persistence.NewRepository(pool)
-		auditedAuthenticator, auditErr := authn.NewAuditedAuthenticator(authenticator, repository)
-		if auditErr != nil {
-			logger.Error("durable authentication audit assembly failed", "error", auditErr)
-			os.Exit(1)
-		}
-		auditedAuthorizer, auditErr := authz.NewAuditedAuthorizer(authorizer, repository)
-		if auditErr != nil {
-			logger.Error("durable authorization audit assembly failed", "error", auditErr)
-			os.Exit(1)
-		}
-		handler, err = api.NewDurableHandler(repository, auditedAuthenticator, auditedAuthorizer)
-		if err != nil {
-			logger.Error("durable API security assembly failed", "error", err)
-			os.Exit(1)
-		}
-		logger.Info("durable PostgreSQL mode enabled")
-	} else if address != defaultAddress {
-		logger.Error("process-local reference mode may only bind to the default loopback address")
-		os.Exit(1)
+		return fmt.Errorf("bind API listener: %w", err)
 	}
 	server := &http.Server{
 		Addr:              address,
-		Handler:           handler,
+		Handler:           runtime.handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+	logger.Info("starting DataGround API", "address", address, "mode", runtime.mode)
+	return serveAPIRuntime(ctx, cancel, logger, server, listener, runtime.securityLifecycle)
+}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+func serveAPIRuntime(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	logger *slog.Logger,
+	server *http.Server,
+	listener net.Listener,
+	securityLifecycle func(context.Context) error,
+) error {
+	serveErrors := make(chan error, 1)
+	go func() { serveErrors <- server.Serve(listener) }()
+	var lifecycleErrors chan error
+	if securityLifecycle != nil {
+		lifecycleErrors = make(chan error, 1)
+		go func() {
+			lifecycleErrors <- securityLifecycle(ctx)
+		}()
+	}
 
-	go func() {
-		<-ctx.Done()
-
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			logger.Error("HTTP server shutdown failed", "error", err)
+	serveDone := false
+	lifecycleDone := securityLifecycle == nil
+	var result error
+	select {
+	case serveErr := <-serveErrors:
+		serveDone = true
+		if serveErr == nil || !errors.Is(serveErr, http.ErrServerClosed) {
+			result = fmt.Errorf("HTTP server failed: %w", serveErr)
 		}
-	}()
+	case lifecycleErr := <-lifecycleErrors:
+		lifecycleDone = true
+		if lifecycleErr == nil {
+			result = errors.New("API security lifecycle stopped unexpectedly")
+		} else if errors.Is(lifecycleErr, context.Canceled) && ctx.Err() == nil {
+			result = errors.New("API security lifecycle cancelled without its owner")
+		} else if !errors.Is(lifecycleErr, context.Canceled) {
+			result = fmt.Errorf("API security lifecycle failed: %w", lifecycleErr)
+		}
+	case <-ctx.Done():
+	}
+	cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownErr := server.Shutdown(shutdownCtx)
+	shutdownCancel()
+	if shutdownErr != nil {
+		logger.Error("HTTP server shutdown failed", "error", shutdownErr)
+		_ = server.Close()
+		if result == nil {
+			result = shutdownErr
+		}
+	}
+	if !serveDone {
+		if serveErr := <-serveErrors; serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) && result == nil {
+			result = fmt.Errorf("HTTP server failed: %w", serveErr)
+		}
+	}
+	if !lifecycleDone {
+		if lifecycleErr := <-lifecycleErrors; lifecycleErr != nil &&
+			!errors.Is(lifecycleErr, context.Canceled) && result == nil {
+			result = fmt.Errorf("API security lifecycle failed: %w", lifecycleErr)
+		}
+	}
+	return result
+}
 
-	logger.Info("starting DataGround API", "address", address)
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		logger.Error("HTTP server failed", "error", err)
-		os.Exit(1)
+func assembleAPIRuntime(ctx context.Context, address string) (*apiRuntime, error) {
+	if ctx == nil {
+		return nil, errors.New("API startup context is required")
+	}
+	configurationPath, oidcMode := os.LookupEnv("DATAGROUND_API_SECURITY_CONFIG_FILE")
+	if oidcMode {
+		if configurationPath == "" {
+			return nil, errors.New("DATAGROUND_API_SECURITY_CONFIG_FILE must not be empty")
+		}
+		if err := requireExplicitLoopbackAddress(address); err != nil {
+			return nil, err
+		}
+		if _, exists := os.LookupEnv("DATAGROUND_DEVELOPMENT_BEARER_TOKEN"); exists {
+			return nil, errors.New("development bearer credentials cannot be configured in OIDC mode")
+		}
+		configuration, policy, err := loadOIDCSecurityConfiguration(configurationPath)
+		if err != nil {
+			return nil, err
+		}
+		defer clear(policy)
+		databaseURL := os.Getenv("DATAGROUND_DATABASE_URL")
+		if databaseURL == "" {
+			return nil, errors.New("DATAGROUND_DATABASE_URL is required in OIDC mode")
+		}
+		pool, repository, err := openDurableRepository(ctx, databaseURL)
+		if err != nil {
+			return nil, err
+		}
+		assembly, err := composeOIDCSecurity(ctx, repository, configuration, policy)
+		if err != nil {
+			pool.Close()
+			return nil, err
+		}
+		return &apiRuntime{
+			handler:           assembly.Handler(),
+			pool:              pool,
+			securityLifecycle: assembly.RunOIDCKeysetRefresh,
+			mode:              "oidc-dpop",
+		}, nil
+	}
+
+	authenticator, authorizer, err := developmentSecurity(address)
+	if err != nil {
+		return nil, fmt.Errorf("development security configuration: %w", err)
+	}
+	handler, err := api.NewHandler(authenticator, authorizer)
+	if err != nil {
+		return nil, fmt.Errorf("API authentication assembly: %w", err)
+	}
+	runtime := &apiRuntime{handler: handler, mode: "reference"}
+	databaseURL := os.Getenv("DATAGROUND_DATABASE_URL")
+	if databaseURL == "" {
+		if address != defaultAddress {
+			return nil, errors.New("process-local reference mode may only bind to the default loopback address")
+		}
+		return runtime, nil
+	}
+	pool, repository, err := openDurableRepository(ctx, databaseURL)
+	if err != nil {
+		return nil, err
+	}
+	auditedAuthenticator, err := authn.NewAuditedAuthenticator(authenticator, repository)
+	if err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("durable authentication audit assembly: %w", err)
+	}
+	auditedAuthorizer, err := authz.NewAuditedAuthorizer(authorizer, repository)
+	if err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("durable authorization audit assembly: %w", err)
+	}
+	handler, err = api.NewDurableHandler(repository, auditedAuthenticator, auditedAuthorizer)
+	if err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("durable API security assembly: %w", err)
+	}
+	runtime.handler = handler
+	runtime.pool = pool
+	runtime.mode = "durable-development"
+	return runtime, nil
+}
+
+func openDurableRepository(
+	ctx context.Context,
+	databaseURL string,
+) (*pgxpool.Pool, *persistence.Repository, error) {
+	startupCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	database, err := persistence.OpenSQL(startupCtx, databaseURL)
+	if err == nil {
+		err = persistence.RequireCurrentSchema(startupCtx, database)
+		closeErr := database.Close()
+		if err == nil {
+			err = closeErr
+		}
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("durable API startup: %w", err)
+	}
+	pool, err := persistence.OpenPool(startupCtx, databaseURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("durable API startup: %w", err)
+	}
+	return pool, persistence.NewRepository(pool), nil
+}
+
+func (runtime *apiRuntime) Close() {
+	if runtime != nil && runtime.pool != nil {
+		runtime.pool.Close()
 	}
 }
 

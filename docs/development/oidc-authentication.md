@@ -1,6 +1,6 @@
 # OIDC authentication boundary
 
-DataGround has an internal provider-neutral boundary for turning a verified OIDC access token into a platform principal, plus a concrete verifier for one immutable JWT access-token profile. The API package can compose reloadable verification, durable identity and replay state, DPoP request binding, pre-authentication admission, authorization, and both audit layers as one owned lifetime. That assembly is not composed into the API command and does not make the reference server a production endpoint.
+DataGround has an internal provider-neutral boundary for turning a verified OIDC access token into a platform principal, plus a concrete verifier for one immutable JWT access-token profile. The API package can compose reloadable verification, durable identity and replay state, DPoP request binding, pre-authentication admission, authorization, and both audit layers as one owned lifetime. The API command can opt into that assembly through one strict deployment configuration, but retains an explicit loopback listener and does not become a production endpoint.
 
 `PinnedOIDCJWTVerifier` verifies compact JWS access tokens against a deployment-owned JWKS using the security-fixed `go-jose` 4.1.4 release. The profile pins the exact HTTPS issuer, the canonical DataGround API audience, an explicit asymmetric algorithm allowlist, clock skew, and maximum token lifetime. Tokens require protected `alg` and `kid` headers, valid `exp` and `iat` claims, one bounded subject, and a bounded duplicate-free audience set containing the API audience. Expired, not-yet-valid, excessive-lifetime, wrong-issuer, wrong-audience, unknown-key, mismatched-algorithm, malformed, and duplicate-member tokens fail as invalid credentials. Cancellation and deadlines remain distinguishable, and library or provider details are not returned.
 
@@ -36,16 +36,62 @@ A registration request has this closed shape:
 
 Revocation uses the same shape with `operation` set to `revoke` and omits `principalKind`; the supplied principal identifier must match the existing binding. Create the file with mode `0600`, run `DATAGROUND_DATABASE_URL=... go run ./cmd/dataground-oidc-identity -request-file ./request.json`, then remove it using the installation's approved sensitive-file procedure. The command emits no identity document. Raw issuer and subject remain in the registry because they are lookup keys, while audit metadata contains only deterministic identity and binding digests, platform principal data, and the reason digest.
 
-PostgreSQL-backed durable API mode now wraps its configured authenticator in a fail-closed attempt-audit boundary. Each completed attempt records only its path-derived isolation domain, generated request correlation, credential method, and coarse outcome. Successful in-domain attempts additionally record the platform principal identifier and kind; rejected, unavailable, and cross-domain attempts contain no principal data. Tokens, token digests, issuer, subject, audience, key ID, request path, client address, and dependency diagnostics are never part of this record. The current executable still supplies only the loopback development authenticator; the same internal boundary can wrap OIDC when production composition prerequisites exist.
+PostgreSQL-backed durable API mode now wraps its configured authenticator in a fail-closed attempt-audit boundary. Each completed attempt records only its path-derived isolation domain, generated request correlation, credential method, and coarse outcome. Successful in-domain attempts additionally record the platform principal identifier and kind; rejected, unavailable, and cross-domain attempts contain no principal data. Tokens, token digests, issuer, subject, audience, key ID, request path, client address, and dependency diagnostics are never part of this record. The executable uses the same durable audit boundary for its opt-in loopback OIDC/DPoP profile; the static bearer authenticator remains the default development mode.
 
 `AuthenticationRateLimiter` is a deployment-owned admission boundary used only by the explicit rate-limited DPoP handler constructors. It receives an immutable request with accessors for a validated isolation-domain identifier and copied SHA-256 credential digest, never the raw bearer token, proof, request body, host, proxy headers, or client address. The request has no exported fields, so generic serialization does not disclose the digest. Admission runs before DPoP parsing, token verification, authorization, and request-body reads. A bounded denial returns a stable retryable `429` with an integer `Retry-After`; limiter failure or an invalid decision fails closed with a retryable `503`. Credentials are consumed on every admission exit. Health probes stay outside this path, and rate-limit outcomes do not become authentication-attempt audit records because authentication has not started.
 
 `PostgreSQLAuthenticationRateLimiter` supplies one explicit shared-window policy with monotonically narrower global, isolation-domain, and credential bursts. It uses PostgreSQL's clock and serialized global admission to coordinate every process sharing the repository. Only domain-separated subject digests are stored; active policy values are bound by a canonical digest, and configuration drift fails closed. Global admission bounds the number of attacker-selected domain and credential buckets that can be created, while bounded opportunistic reclamation removes fully refilled non-global state. The implementation has no process-local fallback. Deployments still own policy selection and rollout, capacity validation, trusted network-edge controls, and observability without subject digests.
 
-`ReloadableOIDCDPoPAuthenticator` owns one reloadable keyset verifier, DPoP verifier, replay store, and identity resolver. `DurableOIDCDPoPAssembly` binds that chain to one trusted external origin, deployment rate limiter, durable API repository, audited authenticator, and audited authorizer. The assembly exposes only its HTTP handler, the exact serving verifier's refresh lifecycle, minimized refresh status, and readiness, so callers cannot supervise or rotate a verifier that is not serving the handler. Static HTTP and DPoP profile errors fail before the keyset source is contacted.
+`ReloadableOIDCDPoPAuthenticator` owns one reloadable keyset verifier, DPoP verifier, replay store, and identity resolver. `DurableOIDCDPoPAssembly` binds that chain to one trusted external origin, deployment rate limiter, durable API repository, audited authenticator, and audited authorizer. The assembly exposes only its HTTP handler, the exact serving verifier's refresh lifecycle, minimized refresh status, and readiness, so callers cannot supervise or rotate a verifier that is not serving the handler. Every route except liveness fails closed and consumes credential headers unless the refresh lifecycle owns a still-valid generation. Static HTTP and DPoP profile errors fail before the keyset source is contacted.
 
-OIDC discovery, deployment key generation and publication orchestration, provider revocation policy, group-to-membership administration, HTTPS ingress deployment, provider-side DPoP issuance, optional nonce policy, API startup configuration, deployment rate-limit policy rollout and measured capacity, workload identity, and production conformance remain unimplemented. Until those boundaries exist, the executable API continues to require its loopback-only static development identity and must not bind publicly.
+OIDC discovery, deployment key generation and publication orchestration, provider revocation policy, group-to-membership administration, HTTPS ingress deployment, provider-side DPoP issuance, optional nonce policy, deployment rate-limit policy rollout and measured capacity, workload identity, and production conformance remain unimplemented. The opt-in OIDC profile and default static development identity both require explicit loopback listeners and must not bind publicly.
 
+
+## Loopback executable activation
+
+Set `DATAGROUND_API_SECURITY_CONFIG_FILE` to the absolute canonical path of one non-empty regular JSON file no larger than 64 KiB. The configuration file and referenced Cedar policy must not be symlinks or writable by group or other users, and startup verifies that each file remains the same size, mode, and identity across its bounded read. OIDC mode rejects a simultaneously configured development bearer credential and requires `DATAGROUND_DATABASE_URL` at the current schema.
+
+```json
+{
+  "contract": "dataground.api-security/oidc-dpop/v1",
+  "issuer": "https://identity.example.invalid/realms/dataground",
+  "externalOrigin": "https://api.example.invalid",
+  "keysetPublicationFile": "/etc/dataground/oidc-keysets.json",
+  "algorithms": ["EdDSA"],
+  "jwt": {
+    "clockSkew": "30s",
+    "maximumLifetime": "1h"
+  },
+  "dpop": {
+    "clockSkew": "30s",
+    "maximumProofAge": "1m"
+  },
+  "keysetRefresh": {
+    "interval": "1m",
+    "timeout": "5s"
+  },
+  "admission": {
+    "window": "1m",
+    "globalBurst": 100,
+    "isolationDomainBurst": 20,
+    "credentialBurst": 10
+  },
+  "authorization": {
+    "policySetId": "deployment-api-v1",
+    "policyFile": "/etc/dataground/api.cedar"
+  }
+}
+```
+
+Start the opt-in profile with the migrated durable database and explicit configuration path:
+
+```shell
+DATAGROUND_DATABASE_URL='postgres://dataground:dataground@127.0.0.1:5432/dataground?sslmode=disable' \\
+DATAGROUND_API_SECURITY_CONFIG_FILE='/etc/dataground/api-security.json' \\
+go run ./cmd/dataground-api
+```
+
+The values above describe the contract shape, not recommended production capacity. Deployments must select and validate the complete JWT, DPoP, refresh, admission, and Cedar profile. The keyset publication uses the separate atomic envelope described above. Startup reads and validates the closed configuration, filesystem boundaries, Cedar policy, external origin, refresh policy, and admission policy before contacting PostgreSQL. It then completes the cryptographic profile assembly against the current durable repository and loads the initial keyset. The refresh lifecycle and HTTP server share cancellation: an unexpected lifecycle exit shuts the server down, while stopped or expired refresh ownership makes every non-liveness route unavailable and consumes bearer and DPoP headers. Public binding remains prohibited.
 
 ## DPoP request binding
 
@@ -55,4 +101,4 @@ The optional API request binder supplies that trusted HTTP composition. It accep
 
 Before a verified token can reach identity resolution, PostgreSQL reserves SHA-256 digests of the JWK thumbprint and proof identifier in one exact isolation domain. The raw proof, access token, token digest, public key, method, URI, issuer, and subject are not persisted. Active reservations are immutable and cannot be deleted; bounded domain-scoped cleanup can reclaim expired rows.
 
-This is not API activation. A deployment still needs an authorization server that issues DPoP-bound access tokens, reviewed TLS ingress that routes the configured origin without rewriting its canonical path, optional nonce policy, deployment key generation and publication orchestration, deployment rate-limit policy rollout and measured capacity, and executable startup activation. The executable therefore continues to accept only its loopback development identity.
+This is not production API activation. A deployment still needs an authorization server that issues DPoP-bound access tokens, reviewed TLS ingress that routes the configured origin without rewriting its canonical path, optional nonce policy, deployment key generation and publication orchestration, deployment rate-limit policy rollout and measured capacity, and reviewed non-loopback deployment activation. The executable's OIDC profile therefore remains loopback-only.
