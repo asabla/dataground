@@ -1,0 +1,407 @@
+package releasecert
+
+import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+const testRevision = "0123456789abcdef0123456789abcdef01234567"
+const testGoVersion = "go1.26.5"
+
+type certificationFixture struct {
+	directory     string
+	statementFile string
+	signatureFile string
+	trustFile     string
+	outputFile    string
+	statement     Statement
+	signature     Signature
+	trust         TrustProfile
+	privateKey    ed25519.PrivateKey
+	now           time.Time
+}
+
+func TestInstallAndVerifyCertification(t *testing.T) {
+	t.Parallel()
+	fixture := newCertificationFixture(t)
+
+	request := fixture.installRequest()
+	if err := Install(request); err != nil {
+		t.Fatalf("install certification: %v", err)
+	}
+	verified, err := VerifyFile(
+		fixture.outputFile,
+		fixture.trustFile,
+		testRevision,
+		testGoVersion,
+		fixture.now,
+	)
+	if err != nil {
+		t.Fatalf("verify certification: %v", err)
+	}
+	if verified.Statement.ReleaseID != fixture.statement.ReleaseID ||
+		verified.Signature.KeyID != fixture.signature.KeyID {
+		t.Fatalf("verified certification = %#v", verified)
+	}
+	if err := Install(request); err != nil {
+		t.Fatalf("replay certification: %v", err)
+	}
+}
+
+func TestPrepareSigningMessage(t *testing.T) {
+	t.Parallel()
+	fixture := newCertificationFixture(t)
+	messageFile := filepath.Join(fixture.directory, "signing-message")
+	request := PrepareRequest{
+		StatementFile:      fixture.statementFile,
+		TrustProfileFile:   fixture.trustFile,
+		SigningMessageFile: messageFile,
+		SourceRevision:     testRevision,
+		GoVersion:          testGoVersion,
+		Now:                fixture.now,
+	}
+	if err := PrepareSigningMessage(request); err != nil {
+		t.Fatalf("prepare signing message: %v", err)
+	}
+	statementBytes, err := os.ReadFile(fixture.statementFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := os.ReadFile(messageFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(message) != string(signatureMessage(statementBytes)) {
+		t.Fatal("prepared signing message does not match the verifier input")
+	}
+	if err := PrepareSigningMessage(request); err != nil {
+		t.Fatalf("replay signing-message preparation: %v", err)
+	}
+}
+
+func TestCertificationRejectsSignatureAndArtifactSubstitution(t *testing.T) {
+	t.Parallel()
+
+	t.Run("signature", func(t *testing.T) {
+		fixture := newCertificationFixture(t)
+		decoded, err := base64.RawURLEncoding.DecodeString(fixture.signature.Signature)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded[0] ^= 1
+		fixture.signature.Signature = base64.RawURLEncoding.EncodeToString(decoded)
+		writeCanonicalPrivate(t, fixture.signatureFile, fixture.signature)
+		if err := Install(fixture.installRequest()); err == nil || !strings.Contains(err.Error(), "does not verify") {
+			t.Fatalf("signature substitution error = %v", err)
+		}
+	})
+
+	t.Run("artifact", func(t *testing.T) {
+		fixture := newCertificationFixture(t)
+		writePrivate(t, fixture.statement.Artifacts[0].File, []byte("changed\n"))
+		if err := Install(fixture.installRequest()); err == nil || !strings.Contains(err.Error(), "artifact digest") {
+			t.Fatalf("artifact substitution error = %v", err)
+		}
+	})
+
+	t.Run("trust-profile", func(t *testing.T) {
+		fixture := newCertificationFixture(t)
+		publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixture.trust.Keys[0].PublicKey = base64.RawURLEncoding.EncodeToString(publicKey)
+		writeCanonicalPrivate(t, fixture.trustFile, fixture.trust)
+		if err := Install(fixture.installRequest()); err == nil || !strings.Contains(err.Error(), "trust profile digest") {
+			t.Fatalf("trust substitution error = %v", err)
+		}
+	})
+}
+
+func TestCertificationRejectsInvalidStatementSemantics(t *testing.T) {
+	t.Parallel()
+
+	mutations := []struct {
+		name   string
+		mutate func(*certificationFixture)
+	}{
+		{
+			name: "source revision",
+			mutate: func(fixture *certificationFixture) {
+				fixture.statement.SourceRevision = strings.Repeat("f", 40)
+			},
+		},
+		{
+			name: "Go runtime",
+			mutate: func(fixture *certificationFixture) {
+				fixture.statement.GoVersion = "go1.26.4"
+			},
+		},
+		{
+			name: "expired",
+			mutate: func(fixture *certificationFixture) {
+				fixture.statement.ExpiresAt = fixture.now.Add(-time.Second).Format(time.RFC3339Nano)
+			},
+		},
+		{
+			name: "future issuance",
+			mutate: func(fixture *certificationFixture) {
+				fixture.statement.IssuedAt = fixture.now.Add(maximumClockSkew + time.Second).Format(time.RFC3339Nano)
+				fixture.statement.ExpiresAt = fixture.now.Add(time.Hour).Format(time.RFC3339Nano)
+			},
+		},
+		{
+			name: "excessive validity",
+			mutate: func(fixture *certificationFixture) {
+				fixture.statement.ExpiresAt = fixture.now.Add(maximumValidity + time.Second).Format(time.RFC3339Nano)
+			},
+		},
+		{
+			name: "artifact order",
+			mutate: func(fixture *certificationFixture) {
+				fixture.statement.Artifacts[0], fixture.statement.Artifacts[1] =
+					fixture.statement.Artifacts[1], fixture.statement.Artifacts[0]
+			},
+		},
+		{
+			name: "reason whitespace",
+			mutate: func(fixture *certificationFixture) {
+				fixture.statement.Reason = " reviewed release evidence "
+			},
+		},
+		{
+			name: "reason control character",
+			mutate: func(fixture *certificationFixture) {
+				fixture.statement.Reason = "reviewed\nrelease evidence"
+			},
+		},
+		{
+			name: "reused artifact path",
+			mutate: func(fixture *certificationFixture) {
+				fixture.statement.Artifacts[1].File = fixture.statement.Artifacts[0].File
+				fixture.statement.Artifacts[1].SHA256 = fixture.statement.Artifacts[0].SHA256
+			},
+		},
+	}
+
+	for _, mutation := range mutations {
+		mutation := mutation
+		t.Run(mutation.name, func(t *testing.T) {
+			t.Parallel()
+			fixture := newCertificationFixture(t)
+			mutation.mutate(fixture)
+			fixture.resign(t)
+			if err := Install(fixture.installRequest()); err == nil {
+				t.Fatal("invalid certification was accepted")
+			}
+		})
+	}
+}
+
+func TestCertificationRequiresCanonicalUniquePrivateFiles(t *testing.T) {
+	t.Parallel()
+
+	t.Run("non-canonical", func(t *testing.T) {
+		fixture := newCertificationFixture(t)
+		encoded, err := canonicalJSON(fixture.statement)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded = append([]byte(" "), encoded...)
+		writePrivate(t, fixture.statementFile, encoded)
+		if err := Install(fixture.installRequest()); err == nil || !strings.Contains(err.Error(), "not canonical") {
+			t.Fatalf("non-canonical statement error = %v", err)
+		}
+	})
+
+	t.Run("duplicate-member", func(t *testing.T) {
+		fixture := newCertificationFixture(t)
+		encoded, err := os.ReadFile(fixture.signatureFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		duplicate := strings.Replace(string(encoded), `"contract":`, `"contract":"duplicate","contract":`, 1)
+		writePrivate(t, fixture.signatureFile, []byte(duplicate))
+		if err := Install(fixture.installRequest()); err == nil || !strings.Contains(err.Error(), "signature is invalid") {
+			t.Fatalf("duplicate signature member error = %v", err)
+		}
+	})
+
+	t.Run("unsafe-permissions", func(t *testing.T) {
+		fixture := newCertificationFixture(t)
+		if err := os.Chmod(fixture.trustFile, 0o640); err != nil {
+			t.Fatal(err)
+		}
+		if err := Install(fixture.installRequest()); err == nil || !strings.Contains(err.Error(), "trust profile") {
+			t.Fatalf("unsafe trust file error = %v", err)
+		}
+	})
+}
+
+func TestCertificationDoesNotReplaceExistingEnvelope(t *testing.T) {
+	t.Parallel()
+	fixture := newCertificationFixture(t)
+	writePrivate(t, fixture.outputFile, []byte("occupied\n"))
+	if err := Install(fixture.installRequest()); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("existing output error = %v", err)
+	}
+	content, err := os.ReadFile(fixture.outputFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "occupied\n" {
+		t.Fatalf("existing output changed to %q", content)
+	}
+}
+
+func newCertificationFixture(t *testing.T) *certificationFixture {
+	t.Helper()
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trust := TrustProfile{
+		Contract: TrustContract,
+		Keys: []TrustedKey{{
+			KeyID:     "release_key_01",
+			PublicKey: base64.RawURLEncoding.EncodeToString(publicKey),
+		}},
+	}
+	trustFile := filepath.Join(directory, "trust.json")
+	trustBytes := writeCanonicalPrivate(t, trustFile, trust)
+	trustDigest := sha256.Sum256(trustBytes)
+
+	now := time.Date(2026, time.August, 2, 12, 0, 0, 0, time.UTC)
+	capacityFile := filepath.Join(directory, "admission-capacity-evidence.json")
+	capacityBytes := writeCanonicalPrivate(t, capacityFile, struct {
+		Contract          string `json:"contract"`
+		SourceRevision    string `json:"sourceRevision"`
+		GoVersion         string `json:"goVersion"`
+		DeploymentProfile string `json:"deploymentProfile"`
+		Accepted          bool   `json:"accepted"`
+	}{
+		Contract:          "dataground.authentication-rate-limit-capacity-evidence/v2",
+		SourceRevision:    testRevision,
+		GoVersion:         testGoVersion,
+		DeploymentProfile: "team",
+		Accepted:          true,
+	})
+	capacityDigest := sha256.Sum256(capacityBytes)
+	capacityDigestHex := hex.EncodeToString(capacityDigest[:])
+	policyFile := filepath.Join(directory, "api-authorization-policy.cedar")
+	policyBytes := []byte("permit(principal, action, resource);\n")
+	writePrivate(t, policyFile, policyBytes)
+	policyDigest := sha256.Sum256(policyBytes)
+	configurationFile := filepath.Join(directory, "oidc-security-configuration.json")
+	configurationBytes := writeCanonicalPrivate(t, configurationFile, struct {
+		Contract  string `json:"contract"`
+		Admission struct {
+			DeploymentProfile    string `json:"deploymentProfile"`
+			CapacityEvidenceFile string `json:"capacityEvidenceFile"`
+			CapacityEvidenceHash string `json:"capacityEvidenceSha256"`
+		} `json:"admission"`
+		Authorization struct {
+			PolicyFile string `json:"policyFile"`
+		} `json:"authorization"`
+	}{
+		Contract: "dataground.api-security/oidc-dpop/v2",
+		Admission: struct {
+			DeploymentProfile    string `json:"deploymentProfile"`
+			CapacityEvidenceFile string `json:"capacityEvidenceFile"`
+			CapacityEvidenceHash string `json:"capacityEvidenceSha256"`
+		}{
+			DeploymentProfile:    "team",
+			CapacityEvidenceFile: capacityFile,
+			CapacityEvidenceHash: capacityDigestHex,
+		},
+		Authorization: struct {
+			PolicyFile string `json:"policyFile"`
+		}{PolicyFile: policyFile},
+	})
+	configurationDigest := sha256.Sum256(configurationBytes)
+	artifacts := []Artifact{
+		{Kind: "admission-capacity-evidence", File: capacityFile, SHA256: capacityDigestHex},
+		{Kind: "api-authorization-policy", File: policyFile, SHA256: hex.EncodeToString(policyDigest[:])},
+		{Kind: "oidc-security-configuration", File: configurationFile, SHA256: hex.EncodeToString(configurationDigest[:])},
+	}
+	fixture := &certificationFixture{
+		directory:     directory,
+		statementFile: filepath.Join(directory, "statement.json"),
+		signatureFile: filepath.Join(directory, "signature.json"),
+		trustFile:     trustFile,
+		outputFile:    filepath.Join(directory, "certification.json"),
+		statement: Statement{
+			Contract:           StatementContract,
+			ReleaseID:          "release_2026_08_02",
+			SourceRevision:     testRevision,
+			GoVersion:          testGoVersion,
+			DeploymentProfile:  "team",
+			TrustProfileSHA256: hex.EncodeToString(trustDigest[:]),
+			IssuedAt:           now.Add(-time.Minute).Format(time.RFC3339Nano),
+			ExpiresAt:          now.Add(24 * time.Hour).Format(time.RFC3339Nano),
+			ReviewerID:         "reviewer_01",
+			Reason:             "reviewed loopback OIDC release evidence",
+			Artifacts:          artifacts,
+		},
+		trust:      trust,
+		privateKey: privateKey,
+		now:        now,
+	}
+	fixture.resign(t)
+	return fixture
+}
+
+func (fixture *certificationFixture) resign(t *testing.T) {
+	t.Helper()
+	statementBytes := writeCanonicalPrivate(t, fixture.statementFile, fixture.statement)
+	fixture.signature = Signature{
+		Contract:  SignatureContract,
+		KeyID:     fixture.trust.Keys[0].KeyID,
+		Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(fixture.privateKey, signatureMessage(statementBytes))),
+	}
+	writeCanonicalPrivate(t, fixture.signatureFile, fixture.signature)
+}
+
+func (fixture *certificationFixture) installRequest() InstallRequest {
+	return InstallRequest{
+		StatementFile:    fixture.statementFile,
+		SignatureFile:    fixture.signatureFile,
+		TrustProfileFile: fixture.trustFile,
+		OutputFile:       fixture.outputFile,
+		SourceRevision:   testRevision,
+		GoVersion:        testGoVersion,
+		Now:              fixture.now,
+	}
+}
+
+func writeCanonicalPrivate(t *testing.T, path string, value any) []byte {
+	t.Helper()
+	encoded, err := canonicalJSON(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writePrivate(t, path, encoded)
+	return encoded
+}
+
+func writePrivate(t *testing.T, path string, content []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
