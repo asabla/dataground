@@ -15,6 +15,7 @@ type PostgreSQLAuthenticationRateLimiter struct {
 	repository *persistence.Repository
 	generation uint64
 	policy     persistence.AuthenticationRateLimitPolicy
+	capacity   *persistence.AuthenticationRateLimitCapacityEvidence
 }
 
 func NewPostgreSQLAuthenticationRateLimiter(
@@ -33,6 +34,34 @@ func NewPostgreSQLAuthenticationRateLimiter(
 		generation: generation,
 		policy:     policy,
 	}, nil
+}
+
+// NewCapacityBoundPostgreSQLAuthenticationRateLimiter requires one internally
+// consistent accepted capacity record for the policy. Callers bind its source,
+// runtime, and deployment profile before construction. The PostgreSQL profile
+// remains part of readiness after assembly.
+func NewCapacityBoundPostgreSQLAuthenticationRateLimiter(
+	repository *persistence.Repository,
+	generation uint64,
+	policy persistence.AuthenticationRateLimitPolicy,
+	evidence persistence.AuthenticationRateLimitCapacityEvidence,
+) (*PostgreSQLAuthenticationRateLimiter, error) {
+	limiter, err := NewPostgreSQLAuthenticationRateLimiter(repository, generation, policy)
+	if err != nil {
+		return nil, err
+	}
+	if !evidence.AcceptedFor(
+		evidence.SourceRevision,
+		evidence.DeploymentProfile,
+		evidence.GoVersion,
+		policy,
+	) {
+		return nil, errors.New("authentication rate limit capacity evidence is invalid")
+	}
+	owned := evidence
+	owned.Phases = append([]persistence.AuthenticationRateLimitCapacityPhase(nil), evidence.Phases...)
+	limiter.capacity = &owned
+	return limiter, nil
 }
 
 func (limiter *PostgreSQLAuthenticationRateLimiter) AllowAuthentication(
@@ -63,7 +92,15 @@ func (limiter *PostgreSQLAuthenticationRateLimiter) Ready(ctx context.Context) e
 		limiter.generation == 0 || !limiter.policy.Valid() {
 		return persistence.ErrAuthenticationRateLimitInvalid
 	}
-	return limiter.repository.AuthenticationRateLimitPolicyReady(ctx, limiter.generation, limiter.policy)
+	if limiter.capacity == nil {
+		return limiter.repository.AuthenticationRateLimitPolicyReady(ctx, limiter.generation, limiter.policy)
+	}
+	return limiter.repository.AuthenticationRateLimitPolicyAndCapacityReady(
+		ctx,
+		limiter.generation,
+		limiter.policy,
+		*limiter.capacity,
+	)
 }
 
 func (*PostgreSQLAuthenticationRateLimiter) MarshalJSON() ([]byte, error) {
