@@ -54,6 +54,14 @@ func TestLoadOIDCSecurityConfigurationRejectsAmbiguousOrUnsafeFiles(t *testing.T
 		"missing duration": func() string {
 			return strings.Replace(valid, `"clockSkew":"30s",`, ``, 1)
 		},
+		"unsupported admission generation": func() string {
+			return strings.Replace(
+				valid,
+				`"generation":1`,
+				`"generation":18446744073709551615`,
+				1,
+			)
+		},
 		"trailing data": func() string { return valid + `{}` },
 	}
 	for name, mutate := range tests {
