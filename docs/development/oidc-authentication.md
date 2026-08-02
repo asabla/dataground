@@ -8,11 +8,30 @@ A pinned JWKS is limited to 256 KiB and 64 public signing keys. Every key requir
 
 `ReloadableOIDCJWTVerifier` can atomically replace that complete pinned verifier from a deployment-supplied `OIDCJWTKeysetSource`. Every snapshot has a strictly positive generation and a finite validity no more than 24 hours ahead. Exact replay is read-only; generation rollback or conflicting reuse fails without changing the active verifier. Invalid, rollback, conflict, unavailable, and cancelled refresh outcomes are distinguishable without exposing source details. Verification holds one generation through completion, an expired snapshot fails unavailable before signature work, and a transient refresh failure does not discard a still-valid active generation. The source transfers an owned JWKS copy so transient bytes are cleared after assembly. `OIDCJWTKeysetRefreshSupervisor` gives one lifecycle exclusive ownership of bounded periodic refresh attempts, serializes them with manual refreshes, and retains a still-valid generation across safe classified failures. Its operational status excludes source errors and every issuer, key, token, and digest value. Readiness requires both a running supervisor and an unexpired generation; stopping the lifecycle or reaching snapshot expiry fails readiness closed. Refresh intervals are bounded from one second through one hour, and each source-call timeout is bounded from 100 milliseconds through one minute without exceeding its interval. A source must honor cancellation; the supervisor does not abandon blocked source goroutines or overlap them with another attempt.
 
-
-
 `OIDCJWTKeysetFileSource` loads one strict deployment publication from an absolute canonical path. The configured path itself must be a non-empty regular file, not a symlink, no larger than 260 KiB, and not writable by group or other users. Its JSON envelope contains only a positive `sequence`, an RFC 3339 `expiresAt`, and the complete `jwks` object; duplicate or unknown members, trailing data, excessive nesting, and oversized values are rejected. Malformed publications are classified separately from transient open, stat, and read failures, and successful loads transfer owned JWKS bytes.
 
 Publishers must create and fully write a new regular file with safe permissions, make it durable according to the deployment storage contract, and atomically rename it over the configured path without introducing a symlink. The source opens the path for every refresh and reads through that one descriptor, so a rename exposes either the previous complete generation or the next complete generation. In-place mutation is unsupported; detected metadata changes fail the attempt without replacing the active verifier. The JWKS contains public keys, but its integrity remains part of the authentication boundary.
+
+## Operator keyset publication
+
+`PublishOIDCJWTKeysetFile` implements the writer side of that contract, and `dataground-oidc-keyset` exposes it as an owner-operated command. The command accepts one owner-only, closed, versioned request file and one bounded non-writable JWKS input. It rejects private or symmetric keys, unsupported algorithms, duplicate key identifiers, expired or excessively long generations, sequence rollback, and conflicting reuse. Supported public keys are canonicalized by key identifier so semantically identical input does not create formatting-only conflicts.
+
+The publisher serializes cooperating processes through an adjacent advisory lock, writes a mode-`0600` temporary file in the target directory, syncs the file, verifies that the target did not change, atomically renames it, and syncs the directory. Exact replay does not rewrite the generation and re-syncs the directory, so retry can resolve an uncertain directory-sync result safely. The target directory must be an absolute non-symlink path not writable by group or other users. All writers for one target must use this command; an unrelated writer that ignores the advisory lock is outside the contract.
+
+The request has this closed shape; replace the expiry placeholder with an RFC 3339 UTC time after the current time and no more than 24 hours ahead:
+
+```json
+{
+  "contract": "dataground.oidc-keyset-publication/v1",
+  "sequence": 2,
+  "expiresAt": "REPLACE_WITH_BOUNDED_RFC3339_UTC_EXPIRY",
+  "algorithms": ["EdDSA"],
+  "jwksFile": "/run/dataground/provider-jwks.json",
+  "publicationFile": "/etc/dataground/oidc-keysets.json"
+}
+```
+
+Create the request with mode `0600`, ensure the JWKS and publication directory satisfy the permission contract, then run `go run ./cmd/dataground-oidc-keyset -request-file /run/dataground/keyset-request.json`. The command emits no key document. It never generates, retrieves, or stores provider private keys and does not choose a provider or revocation policy; deployments still own authenticated public-key acquisition and source-specific import.
 
 The verified token cannot supply a DataGround principal identifier, principal kind, roles, groups, or isolation-domain membership. The PostgreSQL registry resolves only the exact issuer and subject. Each immutable registration grants one human or external-service principal membership in one isolation domain; active rows for the same external identity must agree on principal identity and kind. Resolution assembles a deterministic owned membership set from non-revoked registrations and fails closed on malformed or inconsistent data. Internal platform, sandbox, and distributed-compute identities remain outside OIDC and require the workload-identity and mTLS boundary from ADR-016.
 
@@ -44,7 +63,7 @@ PostgreSQL-backed durable API mode now wraps its configured authenticator in a f
 
 `ReloadableOIDCDPoPAuthenticator` owns one reloadable keyset verifier, DPoP verifier, replay store, and identity resolver. `DurableOIDCDPoPAssembly` binds that chain to one trusted external origin, deployment rate limiter, durable API repository, audited authenticator, and audited authorizer. The assembly exposes only its HTTP handler, the exact serving verifier's refresh lifecycle, minimized refresh status, and readiness, so callers cannot supervise or rotate a verifier that is not serving the handler. Every route except liveness fails closed and consumes credential headers unless the refresh lifecycle owns a still-valid generation. Static HTTP and DPoP profile errors fail before the keyset source is contacted.
 
-OIDC discovery, deployment key generation and publication orchestration, provider revocation policy, group-to-membership administration, HTTPS ingress deployment, provider-side DPoP issuance, optional nonce policy, deployment rate-limit policy rollout and measured capacity, workload identity, and production conformance remain unimplemented. The opt-in OIDC profile and default static development identity both require explicit loopback listeners and must not bind publicly.
+OIDC discovery, provider key acquisition and source-specific import, provider revocation policy, group-to-membership administration, HTTPS ingress deployment, provider-side DPoP issuance, optional nonce policy, deployment rate-limit policy rollout and measured capacity, workload identity, and production conformance remain unimplemented. The opt-in OIDC profile and default static development identity both require explicit loopback listeners and must not bind publicly.
 
 
 ## Loopback executable activation
@@ -91,7 +110,7 @@ DATAGROUND_API_SECURITY_CONFIG_FILE='/etc/dataground/api-security.json' \\
 go run ./cmd/dataground-api
 ```
 
-The values above describe the contract shape, not recommended production capacity. Deployments must select and validate the complete JWT, DPoP, refresh, admission, and Cedar profile. The keyset publication uses the separate atomic envelope described above. Startup reads and validates the closed configuration, filesystem boundaries, Cedar policy, external origin, refresh policy, and admission policy before contacting PostgreSQL. It then completes the cryptographic profile assembly against the current durable repository and loads the initial keyset. The refresh lifecycle and HTTP server share cancellation: an unexpected lifecycle exit shuts the server down, while stopped or expired refresh ownership makes every non-liveness route unavailable and consumes bearer and DPoP headers. Public binding remains prohibited.
+The values above describe the contract shape, not recommended production capacity. Deployments must select and validate the complete JWT, DPoP, refresh, admission, and Cedar profile. The keyset publication uses the separate atomic envelope and owner-operated publisher described above. Startup reads and validates the closed configuration, filesystem boundaries, Cedar policy, external origin, refresh policy, and admission policy before contacting PostgreSQL. It then completes the cryptographic profile assembly against the current durable repository and loads the initial keyset. The refresh lifecycle and HTTP server share cancellation: an unexpected lifecycle exit shuts the server down, while stopped or expired refresh ownership makes every non-liveness route unavailable and consumes bearer and DPoP headers. Public binding remains prohibited.
 
 ## DPoP request binding
 
@@ -101,4 +120,4 @@ The optional API request binder supplies that trusted HTTP composition. It accep
 
 Before a verified token can reach identity resolution, PostgreSQL reserves SHA-256 digests of the JWK thumbprint and proof identifier in one exact isolation domain. The raw proof, access token, token digest, public key, method, URI, issuer, and subject are not persisted. Active reservations are immutable and cannot be deleted; bounded domain-scoped cleanup can reclaim expired rows.
 
-This is not production API activation. A deployment still needs an authorization server that issues DPoP-bound access tokens, reviewed TLS ingress that routes the configured origin without rewriting its canonical path, optional nonce policy, deployment key generation and publication orchestration, deployment rate-limit policy rollout and measured capacity, and reviewed non-loopback deployment activation. The executable's OIDC profile therefore remains loopback-only.
+This is not production API activation. A deployment still needs an authorization server that issues DPoP-bound access tokens, reviewed TLS ingress that routes the configured origin without rewriting its canonical path, optional nonce policy, provider key acquisition and source-specific import, deployment rate-limit policy rollout and measured capacity, and reviewed non-loopback deployment activation. The executable's OIDC profile therefore remains loopback-only.
