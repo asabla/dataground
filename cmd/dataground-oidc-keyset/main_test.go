@@ -53,10 +53,10 @@ func TestReadOIDCJWTKeysetPublicationRequestRejectsUnsafeDocuments(t *testing.T)
 	publicationPath := filepath.Join(directory, "publication.json")
 	valid := testOIDCJWTKeysetCommandRequest(jwksPath, publicationPath, 1)
 	tests := map[string]string{
-		"duplicate member": strings.Replace(valid, `"sequence":1`, `"sequence":1,"sequence":2`, 1),
-		"unknown member":   strings.Replace(valid, `"sequence":1`, `"sequence":1,"issuer":"untrusted"`, 1),
-		"trailing data":    valid + `{}`,
-		"wrong contract":   strings.Replace(valid, oidcJWTKeysetPublicationRequestContract, "unknown/v1", 1),
+		"duplicate member":  strings.Replace(valid, `"sequence":1`, `"sequence":1,"sequence":2`, 1),
+		"unknown member":    strings.Replace(valid, `"sequence":1`, `"sequence":1,"issuer":"untrusted"`, 1),
+		"trailing data":     valid + `{}`,
+		"wrong contract":    strings.Replace(valid, oidcJWTKeysetPublicationRequestContract, "unknown/v1", 1),
 		"same input output": testOIDCJWTKeysetCommandRequest(jwksPath, jwksPath, 1),
 	}
 	for name, document := range tests {
