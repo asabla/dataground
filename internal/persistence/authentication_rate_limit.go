@@ -3,6 +3,8 @@ package persistence
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"regexp"
@@ -20,6 +22,7 @@ const (
 
 var (
 	ErrAuthenticationRateLimitInvalid    = errors.New("authentication rate limit request is invalid")
+	ErrAuthenticationRateLimitConflict   = errors.New("authentication rate limit policy conflicts with active coordination")
 	authenticationRateLimitDomainPattern = regexp.MustCompile(`^iso_[0-9a-z]{20,32}$`)
 	authenticationRateLimitGlobalDigest  = sha256.Sum256([]byte("dataground:authentication-rate-limit:global:v1"))
 )
@@ -68,13 +71,14 @@ func (repository *Repository) AllowAuthentication(
 		return AuthenticationRateLimitResult{}, fmt.Errorf("begin authentication admission: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	policyDigest := policy.digest()
 
 	var now time.Time
 	if err := tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
 		return AuthenticationRateLimitResult{}, fmt.Errorf("read authentication admission clock: %w", err)
 	}
 	globalArrival, err := lockAuthenticationRateLimitBucket(
-		ctx, tx, "global", authenticationRateLimitGlobalDigest, now,
+		ctx, tx, "global", authenticationRateLimitGlobalDigest, policyDigest, now,
 	)
 	if err != nil {
 		return AuthenticationRateLimitResult{}, err
@@ -97,7 +101,7 @@ func (repository *Repository) AllowAuthentication(
 
 	domainDigest := authenticationRateLimitDigest("domain", []byte(isolationDomainID))
 	domain, err := consumeAuthenticationRateLimitBucket(
-		ctx, tx, "domain", domainDigest, now, policy.Window, policy.IsolationDomainBurst,
+		ctx, tx, "domain", domainDigest, policyDigest, now, policy.Window, policy.IsolationDomainBurst,
 	)
 	if err != nil {
 		return AuthenticationRateLimitResult{}, err
@@ -112,7 +116,7 @@ func (repository *Repository) AllowAuthentication(
 	credentialKeyDigest := authenticationRateLimitDigest("credential", credentialKey)
 	clear(credentialKey)
 	credential, err := consumeAuthenticationRateLimitBucket(
-		ctx, tx, "credential", credentialKeyDigest, now, policy.Window, policy.CredentialBurst,
+		ctx, tx, "credential", credentialKeyDigest, policyDigest, now, policy.Window, policy.CredentialBurst,
 	)
 	if err != nil {
 		return AuthenticationRateLimitResult{}, err
@@ -125,11 +129,12 @@ func consumeAuthenticationRateLimitBucket(
 	tx pgx.Tx,
 	scope string,
 	digest [sha256.Size]byte,
+	policyDigest [sha256.Size]byte,
 	now time.Time,
 	window time.Duration,
 	burst uint32,
 ) (AuthenticationRateLimitResult, error) {
-	arrival, err := lockAuthenticationRateLimitBucket(ctx, tx, scope, digest, now)
+	arrival, err := lockAuthenticationRateLimitBucket(ctx, tx, scope, digest, policyDigest, now)
 	if err != nil {
 		return AuthenticationRateLimitResult{}, err
 	}
@@ -145,25 +150,30 @@ func lockAuthenticationRateLimitBucket(
 	tx pgx.Tx,
 	scope string,
 	digest [sha256.Size]byte,
+	policyDigest [sha256.Size]byte,
 	now time.Time,
 ) (time.Time, error) {
 	_, err := tx.Exec(ctx, `
 		INSERT INTO authentication_rate_limit_buckets (
-			scope, subject_digest, theoretical_arrival_at, updated_at
-		) VALUES ($1, $2, $3, $3)
+			scope, subject_digest, policy_digest, theoretical_arrival_at, updated_at
+		) VALUES ($1, $2, $3, $4, $4)
 		ON CONFLICT (scope, subject_digest) DO NOTHING
-	`, scope, digest[:], now)
+	`, scope, digest[:], policyDigest[:], now)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("initialize authentication rate limit bucket: %w", err)
 	}
 	var arrival time.Time
+	var storedPolicyDigest []byte
 	if err := tx.QueryRow(ctx, `
-		SELECT theoretical_arrival_at
+		SELECT policy_digest, theoretical_arrival_at
 		FROM authentication_rate_limit_buckets
 		WHERE scope = $1 AND subject_digest = $2
 		FOR UPDATE
-	`, scope, digest[:]).Scan(&arrival); err != nil {
+	`, scope, digest[:]).Scan(&storedPolicyDigest, &arrival); err != nil {
 		return time.Time{}, fmt.Errorf("lock authentication rate limit bucket: %w", err)
+	}
+	if len(storedPolicyDigest) != sha256.Size || subtle.ConstantTimeCompare(storedPolicyDigest, policyDigest[:]) != 1 {
+		return time.Time{}, ErrAuthenticationRateLimitConflict
 	}
 	return arrival.UTC(), nil
 }
@@ -249,4 +259,13 @@ func authenticationRateLimitDigest(scope string, value []byte) [sha256.Size]byte
 	var digest [sha256.Size]byte
 	copy(digest[:], hash.Sum(nil))
 	return digest
+}
+
+func (policy AuthenticationRateLimitPolicy) digest() [sha256.Size]byte {
+	var encoded [8 + 4 + 4 + 4]byte
+	binary.BigEndian.PutUint64(encoded[0:8], uint64(policy.Window))
+	binary.BigEndian.PutUint32(encoded[8:12], policy.GlobalBurst)
+	binary.BigEndian.PutUint32(encoded[12:16], policy.IsolationDomainBurst)
+	binary.BigEndian.PutUint32(encoded[16:20], policy.CredentialBurst)
+	return authenticationRateLimitDigest("policy", encoded[:])
 }
