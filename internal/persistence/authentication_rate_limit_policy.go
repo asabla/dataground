@@ -136,9 +136,6 @@ func (repository *Repository) ActivateAuthenticationRateLimitPolicy(
 	); err != nil {
 		return fmt.Errorf("record authentication rate limit policy activation: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM authentication_rate_limit_buckets`); err != nil {
-		return fmt.Errorf("replace authentication rate limit policy state: %w", err)
-	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit authentication rate limit policy activation: %w", err)
 	}
