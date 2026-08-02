@@ -38,8 +38,26 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 
 	reset := func(t *testing.T) {
 		t.Helper()
-		if _, err := pool.Exec(ctx, `TRUNCATE authentication_rate_limit_buckets`); err != nil {
+		if _, err := pool.Exec(ctx, `TRUNCATE authentication_rate_limit_buckets, authentication_rate_limit_policy_activations`); err != nil {
 			t.Fatalf("reset rate limit buckets: %v", err)
+		}
+	}
+	activate := func(t *testing.T, generation uint64, policy persistence.AuthenticationRateLimitPolicy) {
+		t.Helper()
+		reasonDigest := sha256.Sum256([]byte("reviewed test policy"))
+		err := repository.ActivateAuthenticationRateLimitPolicy(
+			ctx,
+			persistence.AuthenticationRateLimitPolicyActivation{
+				Contract:      "dataground.authentication-rate-limit-policy/v1",
+				Generation:    generation,
+				Policy:        policy,
+				ActivatedBy:   "test-operator",
+				CorrelationID: "cor_0123456789abcdefghij",
+				ReasonDigest:  append([]byte(nil), reasonDigest[:]...),
+			},
+		)
+		if err != nil {
+			t.Fatalf("activate authentication rate limit policy: %v", err)
 		}
 	}
 	credential := sha256.Sum256([]byte("credential-one"))
@@ -51,20 +69,21 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 		policy := persistence.AuthenticationRateLimitPolicy{
 			Window: time.Hour, GlobalBurst: 10, IsolationDomainBurst: 10, CredentialBurst: 2,
 		}
+		activate(t, 1, policy)
 		for attempt := 0; attempt < 2; attempt++ {
-			result, err := repository.AllowAuthentication(ctx, domain, credential, policy)
+			result, err := repository.AllowAuthentication(ctx, domain, credential, 1, policy)
 			if err != nil || !result.Allowed {
 				t.Fatalf("credential admission %d = %#v, %v", attempt, result, err)
 			}
 		}
-		result, err := repository.AllowAuthentication(ctx, domain, credential, policy)
+		result, err := repository.AllowAuthentication(ctx, domain, credential, 1, policy)
 		if err != nil || result.Allowed || result.RetryAfter <= 0 || result.RetryAfter > time.Hour {
 			t.Fatalf("credential denial = %#v, %v", result, err)
 		}
 		conflicting := policy
 		conflicting.GlobalBurst++
 		if _, err := repository.AllowAuthentication(
-			ctx, domain, credential, conflicting,
+			ctx, domain, credential, 1, conflicting,
 		); !errors.Is(err, persistence.ErrAuthenticationRateLimitConflict) {
 			t.Fatalf("conflicting policy error = %v", err)
 		}
@@ -85,6 +104,7 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 		policy := persistence.AuthenticationRateLimitPolicy{
 			Window: time.Hour, GlobalBurst: 10, IsolationDomainBurst: 2, CredentialBurst: 2,
 		}
+		activate(t, 1, policy)
 		for _, digest := range [][sha256.Size]byte{credential, otherCredential} {
 			result, err := repository.AllowAuthentication(ctx, domain, digest, policy)
 			if err != nil || !result.Allowed {
@@ -92,7 +112,7 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 			}
 		}
 		thirdCredential := sha256.Sum256([]byte("credential-three"))
-		result, err := repository.AllowAuthentication(ctx, domain, thirdCredential, policy)
+		result, err := repository.AllowAuthentication(ctx, domain, thirdCredential, 1, policy)
 		if err != nil || result.Allowed || result.RetryAfter <= 0 {
 			t.Fatalf("domain denial = %#v, %v", result, err)
 		}
@@ -103,6 +123,7 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 		policy := persistence.AuthenticationRateLimitPolicy{
 			Window: time.Hour, GlobalBurst: 10, IsolationDomainBurst: 10, CredentialBurst: 10,
 		}
+		activate(t, 1, policy)
 		var wait sync.WaitGroup
 		results := make(chan persistence.AuthenticationRateLimitResult, 20)
 		errors := make(chan error, 20)
@@ -112,7 +133,7 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 				defer wait.Done()
 				candidateDomain := identity.New("iso")
 				candidateCredential := sha256.Sum256([]byte{byte(index + 1)})
-				result, err := repository.AllowAuthentication(ctx, candidateDomain, candidateCredential, policy)
+				result, err := repository.AllowAuthentication(ctx, candidateDomain, candidateCredential, 1, policy)
 				results <- result
 				errors <- err
 			}(index)
@@ -143,17 +164,19 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 		policy := persistence.AuthenticationRateLimitPolicy{
 			Window: time.Hour, GlobalBurst: 1000, IsolationDomainBurst: 100, CredentialBurst: 10,
 		}
-		result, err := repository.AllowAuthentication(ctx, domain, credential, policy)
+		activate(t, 1, policy)
+		result, err := repository.AllowAuthentication(ctx, domain, credential, 1, policy)
 		if err != nil || !result.Allowed {
 			t.Fatalf("seed admission = %#v, %v", result, err)
 		}
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO authentication_rate_limit_buckets (
-				scope, subject_digest, policy_digest, theoretical_arrival_at, updated_at
+				scope, subject_digest, policy_generation, policy_digest, theoretical_arrival_at, updated_at
 			)
 			SELECT
 				'credential',
 				decode(lpad(to_hex(value), 64, '0'), 'hex'),
+				1,
 				decode(repeat('01', 32), 'hex'),
 				clock_timestamp() - interval '2 hours',
 				clock_timestamp() - interval '2 hours'
@@ -171,7 +194,7 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 		}
 		newDomain := identity.New("iso")
 		newCredential := sha256.Sum256([]byte("reclamation-credential"))
-		result, err = repository.AllowAuthentication(ctx, newDomain, newCredential, policy)
+		result, err = repository.AllowAuthentication(ctx, newDomain, newCredential, 1, policy)
 		if err != nil || !result.Allowed {
 			t.Fatalf("admission with reclamation = %#v, %v", result, err)
 		}
@@ -186,6 +209,67 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 		}
 		if stale != 14 {
 			t.Fatalf("stale buckets after one cleanup = %d, want 14", stale)
+		}
+	})
+
+	t.Run("generation cutover", func(t *testing.T) {
+		reset(t)
+		first := persistence.AuthenticationRateLimitPolicy{
+			Window: time.Hour, GlobalBurst: 2, IsolationDomainBurst: 2, CredentialBurst: 2,
+		}
+		activate(t, 1, first)
+		if result, err := repository.AllowAuthentication(ctx, domain, credential, 1, first); err != nil || !result.Allowed {
+			t.Fatalf("first-generation admission = %#v, %v", result, err)
+		}
+		second := persistence.AuthenticationRateLimitPolicy{
+			Window: time.Minute, GlobalBurst: 20, IsolationDomainBurst: 10, CredentialBurst: 5,
+		}
+		secondReason := sha256.Sum256([]byte("reviewed replacement policy"))
+		if err := repository.ActivateAuthenticationRateLimitPolicy(
+			ctx,
+			persistence.AuthenticationRateLimitPolicyActivation{
+				Contract:      "dataground.authentication-rate-limit-policy/v1",
+				Generation:    2,
+				Policy:        second,
+				ActivatedBy:   "test-operator",
+				CorrelationID: "cor_0123456789abcdefghik",
+				ReasonDigest:  append([]byte(nil), secondReason[:]...),
+			},
+		); err != nil {
+			t.Fatalf("activate replacement policy: %v", err)
+		}
+		if _, err := repository.AllowAuthentication(
+			ctx, domain, credential, 1, first,
+		); !errors.Is(err, persistence.ErrAuthenticationRateLimitConflict) {
+			t.Fatalf("stale policy error = %v", err)
+		}
+		if result, err := repository.AllowAuthentication(
+			ctx, domain, credential, 2, second,
+		); err != nil || !result.Allowed {
+			t.Fatalf("replacement policy admission = %#v, %v", result, err)
+		}
+		var generations []int64
+		rows, err := pool.Query(ctx, `
+			SELECT DISTINCT policy_generation
+			FROM authentication_rate_limit_buckets
+			ORDER BY policy_generation
+		`)
+		if err != nil {
+			t.Fatalf("inspect active bucket generations: %v", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var generation int64
+			if err := rows.Scan(&generation); err != nil {
+				t.Fatal(err)
+			}
+			generations = append(generations, generation)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		if len(generations) != 1 || generations[0] != 2 {
+			t.Fatalf("bucket generations = %v, want [2]", generations)
 		}
 	})
 
