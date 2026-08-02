@@ -68,6 +68,16 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 		); !errors.Is(err, persistence.ErrAuthenticationRateLimitConflict) {
 			t.Fatalf("conflicting policy error = %v", err)
 		}
+		var bucketCount, rawCredentialCount int
+		if err := pool.QueryRow(ctx, `
+			SELECT count(*), count(*) FILTER (WHERE subject_digest = $1)
+			FROM authentication_rate_limit_buckets
+		`, credential[:]).Scan(&bucketCount, &rawCredentialCount); err != nil {
+			t.Fatalf("inspect minimized bucket subjects: %v", err)
+		}
+		if bucketCount != 3 || rawCredentialCount != 0 {
+			t.Fatalf("stored admission buckets = %d, raw credentials = %d", bucketCount, rawCredentialCount)
+		}
 	})
 
 	t.Run("isolation domain", func(t *testing.T) {
@@ -128,15 +138,4 @@ func TestAuthenticationRateLimitsCoordinateLayeredAdmission(t *testing.T) {
 		}
 	})
 
-	var rawCredentialCount int
-	if err := pool.QueryRow(ctx, `
-		SELECT count(*)
-		FROM authentication_rate_limit_buckets
-		WHERE subject_digest = $1
-	`, credential[:]).Scan(&rawCredentialCount); err != nil {
-		t.Fatalf("inspect minimized bucket subjects: %v", err)
-	}
-	if rawCredentialCount != 0 {
-		t.Fatalf("raw credential digest persisted in %d buckets", rawCredentialCount)
-	}
 }
