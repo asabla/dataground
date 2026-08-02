@@ -16,14 +16,21 @@ import (
 // durable OIDC and DPoP security chain. It does not define ingress, keyset
 // publication, rate-limit policy selection, or executable activation.
 type DurableOIDCDPoPConfig struct {
-	Repository      *persistence.Repository
-	Authorizer      authz.Authorizer
-	RateLimiter     AuthenticationRateLimiter
-	ExternalOrigin  string
-	OIDC            authn.ReloadableOIDCJWTConfig
-	KeysetRefresh   authn.OIDCJWTKeysetRefreshPolicy
-	DPoPClockSkew   time.Duration
-	MaximumProofAge time.Duration
+	Repository                    *persistence.Repository
+	Authorizer                    authz.Authorizer
+	RateLimiter                   AuthenticationRateLimiter
+	ReleaseCertificationReadiness ReleaseCertificationReadiness
+	ExternalOrigin                string
+	OIDC                          authn.ReloadableOIDCJWTConfig
+	KeysetRefresh                 authn.OIDCJWTKeysetRefreshPolicy
+	DPoPClockSkew                 time.Duration
+	MaximumProofAge               time.Duration
+}
+
+// ReleaseCertificationReadiness keeps serving bound to the validity window of
+// the externally signed release evidence incorporated at startup.
+type ReleaseCertificationReadiness interface {
+	Ready(context.Context) error
 }
 
 // DurableOIDCDPoPAssembly keeps the handler and keyset refresh capability in
@@ -47,6 +54,9 @@ func NewDurableOIDCDPoPAssembly(
 	}
 	if config.RateLimiter == nil || isNilInterface(config.RateLimiter) {
 		return nil, errors.New("durable OIDC DPoP rate limiter is required")
+	}
+	if config.ReleaseCertificationReadiness == nil || isNilInterface(config.ReleaseCertificationReadiness) {
+		return nil, errors.New("durable OIDC DPoP release certification readiness is required")
 	}
 	if !config.KeysetRefresh.Valid() {
 		return nil, errors.New("durable OIDC DPoP keyset refresh policy is invalid")
@@ -93,7 +103,12 @@ func NewDurableOIDCDPoPAssembly(
 		return nil, err
 	}
 	return &DurableOIDCDPoPAssembly{
-		handler:       oidcSecurityReadyHandler(handler, keysets, config.RateLimiter),
+		handler: oidcSecurityReadyHandler(
+			handler,
+			keysets,
+			config.ReleaseCertificationReadiness,
+			config.RateLimiter,
+		),
 		authenticator: authenticator,
 		keysets:       keysets,
 	}, nil
@@ -148,6 +163,7 @@ type authenticationRateLimitReadiness interface {
 func oidcSecurityReadyHandler(
 	handler http.Handler,
 	keysets *authn.OIDCJWTKeysetRefreshSupervisor,
+	releaseCertification ReleaseCertificationReadiness,
 	rateLimiter AuthenticationRateLimiter,
 ) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -161,6 +177,15 @@ func oidcSecurityReadyHandler(
 			writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
 				"OIDC_KEYSET_UNAVAILABLE",
 				"OIDC signing keys are unavailable.",
+				true,
+			)})
+			return
+		}
+		if err := releaseCertification.Ready(request.Context()); err != nil {
+			clearOIDCSecurityHeaders(request)
+			writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
+				"RELEASE_CERTIFICATION_UNAVAILABLE",
+				"Release certification is unavailable.",
 				true,
 			)})
 			return
