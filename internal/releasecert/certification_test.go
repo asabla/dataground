@@ -250,7 +250,7 @@ func TestCertificationDoesNotReplaceExistingEnvelope(t *testing.T) {
 	t.Parallel()
 	fixture := newCertificationFixture(t)
 	writePrivate(t, fixture.outputFile, []byte("occupied\n"))
-	if err := Install(fixture.installRequest()); err == nil || !strings.Contains(err.Error(), "already exists") {
+	if err := Install(fixture.installRequest()); err == nil || !strings.Contains(err.Error(), "conflicts with existing file") {
 		t.Fatalf("existing output error = %v", err)
 	}
 	content, err := os.ReadFile(fixture.outputFile)
