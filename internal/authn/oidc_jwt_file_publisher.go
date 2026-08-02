@@ -83,7 +83,7 @@ func PublishOIDCJWTKeysetFile(ctx context.Context, publication OIDCJWTKeysetFile
 			if !expiresAt.Equal(current.ExpiresAt) || !bytes.Equal(canonicalJWKS, current.JWKS) {
 				return ErrOIDCJWTKeysetConflict
 			}
-			return nil
+			return syncOIDCJWTKeysetPublicationDirectory(publication.Path)
 		}
 	}
 
@@ -289,7 +289,11 @@ func writeAtomicOIDCJWTKeysetPublication(
 		return fmt.Errorf("install OIDC JWT keyset publication: %w", err)
 	}
 	committed = true
-	directoryHandle, err := os.Open(directory)
+	return syncOIDCJWTKeysetPublicationDirectory(targetPath)
+}
+
+func syncOIDCJWTKeysetPublicationDirectory(targetPath string) error {
+	directoryHandle, err := os.Open(filepath.Dir(targetPath))
 	if err != nil {
 		return fmt.Errorf("%w: open publication directory: %v", ErrOIDCJWTKeysetPublicationUncertain, err)
 	}
