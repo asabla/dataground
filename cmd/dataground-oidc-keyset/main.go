@@ -141,8 +141,10 @@ func readStableOIDCJWTKeysetFile(
 		return nil, fmt.Errorf("read %s: %w", description, err)
 	}
 	after, err := file.Stat()
+	pathAfter, pathErr := os.Lstat(path)
 	if err != nil || !os.SameFile(before, after) || before.Size() != after.Size() ||
 		!before.ModTime().Equal(after.ModTime()) || before.Mode() != after.Mode() ||
+		pathErr != nil || !os.SameFile(after, pathAfter) || pathAfter.Mode() != after.Mode() ||
 		len(content) == 0 || int64(len(content)) > maximumBytes {
 		clear(content)
 		return nil, fmt.Errorf("%s changed while it was read", description)
