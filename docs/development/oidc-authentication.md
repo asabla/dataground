@@ -39,11 +39,11 @@ Create the request with mode `0600`, bind the reviewed public JWKS to its select
 
 `OIDCDiscoveryKeysetImporter` retrieves a standard public provider JWKS only after pinning the exact issuer, discovery URL, JWKS URL, and asymmetric algorithm allowlist. It verifies that discovery metadata repeats the pinned issuer and JWKS endpoint exactly, refuses every redirect, requires HTTPS with TLS 1.2 or stronger, bounds response headers and bodies, disables implicit compression, and accepts only JSON media types appropriate to each endpoint. Discovery metadata may contain standard extension members, but duplicate members, excessive nesting, malformed JSON, an endpoint change, or an issuer change fails the import. The imported JWKS passes the same strict public-key validation and canonicalization as a locally supplied generation.
 
-`dataground-oidc-keyset-import` combines that authenticated acquisition with the existing monotonic atomic publisher. Network and algorithm inputs come only from one selected profile in a closed deployment registry. This example keeps discovery public and authenticates the non-public JWKS endpoint with a separate owner-only bearer-token file:
+`dataground-oidc-keyset-import` combines that authenticated acquisition with the existing monotonic atomic publisher. Network and algorithm inputs come only from one selected profile in a closed deployment registry. Endpoint bearer credentials are separate monotonic publications managed by `dataground-oidc-provider-credential`; the registry cannot name a raw token file. This example keeps discovery public and authenticates the non-public JWKS endpoint with one endpoint-scoped publication:
 
 ```json
 {
-  "contract": "dataground.oidc-provider-registry/v1",
+  "contract": "dataground.oidc-provider-registry/v2",
   "profiles": [{
     "id": "primary",
     "issuer": "https://identity.example.invalid/realms/dataground",
@@ -51,7 +51,7 @@ Create the request with mode `0600`, bind the reviewed public JWKS to its select
     "jwksUrl": "https://identity.example.invalid/realms/dataground/protocol/openid-connect/certs",
     "algorithms": ["EdDSA"],
     "discoveryAuthentication": {"kind": "none"},
-    "jwksAuthentication": {"kind": "bearer-token-file", "tokenFile": "/run/dataground/provider-jwks.token"}
+    "jwksAuthentication": {"kind": "bearer-credential-file", "credentialFile": "/var/lib/dataground/oidc-credentials/primary-jwks.json"}
   }]
 }
 ```
@@ -60,7 +60,7 @@ The owner-only request selects exactly one registered profile and pins the SHA-2
 
 ```json
 {
-  "contract": "dataground.oidc-keyset-import/oidc-discovery/v2",
+  "contract": "dataground.oidc-keyset-import/oidc-discovery/v3",
   "providerId": "primary",
   "providerRegistryFile": "/etc/dataground/oidc-providers.json",
   "providerRegistrySha256": "REPLACE_WITH_LOWERCASE_SHA256",
@@ -70,7 +70,30 @@ The owner-only request selects exactly one registered profile and pins the SHA-2
 }
 ```
 
-Create the request and any bearer-token files with owner-only permissions, keep the registry and all referenced paths free of symlinks, select a positive sequence greater than the installed generation, and choose a publication expiry after the current time and no more than 24 hours ahead. Bearer files contain one RFC 6750 token without whitespace or a trailing newline. `none` must omit `tokenFile`; explicit `null`, duplicate profiles or algorithms, unknown profiles, registry drift, unsafe credentials, redirects, and authentication fallback fail closed. Run `go run ./cmd/dataground-oidc-keyset-import -request-file /run/dataground/keyset-import-request.json`. The command uses the process trust store, writes no intermediate JWKS, emits no key document, and carries the selected provider binding into the published generation. Private-key custody, provider revocation timing, credential issuance, retry scheduling, and broader workload-identity authentication remain deployment responsibilities.
+Create the registry first with its final canonical credential-publication paths, then compute its exact SHA-256 digest. Each authenticated endpoint requires a distinct publication bound to that provider identity, registry digest, and endpoint; one file cannot authorize both discovery and JWKS access. `none` must omit `credentialFile`, while `bearer-credential-file` requires it. Explicit `null`, legacy raw-token profiles, duplicate profiles or algorithms, unknown profiles, registry drift, revoked or expired credentials, redirects, and authentication fallback fail closed.
+
+Activate or rotate a local endpoint credential from a fresh owner-only token file with this closed request. The activation time may be at most five minutes ahead, the expiry must be in the future and after activation, and one generation may span no more than 31 days:
+
+```json
+{
+  "contract": "dataground.oidc-provider-credential-request/v1",
+  "operation": "activate",
+  "generation": 1,
+  "providerId": "primary",
+  "providerRegistrySha256": "REPLACE_WITH_LOWERCASE_SHA256",
+  "endpoint": "jwks",
+  "activatedAt": "REPLACE_WITH_RFC3339_UTC_TIME",
+  "expiresAt": "REPLACE_WITH_BOUNDED_RFC3339_UTC_EXPIRY",
+  "bearerTokenFile": "/run/dataground/provider-jwks.token",
+  "publicationFile": "/var/lib/dataground/oidc-credentials/primary-jwks.json"
+}
+```
+
+The request, token file, publication directory, and installed credential are owner-only and free of symlinks. The token file contains one bounded RFC 6750 bearer token without whitespace or a trailing newline. Run `go run ./cmd/dataground-oidc-provider-credential -request-file /run/dataground/provider-credential.json`, then remove the input token through the installation's approved sensitive-file procedure. Activation starts at generation 1; rotation increments exactly by one. Exact replay is read-only, while rollback, gaps, conflicting reuse, binding drift, and unsafe filesystem replacement fail closed. The command holds the verified directory by descriptor, installs a mode-`0600` canonical publication through same-directory atomic rename, and synchronizes the directory before success.
+
+Local revocation uses the next generation with `operation` set to `revoke`, includes a `revokedAt` no more than five minutes from the command clock, and omits `activatedAt`, `expiresAt`, and `bearerTokenFile`. It installs a timestamped durable tombstone instead of deleting the prior state; a later locally acquired credential may be activated only at the following generation. A publication path remains permanently scoped to its first provider and endpoint, while a new registry digest may be adopted only through the next generation. This boundary controls DataGround's use of a credential but does not acquire it from the provider, revoke it at the provider, or create a durable operator audit stream. Provider-side issuance, remote revocation, custody before installation, and audit delivery remain deployment responsibilities.
+
+After the required credential publications are active, create the import request with mode `0600`, select a positive keyset sequence greater than the installed generation, choose a keyset expiry after the current time and no more than 24 hours ahead, and run `go run ./cmd/dataground-oidc-keyset-import -request-file /run/dataground/keyset-import-request.json`. The import command uses the process trust store, writes no intermediate JWKS, emits no key or credential document, consumes copied credential bytes after one attempt, and carries the selected provider binding into the published keyset generation. Private-key custody, provider-side credential acquisition and revocation, retry scheduling, and broader workload-identity authentication remain deployment responsibilities.
 
 The verified token cannot supply a DataGround principal identifier, principal kind, roles, groups, or isolation-domain membership. The PostgreSQL registry resolves only the exact issuer and subject. Each immutable registration grants one human or external-service principal membership in one isolation domain; active rows for the same external identity must agree on principal identity and kind. Resolution assembles a deterministic owned membership set from non-revoked registrations and fails closed on malformed or inconsistent data. Internal platform, sandbox, and distributed-compute identities remain outside OIDC and require the workload-identity and mTLS boundary from ADR-016.
 
@@ -167,7 +190,7 @@ The opt-in API profile incorporates one record only when its owner-only path and
 
 `ReloadableOIDCDPoPAuthenticator` owns one reloadable keyset verifier, DPoP verifier, proof replay store, optional nonce store, and identity resolver. `DurableOIDCDPoPAssembly` binds that chain to one trusted external origin, deployment rate limiter, durable API repository, audited authenticator, and audited authorizer. The assembly exposes only its HTTP handler, the exact serving verifier's refresh lifecycle, minimized refresh status, and readiness, so callers cannot supervise or rotate a verifier that is not serving the handler. Every route except liveness fails closed and consumes credential headers unless the refresh lifecycle owns a still-valid generation. Static HTTP and DPoP profile errors fail before the keyset source is contacted.
 
-The provider registry, endpoint authentication, published keyset generation, reloadable verifier, and signed configuration now share one exact provider identity and registry digest. Provider revocation policy, bearer-credential issuance, group-to-membership administration, HTTPS ingress deployment, provider-side DPoP issuance, production release certification beyond the signed loopback OIDC slice, workload identity, and production conformance remain unresolved. Resource-server nonce enforcement and its capacity evidence are implemented, but nonce selection and thresholds remain explicit deployment choices inside the signed loopback configuration. The opt-in OIDC profile and default static development identity both require explicit loopback listeners and must not bind publicly.
+The provider registry, endpoint-scoped local credential state, authenticated import, published keyset generation, reloadable verifier, and signed configuration now share one exact provider identity and registry digest. Upstream provider credential acquisition and revocation, durable credential-operation audit, group-to-membership administration, HTTPS ingress deployment, provider-side DPoP issuance, production release certification beyond the signed loopback OIDC slice, workload identity, and production conformance remain unresolved. Resource-server nonce enforcement and its capacity evidence are implemented, but nonce selection and thresholds remain explicit deployment choices inside the signed loopback configuration. The opt-in OIDC profile and default static development identity both require explicit loopback listeners and must not bind publicly.
 
 
 ## Signed loopback release certification
@@ -248,4 +271,4 @@ Before a verified token can reach identity resolution, PostgreSQL reserves SHA-2
 
 When `dpop.nonce` is present, a valid proof must include one recent resource-server nonce. A missing, malformed, expired, or wrong-key nonce returns `401`, one unpredictable `DPoP-Nonce`, `Cache-Control: no-store`, and a `WWW-Authenticate: DPoP` challenge with `use_dpop_nonce`. PostgreSQL stores only nonce digests under the exact isolation domain and DPoP key digest, accepts the same recent nonce with distinct proof identifiers, keeps only the configured overlap per key, and reclaims expired rows in bounded batches. Database or randomness failure returns authentication unavailable without emitting a challenge. The accepted capacity record covers the exact configured issuance, rotation, and validation profile; broader deployment load and failure certification remain required.
 
-This is not production API activation. A deployment still needs an authorization server that issues DPoP-bound access tokens, reviewed TLS ingress that routes the configured origin without rewriting its canonical path, a reviewed decision to enable and size nonce enforcement, provider credential and revocation operations, complete production release certification beyond the signed loopback slice, and reviewed non-loopback deployment activation. The executable's OIDC profile therefore remains loopback-only.
+This is not production API activation. A deployment still needs an authorization server that issues DPoP-bound access tokens, reviewed TLS ingress that routes the configured origin without rewriting its canonical path, a reviewed decision to enable and size nonce enforcement, upstream provider credential acquisition and revocation with durable operational audit, complete production release certification beyond the signed loopback slice, and reviewed non-loopback deployment activation. The executable's OIDC profile therefore remains loopback-only.

@@ -19,11 +19,10 @@ import (
 )
 
 const (
-	oidcKeysetImportRequestContract     = "dataground.oidc-keyset-import/oidc-discovery/v2"
-	oidcProviderRegistryContract        = "dataground.oidc-provider-registry/v1"
+	oidcKeysetImportRequestContract     = "dataground.oidc-keyset-import/oidc-discovery/v3"
+	oidcProviderRegistryContract        = "dataground.oidc-provider-registry/v2"
 	maximumOIDCKeysetImportRequestBytes = 64 << 10
 	maximumOIDCProviderRegistryBytes    = 256 << 10
-	maximumOIDCBearerTokenBytes         = 8 << 10
 	maximumOIDCKeysetImportRequestDepth = 16
 	maximumOIDCProviderProfiles         = 64
 )
@@ -55,8 +54,8 @@ type oidcProviderProfile struct {
 }
 
 type oidcProviderEndpointAuthentication struct {
-	Kind      string          `json:"kind"`
-	TokenFile json.RawMessage `json:"tokenFile,omitempty"`
+	Kind           string          `json:"kind"`
+	CredentialFile json.RawMessage `json:"credentialFile,omitempty"`
 }
 
 func main() {
@@ -95,7 +94,7 @@ func runWithTransport(ctx context.Context, arguments []string, transport *http.T
 	if err != nil {
 		return err
 	}
-	discoveryBearerToken, jwksBearerToken, err := loadOIDCProviderBearerTokens(profile, request)
+	discoveryBearerToken, jwksBearerToken, err := loadOIDCProviderBearerTokens(ctx, profile, request)
 	if err != nil {
 		return err
 	}
@@ -223,6 +222,11 @@ func validateOIDCProviderProfile(profile oidcProviderProfile) error {
 		!validOIDCProviderAuthentication(profile.JWKSAuthentication) {
 		return errors.New("OIDC provider profile is invalid")
 	}
+	discoveryCredential, discoveryAuthenticated := profile.DiscoveryAuthentication.credentialFile()
+	jwksCredential, jwksAuthenticated := profile.JWKSAuthentication.credentialFile()
+	if discoveryAuthenticated && jwksAuthenticated && discoveryCredential == jwksCredential {
+		return errors.New("OIDC provider endpoint credentials must be independently scoped")
+	}
 	if _, err := authn.NewOIDCDiscoveryKeysetImporter(authn.OIDCDiscoveryKeysetImportConfig{
 		Issuer:       profile.Issuer,
 		DiscoveryURL: profile.DiscoveryURL,
@@ -247,93 +251,64 @@ func validateOIDCProviderProfile(profile oidcProviderProfile) error {
 func validOIDCProviderAuthentication(authentication oidcProviderEndpointAuthentication) bool {
 	switch authentication.Kind {
 	case "none":
-		return len(authentication.TokenFile) == 0
-	case "bearer-token-file":
-		_, valid := authentication.tokenFile()
+		return len(authentication.CredentialFile) == 0
+	case "bearer-credential-file":
+		_, valid := authentication.credentialFile()
 		return valid
 	default:
 		return false
 	}
 }
 
-func (authentication oidcProviderEndpointAuthentication) tokenFile() (string, bool) {
-	if len(authentication.TokenFile) == 0 || bytes.Equal(bytes.TrimSpace(authentication.TokenFile), []byte("null")) {
+func (authentication oidcProviderEndpointAuthentication) credentialFile() (string, bool) {
+	if len(authentication.CredentialFile) == 0 || bytes.Equal(bytes.TrimSpace(authentication.CredentialFile), []byte("null")) {
 		return "", false
 	}
 	var path string
-	if err := json.Unmarshal(authentication.TokenFile, &path); err != nil || !canonicalAbsolutePath(path) {
+	if err := json.Unmarshal(authentication.CredentialFile, &path); err != nil || !canonicalAbsolutePath(path) {
 		return "", false
 	}
 	return path, true
 }
 
 func loadOIDCProviderBearerToken(
+	ctx context.Context,
 	authentication oidcProviderEndpointAuthentication,
 	request oidcKeysetImportRequest,
+	endpoint string,
 ) ([]byte, error) {
 	if authentication.Kind == "none" {
 		return nil, nil
 	}
-	tokenFile, valid := authentication.tokenFile()
-	if !valid || tokenFile == request.requestFile ||
-		tokenFile == request.ProviderRegistryFile || tokenFile == request.PublicationFile {
+	credentialFile, valid := authentication.credentialFile()
+	if !valid || credentialFile == request.requestFile ||
+		credentialFile == request.ProviderRegistryFile || credentialFile == request.PublicationFile {
 		return nil, errors.New("OIDC provider credential file is invalid")
 	}
-	token, err := readStableOIDCKeysetImportFile(
-		tokenFile,
-		maximumOIDCBearerTokenBytes,
-		0o177,
-		"OIDC provider bearer token",
-		true,
+	token, err := authn.LoadOIDCProviderBearerCredential(
+		ctx, credentialFile, request.ProviderID, request.ProviderRegistrySHA256, endpoint,
 	)
 	if err != nil {
-		return nil, err
-	}
-	if !validOIDCBearerToken(token) {
-		clear(token)
-		return nil, errors.New("OIDC provider bearer token is invalid")
+		return nil, errors.New("OIDC provider credential is unavailable")
 	}
 	return token, nil
 }
 
 func loadOIDCProviderBearerTokens(
+	ctx context.Context,
 	profile oidcProviderProfile,
 	request oidcKeysetImportRequest,
 ) ([]byte, []byte, error) {
-	discoveryToken, err := loadOIDCProviderBearerToken(profile.DiscoveryAuthentication, request)
+	discoveryToken, err := loadOIDCProviderBearerToken(ctx, profile.DiscoveryAuthentication, request, "discovery")
 	if err != nil {
 		return nil, nil, err
 	}
-	discoveryPath, discoveryUsesToken := profile.DiscoveryAuthentication.tokenFile()
-	jwksPath, jwksUsesToken := profile.JWKSAuthentication.tokenFile()
-	if discoveryUsesToken && jwksUsesToken && discoveryPath == jwksPath {
-		return discoveryToken, append([]byte(nil), discoveryToken...), nil
-	}
-	jwksToken, err := loadOIDCProviderBearerToken(profile.JWKSAuthentication, request)
+	jwksToken, err := loadOIDCProviderBearerToken(ctx, profile.JWKSAuthentication, request, "jwks")
 	if err != nil {
 		clear(discoveryToken)
 		return nil, nil, err
 	}
 	return discoveryToken, jwksToken, nil
-}
-
-func validOIDCBearerToken(token []byte) bool {
-	if len(token) == 0 || len(token) > maximumOIDCBearerTokenBytes {
-		return false
-	}
-	padding := false
-	for _, value := range token {
-		if value == '=' {
-			padding = true
-			continue
-		}
-		if padding || !((value >= 'a' && value <= 'z') ||
-			(value >= 'A' && value <= 'Z') ||
-			(value >= '0' && value <= '9') || strings.ContainsRune("-._~+/", rune(value))) {
-			return false
-		}
-	}
-	return true
 }
 
 func readStableOIDCKeysetImportRequest(path string) ([]byte, error) {
