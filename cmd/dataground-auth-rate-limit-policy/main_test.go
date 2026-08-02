@@ -30,10 +30,10 @@ func TestReadActivationRequestRejectsAmbiguousOrUnsafeInput(t *testing.T) {
 
 	valid := validActivationRequest()
 	for name, content := range map[string]string{
-		"duplicate": strings.Replace(valid, `"generation":1`, `"generation":1,"generation":2`, 1),
-		"unknown":   strings.Replace(valid, `"contract":`, `"unknown":true,"contract":`, 1),
+		"duplicate":      strings.Replace(valid, `"generation":1`, `"generation":1,"generation":2`, 1),
+		"unknown":        strings.Replace(valid, `"contract":`, `"unknown":true,"contract":`, 1),
 		"missing window": strings.Replace(valid, `"window":"1m",`, "", 1),
-		"trailing":  valid + `{}`,
+		"trailing":       valid + `{}`,
 	} {
 		name, content := name, content
 		t.Run(name, func(t *testing.T) {
