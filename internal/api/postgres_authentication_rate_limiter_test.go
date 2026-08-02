@@ -39,6 +39,14 @@ func TestPostgreSQLAuthenticationRateLimiterValidatesComposition(t *testing.T) {
 	); err == nil {
 		t.Fatal("invalid policy was accepted")
 	}
+	if _, err := NewCapacityBoundPostgreSQLAuthenticationRateLimiter(
+		repository,
+		1,
+		policy,
+		persistence.AuthenticationRateLimitCapacityEvidence{},
+	); err == nil {
+		t.Fatal("invalid capacity evidence was accepted")
+	}
 	limiter, err := NewPostgreSQLAuthenticationRateLimiter(repository, 1, policy)
 	if err != nil {
 		t.Fatalf("create limiter: %v", err)
