@@ -73,4 +73,22 @@ func TestMigrationsRoundTrip(t *testing.T) {
 	if tables != 21 {
 		t.Fatalf("expected 21 representative tables, got %d", tables)
 	}
+
+	var rateLimitBucketPrimaryKey string
+	if err := database.QueryRowContext(ctx, `
+		SELECT string_agg(attribute.attname, ',' ORDER BY key.ordinality)
+		FROM pg_constraint AS constraint
+		CROSS JOIN LATERAL unnest(constraint.conkey)
+		    WITH ORDINALITY AS key(attribute_number, ordinality)
+		JOIN pg_attribute AS attribute
+		  ON attribute.attrelid = constraint.conrelid
+		 AND attribute.attnum = key.attribute_number
+		WHERE constraint.conrelid = 'authentication_rate_limit_buckets'::regclass
+		  AND constraint.contype = 'p'
+	`).Scan(&rateLimitBucketPrimaryKey); err != nil {
+		t.Fatalf("inspect authentication rate limit bucket identity: %v", err)
+	}
+	if rateLimitBucketPrimaryKey != "policy_generation,scope,subject_digest" {
+		t.Fatalf("authentication rate limit bucket identity = %q", rateLimitBucketPrimaryKey)
+	}
 }
