@@ -41,7 +41,6 @@ func TestAuthenticationRateLimitPolicyRejectsUnsafeBounds(t *testing.T) {
 	}
 }
 
-
 func TestAuthenticationRateLimitPolicyActivationValidatesAttribution(t *testing.T) {
 	t.Parallel()
 
