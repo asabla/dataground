@@ -41,6 +41,42 @@ func TestAuthenticationRateLimitPolicyRejectsUnsafeBounds(t *testing.T) {
 	}
 }
 
+
+func TestAuthenticationRateLimitPolicyActivationValidatesAttribution(t *testing.T) {
+	t.Parallel()
+
+	reasonDigest := sha256.Sum256([]byte("reviewed policy"))
+	valid := AuthenticationRateLimitPolicyActivation{
+		Contract:   authenticationRateLimitPolicyContract,
+		Generation: 1,
+		Policy: AuthenticationRateLimitPolicy{
+			Window: time.Minute, GlobalBurst: 100, IsolationDomainBurst: 20, CredentialBurst: 5,
+		},
+		ActivatedBy:   "usr_0123456789abcdefghij",
+		CorrelationID: "cor_0123456789abcdefghij",
+		ReasonDigest:  append([]byte(nil), reasonDigest[:]...),
+	}
+	if !valid.Valid() {
+		t.Fatal("valid activation was rejected")
+	}
+	for name, mutate := range map[string]func(*AuthenticationRateLimitPolicyActivation){
+		"contract":    func(value *AuthenticationRateLimitPolicyActivation) { value.Contract = "other" },
+		"generation":  func(value *AuthenticationRateLimitPolicyActivation) { value.Generation = 0 },
+		"actor":       func(value *AuthenticationRateLimitPolicyActivation) { value.ActivatedBy = "" },
+		"correlation": func(value *AuthenticationRateLimitPolicyActivation) { value.CorrelationID = "" },
+		"reason":      func(value *AuthenticationRateLimitPolicyActivation) { value.ReasonDigest = nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			candidate := valid
+			mutate(&candidate)
+			if candidate.Valid() {
+				t.Fatal("invalid activation was accepted")
+			}
+		})
+	}
+}
+
 func TestAuthenticationRateLimitBucketEnforcesBurstAndRefill(t *testing.T) {
 	t.Parallel()
 
