@@ -51,7 +51,7 @@ func TestAuthenticationRateLimitCapacityConfigValidatesBoundedProfile(t *testing
 			value.AttemptsPerPhase = value.Policy.GlobalBurst
 			return value
 		}(),
-		func() AuthenticationRateLimitCapacityConfig { value := valid; value.Workers = 101; return value }(),
+		func() AuthenticationRateLimitCapacityConfig { value := valid; value.Workers = 257; return value }(),
 		func() AuthenticationRateLimitCapacityConfig {
 			value := valid
 			value.MaximumP99Latency = 0
