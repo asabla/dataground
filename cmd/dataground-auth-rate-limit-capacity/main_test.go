@@ -145,7 +145,7 @@ func writeCapacityRequest(t *testing.T, content string) string {
 
 func validCapacityRequest() string {
 	return `{
-		"contract":"dataground.authentication-rate-limit-capacity/v1",
+		"contract":"dataground.authentication-rate-limit-capacity/v2",
 		"runId":"cap_0123456789abcdefghij",
 		"sourceRevision":"0123456789abcdef0123456789abcdef01234567",
 		"deploymentProfile":"team",
