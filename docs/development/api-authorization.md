@@ -1,6 +1,6 @@
 # API action authorization
 
-Every versioned API route passes through one injected authorization boundary after bearer authentication and isolation-domain membership validation. Authorization completes before media-type validation, idempotency lookup, request-body reads, repository access, or resource disclosure. Liveness and readiness remain outside both boundaries.
+Every versioned API route passes through one injected authorization boundary after credential authentication and isolation-domain membership validation. The default development profile uses Bearer credentials; the opt-in OIDC profile requires the DPoP authorization scheme and proof. Authorization completes before media-type validation, idempotency lookup, request-body reads, repository access, or resource disclosure. Liveness and readiness remain outside both boundaries.
 
 The request is deliberately closed and non-sensitive. It contains the validated principal identity and kind, one action, one resource type and path-derived identifier, the effective isolation domain, and an opaque request correlation identifier. It never contains bearer credentials, request bodies, aliases, prompts, schemas, artifact paths, provider data, or repository results.
 
