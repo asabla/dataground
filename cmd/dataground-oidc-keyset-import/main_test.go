@@ -61,8 +61,8 @@ func TestRunImportsSelectedAuthenticatedOIDCProvider(t *testing.T) {
 	defer server.Close()
 
 	directory := t.TempDir()
-	discoveryToken := writeOIDCKeysetImportFile(t, directory, "discovery.token", "discovery-secret", 0o600)
-	jwksToken := writeOIDCKeysetImportFile(t, directory, "jwks.token", "jwks-secret", 0o600)
+	discoveryCredential := filepath.Join(directory, "discovery-credential.json")
+	jwksCredential := filepath.Join(directory, "jwks-credential.json")
 	registryPath, registryDigest := writeOIDCProviderRegistry(t, directory, []map[string]any{{
 		"id":           "primary",
 		"issuer":       issuer,
@@ -70,12 +70,16 @@ func TestRunImportsSelectedAuthenticatedOIDCProvider(t *testing.T) {
 		"jwksUrl":      server.URL + "/jwks",
 		"algorithms":   []string{"RS256"},
 		"discoveryAuthentication": map[string]any{
-			"kind": "bearer-token-file", "tokenFile": discoveryToken,
+			"kind": "bearer-credential-file", "credentialFile": discoveryCredential,
 		},
 		"jwksAuthentication": map[string]any{
-			"kind": "bearer-token-file", "tokenFile": jwksToken,
+			"kind": "bearer-credential-file", "credentialFile": jwksCredential,
 		},
 	}})
+	publishOIDCProviderCredentialForImport(
+		t, discoveryCredential, registryDigest, "discovery", "discovery-secret",
+	)
+	publishOIDCProviderCredentialForImport(t, jwksCredential, registryDigest, "jwks", "jwks-secret")
 	publicationPath := filepath.Join(directory, "keysets.json")
 	requestPath := writeOIDCKeysetImportRequest(
 		t, directory, "primary", registryPath, registryDigest, publicationPath,
@@ -168,7 +172,7 @@ func TestLoadOIDCProviderProfileRejectsRegistryDriftAndFallback(t *testing.T) {
 		nullDirectory := t.TempDir()
 		nullProfile := testOIDCProviderProfile("primary")
 		nullProfile["discoveryAuthentication"] = map[string]any{
-			"kind": "none", "tokenFile": nil,
+			"kind": "none", "credentialFile": nil,
 		}
 		path, digest := writeOIDCProviderRegistry(t, nullDirectory, []map[string]any{nullProfile})
 		requestPath := writeOIDCKeysetImportRequest(
@@ -183,30 +187,59 @@ func TestLoadOIDCProviderProfileRejectsRegistryDriftAndFallback(t *testing.T) {
 			t.Fatal("null provider credential reference was accepted")
 		}
 	})
+
+	t.Run("legacy raw token profile", func(t *testing.T) {
+		legacyDirectory := t.TempDir()
+		legacyProfile := testOIDCProviderProfile("primary")
+		legacyProfile["discoveryAuthentication"] = map[string]any{
+			"kind": "bearer-token-file", "tokenFile": filepath.Join(legacyDirectory, "token"),
+		}
+		path, digest := writeOIDCProviderRegistry(t, legacyDirectory, []map[string]any{legacyProfile})
+		requestPath := writeOIDCKeysetImportRequest(
+			t, legacyDirectory, "primary", path, digest, filepath.Join(legacyDirectory, "keysets.json"),
+		)
+		request, err := readOIDCKeysetImportRequest(requestPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := loadOIDCProviderProfile(request); err == nil {
+			t.Fatal("legacy raw bearer-token profile was accepted")
+		}
+	})
 }
 
 func TestRunRejectsUnsafeOIDCProviderCredentials(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
-		content string
-		mode    os.FileMode
+		token string
+		mode  os.FileMode
 	}{
-		"group readable":   {content: "provider-secret", mode: 0o640},
-		"header injection": {content: "provider-secret\nInjected", mode: 0o600},
-		"empty":            {content: "", mode: 0o600},
+		"group readable":   {token: "provider-secret", mode: 0o640},
+		"header injection": {token: "provider-secret\nInjected", mode: 0o600},
+		"empty":            {token: "", mode: 0o600},
 	}
 	for name, test := range tests {
 		name, test := name, test
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			directory := t.TempDir()
-			token := writeOIDCKeysetImportFile(t, directory, "token", test.content, test.mode)
+			credential := filepath.Join(directory, "credential.json")
 			profile := testOIDCProviderProfile("primary")
 			profile["discoveryAuthentication"] = map[string]any{
-				"kind": "bearer-token-file", "tokenFile": token,
+				"kind": "bearer-credential-file", "credentialFile": credential,
 			}
 			registryPath, digest := writeOIDCProviderRegistry(t, directory, []map[string]any{profile})
+			content, err := json.Marshal(map[string]any{
+				"contract": "dataground.oidc-provider-credential/v1", "generation": 1,
+				"providerId": "primary", "providerRegistrySha256": digest, "endpoint": "discovery",
+				"status": "active", "activatedAt": time.Now().UTC().Add(-time.Minute),
+				"expiresAt": time.Now().UTC().Add(time.Hour), "bearerToken": test.token,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeOIDCKeysetImportFile(t, directory, "credential.json", string(content), test.mode)
 			requestPath := writeOIDCKeysetImportRequest(
 				t, directory, "primary", registryPath, digest, filepath.Join(directory, "keysets.json"),
 			)
@@ -217,35 +250,50 @@ func TestRunRejectsUnsafeOIDCProviderCredentials(t *testing.T) {
 	}
 }
 
-func TestLoadOIDCProviderBearerTokensSnapshotsSharedCredentialOnce(t *testing.T) {
+func TestRunRejectsRevokedOIDCProviderCredentialBeforeProviderAccess(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	credential := filepath.Join(directory, "credential.json")
+	profile := testOIDCProviderProfile("primary")
+	profile["discoveryAuthentication"] = map[string]any{
+		"kind": "bearer-credential-file", "credentialFile": credential,
+	}
+	registryPath, digest := writeOIDCProviderRegistry(t, directory, []map[string]any{profile})
+	publishOIDCProviderCredentialForImport(t, credential, digest, "discovery", "provider-secret")
+	if err := authn.PublishOIDCProviderCredential(context.Background(), authn.OIDCProviderCredentialPublication{
+		Path: credential, Generation: 2, ProviderID: "primary", ProviderRegistrySHA256: digest,
+		Endpoint: "discovery", RevokedAt: time.Now().UTC(), Revoked: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	requestPath := writeOIDCKeysetImportRequest(
+		t, directory, "primary", registryPath, digest, filepath.Join(directory, "keysets.json"),
+	)
+	if err := run(context.Background(), []string{"-request-file", requestPath}); err == nil ||
+		!strings.Contains(err.Error(), "credential is unavailable") {
+		t.Fatalf("revoked import error = %v", err)
+	}
+}
+
+func TestLoadOIDCProviderProfileRejectsSharedEndpointCredential(t *testing.T) {
 	t.Parallel()
 
 	directory := t.TempDir()
-	tokenFile := writeOIDCKeysetImportFile(t, directory, "shared.token", "shared-secret", 0o600)
-	authentication := oidcProviderEndpointAuthentication{
-		Kind:      "bearer-token-file",
-		TokenFile: json.RawMessage(fmt.Sprintf("%q", tokenFile)),
-	}
-	request := oidcKeysetImportRequest{
-		requestFile:          filepath.Join(directory, "request.json"),
-		ProviderRegistryFile: filepath.Join(directory, "providers.json"),
-		PublicationFile:      filepath.Join(directory, "keysets.json"),
-	}
-	discoveryToken, jwksToken, err := loadOIDCProviderBearerTokens(oidcProviderProfile{
-		DiscoveryAuthentication: authentication,
-		JWKSAuthentication:      authentication,
-	}, request)
+	credential := filepath.Join(directory, "shared.json")
+	profile := testOIDCProviderProfile("primary")
+	authentication := map[string]any{"kind": "bearer-credential-file", "credentialFile": credential}
+	profile["discoveryAuthentication"] = authentication
+	profile["jwksAuthentication"] = authentication
+	registryPath, digest := writeOIDCProviderRegistry(t, directory, []map[string]any{profile})
+	requestPath := writeOIDCKeysetImportRequest(
+		t, directory, "primary", registryPath, digest, filepath.Join(directory, "keysets.json"),
+	)
+	request, err := readOIDCKeysetImportRequest(requestPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer clear(discoveryToken)
-	defer clear(jwksToken)
-	if string(discoveryToken) != "shared-secret" || string(jwksToken) != "shared-secret" {
-		t.Fatalf("tokens = %q, %q", discoveryToken, jwksToken)
-	}
-	discoveryToken[0] = 'x'
-	if string(jwksToken) != "shared-secret" {
-		t.Fatal("endpoint credentials share mutable storage")
+	if _, err := loadOIDCProviderProfile(request); err == nil {
+		t.Fatal("one credential publication was accepted for two endpoints")
 	}
 }
 
@@ -253,7 +301,7 @@ func TestReadOIDCKeysetImportRequestRejectsDuplicateMembers(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "request.json")
-	content := []byte(`{"contract":"dataground.oidc-keyset-import/oidc-discovery/v2","sequence":1,"sequence":2}`)
+	content := []byte(`{"contract":"dataground.oidc-keyset-import/oidc-discovery/v3","sequence":1,"sequence":2}`)
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -365,4 +413,18 @@ func writeOIDCKeysetImportFile(
 		t.Fatal(err)
 	}
 	return path
+}
+
+func publishOIDCProviderCredentialForImport(
+	t *testing.T, path, registryDigest, endpoint, token string,
+) {
+	t.Helper()
+	now := time.Now().UTC().Truncate(time.Second)
+	if err := authn.PublishOIDCProviderCredential(context.Background(), authn.OIDCProviderCredentialPublication{
+		Path: path, Generation: 1, ProviderID: "primary", ProviderRegistrySHA256: registryDigest,
+		Endpoint: endpoint, ActivatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
+		BearerToken: []byte(token),
+	}); err != nil {
+		t.Fatal(err)
+	}
 }

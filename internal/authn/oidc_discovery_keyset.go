@@ -16,7 +16,6 @@ import (
 
 const maximumOIDCDiscoveryDocumentBytes = 64 << 10
 const maximumOIDCDiscoveryResponseHeaderBytes = 32 << 10
-const maximumOIDCDiscoveryBearerTokenBytes = 8 << 10
 
 var (
 	ErrOIDCDiscoveryInvalid     = errors.New("OIDC discovery metadata is invalid")
@@ -224,23 +223,7 @@ func (importer *OIDCDiscoveryKeysetImporter) takeBearerTokens() ([]byte, []byte,
 }
 
 func validOIDCDiscoveryBearerToken(token []byte) bool {
-	if len(token) > maximumOIDCDiscoveryBearerTokenBytes {
-		return false
-	}
-	padding := false
-	for _, value := range token {
-		if value == '=' {
-			padding = true
-			continue
-		}
-		if padding || !((value >= 'a' && value <= 'z') ||
-			(value >= 'A' && value <= 'Z') ||
-			(value >= '0' && value <= '9') ||
-			strings.ContainsRune("-._~+/", rune(value))) {
-			return false
-		}
-	}
-	return true
+	return len(token) == 0 || ValidOIDCProviderBearerToken(token)
 }
 
 func readBoundedOIDCHTTPBody(ctx context.Context, reader io.Reader, maximumBytes int) ([]byte, error) {
