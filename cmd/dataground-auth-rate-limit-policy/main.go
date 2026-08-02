@@ -44,15 +44,15 @@ func (value *durationValue) UnmarshalJSON(encoded []byte) error {
 }
 
 type activationRequest struct {
-	Contract      string        `json:"contract"`
-	Generation    uint64        `json:"generation"`
-	Window        durationValue `json:"window"`
-	GlobalBurst   uint32        `json:"globalBurst"`
-	DomainBurst   uint32        `json:"isolationDomainBurst"`
-	CredentialBurst uint32      `json:"credentialBurst"`
-	ActorID       string        `json:"actorId"`
-	Reason        string        `json:"reason"`
-	CorrelationID string        `json:"correlationId"`
+	Contract        string        `json:"contract"`
+	Generation      uint64        `json:"generation"`
+	Window          durationValue `json:"window"`
+	GlobalBurst     uint32        `json:"globalBurst"`
+	DomainBurst     uint32        `json:"isolationDomainBurst"`
+	CredentialBurst uint32        `json:"credentialBurst"`
+	ActorID         string        `json:"actorId"`
+	Reason          string        `json:"reason"`
+	CorrelationID   string        `json:"correlationId"`
 }
 
 func main() {
