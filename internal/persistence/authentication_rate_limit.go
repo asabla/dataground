@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"time"
 
@@ -56,11 +57,13 @@ func (repository *Repository) AllowAuthentication(
 	ctx context.Context,
 	isolationDomainID string,
 	credentialDigest [sha256.Size]byte,
+	generation uint64,
 	policy AuthenticationRateLimitPolicy,
 ) (AuthenticationRateLimitResult, error) {
 	if repository == nil || repository.pool == nil || ctx == nil ||
 		!authenticationRateLimitDomainPattern.MatchString(isolationDomainID) ||
-		credentialDigest == [sha256.Size]byte{} || !policy.Valid() {
+		credentialDigest == [sha256.Size]byte{} ||
+		generation == 0 || generation > math.MaxInt64 || !policy.Valid() {
 		return AuthenticationRateLimitResult{}, ErrAuthenticationRateLimitInvalid
 	}
 	if err := ctx.Err(); err != nil {
@@ -71,6 +74,13 @@ func (repository *Repository) AllowAuthentication(
 		return AuthenticationRateLimitResult{}, fmt.Errorf("begin authentication admission: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock_shared($1)`,
+		authenticationRateLimitCoordinationLockKey); err != nil {
+		return AuthenticationRateLimitResult{}, fmt.Errorf("lock authentication admission policy: %w", err)
+	}
+	if err := requireActiveAuthenticationRateLimitPolicy(ctx, tx, generation, policy); err != nil {
+		return AuthenticationRateLimitResult{}, err
+	}
 	policyDigest := policy.digest()
 
 	var now time.Time
@@ -78,7 +88,7 @@ func (repository *Repository) AllowAuthentication(
 		return AuthenticationRateLimitResult{}, fmt.Errorf("read authentication admission clock: %w", err)
 	}
 	globalArrival, err := lockAuthenticationRateLimitBucket(
-		ctx, tx, "global", authenticationRateLimitGlobalDigest, policyDigest, now,
+		ctx, tx, "global", authenticationRateLimitGlobalDigest, generation, policyDigest, now,
 	)
 	if err != nil {
 		return AuthenticationRateLimitResult{}, err
@@ -101,7 +111,7 @@ func (repository *Repository) AllowAuthentication(
 
 	domainDigest := authenticationRateLimitDigest("domain", []byte(isolationDomainID))
 	domain, err := consumeAuthenticationRateLimitBucket(
-		ctx, tx, "domain", domainDigest, policyDigest, now, policy.Window, policy.IsolationDomainBurst,
+		ctx, tx, "domain", domainDigest, generation, policyDigest, now, policy.Window, policy.IsolationDomainBurst,
 	)
 	if err != nil {
 		return AuthenticationRateLimitResult{}, err
@@ -116,7 +126,7 @@ func (repository *Repository) AllowAuthentication(
 	credentialKeyDigest := authenticationRateLimitDigest("credential", credentialKey)
 	clear(credentialKey)
 	credential, err := consumeAuthenticationRateLimitBucket(
-		ctx, tx, "credential", credentialKeyDigest, policyDigest, now, policy.Window, policy.CredentialBurst,
+		ctx, tx, "credential", credentialKeyDigest, generation, policyDigest, now, policy.Window, policy.CredentialBurst,
 	)
 	if err != nil {
 		return AuthenticationRateLimitResult{}, err
@@ -129,12 +139,13 @@ func consumeAuthenticationRateLimitBucket(
 	tx pgx.Tx,
 	scope string,
 	digest [sha256.Size]byte,
+	generation uint64,
 	policyDigest [sha256.Size]byte,
 	now time.Time,
 	window time.Duration,
 	burst uint32,
 ) (AuthenticationRateLimitResult, error) {
-	arrival, err := lockAuthenticationRateLimitBucket(ctx, tx, scope, digest, policyDigest, now)
+	arrival, err := lockAuthenticationRateLimitBucket(ctx, tx, scope, digest, generation, policyDigest, now)
 	if err != nil {
 		return AuthenticationRateLimitResult{}, err
 	}
@@ -150,29 +161,32 @@ func lockAuthenticationRateLimitBucket(
 	tx pgx.Tx,
 	scope string,
 	digest [sha256.Size]byte,
+	generation uint64,
 	policyDigest [sha256.Size]byte,
 	now time.Time,
 ) (time.Time, error) {
 	_, err := tx.Exec(ctx, `
 		INSERT INTO authentication_rate_limit_buckets (
-			scope, subject_digest, policy_digest, theoretical_arrival_at, updated_at
-		) VALUES ($1, $2, $3, $4, $4)
+			scope, subject_digest, policy_generation, policy_digest, theoretical_arrival_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $5)
 		ON CONFLICT (scope, subject_digest) DO NOTHING
-	`, scope, digest[:], policyDigest[:], now)
+	`, scope, digest[:], generation, policyDigest[:], now)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("initialize authentication rate limit bucket: %w", err)
 	}
 	var arrival time.Time
+	var storedGeneration uint64
 	var storedPolicyDigest []byte
 	if err := tx.QueryRow(ctx, `
-		SELECT policy_digest, theoretical_arrival_at
+		SELECT policy_generation, policy_digest, theoretical_arrival_at
 		FROM authentication_rate_limit_buckets
 		WHERE scope = $1 AND subject_digest = $2
 		FOR UPDATE
-	`, scope, digest[:]).Scan(&storedPolicyDigest, &arrival); err != nil {
+	`, scope, digest[:]).Scan(&storedGeneration, &storedPolicyDigest, &arrival); err != nil {
 		return time.Time{}, fmt.Errorf("lock authentication rate limit bucket: %w", err)
 	}
-	if len(storedPolicyDigest) != sha256.Size || subtle.ConstantTimeCompare(storedPolicyDigest, policyDigest[:]) != 1 {
+	if storedGeneration != generation || len(storedPolicyDigest) != sha256.Size ||
+		subtle.ConstantTimeCompare(storedPolicyDigest, policyDigest[:]) != 1 {
 		return time.Time{}, ErrAuthenticationRateLimitConflict
 	}
 	return arrival.UTC(), nil
