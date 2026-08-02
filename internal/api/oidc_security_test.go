@@ -147,7 +147,6 @@ func TestDurableOIDCDPoPAssemblyKeysetReadinessTracksLifecycleOwnership(t *testi
 	}
 }
 
-
 func TestDurableOIDCDPoPAssemblyFailsClosedWhenAdmissionPolicyIsInactive(t *testing.T) {
 	t.Parallel()
 
