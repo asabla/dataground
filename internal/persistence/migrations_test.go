@@ -63,7 +63,8 @@ func TestMigrationsRoundTrip(t *testing.T) {
 		      'oidc_identity_bindings',
 		      'oidc_identity_revocations',
 		      'authentication_attempts',
-		      'oidc_dpop_replays'
+		      'oidc_dpop_replays',
+		      'authentication_rate_limit_buckets'
 		  )
 	`).Scan(&tables); err != nil {
 		t.Fatalf("inspect migrated tables: %v", err)
