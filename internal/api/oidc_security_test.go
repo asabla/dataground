@@ -186,7 +186,7 @@ func TestDurableOIDCDPoPAssemblyFailsClosedWhenAdmissionPolicyIsInactive(t *test
 	}
 
 	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
-	request.Header.Set("Authorization", "Bearer credential")
+	request.Header.Set("Authorization", "DPoP credential")
 	request.Header.Set("DPoP", "proof")
 	response := httptest.NewRecorder()
 	assembly.Handler().ServeHTTP(response, request)
@@ -241,7 +241,7 @@ func TestDurableOIDCDPoPAssemblyFailsClosedWhenReleaseCertificationExpires(t *te
 	}
 
 	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
-	request.Header.Set("Authorization", "Bearer credential")
+	request.Header.Set("Authorization", "DPoP credential")
 	request.Header.Set("DPoP", "proof")
 	response := httptest.NewRecorder()
 	assembly.Handler().ServeHTTP(response, request)
@@ -276,7 +276,7 @@ func TestDurableOIDCDPoPAssemblyNilHandlerFailsClosed(t *testing.T) {
 
 	var assembly *api.DurableOIDCDPoPAssembly
 	request := httptest.NewRequest(http.MethodPost, "/v1/unavailable", nil)
-	request.Header.Set("Authorization", "Bearer secret")
+	request.Header.Set("Authorization", "DPoP secret")
 	request.Header.Set("DPoP", "proof")
 	response := httptest.NewRecorder()
 
