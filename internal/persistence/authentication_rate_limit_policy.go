@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -156,7 +157,26 @@ func (repository *Repository) AuthenticationRateLimitPolicyReady(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return requireActiveAuthenticationRateLimitPolicy(ctx, repository.pool, generation, policy)
+	return requireActiveAuthenticationRateLimitPolicy(ctx, repository.pool, generation, policy, nil)
+}
+
+// AuthenticationRateLimitPolicyAndCapacityReady verifies the active policy
+// and measured PostgreSQL profile in one serving-path query.
+func (repository *Repository) AuthenticationRateLimitPolicyAndCapacityReady(
+	ctx context.Context,
+	generation uint64,
+	policy AuthenticationRateLimitPolicy,
+	evidence AuthenticationRateLimitCapacityEvidence,
+) error {
+	if repository == nil || repository.pool == nil || ctx == nil ||
+		generation == 0 || generation > math.MaxInt64 || !policy.Valid() ||
+		evidence.PostgreSQLServerVersion <= 0 || evidence.PostgreSQLMaxConnections <= 0 {
+		return ErrAuthenticationRateLimitPolicyActivationInvalid
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return requireActiveAuthenticationRateLimitPolicy(ctx, repository.pool, generation, policy, &evidence)
 }
 
 type authenticationRateLimitPolicyQuerier interface {
@@ -168,6 +188,7 @@ func requireActiveAuthenticationRateLimitPolicy(
 	querier authenticationRateLimitPolicyQuerier,
 	generation uint64,
 	policy AuthenticationRateLimitPolicy,
+	capacity *AuthenticationRateLimitCapacityEvidence,
 ) error {
 	var (
 		activeGeneration  uint64
@@ -176,26 +197,55 @@ func requireActiveAuthenticationRateLimitPolicy(
 		globalBurst       uint32
 		domainBurst       uint32
 		credentialBurst   uint32
+		serverVersionRaw  string
+		maxConnectionsRaw string
 	)
-	err := querier.QueryRow(ctx, `
-		SELECT
-			generation,
-			policy_digest,
-			window_nanoseconds,
-			global_burst,
-			isolation_domain_burst,
-			credential_burst
-		FROM authentication_rate_limit_policy_activations
-		ORDER BY generation DESC
-		LIMIT 1
-	`).Scan(
-		&activeGeneration,
-		&policyDigest,
-		&windowNanoseconds,
-		&globalBurst,
-		&domainBurst,
-		&credentialBurst,
-	)
+	var err error
+	if capacity == nil {
+		err = querier.QueryRow(ctx, `
+			SELECT
+				generation,
+				policy_digest,
+				window_nanoseconds,
+				global_burst,
+				isolation_domain_burst,
+				credential_burst
+			FROM authentication_rate_limit_policy_activations
+			ORDER BY generation DESC
+			LIMIT 1
+		`).Scan(
+			&activeGeneration,
+			&policyDigest,
+			&windowNanoseconds,
+			&globalBurst,
+			&domainBurst,
+			&credentialBurst,
+		)
+	} else {
+		err = querier.QueryRow(ctx, `
+			SELECT
+				generation,
+				policy_digest,
+				window_nanoseconds,
+				global_burst,
+				isolation_domain_burst,
+				credential_burst,
+				current_setting('server_version_num'),
+				current_setting('max_connections')
+			FROM authentication_rate_limit_policy_activations
+			ORDER BY generation DESC
+			LIMIT 1
+		`).Scan(
+			&activeGeneration,
+			&policyDigest,
+			&windowNanoseconds,
+			&globalBurst,
+			&domainBurst,
+			&credentialBurst,
+			&serverVersionRaw,
+			&maxConnectionsRaw,
+		)
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrAuthenticationRateLimitPolicyInactive
 	}
@@ -211,6 +261,15 @@ func requireActiveAuthenticationRateLimitPolicy(
 		domainBurst != policy.IsolationDomainBurst ||
 		credentialBurst != policy.CredentialBurst {
 		return ErrAuthenticationRateLimitConflict
+	}
+	if capacity != nil {
+		serverVersion, serverErr := strconv.Atoi(serverVersionRaw)
+		maximumConnections, connectionsErr := strconv.Atoi(maxConnectionsRaw)
+		if serverErr != nil || connectionsErr != nil ||
+			serverVersion != capacity.PostgreSQLServerVersion ||
+			maximumConnections != capacity.PostgreSQLMaxConnections {
+			return ErrAuthenticationRateLimitCapacityInvalid
+		}
 	}
 	return nil
 }
