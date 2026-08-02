@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -21,6 +22,16 @@ func TestPostgreSQLAuthenticationRateLimiterValidatesComposition(t *testing.T) {
 		t.Fatal("nil repository was accepted")
 	}
 	repository := persistence.NewRepository(&pgxpool.Pool{})
+	if _, err := NewPostgreSQLAuthenticationRateLimiter(repository, 0, policy); err == nil {
+		t.Fatal("zero generation was accepted")
+	}
+	if _, err := NewPostgreSQLAuthenticationRateLimiter(
+		repository,
+		uint64(math.MaxInt64)+1,
+		policy,
+	); err == nil {
+		t.Fatal("unsupported generation was accepted")
+	}
 	if _, err := NewPostgreSQLAuthenticationRateLimiter(
 		repository,
 		1,
