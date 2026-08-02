@@ -180,6 +180,9 @@ func (authenticator *OIDCAuthenticator) accepts(token VerifiedOIDCToken) bool {
 }
 
 func classifyOIDCDependencyError(err error) error {
+	if challenge, ok := DPoPNonceChallenge(err); ok {
+		return newDPoPNonceChallengeError(challenge)
+	}
 	switch {
 	case errors.Is(err, context.Canceled):
 		return context.Canceled

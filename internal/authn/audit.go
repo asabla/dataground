@@ -197,6 +197,9 @@ func authenticationAttemptResult(
 		return record, principal, nil
 	case errors.Is(err, ErrInvalidCredential):
 		record.Outcome = AuthenticationOutcomeRejected
+		if challenge, ok := DPoPNonceChallenge(err); ok {
+			return record, Principal{}, newDPoPNonceChallengeError(challenge)
+		}
 		return record, Principal{}, ErrInvalidCredential
 	default:
 		record.Outcome = AuthenticationOutcomeUnavailable

@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	oidcSecurityConfigurationContract = "dataground.api-security/oidc-dpop/v2"
+	oidcSecurityConfigurationContract = "dataground.api-security/oidc-dpop/v3"
 	maximumSecurityConfigurationBytes = 64 << 10
 	maximumAPICedarPolicyBytes        = 1 << 20
 	maximumSecurityConfigurationDepth = 16
@@ -30,6 +30,35 @@ const (
 type durationValue struct {
 	value time.Duration
 	set   bool
+}
+
+type oidcDPoPNonceConfiguration struct {
+	Lifetime            durationValue `json:"lifetime"`
+	MaximumActivePerKey uint32        `json:"maximumActivePerKey"`
+}
+
+type optionalOIDCDPoPNonceConfiguration struct {
+	value oidcDPoPNonceConfiguration
+	set   bool
+}
+
+func (value *optionalOIDCDPoPNonceConfiguration) UnmarshalJSON(encoded []byte) error {
+	if value == nil || bytes.Equal(bytes.TrimSpace(encoded), []byte("null")) {
+		return errors.New("DPoP nonce configuration must be an object")
+	}
+	var configuration oidcDPoPNonceConfiguration
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&configuration); err != nil {
+		return errors.New("DPoP nonce configuration is invalid")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return errors.New("DPoP nonce configuration has trailing data")
+	}
+	value.value = configuration
+	value.set = true
+	return nil
 }
 
 func (value *durationValue) UnmarshalJSON(encoded []byte) error {
@@ -57,8 +86,9 @@ type oidcSecurityConfiguration struct {
 		MaximumLifetime durationValue `json:"maximumLifetime"`
 	} `json:"jwt"`
 	DPoP struct {
-		ClockSkew       durationValue `json:"clockSkew"`
-		MaximumProofAge durationValue `json:"maximumProofAge"`
+		ClockSkew       durationValue                      `json:"clockSkew"`
+		MaximumProofAge durationValue                      `json:"maximumProofAge"`
+		Nonce           optionalOIDCDPoPNonceConfiguration `json:"nonce,omitempty"`
 	} `json:"dpop"`
 	KeysetRefresh struct {
 		Interval durationValue `json:"interval"`
@@ -133,6 +163,7 @@ func loadOIDCSecurityConfigurationForBuild(
 		!configuration.JWT.ClockSkew.set || !configuration.JWT.MaximumLifetime.set ||
 		!configuration.DPoP.ClockSkew.set || !configuration.DPoP.MaximumProofAge.set ||
 		!configuration.KeysetRefresh.Interval.set || !configuration.KeysetRefresh.Timeout.set ||
+		!configuration.validDPoPNonceConfiguration() ||
 		configuration.Admission.Generation == 0 ||
 		configuration.Admission.Generation > math.MaxInt64 ||
 		!configuration.Admission.Window.set ||
@@ -247,7 +278,33 @@ func composeOIDCSecurity(
 		KeysetRefresh:   configuration.keysetRefreshPolicy(),
 		DPoPClockSkew:   configuration.DPoP.ClockSkew.value,
 		MaximumProofAge: configuration.DPoP.MaximumProofAge.value,
+		DPoPNonce:       configuration.dpopNoncePolicy(repository),
 	})
+}
+
+func (configuration oidcSecurityConfiguration) validDPoPNonceConfiguration() bool {
+	if !configuration.DPoP.Nonce.set {
+		return true
+	}
+	nonce := configuration.DPoP.Nonce.value
+	return nonce.Lifetime.set && authn.ValidDPoPNoncePolicyParameters(
+		nonce.Lifetime.value,
+		nonce.MaximumActivePerKey,
+	)
+}
+
+func (configuration oidcSecurityConfiguration) dpopNoncePolicy(
+	repository *persistence.Repository,
+) authn.DPoPNoncePolicy {
+	if !configuration.DPoP.Nonce.set {
+		return authn.DPoPNoncePolicy{}
+	}
+	nonce := configuration.DPoP.Nonce.value
+	return authn.DPoPNoncePolicy{
+		Store:               repository,
+		Lifetime:            nonce.Lifetime.value,
+		MaximumActivePerKey: nonce.MaximumActivePerKey,
+	}
 }
 
 func (configuration oidcSecurityConfiguration) keysetRefreshPolicy() authn.OIDCJWTKeysetRefreshPolicy {

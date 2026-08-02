@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -146,7 +147,7 @@ func TestDPoPBoundHandlerRejectsBindingFailureEvenWhenAuthenticatorAcceptsEmptyI
 		t.Fatalf("create DPoP-bound handler: %v", err)
 	}
 	request := httptest.NewRequest(http.MethodPost, dpopBindingPath, nil)
-	request.Header.Set("Authorization", "Bearer token-with-at-least-thirty-two-bytes")
+	request.Header.Set("Authorization", "DPoP token-with-at-least-thirty-two-bytes")
 	response := httptest.NewRecorder()
 
 	handler.ServeHTTP(response, request)
@@ -156,6 +157,88 @@ func TestDPoPBoundHandlerRejectsBindingFailureEvenWhenAuthenticatorAcceptsEmptyI
 	}
 	if response.Header().Get("WWW-Authenticate") == "" {
 		t.Fatal("missing authentication challenge")
+	}
+	request = httptest.NewRequest(http.MethodPost, dpopBindingPath, nil)
+	request.Header.Set("Authorization", "Bearer token-with-at-least-thirty-two-bytes")
+	request.Header.Set("DPoP", "header.payload.signature")
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized ||
+		!strings.HasPrefix(response.Header().Get("WWW-Authenticate"), "DPoP ") {
+		t.Fatalf("bearer downgrade response = %d, %q", response.Code, response.Header().Get("WWW-Authenticate"))
+	}
+}
+
+func TestDPoPBoundHandlerReturnsRFC9449NonceChallenge(t *testing.T) {
+	t.Parallel()
+	binder, err := NewDPoPRequestBinder(dpopBindingOrigin)
+	if err != nil {
+		t.Fatalf("create DPoP request binder: %v", err)
+	}
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accessToken := []byte("signed-access-token-with-at-least-thirty-two-bytes")
+	challenge := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	decision, err := authn.NewDPoPNonceChallengeDecision(challenge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replays := &dpopBindingReplayStore{}
+	verifier, err := authn.NewDPoPTokenVerifier(authn.DPoPConfig{
+		Verifier: &dpopBindingTokenVerifier{thumbprint: dpopBindingThumbprint(t, publicKey)},
+		Replays:  replays,
+		Nonce: authn.DPoPNoncePolicy{
+			Store:    dpopBindingNonceStore{decision: decision},
+			Lifetime: time.Minute, MaximumActivePerKey: 4,
+		},
+		ClockSkew: 30 * time.Second, MaximumProofAge: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("create DPoP nonce verifier: %v", err)
+	}
+	handler, err := NewDPoPBoundHandler(
+		dpopBindingVerifierAuthenticator{verifier: verifier},
+		dpopBindingAllowAuthorizer{},
+		binder,
+	)
+	if err != nil {
+		t.Fatalf("create DPoP-bound handler: %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPost, dpopBindingPath, nil)
+	request.Header.Set("Authorization", "DPoP "+string(accessToken))
+	request.Header.Set(
+		"DPoP",
+		signedDPoPBindingProof(
+			t,
+			privateKey,
+			publicKey,
+			http.MethodPost,
+			dpopBindingOrigin+dpopBindingPath,
+			accessToken,
+		),
+	)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnauthorized ||
+		response.Header().Get("DPoP-Nonce") != challenge ||
+		response.Header().Get("Cache-Control") != "no-store" ||
+		!strings.Contains(response.Header().Get("WWW-Authenticate"), `error="use_dpop_nonce"`) {
+		t.Fatalf("nonce challenge response = %d, %#v", response.Code, response.Header())
+	}
+	var problem ErrorEnvelope
+	if err := json.NewDecoder(response.Body).Decode(&problem); err != nil {
+		t.Fatalf("decode nonce challenge: %v", err)
+	}
+	if problem.Error.Code != "DPOP_NONCE_REQUIRED" || !problem.Error.Retryable {
+		t.Fatalf("nonce challenge problem = %#v", problem.Error)
+	}
+	if len(replays.reservations) != 1 || request.Header.Get("Authorization") != "" ||
+		request.Header.Get("DPoP") != "" {
+		t.Fatal("nonce challenge did not reserve the proof exactly once or retained credentials")
 	}
 }
 
@@ -268,6 +351,29 @@ type dpopBindingReplayStore struct {
 	reservations []authn.DPoPReplayReservation
 }
 
+type dpopBindingNonceStore struct {
+	decision authn.DPoPNonceDecision
+}
+
+func (store dpopBindingNonceStore) EvaluateDPoPNonce(
+	context.Context,
+	authn.DPoPNonceRequest,
+) (authn.DPoPNonceDecision, error) {
+	return store.decision, nil
+}
+
+type dpopBindingVerifierAuthenticator struct {
+	verifier *authn.DPoPTokenVerifier
+}
+
+func (authenticator dpopBindingVerifierAuthenticator) Authenticate(
+	ctx context.Context,
+	accessToken []byte,
+) (authn.Principal, error) {
+	_, err := authenticator.verifier.Verify(ctx, accessToken)
+	return authn.Principal{}, err
+}
+
 func (store *dpopBindingReplayStore) ReserveDPoPProof(
 	_ context.Context,
 	reservation authn.DPoPReplayReservation,
@@ -283,3 +389,5 @@ var _ authn.Authenticator = dpopBindingPermissiveAuthenticator{}
 var _ authz.Authorizer = dpopBindingAllowAuthorizer{}
 var _ authn.OIDCTokenVerifier = (*dpopBindingTokenVerifier)(nil)
 var _ authn.DPoPReplayStore = (*dpopBindingReplayStore)(nil)
+var _ authn.DPoPNonceStore = dpopBindingNonceStore{}
+var _ authn.Authenticator = dpopBindingVerifierAuthenticator{}

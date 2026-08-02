@@ -44,6 +44,10 @@ func newProtectedRoute(
 		resourcePathValue string,
 		next http.HandlerFunc,
 	) http.Handler {
+		authorizationScheme := "Bearer"
+		if dpopBinder != nil {
+			authorizationScheme = "DPoP"
+		}
 		return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 			correlationID := identity.New("cor")
 			domainID := request.PathValue("isolationDomainId")
@@ -58,8 +62,8 @@ func newProtectedRoute(
 			}
 			values := request.Header.Values("Authorization")
 			request.Header.Del("Authorization")
-			bearerToken, _ := parseBearerToken(values)
-			defer clear(bearerToken)
+			accessToken, credentialValid := parseAuthorizationToken(values, authorizationScheme)
+			defer clear(accessToken)
 			authenticationContext, err := authn.WithAuthenticationAttemptScope(
 				request.Context(),
 				authn.AuthenticationAttemptScope{
@@ -80,39 +84,54 @@ func newProtectedRoute(
 			if rateLimiter != nil {
 				if authenticationContext.Err() != nil {
 					writeAuthenticationRateLimitUnavailable(
-						response, request, bearerToken, correlationID,
+						response, request, accessToken, correlationID,
 					)
 					return
 				}
-				limitRequest := authenticationRateLimitRequest(domainID, bearerToken)
+				limitRequest := authenticationRateLimitRequest(domainID, accessToken)
 				if !limitRequest.Valid() {
 					writeAuthenticationRateLimitUnavailable(
-						response, request, bearerToken, correlationID,
+						response, request, accessToken, correlationID,
 					)
 					return
 				}
 				decision, limitErr := rateLimiter.AllowAuthentication(authenticationContext, limitRequest)
 				if limitErr != nil || authenticationContext.Err() != nil || !decision.Valid() {
 					writeAuthenticationRateLimitUnavailable(
-						response, request, bearerToken, correlationID,
+						response, request, accessToken, correlationID,
 					)
 					return
 				}
 				if !decision.Allowed {
 					writeAuthenticationRateLimited(
-						response, request, bearerToken, correlationID, decision.RetryAfter,
+						response, request, accessToken, correlationID, decision.RetryAfter,
 					)
 					return
 				}
 			}
 
-			bindingInvalid := false
-			if dpopBinder != nil {
+			authenticationRejected := !credentialValid
+			if !credentialValid {
+				clear(accessToken)
+				accessToken = nil
+				request.Header.Del("DPoP")
+				rejectedContext, rejectionErr := authn.WithRejectedAuthenticationAttempt(authenticationContext)
+				if rejectionErr != nil {
+					writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeErrorWithCorrelation(
+						correlationID,
+						"AUTHENTICATION_UNAVAILABLE",
+						"Authentication is temporarily unavailable.",
+						true,
+					)})
+					return
+				}
+				authenticationContext = rejectedContext
+			} else if dpopBinder != nil {
 				boundContext, bindErr := dpopBinder.bind(request.WithContext(authenticationContext), domainID)
 				if bindErr != nil {
-					clear(bearerToken)
-					bearerToken = nil
-					bindingInvalid = true
+					clear(accessToken)
+					accessToken = nil
+					authenticationRejected = true
 					rejectedContext, rejectionErr := authn.WithRejectedAuthenticationAttempt(authenticationContext)
 					if rejectionErr != nil {
 						writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeErrorWithCorrelation(
@@ -131,14 +150,18 @@ func newProtectedRoute(
 				request.Header.Del("DPoP")
 			}
 
-			principal, err := authenticator.Authenticate(authenticationContext, bearerToken)
-			if bindingInvalid {
+			principal, err := authenticator.Authenticate(authenticationContext, accessToken)
+			if authenticationRejected {
 				principal = authn.Principal{}
 				err = authn.ErrInvalidCredential
 			}
 			if err != nil {
+				if challenge, ok := authn.DPoPNonceChallenge(err); ok && dpopBinder != nil {
+					writeDPoPNonceChallenge(response, correlationID, challenge)
+					return
+				}
 				if errors.Is(err, authn.ErrInvalidCredential) {
-					writeAuthenticationRequired(response, correlationID)
+					writeAuthenticationRequired(response, correlationID, dpopBinder != nil)
 					return
 				}
 				writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeErrorWithCorrelation(
@@ -205,10 +228,10 @@ func newProtectedRoute(
 func writeAuthenticationRateLimitUnavailable(
 	response http.ResponseWriter,
 	request *http.Request,
-	bearerToken []byte,
+	accessToken []byte,
 	correlationID string,
 ) {
-	clear(bearerToken)
+	clear(accessToken)
 	request.Header.Del("DPoP")
 	writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeErrorWithCorrelation(
 		correlationID,
@@ -221,11 +244,11 @@ func writeAuthenticationRateLimitUnavailable(
 func writeAuthenticationRateLimited(
 	response http.ResponseWriter,
 	request *http.Request,
-	bearerToken []byte,
+	accessToken []byte,
 	correlationID string,
 	retryAfter time.Duration,
 ) {
-	clear(bearerToken)
+	clear(accessToken)
 	request.Header.Del("DPoP")
 	response.Header().Set(
 		"Retry-After",
@@ -239,12 +262,12 @@ func writeAuthenticationRateLimited(
 	)})
 }
 
-func parseBearerToken(values []string) ([]byte, bool) {
+func parseAuthorizationToken(values []string, expectedScheme string) ([]byte, bool) {
 	if len(values) != 1 || len(values[0]) > maximumAuthorizationHeaderBytes {
 		return nil, false
 	}
 	scheme, token, found := strings.Cut(values[0], " ")
-	if !found || !strings.EqualFold(scheme, "Bearer") || token == "" {
+	if !found || !strings.EqualFold(scheme, expectedScheme) || token == "" {
 		return nil, false
 	}
 	if strings.Contains(token, " ") || !bearerTokenPattern.MatchString(token) {
@@ -284,13 +307,34 @@ func authenticatedRequestDigest(actorID string, body []byte) [sha256.Size]byte {
 	return result
 }
 
-func writeAuthenticationRequired(response http.ResponseWriter, correlationID string) {
-	response.Header().Set("WWW-Authenticate", `Bearer realm="dataground-api"`)
+func writeAuthenticationRequired(response http.ResponseWriter, correlationID string, dpop bool) {
+	challenge := `Bearer realm="dataground-api"`
+	message := "A valid bearer access token is required."
+	if dpop {
+		challenge = `DPoP realm="dataground-api", algs="ES256 EdDSA"`
+		message = "A valid DPoP-bound access token and proof are required."
+	}
+	response.Header().Set("WWW-Authenticate", challenge)
 	writeJSON(response, http.StatusUnauthorized, ErrorEnvelope{Error: safeErrorWithCorrelation(
 		correlationID,
 		"UNAUTHENTICATED",
-		"A valid bearer access token is required.",
+		message,
 		false,
+	)})
+}
+
+func writeDPoPNonceChallenge(response http.ResponseWriter, correlationID, challenge string) {
+	response.Header().Set("Cache-Control", "no-store")
+	response.Header().Set("DPoP-Nonce", challenge)
+	response.Header().Set(
+		"WWW-Authenticate",
+		`DPoP realm="dataground-api", error="use_dpop_nonce", error_description="Resource server requires nonce in DPoP proof", algs="ES256 EdDSA"`,
+	)
+	writeJSON(response, http.StatusUnauthorized, ErrorEnvelope{Error: safeErrorWithCorrelation(
+		correlationID,
+		"DPOP_NONCE_REQUIRED",
+		"A fresh DPoP proof with the supplied nonce is required.",
+		true,
 	)})
 }
 

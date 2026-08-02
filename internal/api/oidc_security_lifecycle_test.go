@@ -25,7 +25,7 @@ func TestDurableOIDCDPoPAssemblyRejectsProtectedRequestsOutsideRefreshLifecycle(
 		"/v1/isolation-domains/iso_00000000000000000001/agent-services",
 		nil,
 	)
-	request.Header.Set("Authorization", "Bearer credential")
+	request.Header.Set("Authorization", "DPoP credential")
 	request.Header.Set("DPoP", "proof")
 	response := httptest.NewRecorder()
 	assembly.Handler().ServeHTTP(response, request)
@@ -37,7 +37,7 @@ func TestDurableOIDCDPoPAssemblyRejectsProtectedRequestsOutsideRefreshLifecycle(
 	}
 
 	livenessRequest := httptest.NewRequest(http.MethodGet, "/livez", nil)
-	livenessRequest.Header.Set("Authorization", "Bearer credential")
+	livenessRequest.Header.Set("Authorization", "DPoP credential")
 	livenessRequest.Header.Set("DPoP", "proof")
 	liveness := httptest.NewRecorder()
 	assembly.Handler().ServeHTTP(liveness, livenessRequest)

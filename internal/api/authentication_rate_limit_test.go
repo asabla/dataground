@@ -51,7 +51,7 @@ func TestRateLimitedDPoPHandlerRejectsBeforeBindingOrAuthentication(t *testing.T
 	handler := newRateLimitedDPoPHandler(t, authenticator, limiter)
 	reader := &countingRateLimitReader{}
 	request := httptest.NewRequest(http.MethodPost, serviceCollectionPath(testDomain), reader)
-	request.Header.Set("Authorization", "Bearer "+testToken)
+	request.Header.Set("Authorization", "DPoP "+testToken)
 	request.Header.Set("DPoP", "unverified.proof.value")
 	response := httptest.NewRecorder()
 
@@ -119,7 +119,7 @@ func TestRateLimitedDPoPHandlerMakesCancellationAuthoritative(t *testing.T) {
 			authenticator := &countingRateLimitAuthenticator{}
 			handler := newRateLimitedDPoPHandler(t, authenticator, limiter)
 			request := httptest.NewRequest(http.MethodPost, serviceCollectionPath(testDomain), nil).WithContext(ctx)
-			request.Header.Set("Authorization", "Bearer "+testToken)
+			request.Header.Set("Authorization", "DPoP "+testToken)
 			request.Header.Set("DPoP", "unverified.proof.value")
 			response := httptest.NewRecorder()
 
@@ -157,7 +157,7 @@ func TestRateLimitedDPoPHandlerFailsClosedWhenLimiterIsUnavailable(t *testing.T)
 			authenticator := &countingRateLimitAuthenticator{}
 			handler := newRateLimitedDPoPHandler(t, authenticator, limiter)
 			request := httptest.NewRequest(http.MethodPost, serviceCollectionPath(testDomain), nil)
-			request.Header.Set("Authorization", "Bearer "+testToken)
+			request.Header.Set("Authorization", "DPoP "+testToken)
 			request.Header.Set("DPoP", "unverified.proof.value")
 			response := httptest.NewRecorder()
 

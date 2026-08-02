@@ -46,6 +46,129 @@ func TestDPoPTokenVerifierBindsAndReservesProof(t *testing.T) {
 	}
 }
 
+func TestDPoPTokenVerifierRequiresAndAcceptsResourceServerNonce(t *testing.T) {
+	t.Parallel()
+	fixture := newDPoPFixture(t)
+	challenge := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	nonces := &recordingDPoPNonceStore{}
+	decision, err := authn.NewDPoPNonceChallengeDecision(challenge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonces.decision = decision
+	replays := &recordingDPoPReplayStore{}
+	verifier := newDPoPVerifierWithNonce(t, fixture.delegate(), replays, nonces)
+	proof := fixture.proof(t, testDPoPMethod, testDPoPURI, time.Now(), "proof-id-00000000000031", fixture.accessToken)
+
+	_, err = verifier.Verify(
+		fixture.context(t, testDPoPMethod, testDPoPURI, proof),
+		fixture.accessToken,
+	)
+	issued, ok := authn.DPoPNonceChallenge(err)
+	if !ok || issued != challenge {
+		t.Fatalf("nonce challenge = %q, %v, error %v", issued, ok, err)
+	}
+	if len(replays.reservations) != 1 || len(nonces.requests) != 1 ||
+		nonces.requests[0].PresentedNonceDigest() != ([sha256.Size]byte{}) {
+		t.Fatalf("challenge state = %#v, %#v", replays.reservations, nonces.requests)
+	}
+	recorder := &recordingAuthenticationAttemptRecorder{}
+	oidc := newOIDCAuthenticator(
+		t,
+		verifier,
+		&recordingOIDCResolver{binding: validOIDCBinding()},
+	)
+	audited, auditErr := authn.NewAuditedAuthenticator(
+		oidc,
+		recorder,
+	)
+	if auditErr != nil {
+		t.Fatalf("create audited nonce authenticator: %v", auditErr)
+	}
+	auditProof := fixture.proof(
+		t,
+		testDPoPMethod,
+		testDPoPURI,
+		time.Now(),
+		"proof-id-00000000000034",
+		fixture.accessToken,
+	)
+	auditContext := authenticationAuditContext(t, testDomain, "cor_00000000000000000031")
+	auditContext, auditErr = authn.WithDPoPRequest(auditContext, authn.DPoPRequest{
+		IsolationDomainID: testDomain,
+		Method:            testDPoPMethod,
+		ExternalURI:       testDPoPURI,
+		Proof:             auditProof,
+	})
+	if auditErr != nil {
+		t.Fatalf("bind audited DPoP request: %v", auditErr)
+	}
+	_, auditErr = audited.Authenticate(
+		auditContext,
+		fixture.accessToken,
+	)
+	auditedChallenge, ok := authn.DPoPNonceChallenge(auditErr)
+	if !ok || auditedChallenge != challenge || len(recorder.records) != 1 ||
+		recorder.records[0].Outcome != authn.AuthenticationOutcomeRejected {
+		t.Fatalf("audited nonce challenge = %q, %v, %#v", auditedChallenge, auditErr, recorder.records)
+	}
+
+	nonces.decision = authn.AcceptDPoPNonce()
+	proof = fixture.proofWithNonce(
+		t,
+		testDPoPMethod,
+		testDPoPURI,
+		time.Now(),
+		"proof-id-00000000000032",
+		fixture.accessToken,
+		challenge,
+	)
+	if _, err := verifier.Verify(
+		fixture.context(t, testDPoPMethod, testDPoPURI, proof),
+		fixture.accessToken,
+	); err != nil {
+		t.Fatalf("verify nonce-bound DPoP proof: %v", err)
+	}
+	if len(replays.reservations) != 3 || len(nonces.requests) != 3 {
+		t.Fatalf("accepted nonce state = %#v, %#v", replays.reservations, nonces.requests)
+	}
+	wantDigest := sha256.Sum256([]byte(challenge))
+	if nonces.requests[2].PresentedNonceDigest() != wantDigest {
+		t.Fatal("presented nonce digest was not bound to the store request")
+	}
+}
+
+func TestDPoPTokenVerifierRejectsUnsolicitedNonceAndNonceStoreFailure(t *testing.T) {
+	t.Parallel()
+	fixture := newDPoPFixture(t)
+	nonce := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32))
+	proof := fixture.proofWithNonce(
+		t,
+		testDPoPMethod,
+		testDPoPURI,
+		time.Now(),
+		"proof-id-00000000000033",
+		fixture.accessToken,
+		nonce,
+	)
+	verifier := newDPoPVerifier(t, fixture.delegate(), &recordingDPoPReplayStore{})
+	if _, err := verifier.Verify(
+		fixture.context(t, testDPoPMethod, testDPoPURI, proof),
+		fixture.accessToken,
+	); !errors.Is(err, authn.ErrInvalidCredential) {
+		t.Fatalf("unsolicited nonce error = %v", err)
+	}
+
+	nonces := &recordingDPoPNonceStore{err: errors.New("private database detail")}
+	verifier = newDPoPVerifierWithNonce(t, fixture.delegate(), &recordingDPoPReplayStore{}, nonces)
+	if _, err := verifier.Verify(
+		fixture.context(t, testDPoPMethod, testDPoPURI, proof),
+		fixture.accessToken,
+	); !errors.Is(err, authn.ErrUnavailable) {
+		t.Fatalf("nonce store error = %v, want unavailable", err)
+	}
+}
+
 func TestDPoPTokenVerifierRejectsUnboundMalformedAndReplayedProofs(t *testing.T) {
 	t.Parallel()
 	fixture := newDPoPFixture(t)
@@ -201,6 +324,18 @@ func (fixture dpopFixture) proof(
 	proofID string,
 	accessToken []byte,
 ) []byte {
+	return fixture.proofWithNonce(t, method, uri, issuedAt, proofID, accessToken, "")
+}
+
+func (fixture dpopFixture) proofWithNonce(
+	t *testing.T,
+	method string,
+	uri string,
+	issuedAt time.Time,
+	proofID string,
+	accessToken []byte,
+	nonce string,
+) []byte {
 	t.Helper()
 	publicJWK := jose.JSONWebKey{Key: &fixture.privateKey.PublicKey}
 	options := (&jose.SignerOptions{}).WithType("dpop+jwt").WithHeader("jwk", publicJWK)
@@ -209,13 +344,17 @@ func (fixture dpopFixture) proof(
 		t.Fatalf("create DPoP signer: %v", err)
 	}
 	digest := sha256.Sum256(accessToken)
-	token, err := jwt.Signed(signer).Claims(map[string]any{
+	claims := map[string]any{
 		"jti": proofID,
 		"htm": method,
 		"htu": uri,
 		"iat": issuedAt.Unix(),
 		"ath": base64.RawURLEncoding.EncodeToString(digest[:]),
-	}).Serialize()
+	}
+	if nonce != "" {
+		claims["nonce"] = nonce
+	}
+	token, err := jwt.Signed(signer).Claims(claims).Serialize()
 	if err != nil {
 		t.Fatalf("serialize DPoP proof: %v", err)
 	}
@@ -262,6 +401,27 @@ func newDPoPVerifier(
 	return verifier
 }
 
+func newDPoPVerifierWithNonce(
+	t *testing.T,
+	delegate authn.OIDCTokenVerifier,
+	replays authn.DPoPReplayStore,
+	nonces authn.DPoPNonceStore,
+) *authn.DPoPTokenVerifier {
+	t.Helper()
+	verifier, err := authn.NewDPoPTokenVerifier(authn.DPoPConfig{
+		Verifier: delegate,
+		Replays:  replays,
+		Nonce: authn.DPoPNoncePolicy{
+			Store: nonces, Lifetime: time.Minute, MaximumActivePerKey: 4,
+		},
+		ClockSkew: 30 * time.Second, MaximumProofAge: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("create nonce-bound DPoP verifier: %v", err)
+	}
+	return verifier
+}
+
 type staticOIDCVerifier struct {
 	token authn.VerifiedOIDCToken
 	err   error
@@ -279,6 +439,20 @@ type recordingDPoPReplayStore struct {
 	err          error
 }
 
+type recordingDPoPNonceStore struct {
+	requests []authn.DPoPNonceRequest
+	decision authn.DPoPNonceDecision
+	err      error
+}
+
+func (store *recordingDPoPNonceStore) EvaluateDPoPNonce(
+	_ context.Context,
+	request authn.DPoPNonceRequest,
+) (authn.DPoPNonceDecision, error) {
+	store.requests = append(store.requests, request)
+	return store.decision, store.err
+}
+
 func (store *recordingDPoPReplayStore) ReserveDPoPProof(
 	_ context.Context,
 	reservation authn.DPoPReplayReservation,
@@ -289,3 +463,4 @@ func (store *recordingDPoPReplayStore) ReserveDPoPProof(
 
 var _ authn.OIDCTokenVerifier = (*staticOIDCVerifier)(nil)
 var _ authn.DPoPReplayStore = (*recordingDPoPReplayStore)(nil)
+var _ authn.DPoPNonceStore = (*recordingDPoPNonceStore)(nil)

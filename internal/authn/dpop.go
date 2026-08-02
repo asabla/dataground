@@ -31,6 +31,10 @@ const (
 	maximumDPoPProofAge            = 5 * time.Minute
 	minimumDPoPProofAge            = 10 * time.Second
 	maximumDPoPReservationLifetime = maximumDPoPProofAge + 2*maximumDPoPClockSkew
+	minimumDPoPNonceLifetime       = 10 * time.Second
+	maximumDPoPNonceLifetime       = 5 * time.Minute
+	maximumActiveDPoPNonces        = 16
+	dpopNonceBytes                 = 32
 )
 
 var (
@@ -86,9 +90,129 @@ type DPoPReplayStore interface {
 	ReserveDPoPProof(context.Context, DPoPReplayReservation) error
 }
 
+// DPoPNonceRequest contains only the digests needed to validate a recent
+// resource-server nonce. A zero presented digest means that the proof omitted
+// a nonce or supplied a value outside the configured nonce syntax.
+type DPoPNonceRequest struct {
+	isolationDomainID    string
+	keyThumbprintDigest  [sha256.Size]byte
+	presentedNonceDigest [sha256.Size]byte
+	lifetime             time.Duration
+	maximumActivePerKey  uint32
+}
+
+func NewDPoPNonceRequest(
+	isolationDomainID string,
+	keyThumbprintDigest [sha256.Size]byte,
+	presentedNonceDigest [sha256.Size]byte,
+	lifetime time.Duration,
+	maximumActivePerKey uint32,
+) (DPoPNonceRequest, error) {
+	request := DPoPNonceRequest{
+		isolationDomainID:    isolationDomainID,
+		keyThumbprintDigest:  keyThumbprintDigest,
+		presentedNonceDigest: presentedNonceDigest,
+		lifetime:             lifetime,
+		maximumActivePerKey:  maximumActivePerKey,
+	}
+	if !request.Valid() {
+		return DPoPNonceRequest{}, errors.New("DPoP nonce request is invalid")
+	}
+	return request, nil
+}
+
+func (request DPoPNonceRequest) IsolationDomainID() string {
+	return request.isolationDomainID
+}
+
+func (request DPoPNonceRequest) KeyThumbprintDigest() [sha256.Size]byte {
+	return request.keyThumbprintDigest
+}
+
+func (request DPoPNonceRequest) PresentedNonceDigest() [sha256.Size]byte {
+	return request.presentedNonceDigest
+}
+
+func (request DPoPNonceRequest) Lifetime() time.Duration {
+	return request.lifetime
+}
+
+func (request DPoPNonceRequest) MaximumActivePerKey() uint32 {
+	return request.maximumActivePerKey
+}
+
+func (request DPoPNonceRequest) Valid() bool {
+	return isolationDomainPattern.MatchString(request.isolationDomainID) &&
+		request.keyThumbprintDigest != ([sha256.Size]byte{}) &&
+		ValidDPoPNoncePolicyParameters(request.lifetime, request.maximumActivePerKey)
+}
+
+type DPoPNonceDecision struct {
+	accepted  bool
+	challenge string
+}
+
+func AcceptDPoPNonce() DPoPNonceDecision {
+	return DPoPNonceDecision{accepted: true}
+}
+
+func NewDPoPNonceChallengeDecision(challenge string) (DPoPNonceDecision, error) {
+	if !validDPoPNonce(challenge) {
+		return DPoPNonceDecision{}, errors.New("DPoP nonce challenge is invalid")
+	}
+	return DPoPNonceDecision{challenge: challenge}, nil
+}
+
+func (decision DPoPNonceDecision) Accepted() bool {
+	return decision.accepted
+}
+
+func (decision DPoPNonceDecision) Challenge() string {
+	return decision.challenge
+}
+
+func (decision DPoPNonceDecision) Valid() bool {
+	if decision.accepted {
+		return decision.challenge == ""
+	}
+	return validDPoPNonce(decision.challenge)
+}
+
+type DPoPNonceStore interface {
+	EvaluateDPoPNonce(context.Context, DPoPNonceRequest) (DPoPNonceDecision, error)
+}
+
+type DPoPNoncePolicy struct {
+	Store               DPoPNonceStore
+	Lifetime            time.Duration
+	MaximumActivePerKey uint32
+}
+
+func (policy DPoPNoncePolicy) Enabled() bool {
+	return !nilDPoPDependency(policy.Store)
+}
+
+func (policy DPoPNoncePolicy) Valid() bool {
+	if !policy.Enabled() {
+		return policy.Lifetime == 0 && policy.MaximumActivePerKey == 0
+	}
+	return ValidDPoPNoncePolicyParameters(policy.Lifetime, policy.MaximumActivePerKey)
+}
+
+// ValidDPoPNoncePolicyParameters reports whether one configured nonce policy
+// fits the closed precision, lifetime, and overlap bounds.
+func ValidDPoPNoncePolicyParameters(lifetime time.Duration, maximumActivePerKey uint32) bool {
+	return lifetime >= minimumDPoPNonceLifetime &&
+		lifetime <= maximumDPoPNonceLifetime &&
+		lifetime%time.Microsecond == 0 &&
+		maximumActivePerKey > 0 &&
+		maximumActivePerKey <= maximumActiveDPoPNonces
+}
+
 type DPoPConfig struct {
 	Verifier        OIDCTokenVerifier
 	Replays         DPoPReplayStore
+	Nonce           DPoPNoncePolicy
 	ClockSkew       time.Duration
 	MaximumProofAge time.Duration
 }
@@ -96,6 +220,7 @@ type DPoPConfig struct {
 type DPoPTokenVerifier struct {
 	delegate        OIDCTokenVerifier
 	replays         DPoPReplayStore
+	nonce           DPoPNoncePolicy
 	clockSkew       time.Duration
 	maximumProofAge time.Duration
 }
@@ -107,9 +232,13 @@ func NewDPoPTokenVerifier(config DPoPConfig) (*DPoPTokenVerifier, error) {
 	if !validDPoPTimeBounds(config.ClockSkew, config.MaximumProofAge) {
 		return nil, errors.New("DPoP time bounds are invalid")
 	}
+	if !config.Nonce.Valid() {
+		return nil, errors.New("DPoP nonce policy is invalid")
+	}
 	return &DPoPTokenVerifier{
 		delegate:        config.Verifier,
 		replays:         config.Replays,
+		nonce:           config.Nonce,
 		clockSkew:       config.ClockSkew,
 		maximumProofAge: config.MaximumProofAge,
 	}, nil
@@ -126,6 +255,9 @@ func (verifier *DPoPTokenVerifier) Verify(
 	accessToken []byte,
 ) (VerifiedOIDCToken, error) {
 	if verifier == nil || nilDPoPDependency(verifier.delegate) || nilDPoPDependency(verifier.replays) {
+		return VerifiedOIDCToken{}, ErrUnavailable
+	}
+	if ctx == nil {
 		return VerifiedOIDCToken{}, ErrUnavailable
 	}
 	if err := ctx.Err(); err != nil {
@@ -152,7 +284,7 @@ func (verifier *DPoPTokenVerifier) Verify(
 	if !validDPoPThumbprint(verified.ConfirmationThumbprint) {
 		return VerifiedOIDCToken{}, ErrInvalidCredential
 	}
-	reservation, err := verifyDPoPProof(
+	reservation, nonce, err := verifyDPoPProof(
 		request,
 		accessToken,
 		verified.ConfirmationThumbprint,
@@ -170,6 +302,34 @@ func (verifier *DPoPTokenVerifier) Verify(
 			return VerifiedOIDCToken{}, ErrInvalidCredential
 		}
 		return VerifiedOIDCToken{}, ErrUnavailable
+	}
+	if verifier.nonce.Enabled() {
+		var presentedDigest [sha256.Size]byte
+		if validDPoPNonce(nonce) {
+			presentedDigest = sha256.Sum256([]byte(nonce))
+		}
+		nonceRequest, requestErr := NewDPoPNonceRequest(
+			request.IsolationDomainID,
+			reservation.KeyThumbprintDigest,
+			presentedDigest,
+			verifier.nonce.Lifetime,
+			verifier.nonce.MaximumActivePerKey,
+		)
+		if requestErr != nil {
+			return VerifiedOIDCToken{}, ErrUnavailable
+		}
+		decision, nonceErr := verifier.nonce.Store.EvaluateDPoPNonce(ctx, nonceRequest)
+		if nonceErr != nil || !decision.Valid() {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return VerifiedOIDCToken{}, ctxErr
+			}
+			return VerifiedOIDCToken{}, ErrUnavailable
+		}
+		if !decision.Accepted() {
+			return VerifiedOIDCToken{}, newDPoPNonceChallengeError(decision.Challenge())
+		}
+	} else if nonce != "" {
+		return VerifiedOIDCToken{}, ErrInvalidCredential
 	}
 	if err := ctx.Err(); err != nil {
 		return VerifiedOIDCToken{}, err
@@ -189,6 +349,7 @@ type dpopClaims struct {
 	URI         string           `json:"htu"`
 	IssuedAt    *jwt.NumericDate `json:"iat"`
 	AccessToken string           `json:"ath"`
+	Nonce       string           `json:"nonce,omitempty"`
 }
 
 func verifyDPoPProof(
@@ -197,38 +358,38 @@ func verifyDPoPProof(
 	expectedThumbprint string,
 	clockSkew time.Duration,
 	maximumProofAge time.Duration,
-) (DPoPReplayReservation, error) {
+) (DPoPReplayReservation, string, error) {
 	header, claims, err := inspectDPoPProof(request.Proof)
 	if err != nil {
-		return DPoPReplayReservation{}, err
+		return DPoPReplayReservation{}, "", err
 	}
 	key, thumbprint, err := parseDPoPPublicKey(header.JWK, header.Algorithm)
 	if err != nil || thumbprint != expectedThumbprint {
-		return DPoPReplayReservation{}, errors.New("DPoP key binding is invalid")
+		return DPoPReplayReservation{}, "", errors.New("DPoP key binding is invalid")
 	}
 	parsed, err := jwt.ParseSigned(string(request.Proof), []jose.SignatureAlgorithm{
 		jose.SignatureAlgorithm(header.Algorithm),
 	})
 	if err != nil || len(parsed.Headers) != 1 || parsed.Headers[0].Algorithm != header.Algorithm {
-		return DPoPReplayReservation{}, errors.New("DPoP signature envelope is invalid")
+		return DPoPReplayReservation{}, "", errors.New("DPoP signature envelope is invalid")
 	}
 	var signedClaims dpopClaims
 	if err := parsed.Claims(key.Key, &signedClaims); err != nil || !equalDPoPClaims(signedClaims, claims) {
-		return DPoPReplayReservation{}, errors.New("DPoP signature is invalid")
+		return DPoPReplayReservation{}, "", errors.New("DPoP signature is invalid")
 	}
 	if claims.Method != request.Method || claims.URI != request.ExternalURI ||
 		claims.IssuedAt == nil || !validDPoPProofID(claims.ProofID) ||
 		!validDPoPThumbprint(claims.AccessToken) {
-		return DPoPReplayReservation{}, errors.New("DPoP claims are invalid")
+		return DPoPReplayReservation{}, "", errors.New("DPoP claims are invalid")
 	}
 	accessTokenDigest := sha256.Sum256(accessToken)
 	if claims.AccessToken != base64.RawURLEncoding.EncodeToString(accessTokenDigest[:]) {
-		return DPoPReplayReservation{}, errors.New("DPoP access token binding is invalid")
+		return DPoPReplayReservation{}, "", errors.New("DPoP access token binding is invalid")
 	}
 	now := time.Now()
 	issuedAt := claims.IssuedAt.Time()
 	if issuedAt.After(now.Add(clockSkew)) || now.Sub(issuedAt) > maximumProofAge+clockSkew {
-		return DPoPReplayReservation{}, errors.New("DPoP proof time is invalid")
+		return DPoPReplayReservation{}, "", errors.New("DPoP proof time is invalid")
 	}
 	keyDigest := sha256.Sum256([]byte(thumbprint))
 	proofDigest := sha256.Sum256([]byte(claims.ProofID))
@@ -239,14 +400,15 @@ func verifyDPoPProof(
 		ExpiresAt:           issuedAt.Add(maximumProofAge + clockSkew),
 	}
 	if !reservation.Valid() {
-		return DPoPReplayReservation{}, errors.New("DPoP replay reservation is invalid")
+		return DPoPReplayReservation{}, "", errors.New("DPoP replay reservation is invalid")
 	}
-	return reservation, nil
+	return reservation, claims.Nonce, nil
 }
 
 func equalDPoPClaims(left, right dpopClaims) bool {
 	if left.ProofID != right.ProofID || left.Method != right.Method || left.URI != right.URI ||
-		left.AccessToken != right.AccessToken || (left.IssuedAt == nil) != (right.IssuedAt == nil) {
+		left.AccessToken != right.AccessToken || left.Nonce != right.Nonce ||
+		(left.IssuedAt == nil) != (right.IssuedAt == nil) {
 		return false
 	}
 	return left.IssuedAt == nil || left.IssuedAt.Time().Equal(right.IssuedAt.Time())
@@ -339,6 +501,39 @@ func validDPoPThumbprint(value string) bool {
 	decoded, err := base64.RawURLEncoding.Strict().DecodeString(value)
 	return err == nil && len(decoded) == sha256.Size &&
 		base64.RawURLEncoding.EncodeToString(decoded) == value
+}
+
+func validDPoPNonce(value string) bool {
+	decoded, err := base64.RawURLEncoding.Strict().DecodeString(value)
+	return err == nil && len(decoded) == dpopNonceBytes &&
+		base64.RawURLEncoding.EncodeToString(decoded) == value
+}
+
+type dpopNonceChallengeError struct {
+	challenge string
+}
+
+func newDPoPNonceChallengeError(challenge string) error {
+	if !validDPoPNonce(challenge) {
+		return ErrUnavailable
+	}
+	return &dpopNonceChallengeError{challenge: challenge}
+}
+
+func (err *dpopNonceChallengeError) Error() string {
+	return "DPoP nonce is required"
+}
+
+func (err *dpopNonceChallengeError) Unwrap() error {
+	return ErrInvalidCredential
+}
+
+func DPoPNonceChallenge(err error) (string, bool) {
+	var challenge *dpopNonceChallengeError
+	if !errors.As(err, &challenge) || challenge == nil || !validDPoPNonce(challenge.challenge) {
+		return "", false
+	}
+	return challenge.challenge, true
 }
 
 func validDPoPExternalURI(value string) bool {
