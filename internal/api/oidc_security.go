@@ -93,7 +93,7 @@ func NewDurableOIDCDPoPAssembly(
 		return nil, err
 	}
 	return &DurableOIDCDPoPAssembly{
-		handler:       oidcKeysetReadyHandler(handler, keysets),
+		handler:       oidcSecurityReadyHandler(handler, keysets, config.RateLimiter),
 		authenticator: authenticator,
 		keysets:       keysets,
 	}, nil
@@ -141,9 +141,14 @@ func (assembly *DurableOIDCDPoPAssembly) RefreshOIDCKeyset(ctx context.Context) 
 	return assembly.authenticator.RefreshKeyset(ctx)
 }
 
-func oidcKeysetReadyHandler(
+type authenticationRateLimitReadiness interface {
+	Ready(context.Context) error
+}
+
+func oidcSecurityReadyHandler(
 	handler http.Handler,
 	keysets *authn.OIDCJWTKeysetRefreshSupervisor,
+	rateLimiter AuthenticationRateLimiter,
 ) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Method == http.MethodGet && request.URL.Path == "/livez" {
@@ -159,6 +164,17 @@ func oidcKeysetReadyHandler(
 				true,
 			)})
 			return
+		}
+		if readiness, ok := rateLimiter.(authenticationRateLimitReadiness); ok {
+			if err := readiness.Ready(request.Context()); err != nil {
+				clearOIDCSecurityHeaders(request)
+				writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
+					"AUTHENTICATION_ADMISSION_UNAVAILABLE",
+					"Authentication admission is temporarily unavailable.",
+					true,
+				)})
+				return
+			}
 		}
 		handler.ServeHTTP(response, request)
 	})
