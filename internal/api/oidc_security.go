@@ -25,6 +25,7 @@ type DurableOIDCDPoPConfig struct {
 	KeysetRefresh                 authn.OIDCJWTKeysetRefreshPolicy
 	DPoPClockSkew                 time.Duration
 	MaximumProofAge               time.Duration
+	DPoPNonce                     authn.DPoPNoncePolicy
 }
 
 // ReleaseCertificationReadiness keeps serving bound to the validity window of
@@ -80,6 +81,7 @@ func NewDurableOIDCDPoPAssembly(
 		MaximumTokenLifetime: config.OIDC.MaximumLifetime,
 		DPoPClockSkew:        config.DPoPClockSkew,
 		MaximumProofAge:      config.MaximumProofAge,
+		Nonce:                config.DPoPNonce,
 	})
 	if err != nil {
 		return nil, err
