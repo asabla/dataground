@@ -433,7 +433,7 @@ func acquireOIDCProviderCredentialLock(ctx context.Context, targetPath string) (
 	}
 	lockDescriptor, err := syscall.Openat(
 		int(directoryHandle.Fd()), filepath.Base(targetPath)+".lock",
-		syscall.O_CREATE|syscall.O_RDWR|syscall.O_CLOEXEC|syscall.O_NOFOLLOW,
+		syscall.O_CREAT|syscall.O_RDWR|syscall.O_CLOEXEC|syscall.O_NOFOLLOW,
 		0o600,
 	)
 	if err != nil {
@@ -547,7 +547,7 @@ func createOIDCProviderCredentialTemporary(directory *os.File) (string, *os.File
 		name := ".dataground-oidc-provider-credential-" + hex.EncodeToString(random)
 		descriptor, err := syscall.Openat(
 			int(directory.Fd()), name,
-			syscall.O_CREATE|syscall.O_EXCL|syscall.O_RDWR|syscall.O_CLOEXEC|syscall.O_NOFOLLOW,
+			syscall.O_CREAT|syscall.O_EXCL|syscall.O_RDWR|syscall.O_CLOEXEC|syscall.O_NOFOLLOW,
 			0o600,
 		)
 		if err == nil {
