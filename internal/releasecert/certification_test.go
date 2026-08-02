@@ -316,7 +316,7 @@ func newCertificationFixture(t *testing.T) *certificationFixture {
 			PolicyFile string `json:"policyFile"`
 		} `json:"authorization"`
 	}{
-		Contract: "dataground.api-security/oidc-dpop/v2",
+		Contract: "dataground.api-security/oidc-dpop/v3",
 		Admission: struct {
 			DeploymentProfile    string `json:"deploymentProfile"`
 			CapacityEvidenceFile string `json:"capacityEvidenceFile"`
