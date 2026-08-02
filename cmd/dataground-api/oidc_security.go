@@ -78,21 +78,36 @@ type oidcSecurityConfiguration struct {
 		PolicySetID string `json:"policySetId"`
 		PolicyFile  string `json:"policyFile"`
 	} `json:"authorization"`
-	capacityEvidence persistence.AuthenticationRateLimitCapacityEvidence
+	capacityEvidence     persistence.AuthenticationRateLimitCapacityEvidence
+	releaseCertification *oidcReleaseCertification
 }
 
-func loadOIDCSecurityConfiguration(path string) (oidcSecurityConfiguration, []byte, error) {
+func loadOIDCSecurityConfiguration(
+	path string,
+	certificationPath string,
+	trustProfilePath string,
+) (oidcSecurityConfiguration, []byte, error) {
 	sourceRevision, goVersion, err := currentOIDCSecurityBuild()
 	if err != nil {
 		return oidcSecurityConfiguration{}, nil, err
 	}
-	return loadOIDCSecurityConfigurationForBuild(path, sourceRevision, goVersion)
+	return loadOIDCSecurityConfigurationForBuild(
+		path,
+		certificationPath,
+		trustProfilePath,
+		sourceRevision,
+		goVersion,
+		time.Now().UTC(),
+	)
 }
 
 func loadOIDCSecurityConfigurationForBuild(
 	path string,
+	certificationPath string,
+	trustProfilePath string,
 	sourceRevision string,
 	goVersion string,
+	now time.Time,
 ) (oidcSecurityConfiguration, []byte, error) {
 	var configuration oidcSecurityConfiguration
 	encoded, err := readStableConfigurationFile(path, maximumSecurityConfigurationBytes)
@@ -168,6 +183,20 @@ func loadOIDCSecurityConfigurationForBuild(
 		return configuration, nil, err
 	}
 	configuration.capacityEvidence = evidence
+	certification, err := loadOIDCReleaseCertification(
+		path,
+		encoded,
+		certificationPath,
+		trustProfilePath,
+		sourceRevision,
+		goVersion,
+		now,
+	)
+	if err != nil {
+		clear(policy)
+		return configuration, nil, err
+	}
+	configuration.releaseCertification = certification
 	return configuration, policy, nil
 }
 
@@ -202,10 +231,11 @@ func composeOIDCSecurity(
 		return nil, err
 	}
 	return api.NewDurableOIDCDPoPAssembly(ctx, api.DurableOIDCDPoPConfig{
-		Repository:     repository,
-		Authorizer:     authorizer,
-		RateLimiter:    limiter,
-		ExternalOrigin: configuration.ExternalOrigin,
+		Repository:                    repository,
+		Authorizer:                    authorizer,
+		RateLimiter:                   limiter,
+		ReleaseCertificationReadiness: configuration.releaseCertification,
+		ExternalOrigin:                configuration.ExternalOrigin,
 		OIDC: authn.ReloadableOIDCJWTConfig{
 			Issuer:          configuration.Issuer,
 			Audience:        authn.APIAudience,
