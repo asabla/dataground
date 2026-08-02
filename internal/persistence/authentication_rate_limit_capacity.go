@@ -3,6 +3,7 @@ package persistence
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -19,10 +20,11 @@ import (
 )
 
 const (
-	authenticationRateLimitCapacityRequestContract  = "dataground.authentication-rate-limit-capacity/v1"
-	authenticationRateLimitCapacityEvidenceContract = "dataground.authentication-rate-limit-capacity-evidence/v1"
+	authenticationRateLimitCapacityRequestContract  = "dataground.authentication-rate-limit-capacity/v2"
+	authenticationRateLimitCapacityEvidenceContract = "dataground.authentication-rate-limit-capacity-evidence/v2"
 	maximumAuthenticationRateLimitCapacityAttempts  = 100_000
 	maximumAuthenticationRateLimitCapacityWorkers   = 256
+	maximumAuthenticationRateLimitCapacityDuration  = 30 * time.Minute
 )
 
 var (
@@ -55,7 +57,7 @@ func (config AuthenticationRateLimitCapacityConfig) Valid() bool {
 		validAuthenticationRateLimitDeploymentProfile(config.DeploymentProfile) &&
 		validAuthenticationRateLimitCapacityDatabaseName(config.DatabaseName) &&
 		config.Policy.Valid() &&
-		config.AttemptsPerPhase > 0 &&
+		config.AttemptsPerPhase > config.Policy.GlobalBurst &&
 		config.AttemptsPerPhase <= maximumAuthenticationRateLimitCapacityAttempts &&
 		config.Workers > 0 && config.Workers <= maximumAuthenticationRateLimitCapacityWorkers &&
 		config.Workers <= config.AttemptsPerPhase &&
@@ -114,6 +116,141 @@ type AuthenticationRateLimitCapacityEvidence struct {
 	Phases                       []AuthenticationRateLimitCapacityPhase `json:"phases"`
 }
 
+// AcceptedFor reports whether a capacity record is internally consistent and
+// binds to the exact executable, deployment profile, and admission policy.
+// Runtime database compatibility is checked separately through
+// AuthenticationRateLimitCapacityReady so it remains part of readiness.
+func (evidence AuthenticationRateLimitCapacityEvidence) AcceptedFor(
+	sourceRevision string,
+	deploymentProfile string,
+	goVersion string,
+	policy AuthenticationRateLimitPolicy,
+) bool {
+	if evidence.Contract != authenticationRateLimitCapacityEvidenceContract ||
+		!authenticationRateLimitCapacityRunPattern.MatchString(evidence.RunID) ||
+		evidence.SourceRevision != sourceRevision ||
+		!authenticationRateLimitRevisionPattern.MatchString(evidence.SourceRevision) ||
+		evidence.DeploymentProfile != deploymentProfile ||
+		!validAuthenticationRateLimitDeploymentProfile(evidence.DeploymentProfile) ||
+		!validAuthenticationRateLimitCapacityDatabaseName(evidence.DatabaseName) ||
+		evidence.GoVersion != goVersion || len(evidence.GoVersion) == 0 || len(evidence.GoVersion) > 64 ||
+		evidence.PostgreSQLServerVersion <= 0 || evidence.PostgreSQLMaxConnections <= 0 ||
+		evidence.MaximumP99LatencyNanoseconds <= 0 ||
+		evidence.MaximumP99LatencyNanoseconds > time.Minute.Nanoseconds() ||
+		evidence.MinimumThroughputPerSecond == 0 || !policy.Valid() ||
+		!evidence.capacityPolicyMatches(policy) || len(evidence.Phases) != 3 {
+		return false
+	}
+	recordedAt, err := time.Parse(time.RFC3339Nano, evidence.RecordedAt)
+	if err != nil || recordedAt.Location() != time.UTC || recordedAt.After(time.Now().Add(time.Minute)) {
+		return false
+	}
+	expectedNames := [...]string{"credential", "isolation-domain", "global"}
+	expectedBursts := [...]uint32{policy.CredentialBurst, policy.IsolationDomainBurst, policy.GlobalBurst}
+	accepted := true
+	var expectedAttempts, expectedWorkers uint32
+	for index, phase := range evidence.Phases {
+		if index == 0 {
+			expectedAttempts = phase.Attempts
+			expectedWorkers = phase.Workers
+		} else if phase.Attempts != expectedAttempts || phase.Workers != expectedWorkers {
+			return false
+		}
+		if uint64(evidence.PostgreSQLMaxConnections) < uint64(phase.Workers) {
+			return false
+		}
+		if !validAuthenticationRateLimitCapacityPhase(
+			phase,
+			expectedNames[index],
+			uint64(index+1),
+			expectedBursts[index],
+			policy.Window,
+			time.Duration(evidence.MaximumP99LatencyNanoseconds),
+			evidence.MinimumThroughputPerSecond,
+		) {
+			return false
+		}
+		if !phase.P99LatencyAccepted || !phase.MinimumThroughputAccepted ||
+			!authenticationRateLimitCapacityCountsAccepted(
+				phase,
+				expectedBursts[index],
+				policy.Window,
+			) {
+			accepted = false
+		}
+	}
+	return evidence.Accepted && accepted
+}
+
+func (evidence AuthenticationRateLimitCapacityEvidence) capacityPolicyMatches(
+	policy AuthenticationRateLimitPolicy,
+) bool {
+	digest, err := hex.DecodeString(evidence.Policy.CanonicalPolicyDigestHex)
+	expected := policy.digest()
+	return err == nil && len(digest) == sha256.Size &&
+		subtle.ConstantTimeCompare(digest, expected[:]) == 1 &&
+		evidence.Policy.WindowNanoseconds == policy.Window.Nanoseconds() &&
+		evidence.Policy.GlobalBurst == policy.GlobalBurst &&
+		evidence.Policy.IsolationDomainBurst == policy.IsolationDomainBurst &&
+		evidence.Policy.CredentialBurst == policy.CredentialBurst
+}
+
+func validAuthenticationRateLimitCapacityPhase(
+	phase AuthenticationRateLimitCapacityPhase,
+	expectedName string,
+	expectedGeneration uint64,
+	expectedBurst uint32,
+	window time.Duration,
+	maximumP99 time.Duration,
+	minimumThroughput uint32,
+) bool {
+	if phase.Name != expectedName || phase.Generation != expectedGeneration ||
+		phase.Attempts == 0 || phase.Attempts > maximumAuthenticationRateLimitCapacityAttempts ||
+		phase.Workers == 0 || phase.Workers > maximumAuthenticationRateLimitCapacityWorkers ||
+		phase.Workers > phase.Attempts || phase.Attempts <= expectedBurst ||
+		uint64(phase.Allowed)+uint64(phase.Denied) != uint64(phase.Attempts) ||
+		phase.DurationNanoseconds <= 0 ||
+		phase.DurationNanoseconds > maximumAuthenticationRateLimitCapacityDuration.Nanoseconds() ||
+		!authenticationRateLimitCapacityCountsAccepted(phase, expectedBurst, window) ||
+		phase.P50LatencyNanoseconds <= 0 ||
+		phase.P50LatencyNanoseconds > phase.P95LatencyNanoseconds ||
+		phase.P95LatencyNanoseconds > phase.P99LatencyNanoseconds ||
+		phase.P99LatencyNanoseconds > phase.MaximumLatencyNanoseconds ||
+		phase.MaximumLatencyNanoseconds > phase.DurationNanoseconds ||
+		phase.CompletedPerSecondMilli != capacityCompletedPerSecondMilli(
+			phase.Attempts,
+			time.Duration(phase.DurationNanoseconds),
+		) {
+		return false
+	}
+	return phase.P99LatencyAccepted == (phase.P99LatencyNanoseconds <= maximumP99.Nanoseconds()) &&
+		phase.MinimumThroughputAccepted ==
+			(phase.CompletedPerSecondMilli >= uint64(minimumThroughput)*1000)
+}
+
+func authenticationRateLimitCapacityCountsAccepted(
+	phase AuthenticationRateLimitCapacityPhase,
+	burst uint32,
+	window time.Duration,
+) bool {
+	if burst == 0 || window <= 0 || phase.DurationNanoseconds <= 0 ||
+		phase.DurationNanoseconds > maximumAuthenticationRateLimitCapacityDuration.Nanoseconds() ||
+		phase.Denied == 0 ||
+		phase.Allowed < burst {
+		return false
+	}
+	interval := window / time.Duration(burst)
+	if interval <= 0 {
+		return false
+	}
+	refills := uint64(time.Duration(phase.DurationNanoseconds) / interval)
+	maximumAllowed := uint64(burst) + refills
+	if maximumAllowed > uint64(phase.Attempts) {
+		maximumAllowed = uint64(phase.Attempts)
+	}
+	return uint64(phase.Allowed) <= maximumAllowed
+}
+
 type authenticationRateLimitCapacityAttempt struct {
 	allowed bool
 	latency time.Duration
@@ -151,8 +288,9 @@ func OpenAuthenticationRateLimitCapacityPool(
 // MeasureAuthenticationRateLimitCapacity runs credential-, domain-, and
 // global-contention phases against fresh generations in a dedicated database.
 // Evidence is returned only when every attempt completes. Its Accepted field
-// reports whether every operator-supplied latency and throughput threshold was
-// met; dependency errors and cancellation return no partial record.
+// reports whether every operator-supplied latency and throughput threshold and
+// the expected burst/refill denial semantics were met; dependency errors and
+// cancellation return no partial record.
 func (repository *Repository) MeasureAuthenticationRateLimitCapacity(
 	ctx context.Context,
 	config AuthenticationRateLimitCapacityConfig,
@@ -209,12 +347,52 @@ func (repository *Repository) MeasureAuthenticationRateLimitCapacity(
 			return AuthenticationRateLimitCapacityEvidence{}, err
 		}
 		evidence.Phases = append(evidence.Phases, phase)
-		if !phase.P99LatencyAccepted || !phase.MinimumThroughputAccepted {
+		expectedBurst := []uint32{
+			config.Policy.CredentialBurst,
+			config.Policy.IsolationDomainBurst,
+			config.Policy.GlobalBurst,
+		}[index]
+		if !phase.P99LatencyAccepted || !phase.MinimumThroughputAccepted ||
+			!authenticationRateLimitCapacityCountsAccepted(
+				phase,
+				expectedBurst,
+				config.Policy.Window,
+			) {
 			evidence.Accepted = false
 		}
 	}
 	evidence.RecordedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	return evidence, nil
+}
+
+// AuthenticationRateLimitCapacityReady verifies that the serving PostgreSQL
+// profile still matches the exact server version and connection ceiling used
+// by the accepted capacity run.
+func (repository *Repository) AuthenticationRateLimitCapacityReady(
+	ctx context.Context,
+	evidence AuthenticationRateLimitCapacityEvidence,
+) error {
+	if repository == nil || repository.pool == nil || ctx == nil ||
+		evidence.PostgreSQLServerVersion <= 0 || evidence.PostgreSQLMaxConnections <= 0 {
+		return ErrAuthenticationRateLimitCapacityInvalid
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	var serverVersionRaw, maximumConnectionsRaw string
+	if err := repository.pool.QueryRow(ctx, `
+		SELECT current_setting('server_version_num'), current_setting('max_connections')
+	`).Scan(&serverVersionRaw, &maximumConnectionsRaw); err != nil {
+		return fmt.Errorf("inspect authentication rate limit serving database profile: %w", err)
+	}
+	serverVersion, serverErr := strconv.Atoi(serverVersionRaw)
+	maximumConnections, connectionsErr := strconv.Atoi(maximumConnectionsRaw)
+	if serverErr != nil || connectionsErr != nil ||
+		serverVersion != evidence.PostgreSQLServerVersion ||
+		maximumConnections != evidence.PostgreSQLMaxConnections {
+		return ErrAuthenticationRateLimitCapacityInvalid
+	}
+	return nil
 }
 
 func (repository *Repository) requireFreshAuthenticationRateLimitCapacityDatabase(
