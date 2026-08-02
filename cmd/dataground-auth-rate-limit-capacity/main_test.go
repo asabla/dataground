@@ -36,7 +36,7 @@ func TestReadCapacityRequestRejectsAmbiguousOrUnsafeInput(t *testing.T) {
 	for name, content := range map[string]string{
 		"duplicate":        strings.Replace(valid, `"workers":20`, `"workers":20,"workers":21`, 1),
 		"unknown":          strings.Replace(valid, `"contract":`, `"unknown":true,"contract":`, 1),
-		"missing duration": strings.Replace(valid, `"maximumRunDuration":"10m",`, "", 1),
+		"missing duration": strings.Replace(valid, ",\n\t\t\"maximumRunDuration\":\"10m\"", "", 1),
 		"trailing":         valid + `{}`,
 	} {
 		name, content := name, content
