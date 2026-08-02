@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	oidcSecurityConfigurationContract = "dataground.api-security/oidc-dpop/v1"
+	oidcSecurityConfigurationContract = "dataground.api-security/oidc-dpop/v2"
 	maximumSecurityConfigurationBytes = 64 << 10
 	maximumAPICedarPolicyBytes        = 1 << 20
 	maximumSecurityConfigurationDepth = 16
@@ -70,14 +70,30 @@ type oidcSecurityConfiguration struct {
 		GlobalBurst          uint32        `json:"globalBurst"`
 		IsolationDomainBurst uint32        `json:"isolationDomainBurst"`
 		CredentialBurst      uint32        `json:"credentialBurst"`
+		DeploymentProfile    string        `json:"deploymentProfile"`
+		CapacityEvidenceFile string        `json:"capacityEvidenceFile"`
+		CapacityEvidenceHash string        `json:"capacityEvidenceSha256"`
 	} `json:"admission"`
 	Authorization struct {
 		PolicySetID string `json:"policySetId"`
 		PolicyFile  string `json:"policyFile"`
 	} `json:"authorization"`
+	capacityEvidence persistence.AuthenticationRateLimitCapacityEvidence
 }
 
 func loadOIDCSecurityConfiguration(path string) (oidcSecurityConfiguration, []byte, error) {
+	sourceRevision, goVersion, err := currentOIDCSecurityBuild()
+	if err != nil {
+		return oidcSecurityConfiguration{}, nil, err
+	}
+	return loadOIDCSecurityConfigurationForBuild(path, sourceRevision, goVersion)
+}
+
+func loadOIDCSecurityConfigurationForBuild(
+	path string,
+	sourceRevision string,
+	goVersion string,
+) (oidcSecurityConfiguration, []byte, error) {
 	var configuration oidcSecurityConfiguration
 	encoded, err := readStableConfigurationFile(path, maximumSecurityConfigurationBytes)
 	if err != nil {
@@ -104,7 +120,10 @@ func loadOIDCSecurityConfiguration(path string) (oidcSecurityConfiguration, []by
 		!configuration.KeysetRefresh.Interval.set || !configuration.KeysetRefresh.Timeout.set ||
 		configuration.Admission.Generation == 0 ||
 		configuration.Admission.Generation > math.MaxInt64 ||
-		!configuration.Admission.Window.set {
+		!configuration.Admission.Window.set ||
+		configuration.Admission.DeploymentProfile == "" ||
+		configuration.Admission.CapacityEvidenceFile == "" ||
+		configuration.Admission.CapacityEvidenceHash == "" {
 		return configuration, nil, errors.New("OIDC security configuration is incomplete")
 	}
 	if _, err := authn.NewOIDCJWTKeysetFileSource(configuration.KeysetPublicationFile); err != nil {
@@ -136,6 +155,19 @@ func loadOIDCSecurityConfiguration(path string) (oidcSecurityConfiguration, []by
 		clear(policy)
 		return configuration, nil, errors.New("OIDC security policy is invalid")
 	}
+	evidence, err := loadAuthenticationRateLimitCapacityEvidence(
+		configuration.Admission.CapacityEvidenceFile,
+		configuration.Admission.CapacityEvidenceHash,
+		sourceRevision,
+		goVersion,
+		configuration.Admission.DeploymentProfile,
+		configuration.admissionPolicy(),
+	)
+	if err != nil {
+		clear(policy)
+		return configuration, nil, err
+	}
+	configuration.capacityEvidence = evidence
 	return configuration, policy, nil
 }
 
@@ -160,10 +192,11 @@ func composeOIDCSecurity(
 	if err != nil {
 		return nil, err
 	}
-	limiter, err := api.NewPostgreSQLAuthenticationRateLimiter(
+	limiter, err := api.NewCapacityBoundPostgreSQLAuthenticationRateLimiter(
 		repository,
 		configuration.Admission.Generation,
 		configuration.admissionPolicy(),
+		configuration.capacityEvidence,
 	)
 	if err != nil {
 		return nil, err
@@ -204,11 +237,23 @@ func (configuration oidcSecurityConfiguration) admissionPolicy() persistence.Aut
 }
 
 func readStableConfigurationFile(path string, maximumBytes int64) ([]byte, error) {
+	return readStableConfigurationFileWithPermissions(path, maximumBytes, 0o022)
+}
+
+func readStablePrivateConfigurationFile(path string, maximumBytes int64) ([]byte, error) {
+	return readStableConfigurationFileWithPermissions(path, maximumBytes, 0o077)
+}
+
+func readStableConfigurationFileWithPermissions(
+	path string,
+	maximumBytes int64,
+	forbiddenPermissions os.FileMode,
+) ([]byte, error) {
 	if !canonicalAbsolutePath(path) || maximumBytes <= 0 {
 		return nil, errors.New("configuration file path is invalid")
 	}
 	pathInfo, err := os.Lstat(path)
-	if err != nil || !safeConfigurationFile(pathInfo, maximumBytes) {
+	if err != nil || !safeConfigurationFile(pathInfo, maximumBytes, forbiddenPermissions) {
 		return nil, errors.New("configuration file is invalid")
 	}
 	file, err := os.Open(path)
@@ -217,7 +262,8 @@ func readStableConfigurationFile(path string, maximumBytes int64) ([]byte, error
 	}
 	defer file.Close()
 	before, err := file.Stat()
-	if err != nil || !os.SameFile(pathInfo, before) || !safeConfigurationFile(before, maximumBytes) {
+	if err != nil || !os.SameFile(pathInfo, before) ||
+		!safeConfigurationFile(before, maximumBytes, forbiddenPermissions) {
 		return nil, errors.New("configuration file changed before reading")
 	}
 	content, err := io.ReadAll(io.LimitReader(file, maximumBytes+1))
@@ -232,11 +278,17 @@ func readStableConfigurationFile(path string, maximumBytes int64) ([]byte, error
 		clear(content)
 		return nil, errors.New("configuration file changed while reading")
 	}
+	pathAfter, err := os.Lstat(path)
+	if err != nil || !os.SameFile(after, pathAfter) || after.Size() != pathAfter.Size() ||
+		!after.ModTime().Equal(pathAfter.ModTime()) || after.Mode() != pathAfter.Mode() {
+		clear(content)
+		return nil, errors.New("configuration file path changed while reading")
+	}
 	return content, nil
 }
 
-func safeConfigurationFile(info os.FileInfo, maximumBytes int64) bool {
-	return info != nil && info.Mode().IsRegular() && info.Mode().Perm()&0o022 == 0 &&
+func safeConfigurationFile(info os.FileInfo, maximumBytes int64, forbiddenPermissions os.FileMode) bool {
+	return info != nil && info.Mode().IsRegular() && info.Mode().Perm()&forbiddenPermissions == 0 &&
 		info.Size() > 0 && info.Size() <= maximumBytes
 }
 
