@@ -80,11 +80,34 @@ PostgreSQL-backed durable API mode now wraps its configured authenticator in a f
 
 `AuthenticationRateLimiter` is a deployment-owned admission boundary used only by the explicit rate-limited DPoP handler constructors. It receives an immutable request with accessors for a validated isolation-domain identifier and copied SHA-256 credential digest, never the raw bearer token, proof, request body, host, proxy headers, or client address. The request has no exported fields, so generic serialization does not disclose the digest. Admission runs before DPoP parsing, token verification, authorization, and request-body reads. A bounded denial returns a stable retryable `429` with an integer `Retry-After`; limiter failure or an invalid decision fails closed with a retryable `503`. Credentials are consumed on every admission exit. Health probes stay outside this path, and rate-limit outcomes do not become authentication-attempt audit records because authentication has not started.
 
-`PostgreSQLAuthenticationRateLimiter` supplies one explicit shared-window policy with monotonically narrower global, isolation-domain, and credential bursts. It uses PostgreSQL's clock and serialized global admission to coordinate every process sharing the repository. Only domain-separated subject digests are stored; active policy values are bound by a canonical digest, and configuration drift fails closed. Global admission bounds the number of attacker-selected domain and credential buckets that can be created, while bounded opportunistic reclamation removes fully refilled non-global state. The implementation has no process-local fallback. Deployments still own policy selection and rollout, capacity validation, trusted network-edge controls, and observability without subject digests.
+`PostgreSQLAuthenticationRateLimiter` supplies one explicit shared-window policy with monotonically narrower global, isolation-domain, and credential bursts. It uses PostgreSQL's clock and serialized global admission to coordinate every process sharing the repository. Only domain-separated subject digests are stored; every process pins one operator-activated generation and its canonical policy digest, and stale or conflicting configuration fails closed. Global admission bounds the number of attacker-selected domain and credential buckets that can be created, while bounded opportunistic reclamation removes fully refilled non-global state. The implementation has no process-local fallback. Deployments still own policy selection, capacity validation, trusted network-edge controls, and observability without subject digests.
+
+
+## Admission policy activation
+
+`dataground-auth-rate-limit-policy` activates one reviewed policy generation before the matching API processes become ready. It accepts one owner-only, closed request file and requires the current PostgreSQL schema. The database credential is the administrative authorization boundary.
+
+```json
+{
+  "contract": "dataground.authentication-rate-limit-policy/v1",
+  "generation": 1,
+  "window": "1m",
+  "globalBurst": 100,
+  "isolationDomainBurst": 20,
+  "credentialBurst": 10,
+  "actorId": "usr_00000000000000000001",
+  "reason": "reviewed initial admission policy",
+  "correlationId": "cor_00000000000000000001"
+}
+```
+
+Create the request at an absolute canonical path with mode `0600`, migrate the database, then run `DATAGROUND_DATABASE_URL=... go run ./cmd/dataground-auth-rate-limit-policy -request-file /run/dataground/admission-policy.json`. The first generation must be 1 and every replacement must increment exactly by one. Exact replay of the active generation is read-only; rollback, gaps, conflicting reuse, and reuse of a historical generation fail closed.
+
+Activation takes the exclusive side of the same database advisory lock held in shared mode by every admission. It waits for in-flight admissions, appends operator attribution and a reason digest, clears only the previous generation's transient buckets, and commits the new generation atomically. The cutover intentionally grants one fresh burst under the newly reviewed policy. Processes still configured for the previous generation immediately fail admission and readiness, while staged processes become ready only when their exact generation and values are active. Production values still require deployment-specific load and abuse testing; the repository does not infer them.
 
 `ReloadableOIDCDPoPAuthenticator` owns one reloadable keyset verifier, DPoP verifier, replay store, and identity resolver. `DurableOIDCDPoPAssembly` binds that chain to one trusted external origin, deployment rate limiter, durable API repository, audited authenticator, and audited authorizer. The assembly exposes only its HTTP handler, the exact serving verifier's refresh lifecycle, minimized refresh status, and readiness, so callers cannot supervise or rotate a verifier that is not serving the handler. Every route except liveness fails closed and consumes credential headers unless the refresh lifecycle owns a still-valid generation. Static HTTP and DPoP profile errors fail before the keyset source is contacted.
 
-Provider selection, provider revocation policy, authenticated non-public metadata endpoints, group-to-membership administration, HTTPS ingress deployment, provider-side DPoP issuance, optional nonce policy, deployment rate-limit policy rollout and measured capacity, workload identity, and production conformance remain unimplemented. The opt-in OIDC profile and default static development identity both require explicit loopback listeners and must not bind publicly.
+Provider selection, provider revocation policy, authenticated non-public metadata endpoints, group-to-membership administration, HTTPS ingress deployment, provider-side DPoP issuance, optional nonce policy, measured admission capacity, workload identity, and production conformance remain unimplemented. The opt-in OIDC profile and default static development identity both require explicit loopback listeners and must not bind publicly.
 
 
 ## Loopback executable activation
@@ -111,6 +134,7 @@ Set `DATAGROUND_API_SECURITY_CONFIG_FILE` to the absolute canonical path of one 
     "timeout": "5s"
   },
   "admission": {
+    "generation": 1,
     "window": "1m",
     "globalBurst": 100,
     "isolationDomainBurst": 20,
