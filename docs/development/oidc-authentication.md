@@ -105,9 +105,40 @@ Create the request at an absolute canonical path with mode `0600`, migrate the d
 
 Activation takes the exclusive side of the same database advisory lock held in shared mode by every admission. It waits for in-flight admissions, appends operator attribution and a reason digest, and commits the new generation atomically. Bucket keys include their generation, so cutover work does not scale with historical state; subsequent admitted requests reclaim at most 128 retired or fully refilled rows per transaction. The cutover intentionally grants one fresh burst under the newly reviewed policy. Processes still configured for the previous generation immediately fail admission and readiness, while staged processes become ready only when their exact generation and values are active. Production values still require deployment-specific load and abuse testing; the repository does not infer them.
 
+## Admission capacity evidence
+
+`dataground-auth-rate-limit-capacity` measures the exact PostgreSQL admission implementation under credential, isolation-domain, and global contention. It runs only against a migrated disposable database whose exact name matches the request and whose admission activation and bucket tables are empty. The command activates three fresh generations with the candidate policy, never truncates state, and refuses database reuse. Do not point it at a development, staging, or production control-plane database.
+
+The owner-only request fixes the deployment profile, candidate policy, load shape, acceptance thresholds, and run deadline without inventing capacity targets:
+
+```json
+{
+  "contract": "dataground.authentication-rate-limit-capacity/v1",
+  "runId": "cap_0123456789abcdefghij",
+  "sourceRevision": "0123456789abcdef0123456789abcdef01234567",
+  "deploymentProfile": "team",
+  "databaseName": "dataground_auth_capacity",
+  "window": "1m",
+  "globalBurst": 100,
+  "isolationDomainBurst": 20,
+  "credentialBurst": 10,
+  "attemptsPerPhase": 200,
+  "workers": 20,
+  "maximumP99Latency": "100ms",
+  "minimumThroughputPerSecond": 50,
+  "maximumRunDuration": "10m"
+}
+```
+
+Replace `sourceRevision` with the full commit SHA being certified, then create the request with mode `0600` at an absolute canonical path. The command rejects dirty or mismatched build metadata before database access. Create and migrate a dedicated database with `capacity` in its name, then run `DATAGROUND_DATABASE_URL=... go run ./cmd/dataground-auth-rate-limit-capacity -request-file /run/dataground/admission-capacity.json -output-file /var/lib/dataground/evidence/admission-capacity.json`. The output directory must already exist, must not be a symlink or writable by group or other users, and the output file must not exist. The probe gives its PostgreSQL pool exactly the requested bounded worker count. Cancellation or limiter failure produces no artifact. A completed threshold miss writes the canonical record with `accepted` set to `false` and exits unsuccessfully, preserving measurements without making them eligible for certification.
+
+Treat the database as consumed after the command begins, even when a later phase or evidence installation fails. Preserve it for diagnosis and start any retry with a newly created, empty database and a new run identifier. If output installation reports an error, inspect the requested target and adjacent `.dataground-auth-capacity-*` file before cleanup because the durable link may have succeeded before directory synchronization became uncertain.
+
+The canonical evidence records the exact source revision, Go runtime, policy digest, PostgreSQL server version and connection ceiling, fixed load shape, observed allow and deny counts, integer latency percentiles, throughput, and threshold outcomes. Synthetic isolation domains and credential material are never included. One successful record covers only its exact database, policy, worker count, attempt count, and deployment profile; it is an input to a release certification manifest, not a universal capacity claim. No capacity record is incorporated in the repository yet.
+
 `ReloadableOIDCDPoPAuthenticator` owns one reloadable keyset verifier, DPoP verifier, replay store, and identity resolver. `DurableOIDCDPoPAssembly` binds that chain to one trusted external origin, deployment rate limiter, durable API repository, audited authenticator, and audited authorizer. The assembly exposes only its HTTP handler, the exact serving verifier's refresh lifecycle, minimized refresh status, and readiness, so callers cannot supervise or rotate a verifier that is not serving the handler. Every route except liveness fails closed and consumes credential headers unless the refresh lifecycle owns a still-valid generation. Static HTTP and DPoP profile errors fail before the keyset source is contacted.
 
-Provider selection, provider revocation policy, authenticated non-public metadata endpoints, group-to-membership administration, HTTPS ingress deployment, provider-side DPoP issuance, optional nonce policy, measured admission capacity, workload identity, and production conformance remain unimplemented. The opt-in OIDC profile and default static development identity both require explicit loopback listeners and must not bind publicly.
+Provider selection, provider revocation policy, authenticated non-public metadata endpoints, group-to-membership administration, HTTPS ingress deployment, provider-side DPoP issuance, optional nonce policy, incorporated deployment capacity evidence, workload identity, and production conformance remain unresolved. The opt-in OIDC profile and default static development identity both require explicit loopback listeners and must not bind publicly.
 
 
 ## Loopback executable activation
@@ -165,4 +196,4 @@ The optional API request binder supplies that trusted HTTP composition. It accep
 
 Before a verified token can reach identity resolution, PostgreSQL reserves SHA-256 digests of the JWK thumbprint and proof identifier in one exact isolation domain. The raw proof, access token, token digest, public key, method, URI, issuer, and subject are not persisted. Active reservations are immutable and cannot be deleted; bounded domain-scoped cleanup can reclaim expired rows.
 
-This is not production API activation. A deployment still needs an authorization server that issues DPoP-bound access tokens, reviewed TLS ingress that routes the configured origin without rewriting its canonical path, optional nonce policy, provider selection and authenticated non-public metadata endpoints where required, measured admission capacity, and reviewed non-loopback deployment activation. The executable's OIDC profile therefore remains loopback-only.
+This is not production API activation. A deployment still needs an authorization server that issues DPoP-bound access tokens, reviewed TLS ingress that routes the configured origin without rewriting its canonical path, optional nonce policy, provider selection and authenticated non-public metadata endpoints where required, an accepted capacity record from the exact deployment profile, and reviewed non-loopback deployment activation. The executable's OIDC profile therefore remains loopback-only.
