@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAuditExportDeliveryValidationClosesIdentityAndAttribution(t *testing.T) {
@@ -18,6 +19,15 @@ func TestAuditExportDeliveryValidationClosesIdentityAndAttribution(t *testing.T)
 	}
 	if !valid.Valid() {
 		t.Fatal("valid delivery was rejected")
+	}
+	stored := cloneAuditExportDelivery(valid)
+	stored.Contract = auditExportDeliveryLegacyContract
+	if !validStoredAuditExportDelivery(stored) {
+		t.Fatal("legacy stored delivery was rejected")
+	}
+	stored.Contract = "dataground.audit-export-delivery/v3"
+	if validStoredAuditExportDelivery(stored) {
+		t.Fatal("unknown stored delivery contract was accepted")
 	}
 	for name, mutate := range map[string]func(*AuditExportDelivery){
 		"wrong contract":        func(value *AuditExportDelivery) { value.Contract = "dataground.audit-export-delivery/v2" },
@@ -45,5 +55,20 @@ func TestAuditExportDeliveryValidationClosesIdentityAndAttribution(t *testing.T)
 	changed.ActorID = "operator\nother"
 	if changed.Valid() {
 		t.Fatal("control-bearing actor was accepted")
+	}
+	acknowledgement := AuditExportDeliveryAcknowledgement{
+		AcknowledgementDigest:       digest[:],
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v1",
+		RecipientTrustProfileSHA256: "sha256:" + strings.Repeat("3", 64),
+		RecipientSigningKeyID:       "archive_key_01",
+		AcceptedAt:                  time.Date(2026, 8, 3, 15, 30, 0, 123000, time.UTC),
+		Attribution:                 attribution,
+	}
+	if !acknowledgement.Valid() {
+		t.Fatal("valid verified acknowledgement was rejected")
+	}
+	acknowledgement.AcceptedAt = acknowledgement.AcceptedAt.Add(time.Nanosecond)
+	if acknowledgement.Valid() {
+		t.Fatal("sub-microsecond acknowledgement time was accepted")
 	}
 }

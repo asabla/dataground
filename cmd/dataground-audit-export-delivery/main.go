@@ -32,17 +32,19 @@ type auditExportDeliveryRepository interface {
 }
 
 type commandRequest struct {
-	operation             string
-	deliveryID            string
-	isolationDomainID     string
-	envelopeFile          string
-	trustFile             string
-	recipientID           string
-	destinationDigest     []byte
-	acknowledgementDigest []byte
-	actorID               string
-	reason                string
-	correlationID         string
+	operation          string
+	deliveryID         string
+	isolationDomainID  string
+	envelopeFile       string
+	trustFile          string
+	recipientID        string
+	destinationDigest  []byte
+	receiptFile        string
+	recipientTrustFile string
+	acknowledgement    persistence.AuditExportDeliveryAcknowledgement
+	actorID            string
+	reason             string
+	correlationID      string
 }
 
 func main() {
@@ -82,6 +84,19 @@ func run(ctx context.Context, arguments []string) error {
 	}
 	if !delivery.Valid() || delivery.IsolationDomainID != evidence.IsolationDomainID {
 		return errors.New("audit export delivery scope is invalid")
+	}
+	if request.operation == "acknowledge" {
+		receipt, err := auditseal.VerifyDeliveryReceiptFile(request.receiptFile, request.recipientTrustFile, delivery)
+		if err != nil {
+			return err
+		}
+		request.acknowledgement = persistence.AuditExportDeliveryAcknowledgement{
+			AcknowledgementDigest:       receipt.ReceiptSHA256[:],
+			ReceiptContract:             receipt.Contract,
+			RecipientTrustProfileSHA256: receipt.RecipientTrustProfileSHA256,
+			RecipientSigningKeyID:       receipt.SigningKeyID,
+			AcceptedAt:                  receipt.AcceptedAt,
+		}
 	}
 	reasonDigest := sha256.Sum256([]byte(request.reason))
 	if !(persistence.AuditExportDeliveryAttribution{
@@ -131,13 +146,12 @@ func executeRequest(
 	case "prepare":
 		return repository.PrepareAuditExportDelivery(ctx, delivery, attribution)
 	case "acknowledge":
+		acknowledgement := request.acknowledgement
+		acknowledgement.Attribution = attribution
 		return repository.AcknowledgeAuditExportDelivery(
 			ctx,
 			delivery,
-			persistence.AuditExportDeliveryAcknowledgement{
-				AcknowledgementDigest: request.acknowledgementDigest,
-				Attribution:           attribution,
-			},
+			acknowledgement,
 		)
 	default:
 		return errors.New("audit export delivery operation is invalid")
@@ -148,7 +162,7 @@ func parseArguments(arguments []string) (commandRequest, error) {
 	var request commandRequest
 	flags := flag.NewFlagSet("dataground-audit-export-delivery", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var destinationSHA256, acknowledgementSHA256 string
+	var destinationSHA256 string
 	flags.StringVar(&request.operation, "operation", "", "prepare or acknowledge")
 	flags.StringVar(&request.deliveryID, "delivery-id", "", "stable audit export delivery identifier")
 	flags.StringVar(&request.isolationDomainID, "isolation-domain", "", "exact isolation domain identifier")
@@ -156,7 +170,8 @@ func parseArguments(arguments []string) (commandRequest, error) {
 	flags.StringVar(&request.trustFile, "trust-file", "", "pinned audit export trust profile")
 	flags.StringVar(&request.recipientID, "recipient", "", "deployment-owned recipient identifier")
 	flags.StringVar(&destinationSHA256, "destination-sha256", "", "digest of the canonical destination binding")
-	flags.StringVar(&acknowledgementSHA256, "acknowledgement-sha256", "", "digest of external acknowledgement evidence")
+	flags.StringVar(&request.receiptFile, "receipt-file", "", "canonical signed recipient acknowledgement receipt")
+	flags.StringVar(&request.recipientTrustFile, "recipient-trust-file", "", "pinned recipient acknowledgement trust profile")
 	flags.StringVar(&request.actorID, "actor", "", "authorized operator identifier")
 	flags.StringVar(&request.reason, "reason", "", "operator-visible delivery reason")
 	flags.StringVar(&request.correlationID, "correlation-id", "", "stable operation correlation identifier")
@@ -177,13 +192,15 @@ func parseArguments(arguments []string) (commandRequest, error) {
 	}
 	switch request.operation {
 	case "prepare":
-		if acknowledgementSHA256 != "" {
+		if request.receiptFile != "" || request.recipientTrustFile != "" {
 			return commandRequest{}, errors.New("audit export delivery preparation arguments are invalid")
 		}
 	case "acknowledge":
-		request.acknowledgementDigest = parseDigest(acknowledgementSHA256)
-		if len(request.acknowledgementDigest) != sha256.Size {
-			return commandRequest{}, errors.New("audit export delivery acknowledgement digest is invalid")
+		if request.receiptFile == "" || request.recipientTrustFile == "" ||
+			request.receiptFile == request.recipientTrustFile || request.receiptFile == request.envelopeFile ||
+			request.receiptFile == request.trustFile || request.recipientTrustFile == request.envelopeFile ||
+			request.recipientTrustFile == request.trustFile {
+			return commandRequest{}, errors.New("audit export delivery acknowledgement files are invalid")
 		}
 	default:
 		return commandRequest{}, errors.New("audit export delivery operation is invalid")

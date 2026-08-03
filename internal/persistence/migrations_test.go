@@ -1,6 +1,7 @@
 package persistence_test
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"testing"
@@ -29,6 +30,84 @@ func TestMigrationsRoundTrip(t *testing.T) {
 	if err := persistence.MigrateUp(ctx, database); err != nil {
 		t.Fatalf("initial migrate up: %v", err)
 	}
+	if err := persistence.MigrateDownTo(ctx, database, 22); err != nil {
+		t.Fatalf("migrate to schema 22: %v", err)
+	}
+	if _, err := database.ExecContext(ctx, `
+		INSERT INTO audit_export_deliveries (
+			delivery_id, isolation_domain_id, contract, export_kind, export_id,
+			envelope_digest, export_sha256, trust_profile_sha256, signing_key_id,
+			recipient_id, destination_digest
+		) VALUES
+			('adl_00000000000000000001', 'iso_00000000000000000001',
+			 'dataground.audit-export-delivery/v1', 'operator', 'oax_00000000000000000001',
+			 decode(repeat('11', 32), 'hex'), 'sha256:' || repeat('2', 64),
+			 'sha256:' || repeat('3', 64), 'audit_key_01', 'archive.primary',
+			 decode(repeat('44', 32), 'hex')),
+			('adl_00000000000000000002', 'iso_00000000000000000001',
+			 'dataground.audit-export-delivery/v1', 'operator', 'oax_00000000000000000002',
+			 decode(repeat('55', 32), 'hex'), 'sha256:' || repeat('6', 64),
+			 'sha256:' || repeat('7', 64), 'audit_key_01', 'archive.primary',
+			 decode(repeat('88', 32), 'hex'));
+		INSERT INTO audit_export_delivery_operations (
+			delivery_id, operation, isolation_domain_id, actor_id, correlation_id,
+			reason_digest, evidence_digest
+		) VALUES
+			('adl_00000000000000000001', 'prepare', 'iso_00000000000000000001', 'operator',
+			 'cor_00000000000000000011', decode(repeat('99', 32), 'hex'), decode(repeat('11', 32), 'hex')),
+			('adl_00000000000000000002', 'prepare', 'iso_00000000000000000001', 'operator',
+			 'cor_00000000000000000012', decode(repeat('aa', 32), 'hex'), decode(repeat('55', 32), 'hex')),
+			('adl_00000000000000000002', 'acknowledge', 'iso_00000000000000000001', 'operator',
+			 'cor_00000000000000000013', decode(repeat('bb', 32), 'hex'), decode(repeat('cc', 32), 'hex'));
+		UPDATE audit_export_deliveries
+		SET status = 'acknowledged', acknowledgement_digest = decode(repeat('cc', 32), 'hex'),
+		    acknowledged_at = clock_timestamp()
+		WHERE delivery_id = 'adl_00000000000000000002';
+	`); err != nil {
+		t.Fatalf("seed schema 22 deliveries: %v", err)
+	}
+	if err := persistence.MigrateUp(ctx, database); err != nil {
+		t.Fatalf("upgrade schema 22 deliveries: %v", err)
+	}
+	var preparedContract, acknowledgedContract string
+	var acknowledgedVerificationFields int
+	if err := database.QueryRowContext(ctx, `
+		SELECT
+			(SELECT contract FROM audit_export_deliveries WHERE delivery_id = 'adl_00000000000000000001'),
+			(SELECT contract FROM audit_export_deliveries WHERE delivery_id = 'adl_00000000000000000002'),
+			(SELECT num_nonnulls(acknowledgement_contract, recipient_trust_profile_sha256,
+			                     recipient_signing_key_id, recipient_accepted_at)
+			 FROM audit_export_deliveries WHERE delivery_id = 'adl_00000000000000000002')
+	`).Scan(&preparedContract, &acknowledgedContract, &acknowledgedVerificationFields); err != nil {
+		t.Fatalf("inspect schema 23 delivery upgrade: %v", err)
+	}
+	if preparedContract != "dataground.audit-export-delivery/v2" ||
+		acknowledgedContract != "dataground.audit-export-delivery/v1" || acknowledgedVerificationFields != 0 {
+		t.Fatalf("upgraded contracts = %q, %q; legacy verification fields = %d",
+			preparedContract, acknowledgedContract, acknowledgedVerificationFields)
+	}
+	pool, err := persistence.OpenPool(ctx, databaseURL)
+	if err != nil {
+		t.Fatalf("open schema 23 replay pool: %v", err)
+	}
+	legacyReplay := persistence.AuditExportDelivery{
+		Contract: persistence.AuditExportDeliveryContract, DeliveryID: "adl_00000000000000000002",
+		IsolationDomainID: "iso_00000000000000000001", ExportKind: "operator",
+		ExportID: "oax_00000000000000000002", EnvelopeDigest: bytes.Repeat([]byte{0x55}, 32),
+		ExportSHA256:       "sha256:" + string(bytes.Repeat([]byte{'6'}, 64)),
+		TrustProfileSHA256: "sha256:" + string(bytes.Repeat([]byte{'7'}, 64)),
+		SigningKeyID:       "audit_key_01", RecipientID: "archive.primary",
+		DestinationDigest: bytes.Repeat([]byte{0x88}, 32),
+	}
+	legacyAttribution := persistence.AuditExportDeliveryAttribution{
+		ActorID: "operator", ReasonDigest: bytes.Repeat([]byte{0xaa}, 32),
+		CorrelationID: "cor_00000000000000000012",
+	}
+	if err := persistence.NewRepository(pool).PrepareAuditExportDelivery(ctx, legacyReplay, legacyAttribution); err != nil {
+		pool.Close()
+		t.Fatalf("replay completed legacy delivery: %v", err)
+	}
+	pool.Close()
 	if err := persistence.MigrateDownTo(ctx, database, 20); err != nil {
 		t.Fatalf("migrate to schema 20: %v", err)
 	}
