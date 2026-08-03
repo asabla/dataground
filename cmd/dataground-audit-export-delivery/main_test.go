@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/asabla/dataground/internal/persistence"
 )
@@ -27,8 +28,10 @@ func TestParseArgumentsRejectsIncompleteAndMixedModes(t *testing.T) {
 		"missing mode": base,
 		"unknown mode": append(append([]string{}, base...), "-operation", "send"),
 		"prepare with acknowledgement": append(append([]string{}, base...),
-			"-operation", "prepare", "-acknowledgement-sha256", digest),
+			"-operation", "prepare", "-receipt-file", "/tmp/receipt", "-recipient-trust-file", "/tmp/recipient-trust"),
 		"acknowledge without evidence": append(append([]string{}, base...), "-operation", "acknowledge"),
+		"acknowledge colliding evidence files": append(append([]string{}, base...),
+			"-operation", "acknowledge", "-receipt-file", "/tmp/receipt", "-recipient-trust-file", "/tmp/receipt"),
 		"invalid destination digest": {"-operation", "prepare", "-delivery-id", "adl_00000000000000000001",
 			"-isolation-domain", "iso_00000000000000000001", "-envelope-file", "/tmp/envelope",
 			"-trust-file", "/tmp/trust", "-recipient", "archive", "-destination-sha256", "sha256:bad",
@@ -64,7 +67,13 @@ func TestExecuteRequestKeepsPreparationAndAcknowledgementDistinct(t *testing.T) 
 	acknowledge := prepare
 	acknowledge.operation = "acknowledge"
 	acknowledge.correlationID = "cor_00000000000000000002"
-	acknowledge.acknowledgementDigest = digest[:]
+	acknowledge.acknowledgement = persistence.AuditExportDeliveryAcknowledgement{
+		AcknowledgementDigest:       digest[:],
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v1",
+		RecipientTrustProfileSHA256: "sha256:" + strings.Repeat("3", 64),
+		RecipientSigningKeyID:       "archive_key_01",
+		AcceptedAt:                  time.Date(2026, 8, 3, 15, 30, 0, 123000, time.UTC),
+	}
 	if err := executeRequest(context.Background(), repository, delivery, acknowledge); err != nil {
 		t.Fatal(err)
 	}

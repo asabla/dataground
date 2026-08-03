@@ -55,6 +55,18 @@
       "valid": true
     },
     {
+      "file": "valid/audit-export-delivery-receipt.json",
+      "schema": "AuditExportDeliveryReceipt",
+      "document": "audit-export-delivery-receipt",
+      "valid": true
+    },
+    {
+      "file": "valid/audit-export-recipient-trust.json",
+      "schema": "AuditExportRecipientTrust",
+      "document": "audit-export-recipient-trust",
+      "valid": true
+    },
+    {
       "file": "invalid/agent-service-missing-name.json",
       "schema": "AgentService",
       "valid": false
@@ -106,6 +118,12 @@
       "file": "invalid/audit-export-envelope-kind-mismatch.json",
       "schema": "AuditExportEnvelope",
       "document": "audit-export-envelope",
+      "valid": false
+    },
+    {
+      "file": "invalid/audit-export-delivery-receipt-cross-kind.json",
+      "schema": "AuditExportDeliveryReceipt",
+      "document": "audit-export-delivery-receipt",
       "valid": false
     }
   ]

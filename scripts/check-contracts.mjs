@@ -137,6 +137,12 @@ const authorizationAuditExport = await readJson(
 );
 const operatorAuditExport = await readJson("contracts/schemas/operator-audit-export.schema.json");
 const auditExportEnvelope = await readJson("contracts/schemas/audit-export-envelope.schema.json");
+const auditExportDeliveryReceipt = await readJson(
+  "contracts/schemas/audit-export-delivery-receipt.schema.json",
+);
+const auditExportRecipientTrust = await readJson(
+  "contracts/schemas/audit-export-recipient-trust.schema.json",
+);
 assert.equal(
   releaseManifest.$schema,
   "https://json-schema.org/draft/2020-12/schema",
@@ -161,6 +167,8 @@ ajv.addSchema(operatorAuditExport);
 const validateAuthorizationAuditExport = ajv.getSchema(authorizationAuditExport.$id);
 const validateOperatorAuditExport = ajv.getSchema(operatorAuditExport.$id);
 const validateAuditExportEnvelope = ajv.compile(auditExportEnvelope);
+const validateAuditExportDeliveryReceipt = ajv.compile(auditExportDeliveryReceipt);
+const validateAuditExportRecipientTrust = ajv.compile(auditExportRecipientTrust);
 const fixtureManifest = await readJson("contracts/fixtures/manifest.json");
 
 for (const fixture of fixtureManifest.fixtures) {
@@ -174,6 +182,10 @@ for (const fixture of fixtureManifest.fixtures) {
     validate = validateOperatorAuditExport;
   } else if (fixture.document === "audit-export-envelope") {
     validate = validateAuditExportEnvelope;
+  } else if (fixture.document === "audit-export-delivery-receipt") {
+    validate = validateAuditExportDeliveryReceipt;
+  } else if (fixture.document === "audit-export-recipient-trust") {
+    validate = validateAuditExportRecipientTrust;
   } else {
     validate = ajv.compile({
       $ref: `urn:dataground:openapi:v1#/components/schemas/${fixture.schema}`,
@@ -205,6 +217,14 @@ for (const fixture of fixtureManifest.fixtures) {
       value.exportSha256,
       `sha256:${digest}`,
       `${fixture.file} must bind its canonical export bytes`,
+    );
+  }
+  if (fixture.document === "audit-export-delivery-receipt" && fixture.valid) {
+    const digest = createHash("sha256").update(JSON.stringify(value.content)).digest("hex");
+    assert.equal(
+      value.contentSha256,
+      `sha256:${digest}`,
+      `${fixture.file} must bind its canonical content bytes`,
     );
   }
 }

@@ -40,7 +40,11 @@ func TestAuditExportDeliveryAcknowledgementIsScopedReplayableAndAudited(t *testi
 
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
-		AcknowledgementDigest: acknowledgementDigest[:],
+		AcknowledgementDigest:       acknowledgementDigest[:],
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v1",
+		RecipientTrustProfileSHA256: "sha256:" + strings.Repeat("3", 64),
+		RecipientSigningKeyID:       "archive_key_01",
+		AcceptedAt:                  time.Date(2026, 8, 3, 15, 30, 0, 123000, time.UTC),
 		Attribution: auditExportDeliveryAttribution(
 			"record archive receipt",
 			"cor_00000000000000000002",
@@ -64,18 +68,28 @@ func TestAuditExportDeliveryAcknowledgementIsScopedReplayableAndAudited(t *testi
 		t.Fatalf("cross-domain acknowledgement error = %v", err)
 	}
 
-	var status string
+	var status, receiptContract, recipientTrustProfileSHA256, recipientSigningKeyID string
+	var recipientAcceptedAt time.Time
 	var operationCount, auditCount int
 	if err := pool.QueryRow(ctx, `
-		SELECT status,
+		SELECT status, acknowledgement_contract, recipient_trust_profile_sha256,
+		       recipient_signing_key_id, recipient_accepted_at,
 		       (SELECT count(*) FROM audit_export_delivery_operations WHERE delivery_id = $1),
 		       (SELECT count(*) FROM audit_records WHERE resource_type = 'audit-export-delivery' AND resource_id = $1)
 		FROM audit_export_deliveries WHERE delivery_id = $1
-	`, delivery.DeliveryID).Scan(&status, &operationCount, &auditCount); err != nil {
+	`, delivery.DeliveryID).Scan(
+		&status, &receiptContract, &recipientTrustProfileSHA256, &recipientSigningKeyID,
+		&recipientAcceptedAt, &operationCount, &auditCount,
+	); err != nil {
 		t.Fatalf("inspect delivery: %v", err)
 	}
-	if status != "acknowledged" || operationCount != 2 || auditCount != 2 {
-		t.Fatalf("status = %q, operations = %d, audits = %d", status, operationCount, auditCount)
+	if status != "acknowledged" || receiptContract != acknowledgement.ReceiptContract ||
+		recipientTrustProfileSHA256 != acknowledgement.RecipientTrustProfileSHA256 ||
+		recipientSigningKeyID != acknowledgement.RecipientSigningKeyID ||
+		!recipientAcceptedAt.Equal(acknowledgement.AcceptedAt) || operationCount != 2 || auditCount != 2 {
+		t.Fatalf("delivery state = %q, %q, %q, %q, %v; operations = %d, audits = %d",
+			status, receiptContract, recipientTrustProfileSHA256, recipientSigningKeyID,
+			recipientAcceptedAt, operationCount, auditCount)
 	}
 
 	exported, err := repository.ExportOperatorAuditRecords(ctx, delivery.IsolationDomainID, "", 10)
@@ -102,6 +116,17 @@ func TestAuditExportDeliveryTablesRejectMutation(t *testing.T) {
 	}
 	if _, err := pool.Exec(ctx, `UPDATE audit_export_deliveries SET recipient_id = 'archive.changed' WHERE delivery_id = $1`, delivery.DeliveryID); err == nil {
 		t.Fatal("delivery identity mutation was accepted")
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE audit_export_deliveries
+		SET status = 'acknowledged', acknowledgement_digest = decode(repeat('11', 32), 'hex'),
+		    acknowledgement_contract = 'dataground.audit-export-delivery-receipt/ed25519/v1',
+		    recipient_trust_profile_sha256 = 'sha256:' || repeat('2', 64),
+		    recipient_signing_key_id = 'archive_key_01',
+		    recipient_accepted_at = clock_timestamp(), acknowledged_at = clock_timestamp()
+		WHERE delivery_id = $1
+	`, delivery.DeliveryID); err == nil {
+		t.Fatal("acknowledgement without an append-only operation was accepted")
 	}
 	if _, err := pool.Exec(ctx, `DELETE FROM audit_export_deliveries WHERE delivery_id = $1`, delivery.DeliveryID); err == nil {
 		t.Fatal("delivery deletion was accepted")
@@ -145,7 +170,11 @@ func TestAuditExportDeliveryConcurrentReplayConverges(t *testing.T) {
 	})
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
-		AcknowledgementDigest: acknowledgementDigest[:],
+		AcknowledgementDigest:       acknowledgementDigest[:],
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v1",
+		RecipientTrustProfileSHA256: "sha256:" + strings.Repeat("3", 64),
+		RecipientSigningKeyID:       "archive_key_01",
+		AcceptedAt:                  time.Date(2026, 8, 3, 15, 30, 0, 123000, time.UTC),
 		Attribution: auditExportDeliveryAttribution(
 			"record archive receipt",
 			"cor_00000000000000000002",

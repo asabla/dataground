@@ -80,6 +80,8 @@
         "providerRegistrySha256": { "$ref": "#/$defs/digest" },
         "publicationPathDigest": { "$ref": "#/$defs/digest" },
         "recipientId": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,127}$" },
+        "recipientSigningKeyId": { "$ref": "#/$defs/resourceId" },
+        "recipientTrustProfileSha256": { "$ref": "#/$defs/digest" },
         "reasonDigest": { "$ref": "#/$defs/digest" },
         "signingKeyId": { "$ref": "#/$defs/resourceId" },
         "sensitive": { "type": "boolean" },
