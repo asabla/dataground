@@ -226,8 +226,9 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 		return false
 	}
 	switch key {
-	case "artifactDigest", "bindingDigest", "identityDigest", "planDigest", "policyDigest",
-		"providerRegistrySha256", "publicationPathDigest", "reasonDigest":
+	case "acknowledgementDigest", "artifactDigest", "bindingDigest", "destinationDigest",
+		"envelopeDigest", "identityDigest", "planDigest", "policyDigest",
+		"providerRegistrySha256", "publicationPathDigest", "reasonDigest", "trustProfileSha256":
 		return operatorAuditDigest.MatchString(text)
 	case "principalId":
 		return operatorAuditResourceID.MatchString(text)
@@ -242,6 +243,12 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 		return operatorAuditProviderID.MatchString(text)
 	case "endpoint":
 		return text == "discovery" || text == "jwks"
+	case "exportKind":
+		return text == "authorization" || text == "operator"
+	case "recipientId":
+		return operatorAuditProviderID.MatchString(text)
+	case "signingKeyId":
+		return operatorAuditResourceID.MatchString(text)
 	default:
 		return false
 	}

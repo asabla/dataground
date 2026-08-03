@@ -56,6 +56,27 @@ func TestSealAndVerifyBothExportKinds(t *testing.T) {
 				envelope.Signature.KeyID != fixture.keyID {
 				t.Fatalf("unexpected envelope: %#v", envelope)
 			}
+			evidence, err := VerifyEvidenceFile(fixture.envelopeFile, fixture.trustFile)
+			if err != nil {
+				t.Fatalf("verify delivery evidence: %v", err)
+			}
+			encodedEnvelope, err := os.ReadFile(fixture.envelopeFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantEnvelopeDigest := sha256.Sum256(encodedEnvelope)
+			wantExportID := "oax_00000000000000000001"
+			if kind == AuthorizationExportKind {
+				wantExportID = "aex_00000000000000000001"
+			}
+			if evidence.EnvelopeSHA256 != wantEnvelopeDigest || evidence.ExportKind != kind ||
+				evidence.ExportID != wantExportID ||
+				evidence.IsolationDomainID != "iso_00000000000000000001" ||
+				evidence.ExportSHA256 != envelope.ExportSHA256 ||
+				evidence.TrustProfileSHA256 != envelope.TrustProfileSHA256 ||
+				evidence.SigningKeyID != fixture.keyID {
+				t.Fatalf("unexpected delivery evidence: %#v", evidence)
+			}
 			if err := Install(InstallRequest{
 				ExportFile:       fixture.exportFile,
 				SignatureFile:    fixture.signatureFile,

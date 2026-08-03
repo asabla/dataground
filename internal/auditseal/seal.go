@@ -64,6 +64,18 @@ type Envelope struct {
 	Signature          Signature       `json:"signature"`
 }
 
+// VerifiedEnvelope is the safe identity of one cryptographically verified,
+// canonical audit export envelope. It excludes the embedded audit records.
+type VerifiedEnvelope struct {
+	EnvelopeSHA256     [sha256.Size]byte
+	ExportKind         string
+	ExportID           string
+	IsolationDomainID  string
+	ExportSHA256       string
+	TrustProfileSHA256 string
+	SigningKeyID       string
+}
+
 type PrepareRequest struct {
 	ExportFile         string
 	TrustProfileFile   string
@@ -158,57 +170,90 @@ func Install(request InstallRequest) error {
 }
 
 func VerifyFile(envelopeFile string, trustProfileFile string) (Envelope, error) {
+	envelope, _, err := verifyFile(envelopeFile, trustProfileFile)
+	return envelope, err
+}
+
+// VerifyEvidenceFile verifies an envelope while returning only the safe fields
+// needed to bind a durable delivery operation.
+func VerifyEvidenceFile(envelopeFile string, trustProfileFile string) (VerifiedEnvelope, error) {
+	envelope, encodedDigest, err := verifyFile(envelopeFile, trustProfileFile)
+	if err != nil {
+		return VerifiedEnvelope{}, err
+	}
+	var header struct {
+		Content struct {
+			ExportID          string `json:"exportId"`
+			IsolationDomainID string `json:"isolationDomainId"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(envelope.Export, &header); err != nil {
+		return VerifiedEnvelope{}, errors.New("audit export envelope identity is invalid")
+	}
+	return VerifiedEnvelope{
+		EnvelopeSHA256:     encodedDigest,
+		ExportKind:         envelope.ExportKind,
+		ExportID:           header.Content.ExportID,
+		IsolationDomainID:  header.Content.IsolationDomainID,
+		ExportSHA256:       envelope.ExportSHA256,
+		TrustProfileSHA256: envelope.TrustProfileSHA256,
+		SigningKeyID:       envelope.Signature.KeyID,
+	}, nil
+}
+
+func verifyFile(envelopeFile string, trustProfileFile string) (Envelope, [sha256.Size]byte, error) {
 	var envelope Envelope
 	if !distinctPaths(envelopeFile, trustProfileFile) {
-		return envelope, errors.New("audit export verification paths are invalid")
+		return envelope, [sha256.Size]byte{}, errors.New("audit export verification paths are invalid")
 	}
 	encoded, err := readStablePrivateFile(envelopeFile, maximumExportBytes+maximumControlBytes)
 	if err != nil {
-		return envelope, fmt.Errorf("read audit export envelope: %w", err)
+		return envelope, [sha256.Size]byte{}, fmt.Errorf("read audit export envelope: %w", err)
 	}
 	defer clear(encoded)
+	encodedDigest := sha256.Sum256(encoded)
 	if err := decodeCanonicalJSON(encoded, &envelope, maximumExportBytes+maximumControlBytes); err != nil {
-		return Envelope{}, errors.New("audit export envelope is invalid")
+		return Envelope{}, [sha256.Size]byte{}, errors.New("audit export envelope is invalid")
 	}
 	canonicalEnvelope, err := canonicalJSON(envelope)
 	if err != nil || !bytes.Equal(canonicalEnvelope, encoded) {
 		clear(canonicalEnvelope)
-		return Envelope{}, errors.New("audit export envelope is not canonical")
+		return Envelope{}, [sha256.Size]byte{}, errors.New("audit export envelope is not canonical")
 	}
 	clear(canonicalEnvelope)
 	if envelope.Contract != EnvelopeContract || !validExportKind(envelope.ExportKind) ||
 		!digestPattern.MatchString(envelope.ExportSHA256) ||
 		!digestPattern.MatchString(envelope.TrustProfileSHA256) {
-		return Envelope{}, errors.New("audit export envelope fields are invalid")
+		return Envelope{}, [sha256.Size]byte{}, errors.New("audit export envelope fields are invalid")
 	}
 	export := append([]byte(nil), envelope.Export...)
 	export = append(export, '\n')
 	defer clear(export)
 	kind, err := validateExport(export)
 	if err != nil || kind != envelope.ExportKind {
-		return Envelope{}, errors.New("audit export envelope content is invalid")
+		return Envelope{}, [sha256.Size]byte{}, errors.New("audit export envelope content is invalid")
 	}
 	exportDigest := sha256.Sum256(export)
 	if envelope.ExportSHA256 != digestString(exportDigest) {
-		return Envelope{}, errors.New("audit export envelope digest does not match")
+		return Envelope{}, [sha256.Size]byte{}, errors.New("audit export envelope digest does not match")
 	}
 	trust, canonicalTrust, err := readTrustProfile(trustProfileFile)
 	if err != nil {
-		return Envelope{}, err
+		return Envelope{}, [sha256.Size]byte{}, err
 	}
 	defer clear(canonicalTrust)
 	trustDigest := sha256.Sum256(canonicalTrust)
 	if envelope.TrustProfileSHA256 != digestString(trustDigest) {
-		return Envelope{}, errors.New("audit export trust profile digest does not match")
+		return Envelope{}, [sha256.Size]byte{}, errors.New("audit export trust profile digest does not match")
 	}
 	if err := validateSignature(envelope.Signature); err != nil {
-		return Envelope{}, err
+		return Envelope{}, [sha256.Size]byte{}, err
 	}
 	if err := verifySignature(export, kind, envelope.TrustProfileSHA256, envelope.Signature, trust); err != nil {
-		return Envelope{}, err
+		return Envelope{}, [sha256.Size]byte{}, err
 	}
 	envelope.Export = append(json.RawMessage(nil), envelope.Export...)
-	return envelope, nil
+	return envelope, encodedDigest, nil
 }
 
 func readAndValidateExport(path string) ([]byte, string, error) {
