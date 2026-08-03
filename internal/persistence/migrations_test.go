@@ -95,13 +95,15 @@ func TestMigrationsRoundTrip(t *testing.T) {
 		      'authentication_rate_limit_buckets',
 		      'authentication_rate_limit_policy_activations',
 		      'oidc_provider_credential_operations',
-		      'operator_audit_exports'
+		      'operator_audit_exports',
+		      'audit_export_deliveries',
+		      'audit_export_delivery_operations'
 		  )
 	`).Scan(&tables); err != nil {
 		t.Fatalf("inspect migrated tables: %v", err)
 	}
-	if tables != 24 {
-		t.Fatalf("expected 24 representative tables, got %d", tables)
+	if tables != 26 {
+		t.Fatalf("expected 26 representative tables, got %d", tables)
 	}
 
 	var rateLimitBucketPrimaryKey string
