@@ -73,6 +73,18 @@
       "valid": true
     },
     {
+      "file": "valid/audit-export-recipient-proofing-trust.json",
+      "schema": "AuditExportRecipientProofingTrust",
+      "document": "audit-export-recipient-proofing-trust",
+      "valid": true
+    },
+    {
+      "file": "valid/audit-export-recipient-identity-proof.json",
+      "schema": "AuditExportRecipientIdentityProof",
+      "document": "audit-export-recipient-identity-proof",
+      "valid": true
+    },
+    {
       "file": "invalid/agent-service-missing-name.json",
       "schema": "AgentService",
       "valid": false

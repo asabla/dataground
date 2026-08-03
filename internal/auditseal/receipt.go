@@ -187,25 +187,32 @@ func readRecipientTrustProfile(path string) (RecipientTrustProfile, []byte, erro
 func validateRecipientTrustProfile(trust RecipientTrustProfile) error {
 	if trust.Contract != RecipientTrustContract ||
 		!auditExportDeliveryRecipientPattern.MatchString(trust.RecipientID) ||
-		len(trust.Keys) == 0 || len(trust.Keys) > 8 ||
-		!sort.SliceIsSorted(trust.Keys, func(left, right int) bool {
-			return trust.Keys[left].KeyID < trust.Keys[right].KeyID
-		}) {
+		!validSortedTrustedKeys(trust.Keys) {
 		return errors.New("audit export recipient trust profile fields are invalid")
 	}
+	return nil
+}
+
+func validSortedTrustedKeys(keys []TrustedKey) bool {
+	if len(keys) == 0 || len(keys) > 8 ||
+		!sort.SliceIsSorted(keys, func(left, right int) bool {
+			return keys[left].KeyID < keys[right].KeyID
+		}) {
+		return false
+	}
 	previous := ""
-	for _, key := range trust.Keys {
+	for _, key := range keys {
 		decoded, err := base64.RawURLEncoding.DecodeString(key.PublicKey)
 		valid := keyIDPattern.MatchString(key.KeyID) && key.KeyID != previous && err == nil &&
 			len(decoded) == ed25519.PublicKeySize &&
 			base64.RawURLEncoding.EncodeToString(decoded) == key.PublicKey
 		clear(decoded)
 		if !valid {
-			return errors.New("audit export recipient trust profile key is invalid")
+			return false
 		}
 		previous = key.KeyID
 	}
-	return nil
+	return true
 }
 
 func verifyDeliveryReceiptSignature(receipt DeliveryReceipt, trust RecipientTrustProfile) error {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/asabla/dataground/internal/auditseal"
 	"github.com/asabla/dataground/internal/persistence"
@@ -18,6 +19,8 @@ func TestParseArgumentsRequiresClosedTrustChange(t *testing.T) {
 		"-recipient", "archive.primary",
 		"-generation", "1",
 		"-trust-file", "/run/dataground/audit/archive-trust.json",
+		"-identity-proof-file", "/run/dataground/audit/archive-identity-proof.json",
+		"-proofing-trust-file", "/run/dataground/audit/archive-proofing-trust.json",
 		"-actor", "operator@example.invalid",
 		"-reason", "activate reviewed archive trust",
 		"-correlation-id", "cor_00000000000000000001",
@@ -66,12 +69,23 @@ func TestExecuteRequestForwardsExactValidatedChange(t *testing.T) {
 		actorID: "operator@example.invalid", reason: "activate reviewed archive trust",
 		correlationID: "cor_00000000000000000001",
 	}
+	verifiedAt := time.Date(2026, 8, 3, 20, 0, 0, 0, time.UTC)
 	profile := auditseal.RecipientTrustEvidence{
 		Contract:    "dataground.audit-export-recipient-trust/ed25519/v1",
 		RecipientID: request.recipientID, SHA256: "sha256:" + strings.Repeat("3", 64),
 		KeyIDs: []string{"archive_key_01"},
 	}
-	change := newTrustChange(request, profile)
+	identityProof := auditseal.VerifiedRecipientIdentityProof{
+		Contract:                    auditseal.RecipientIdentityProofContract,
+		SHA256:                      "sha256:" + strings.Repeat("4", 64),
+		RecipientTrustProfileSHA256: profile.SHA256,
+		EvidenceSHA256:              "sha256:" + strings.Repeat("5", 64),
+		AuthorityID:                 "archive-proofing.primary",
+		ProofingTrustProfileSHA256:  "sha256:" + strings.Repeat("6", 64),
+		SigningKeyID:                "proofing_key_01",
+		VerifiedAt:                  verifiedAt, ExpiresAt: verifiedAt.Add(24 * time.Hour),
+	}
+	change := newTrustChange(request, profile, identityProof)
 	repository := &recipientTrustRepositoryStub{}
 	if err := executeRequest(context.Background(), repository, change); err != nil {
 		t.Fatal(err)

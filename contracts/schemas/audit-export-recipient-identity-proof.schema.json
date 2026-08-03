@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dataground:schema:audit-export-recipient-identity-proof:v1",
+  "title": "DataGround audit export recipient identity and key-custody proof",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "content", "contentSha256", "proofingTrustProfileSha256", "signature"],
+  "properties": {
+    "contract": { "const": "dataground.audit-export-recipient-identity-proof/ed25519/v1" },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "isolationDomainId",
+        "recipientId",
+        "recipientTrustProfileSha256",
+        "evidenceSha256",
+        "authorityId",
+        "verifiedAt",
+        "expiresAt"
+      ],
+      "properties": {
+        "contract": { "const": "dataground.audit-export-recipient-identity-proof/v1" },
+        "isolationDomainId": { "type": "string", "pattern": "^iso_[0-9a-z]{20,32}$" },
+        "recipientId": { "$ref": "#/$defs/partyId" },
+        "recipientTrustProfileSha256": { "$ref": "#/$defs/sha256" },
+        "evidenceSha256": { "$ref": "#/$defs/sha256" },
+        "authorityId": { "$ref": "#/$defs/partyId" },
+        "verifiedAt": { "$ref": "#/$defs/timestamp" },
+        "expiresAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "contentSha256": { "$ref": "#/$defs/sha256" },
+    "proofingTrustProfileSha256": { "$ref": "#/$defs/sha256" },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "keyId", "signature"],
+      "properties": {
+        "contract": {
+          "const": "dataground.audit-export-recipient-identity-proof-signature/ed25519/v1"
+        },
+        "keyId": { "$ref": "#/$defs/keyId" },
+        "signature": { "type": "string", "pattern": "^[A-Za-z0-9_-]{86}$" }
+      }
+    }
+  },
+  "$defs": {
+    "keyId": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{2,63}$" },
+    "partyId": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,127}$" },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,6})?Z$"
+    }
+  }
+}

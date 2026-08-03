@@ -206,3 +206,82 @@ func TestMigrationsRoundTrip(t *testing.T) {
 		t.Fatalf("authentication rate limit bucket identity = %q", rateLimitBucketPrimaryKey)
 	}
 }
+
+func TestRecipientIdentityMigrationPermitsProofUpgradeWithoutKeyRotation(t *testing.T) {
+	databaseURL := os.Getenv("DATAGROUND_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		if os.Getenv("DATAGROUND_REQUIRE_TEST_DATABASE") == "true" {
+			t.Fatal("DATAGROUND_TEST_DATABASE_URL is required")
+		}
+		t.Skip("DATAGROUND_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := resetOperatorAuditDatabase(t, ctx)
+	pool.Close()
+	database, err := persistence.OpenSQL(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := persistence.MigrateDownTo(ctx, database, 24); err != nil {
+		t.Fatalf("migrate to legacy recipient trust schema: %v", err)
+	}
+	transaction, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transaction.ExecContext(ctx, `
+		INSERT INTO audit_export_recipient_trust_events (
+			isolation_domain_id, recipient_id, generation, operation,
+			trust_contract, trust_profile_sha256, actor_id, reason_digest, correlation_id
+		) VALUES (
+			'iso_00000000000000000001', 'archive.primary', 1, 'activate',
+			'dataground.audit-export-recipient-trust/ed25519/v1',
+			'sha256:' || repeat('3', 64), 'operator', decode(repeat('4', 64), 'hex'),
+			'cor_00000000000000000001'
+		);
+		INSERT INTO audit_export_recipient_trust_keys (
+			isolation_domain_id, recipient_id, generation, key_id
+		) VALUES (
+			'iso_00000000000000000001', 'archive.primary', 1, 'archive_key_01'
+		)
+	`); err != nil {
+		transaction.Rollback()
+		t.Fatalf("seed legacy recipient trust: %v", err)
+	}
+	if err := transaction.Commit(); err != nil {
+		t.Fatalf("commit legacy recipient trust: %v", err)
+	}
+	if err := persistence.MigrateUp(ctx, database); err != nil {
+		t.Fatalf("upgrade recipient trust schema: %v", err)
+	}
+	proofPool, err := persistence.OpenPool(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proofPool.Close()
+	delivery := auditExportDeliveryFixture("adl_00000000000000000001")
+	upgrade := auditExportRecipientTrustChange(
+		delivery,
+		"activate",
+		2,
+		"sha256:"+string(bytes.Repeat([]byte{'3'}, 64)),
+		"cor_00000000000000000002",
+	)
+	if err := persistence.NewRepository(proofPool).ChangeAuditExportRecipientTrust(ctx, upgrade); err != nil {
+		t.Fatalf("append identity-proven trust upgrade: %v", err)
+	}
+	var contracts string
+	if err := proofPool.QueryRow(ctx, `
+		SELECT string_agg(authorization_contract, ',' ORDER BY generation)
+		FROM audit_export_recipient_trust_events
+		WHERE isolation_domain_id = $1 AND recipient_id = $2
+	`, delivery.IsolationDomainID, delivery.RecipientID).Scan(&contracts); err != nil {
+		t.Fatal(err)
+	}
+	if contracts != "dataground.audit-export-recipient-trust-authorization/v1,"+
+		"dataground.audit-export-recipient-trust-authorization/v2" {
+		t.Fatalf("recipient trust authorization contracts = %q", contracts)
+	}
+}

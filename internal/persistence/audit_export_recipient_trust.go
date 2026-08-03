@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"errors"
 	"fmt"
 	"math"
 	"sort"
+	"time"
 
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/jackc/pgx/v5"
@@ -15,8 +17,10 @@ import (
 )
 
 const (
-	AuditExportRecipientTrustAuthorizationContract = "dataground.audit-export-recipient-trust-authorization/v1"
+	AuditExportRecipientTrustAuthorizationContract = "dataground.audit-export-recipient-trust-authorization/v2"
 	auditExportRecipientTrustProfileContract       = "dataground.audit-export-recipient-trust/ed25519/v1"
+	auditExportRecipientIdentityProofContract      = "dataground.audit-export-recipient-identity-proof/ed25519/v1"
+	legacyAuditExportRecipientTrustContract        = "dataground.audit-export-recipient-trust-authorization/v1"
 )
 
 var (
@@ -26,21 +30,30 @@ var (
 )
 
 type AuditExportRecipientTrustChange struct {
-	Contract           string
-	Operation          string
-	IsolationDomainID  string
-	RecipientID        string
-	Generation         int64
-	TrustContract      string
-	TrustProfileSHA256 string
-	KeyIDs             []string
-	ActorID            string
-	ReasonDigest       []byte
-	CorrelationID      string
+	Contract                    string
+	Operation                   string
+	IsolationDomainID           string
+	RecipientID                 string
+	Generation                  int64
+	TrustContract               string
+	TrustProfileSHA256          string
+	KeyIDs                      []string
+	IdentityProofContract       string
+	IdentityProofSHA256         string
+	IdentityProofEvidenceSHA256 string
+	ProofingAuthorityID         string
+	ProofingTrustProfileSHA256  string
+	ProofingSigningKeyID        string
+	IdentityProofVerifiedAt     time.Time
+	IdentityProofExpiresAt      time.Time
+	ActorID                     string
+	ReasonDigest                []byte
+	CorrelationID               string
 }
 
 func (change AuditExportRecipientTrustChange) Valid() bool {
-	return change.Contract == AuditExportRecipientTrustAuthorizationContract &&
+	return (change.Contract == AuditExportRecipientTrustAuthorizationContract ||
+		change.Contract == legacyAuditExportRecipientTrustContract) &&
 		(change.Operation == "activate" || change.Operation == "revoke") &&
 		operatorAuditDomainPattern.MatchString(change.IsolationDomainID) &&
 		auditExportDeliveryRecipient.MatchString(change.RecipientID) &&
@@ -48,6 +61,7 @@ func (change AuditExportRecipientTrustChange) Valid() bool {
 		change.TrustContract == auditExportRecipientTrustProfileContract &&
 		auditExportDeliveryDigest.MatchString(change.TrustProfileSHA256) &&
 		validAuditExportRecipientTrustKeys(change.Operation, change.KeyIDs) &&
+		validAuditExportRecipientIdentityProof(change) &&
 		validOperatorAuditText(change.ActorID, 256) &&
 		len(change.ReasonDigest) == sha256.Size &&
 		operatorAuditExportCorrelation.MatchString(change.CorrelationID)
@@ -57,7 +71,8 @@ func (repository *Repository) ChangeAuditExportRecipientTrust(
 	ctx context.Context,
 	change AuditExportRecipientTrustChange,
 ) error {
-	if repository == nil || repository.pool == nil || ctx == nil || !change.Valid() {
+	if repository == nil || repository.pool == nil || ctx == nil || !change.Valid() ||
+		change.Contract != AuditExportRecipientTrustAuthorizationContract {
 		return ErrAuditExportRecipientTrustInvalid
 	}
 	if err := ctx.Err(); err != nil {
@@ -118,18 +133,31 @@ func (repository *Repository) ChangeAuditExportRecipientTrust(
 		(change.Operation == "revoke" &&
 			(latest.Operation != "activate" || latest.TrustProfileSHA256 != change.TrustProfileSHA256)) ||
 		(change.Operation == "activate" && latestExists && latest.Operation == "activate" &&
-			latest.TrustProfileSHA256 == change.TrustProfileSHA256) {
+			latest.TrustProfileSHA256 == change.TrustProfileSHA256 &&
+			latest.Contract != legacyAuditExportRecipientTrustContract) {
 		return ErrAuditExportRecipientTrustConflict
 	}
 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO audit_export_recipient_trust_events (
-			isolation_domain_id, recipient_id, generation, operation,
-			trust_contract, trust_profile_sha256, actor_id, reason_digest, correlation_id
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, change.IsolationDomainID, change.RecipientID, change.Generation, change.Operation,
-		change.TrustContract, change.TrustProfileSHA256, change.ActorID,
-		change.ReasonDigest, change.CorrelationID); err != nil {
+			isolation_domain_id, recipient_id, generation, authorization_contract, operation,
+			trust_contract, trust_profile_sha256, identity_proof_contract,
+			identity_proof_sha256, identity_proof_evidence_sha256, proofing_authority_id,
+			proofing_trust_profile_sha256, proofing_signing_key_id,
+			identity_proof_verified_at, identity_proof_expires_at,
+			actor_id, reason_digest, correlation_id
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+	`, change.IsolationDomainID, change.RecipientID, change.Generation, change.Contract,
+		change.Operation, change.TrustContract, change.TrustProfileSHA256,
+		nullAuditExportRecipientTrustText(change.IdentityProofContract),
+		nullAuditExportRecipientTrustText(change.IdentityProofSHA256),
+		nullAuditExportRecipientTrustText(change.IdentityProofEvidenceSHA256),
+		nullAuditExportRecipientTrustText(change.ProofingAuthorityID),
+		nullAuditExportRecipientTrustText(change.ProofingTrustProfileSHA256),
+		nullAuditExportRecipientTrustText(change.ProofingSigningKeyID),
+		nullAuditExportRecipientTrustTime(change.IdentityProofVerifiedAt),
+		nullAuditExportRecipientTrustTime(change.IdentityProofExpiresAt),
+		change.ActorID, change.ReasonDigest, change.CorrelationID); err != nil {
 		return mapAuditExportRecipientTrustWriteError(err)
 	}
 	for _, keyID := range change.KeyIDs {
@@ -153,19 +181,23 @@ func (repository *Repository) ChangeAuditExportRecipientTrust(
 		) VALUES (
 			$1, $2, $3, $4, 'audit-export-recipient-trust', $5,
 			'accepted', $6,
-			jsonb_build_object(
+			jsonb_strip_nulls(jsonb_build_object(
 				'generation', $7::bigint,
 				'reasonDigest', $8::text,
 				'recipientId', $9::text,
 				'recipientTrustKeyCount', $10::bigint,
-				'recipientTrustProfileSha256', $11::text
-			),
+				'recipientTrustProfileSha256', $11::text,
+				'recipientIdentityProofSha256', NULLIF($12::text, ''),
+				'recipientProofingAuthorityId', NULLIF($13::text, ''),
+				'recipientIdentityProofExpiresAt', NULLIF($14::text, '')
+			)),
 			clock_timestamp()
 		)
 	`, identity.New("aud"), change.IsolationDomainID, change.ActorID, action,
 		resourceID, change.CorrelationID, change.Generation,
 		digestBytes(change.ReasonDigest), change.RecipientID, len(change.KeyIDs),
-		change.TrustProfileSHA256); err != nil {
+		change.TrustProfileSHA256, change.IdentityProofSHA256, change.ProofingAuthorityID,
+		formatAuditExportRecipientTrustTime(change.IdentityProofExpiresAt)); err != nil {
 		return fmt.Errorf("audit export recipient trust change: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -189,9 +221,15 @@ func authorizeAuditExportRecipientTrust(
 	if err != nil {
 		return 0, err
 	}
+	var databaseNow time.Time
+	if err := tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&databaseNow); err != nil {
+		return 0, fmt.Errorf("read audit export recipient trust clock: %w", err)
+	}
 	if !exists || latest.Operation != "activate" ||
+		latest.Contract != AuditExportRecipientTrustAuthorizationContract ||
 		latest.TrustProfileSHA256 != acknowledgement.RecipientTrustProfileSHA256 ||
 		latest.TrustContract != auditExportRecipientTrustProfileContract ||
+		!latest.IdentityProofExpiresAt.After(databaseNow) ||
 		!containsAuditExportRecipientTrustKey(latest.KeyIDs, acknowledgement.RecipientSigningKeyID) {
 		return 0, ErrAuditExportRecipientTrustUnauthorized
 	}
@@ -256,13 +294,22 @@ func readAuditExportRecipientTrustGeneration(
 		RecipientID:       recipientID,
 		Generation:        generation,
 	}
+	var proofVerifiedAt, proofExpiresAt sql.NullTime
 	err := querier.QueryRow(ctx, `
-		SELECT operation, trust_contract, trust_profile_sha256,
+		SELECT authorization_contract, operation, trust_contract, trust_profile_sha256,
+		       COALESCE(identity_proof_contract, ''), COALESCE(identity_proof_sha256, ''),
+		       COALESCE(identity_proof_evidence_sha256, ''), COALESCE(proofing_authority_id, ''),
+		       COALESCE(proofing_trust_profile_sha256, ''), COALESCE(proofing_signing_key_id, ''),
+		       identity_proof_verified_at, identity_proof_expires_at,
 		       actor_id, reason_digest, correlation_id
 		FROM audit_export_recipient_trust_events
 		WHERE isolation_domain_id = $1 AND recipient_id = $2 AND generation = $3
 	`, isolationDomainID, recipientID, generation).Scan(
-		&change.Operation, &change.TrustContract, &change.TrustProfileSHA256,
+		&change.Contract, &change.Operation, &change.TrustContract, &change.TrustProfileSHA256,
+		&change.IdentityProofContract, &change.IdentityProofSHA256,
+		&change.IdentityProofEvidenceSHA256, &change.ProofingAuthorityID,
+		&change.ProofingTrustProfileSHA256, &change.ProofingSigningKeyID,
+		&proofVerifiedAt, &proofExpiresAt,
 		&change.ActorID, &change.ReasonDigest, &change.CorrelationID,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -271,6 +318,12 @@ func readAuditExportRecipientTrustGeneration(
 	if err != nil {
 		return AuditExportRecipientTrustChange{}, false,
 			fmt.Errorf("read audit export recipient trust event: %w", err)
+	}
+	if proofVerifiedAt.Valid {
+		change.IdentityProofVerifiedAt = proofVerifiedAt.Time
+	}
+	if proofExpiresAt.Valid {
+		change.IdentityProofExpiresAt = proofExpiresAt.Time
 	}
 	rows, err := querier.Query(ctx, `
 		SELECT key_id
@@ -306,8 +359,61 @@ func sameAuditExportRecipientTrustChange(left, right AuditExportRecipientTrustCh
 		left.IsolationDomainID == right.IsolationDomainID && left.RecipientID == right.RecipientID &&
 		left.Generation == right.Generation && left.TrustContract == right.TrustContract &&
 		left.TrustProfileSHA256 == right.TrustProfileSHA256 && left.ActorID == right.ActorID &&
+		left.IdentityProofContract == right.IdentityProofContract &&
+		left.IdentityProofSHA256 == right.IdentityProofSHA256 &&
+		left.IdentityProofEvidenceSHA256 == right.IdentityProofEvidenceSHA256 &&
+		left.ProofingAuthorityID == right.ProofingAuthorityID &&
+		left.ProofingTrustProfileSHA256 == right.ProofingTrustProfileSHA256 &&
+		left.ProofingSigningKeyID == right.ProofingSigningKeyID &&
+		left.IdentityProofVerifiedAt.Equal(right.IdentityProofVerifiedAt) &&
+		left.IdentityProofExpiresAt.Equal(right.IdentityProofExpiresAt) &&
 		left.CorrelationID == right.CorrelationID && bytes.Equal(left.ReasonDigest, right.ReasonDigest) &&
 		sameAuditExportRecipientTrustKeys(left.KeyIDs, right.KeyIDs)
+}
+
+func validAuditExportRecipientIdentityProof(change AuditExportRecipientTrustChange) bool {
+	if change.Operation == "revoke" || change.Contract == legacyAuditExportRecipientTrustContract {
+		return change.IdentityProofContract == "" && change.IdentityProofSHA256 == "" &&
+			change.IdentityProofEvidenceSHA256 == "" && change.ProofingAuthorityID == "" &&
+			change.ProofingTrustProfileSHA256 == "" && change.ProofingSigningKeyID == "" &&
+			change.IdentityProofVerifiedAt.IsZero() && change.IdentityProofExpiresAt.IsZero()
+	}
+	return change.Operation == "activate" &&
+		change.IdentityProofContract == auditExportRecipientIdentityProofContract &&
+		auditExportDeliveryDigest.MatchString(change.IdentityProofSHA256) &&
+		auditExportDeliveryDigest.MatchString(change.IdentityProofEvidenceSHA256) &&
+		auditExportDeliveryRecipient.MatchString(change.ProofingAuthorityID) &&
+		auditExportDeliveryDigest.MatchString(change.ProofingTrustProfileSHA256) &&
+		auditExportDeliveryKeyID.MatchString(change.ProofingSigningKeyID) &&
+		canonicalAuditExportRecipientTrustTime(change.IdentityProofVerifiedAt) &&
+		canonicalAuditExportRecipientTrustTime(change.IdentityProofExpiresAt) &&
+		change.IdentityProofExpiresAt.After(change.IdentityProofVerifiedAt)
+}
+
+func canonicalAuditExportRecipientTrustTime(value time.Time) bool {
+	_, offset := value.Zone()
+	return !value.IsZero() && offset == 0 && value.Nanosecond()%1000 == 0 && value.Equal(value.UTC())
+}
+
+func nullAuditExportRecipientTrustText(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
+func nullAuditExportRecipientTrustTime(value time.Time) any {
+	if value.IsZero() {
+		return nil
+	}
+	return value
+}
+
+func formatAuditExportRecipientTrustTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
 }
 
 func validAuditExportRecipientTrustKeys(operation string, keyIDs []string) bool {

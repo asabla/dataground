@@ -29,6 +29,8 @@ type commandRequest struct {
 	generation        int64
 	trustFile         string
 	trustSHA256       string
+	identityProofFile string
+	proofingTrustFile string
 	actorID           string
 	reason            string
 	correlationID     string
@@ -57,6 +59,7 @@ func run(ctx context.Context, arguments []string) error {
 		RecipientID: request.recipientID,
 		SHA256:      request.trustSHA256,
 	}
+	var identityProof auditseal.VerifiedRecipientIdentityProof
 	if request.operation == "activate" {
 		profile, err = auditseal.InspectRecipientTrustProfileFile(request.trustFile)
 		if err != nil {
@@ -65,8 +68,18 @@ func run(ctx context.Context, arguments []string) error {
 		if profile.RecipientID != request.recipientID {
 			return errors.New("audit export recipient trust scope is invalid")
 		}
+		identityProof, err = auditseal.VerifyRecipientIdentityProofFile(
+			request.identityProofFile,
+			request.proofingTrustFile,
+			profile,
+			request.isolationDomainID,
+			time.Now().UTC(),
+		)
+		if err != nil {
+			return err
+		}
 	}
-	change := newTrustChange(request, profile)
+	change := newTrustChange(request, profile, identityProof)
 	if !change.Valid() {
 		return errors.New("audit export recipient trust change is invalid")
 	}
@@ -109,20 +122,29 @@ func executeRequest(
 func newTrustChange(
 	request commandRequest,
 	profile auditseal.RecipientTrustEvidence,
+	identityProof auditseal.VerifiedRecipientIdentityProof,
 ) persistence.AuditExportRecipientTrustChange {
 	reasonDigest := sha256.Sum256([]byte(request.reason))
 	return persistence.AuditExportRecipientTrustChange{
-		Contract:           persistence.AuditExportRecipientTrustAuthorizationContract,
-		Operation:          request.operation,
-		IsolationDomainID:  request.isolationDomainID,
-		RecipientID:        request.recipientID,
-		Generation:         request.generation,
-		TrustContract:      profile.Contract,
-		TrustProfileSHA256: profile.SHA256,
-		KeyIDs:             append([]string(nil), profile.KeyIDs...),
-		ActorID:            request.actorID,
-		ReasonDigest:       reasonDigest[:],
-		CorrelationID:      request.correlationID,
+		Contract:                    persistence.AuditExportRecipientTrustAuthorizationContract,
+		Operation:                   request.operation,
+		IsolationDomainID:           request.isolationDomainID,
+		RecipientID:                 request.recipientID,
+		Generation:                  request.generation,
+		TrustContract:               profile.Contract,
+		TrustProfileSHA256:          profile.SHA256,
+		KeyIDs:                      append([]string(nil), profile.KeyIDs...),
+		IdentityProofContract:       identityProof.Contract,
+		IdentityProofSHA256:         identityProof.SHA256,
+		IdentityProofEvidenceSHA256: identityProof.EvidenceSHA256,
+		ProofingAuthorityID:         identityProof.AuthorityID,
+		ProofingTrustProfileSHA256:  identityProof.ProofingTrustProfileSHA256,
+		ProofingSigningKeyID:        identityProof.SigningKeyID,
+		IdentityProofVerifiedAt:     identityProof.VerifiedAt,
+		IdentityProofExpiresAt:      identityProof.ExpiresAt,
+		ActorID:                     request.actorID,
+		ReasonDigest:                reasonDigest[:],
+		CorrelationID:               request.correlationID,
 	}
 }
 
@@ -136,6 +158,8 @@ func parseArguments(arguments []string) (commandRequest, error) {
 	flags.Int64Var(&request.generation, "generation", 0, "sequential trust generation")
 	flags.StringVar(&request.trustFile, "trust-file", "", "canonical recipient trust profile")
 	flags.StringVar(&request.trustSHA256, "trust-sha256", "", "exact active trust profile digest to revoke")
+	flags.StringVar(&request.identityProofFile, "identity-proof-file", "", "signed recipient identity and key-custody proof")
+	flags.StringVar(&request.proofingTrustFile, "proofing-trust-file", "", "recipient proofing authority trust profile")
 	flags.StringVar(&request.actorID, "actor", "", "authorized operator identifier")
 	flags.StringVar(&request.reason, "reason", "", "operator-visible trust change reason")
 	flags.StringVar(&request.correlationID, "correlation-id", "", "stable operation correlation identifier")
@@ -150,8 +174,12 @@ func parseArguments(arguments []string) (commandRequest, error) {
 	if request.operation != "activate" && request.operation != "revoke" {
 		return commandRequest{}, errors.New("audit export recipient trust operation is invalid")
 	}
-	if (request.operation == "activate" && (request.trustFile == "" || request.trustSHA256 != "")) ||
-		(request.operation == "revoke" && (request.trustFile != "" || !validTrustDigest(request.trustSHA256))) {
+	if (request.operation == "activate" &&
+		(request.trustFile == "" || request.trustSHA256 != "" ||
+			request.identityProofFile == "" || request.proofingTrustFile == "")) ||
+		(request.operation == "revoke" &&
+			(request.trustFile != "" || !validTrustDigest(request.trustSHA256) ||
+				request.identityProofFile != "" || request.proofingTrustFile != "")) {
 		return commandRequest{}, errors.New("audit export recipient trust evidence is invalid")
 	}
 	if !validReason(request.reason) {

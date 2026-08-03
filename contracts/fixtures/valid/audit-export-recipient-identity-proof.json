@@ -1,0 +1,20 @@
+{
+  "contract": "dataground.audit-export-recipient-identity-proof/ed25519/v1",
+  "content": {
+    "contract": "dataground.audit-export-recipient-identity-proof/v1",
+    "isolationDomainId": "iso_00000000000000000001",
+    "recipientId": "archive.primary",
+    "recipientTrustProfileSha256": "sha256:4da1a4664be2a80de1f5d840f84c6a2df5e2ccaffbb1c8daa4cb79eacf9812ee",
+    "evidenceSha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    "authorityId": "archive-proofing.primary",
+    "verifiedAt": "2026-08-03T19:00:00Z",
+    "expiresAt": "2026-08-04T20:00:00Z"
+  },
+  "contentSha256": "sha256:5ecb540cd4c364e7c3c32b175f8be5361c17d83b5d2f812fda15db482a7df2bb",
+  "proofingTrustProfileSha256": "sha256:902c8f679a4f253e202e6af1d876e4256019a5e4b65a284ac52540d733544fd7",
+  "signature": {
+    "contract": "dataground.audit-export-recipient-identity-proof-signature/ed25519/v1",
+    "keyId": "proofing_key_01",
+    "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  }
+}
