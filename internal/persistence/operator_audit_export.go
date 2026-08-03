@@ -29,14 +29,14 @@ const (
 )
 
 var (
-	ErrOperatorAuditExportInvalid = errors.New("operator audit export request is invalid")
-	operatorAuditIDPattern        = regexp.MustCompile(`^aud_[0-9a-z]{20,32}$`)
-	operatorAuditDomainPattern    = regexp.MustCompile(`^iso_[0-9a-z]{20,32}$`)
+	ErrOperatorAuditExportInvalid  = errors.New("operator audit export request is invalid")
+	operatorAuditIDPattern         = regexp.MustCompile(`^aud_[0-9a-z]{20,32}$`)
+	operatorAuditDomainPattern     = regexp.MustCompile(`^iso_[0-9a-z]{20,32}$`)
 	operatorAuditExportCorrelation = regexp.MustCompile(`^cor_[0-9a-z]{20,32}$`)
-	operatorAuditResourceID       = regexp.MustCompile(`^[a-z][a-z0-9_-]{2,127}$`)
-	operatorAuditVocabulary       = regexp.MustCompile(`^[a-z][a-z0-9.-]{0,127}$`)
-	operatorAuditDigest           = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-	operatorAuditProviderID       = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,127}$`)
+	operatorAuditResourceID        = regexp.MustCompile(`^[a-z][a-z0-9_-]{2,127}$`)
+	operatorAuditVocabulary        = regexp.MustCompile(`^[a-z][a-z0-9.-]{0,127}$`)
+	operatorAuditDigest            = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	operatorAuditProviderID        = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,127}$`)
 )
 
 type OperatorAuditExport struct {
