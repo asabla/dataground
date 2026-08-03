@@ -29,6 +29,33 @@ func TestMigrationsRoundTrip(t *testing.T) {
 	if err := persistence.MigrateUp(ctx, database); err != nil {
 		t.Fatalf("initial migrate up: %v", err)
 	}
+	if err := persistence.MigrateDownTo(ctx, database, 20); err != nil {
+		t.Fatalf("migrate to schema 20: %v", err)
+	}
+	if _, err := database.ExecContext(ctx, `
+		INSERT INTO audit_records (
+			id, isolation_domain_id, actor_id, action, resource_type, resource_id,
+			outcome, correlation_id, safe_metadata, occurred_at
+		) VALUES (
+			'aud_00000000000000000001', 'iso_00000000000000000001', 'operator',
+			'test.audit', 'test-resource', 'tst_00000000000000000001', 'accepted',
+			'cor_00000000000000000001', '{}', clock_timestamp()
+		)
+	`); err != nil {
+		t.Fatalf("seed schema 20 audit record: %v", err)
+	}
+	if err := persistence.MigrateUp(ctx, database); err != nil {
+		t.Fatalf("upgrade schema 20 audit records: %v", err)
+	}
+	var auditSequence int64
+	if err := database.QueryRowContext(ctx, `
+		SELECT sequence FROM audit_records WHERE id = 'aud_00000000000000000001'
+	`).Scan(&auditSequence); err != nil {
+		t.Fatalf("read backfilled audit sequence: %v", err)
+	}
+	if auditSequence < 1 {
+		t.Fatalf("backfilled audit sequence = %d", auditSequence)
+	}
 	if err := persistence.MigrateDownTo(ctx, database, 0); err != nil {
 		t.Fatalf("migrate down: %v", err)
 	}
@@ -67,13 +94,14 @@ func TestMigrationsRoundTrip(t *testing.T) {
 		      'oidc_dpop_nonces',
 		      'authentication_rate_limit_buckets',
 		      'authentication_rate_limit_policy_activations',
-		      'oidc_provider_credential_operations'
+		      'oidc_provider_credential_operations',
+		      'operator_audit_exports'
 		  )
 	`).Scan(&tables); err != nil {
 		t.Fatalf("inspect migrated tables: %v", err)
 	}
-	if tables != 23 {
-		t.Fatalf("expected 23 representative tables, got %d", tables)
+	if tables != 24 {
+		t.Fatalf("expected 24 representative tables, got %d", tables)
 	}
 
 	var rateLimitBucketPrimaryKey string

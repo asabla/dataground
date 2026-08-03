@@ -43,6 +43,12 @@
       "valid": true
     },
     {
+      "file": "valid/operator-audit-export.json",
+      "schema": "OperatorAuditExport",
+      "document": "operator-audit-export",
+      "valid": true
+    },
+    {
       "file": "invalid/agent-service-missing-name.json",
       "schema": "AgentService",
       "valid": false
@@ -82,6 +88,12 @@
       "file": "invalid/authorization-audit-export-mixed-source.json",
       "schema": "AuthorizationAuditExport",
       "document": "authorization-audit-export",
+      "valid": false
+    },
+    {
+      "file": "invalid/operator-audit-export-nested-metadata.json",
+      "schema": "OperatorAuditExport",
+      "document": "operator-audit-export",
       "valid": false
     }
   ]

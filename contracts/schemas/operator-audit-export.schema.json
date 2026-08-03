@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dataground:schema:operator-audit-export:v1",
+  "title": "DataGround operator audit export",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["content", "contentSha256"],
+  "properties": {
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "exportId",
+        "isolationDomainId",
+        "requestedBy",
+        "correlationId",
+        "cursor",
+        "nextCursor",
+        "complete",
+        "records"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "dataground.dev.operator-audit-export/v1" },
+        "exportId": { "type": "string", "pattern": "^oax_[0-9a-z]{20,32}$" },
+        "isolationDomainId": { "type": "string", "pattern": "^iso_[0-9a-z]{20,32}$" },
+        "requestedBy": { "$ref": "#/$defs/actorId" },
+        "correlationId": { "$ref": "#/$defs/exportCorrelationId" },
+        "cursor": { "$ref": "#/$defs/cursor" },
+        "nextCursor": { "type": "string", "pattern": "^v1\\.[A-Za-z0-9_-]{23}$" },
+        "complete": { "type": "boolean" },
+        "records": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/record" }
+        }
+      }
+    },
+    "contentSha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "actorId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "exportCorrelationId": { "type": "string", "pattern": "^cor_[0-9a-z]{20,32}$" },
+    "cursor": { "type": "string", "pattern": "^(?:|v1\\.[A-Za-z0-9_-]{23})$" },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "resourceId": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{2,127}$" },
+    "safeMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifactDigest": { "$ref": "#/$defs/digest" },
+        "artifactKind": { "type": "string", "pattern": "^[a-z][a-z0-9.-]{0,127}$" },
+        "bindingDigest": { "$ref": "#/$defs/digest" },
+        "endpoint": { "enum": ["discovery", "jwks"] },
+        "generation": { "type": "integer", "minimum": 1 },
+        "identityDigest": { "$ref": "#/$defs/digest" },
+        "planDigest": { "$ref": "#/$defs/digest" },
+        "policyDigest": { "$ref": "#/$defs/digest" },
+        "policySetId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "principalId": { "$ref": "#/$defs/resourceId" },
+        "principalKind": {
+          "enum": [
+            "human",
+            "service",
+            "platform-service",
+            "sandbox-workload",
+            "distributed-compute-workload"
+          ]
+        },
+        "providerId": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,127}$" },
+        "providerRegistrySha256": { "$ref": "#/$defs/digest" },
+        "publicationPathDigest": { "$ref": "#/$defs/digest" },
+        "reasonDigest": { "$ref": "#/$defs/digest" },
+        "sensitive": { "type": "boolean" },
+        "sizeBytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence",
+        "auditId",
+        "recordedAt",
+        "actorId",
+        "action",
+        "resourceType",
+        "resourceId",
+        "outcome",
+        "correlationId",
+        "safeMetadata"
+      ],
+      "properties": {
+        "sequence": { "type": "string", "pattern": "^[1-9][0-9]{0,18}$" },
+        "auditId": { "type": "string", "pattern": "^aud_[0-9a-z]{20,32}$" },
+        "recordedAt": { "type": "string", "format": "date-time" },
+        "actorId": { "$ref": "#/$defs/actorId" },
+        "action": { "type": "string", "pattern": "^[a-z][a-z0-9.-]{0,127}$" },
+        "resourceType": { "type": "string", "pattern": "^[a-z][a-z0-9.-]{0,127}$" },
+        "resourceId": { "$ref": "#/$defs/resourceId" },
+        "outcome": { "enum": ["accepted", "succeeded", "failed", "cancelled", "denied"] },
+        "correlationId": { "$ref": "#/$defs/actorId" },
+        "operationId": { "$ref": "#/$defs/resourceId" },
+        "safeMetadata": { "$ref": "#/$defs/safeMetadata" }
+      }
+    }
+  }
+}
