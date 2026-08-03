@@ -231,7 +231,8 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 	case "acknowledgementDigest", "artifactDigest", "bindingDigest", "destinationDigest",
 		"envelopeDigest", "identityDigest", "planDigest", "policyDigest",
 		"providerRegistrySha256", "publicationPathDigest", "reasonDigest",
-		"recipientIdentityProofSha256", "recipientTrustProfileSha256", "trustProfileSha256":
+		"recipientIdentityProofSha256", "recipientProofRevocationSha256",
+		"recipientProofingTrustProfileSha256", "recipientTrustProfileSha256", "trustProfileSha256":
 		return operatorAuditDigest.MatchString(text)
 	case "principalId":
 		return operatorAuditResourceID.MatchString(text)
@@ -242,11 +243,15 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 		return validOperatorAuditText(text, 128)
 	case "artifactKind":
 		return operatorAuditVocabulary.MatchString(text)
-	case "providerId", "recipientProofingAuthorityId":
+	case "providerId", "recipientProofingAuthorityId", "recipientRevocationAuthorityId":
 		return operatorAuditProviderID.MatchString(text)
-	case "recipientIdentityProofExpiresAt":
+	case "recipientIdentityProofExpiresAt", "recipientProofRevocationEffectiveAt":
 		parsed, err := time.Parse(time.RFC3339Nano, text)
 		return err == nil && parsed.Equal(parsed.UTC())
+	case "recipientProofingSigningKeyId":
+		return auditExportDeliveryKeyID.MatchString(text)
+	case "recipientProofRevocationScope":
+		return text == "profile" || text == "key"
 	case "endpoint":
 		return text == "discovery" || text == "jwks"
 	case "exportKind":

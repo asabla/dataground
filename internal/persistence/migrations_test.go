@@ -178,14 +178,15 @@ func TestMigrationsRoundTrip(t *testing.T) {
 		      'operator_audit_exports',
 		      'audit_export_deliveries',
 		      'audit_export_delivery_operations',
+		      'audit_export_recipient_proof_revocations',
 		      'audit_export_recipient_trust_events',
 		      'audit_export_recipient_trust_keys'
 		  )
 	`).Scan(&tables); err != nil {
 		t.Fatalf("inspect migrated tables: %v", err)
 	}
-	if tables != 28 {
-		t.Fatalf("expected 28 representative tables, got %d", tables)
+	if tables != 29 {
+		t.Fatalf("expected 29 representative tables, got %d", tables)
 	}
 
 	var rateLimitBucketPrimaryKey string
@@ -283,5 +284,37 @@ func TestRecipientIdentityMigrationPermitsProofUpgradeWithoutKeyRotation(t *test
 	if contracts != "dataground.audit-export-recipient-trust-authorization/v1,"+
 		"dataground.audit-export-recipient-trust-authorization/v2" {
 		t.Fatalf("recipient trust authorization contracts = %q", contracts)
+	}
+}
+
+func TestRecipientProofRevocationMigrationPreservesEvidence(t *testing.T) {
+	databaseURL := os.Getenv("DATAGROUND_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		if os.Getenv("DATAGROUND_REQUIRE_TEST_DATABASE") == "true" {
+			t.Fatal("DATAGROUND_TEST_DATABASE_URL is required")
+		}
+		t.Skip("DATAGROUND_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := resetOperatorAuditDatabase(t, ctx)
+	record := auditExportRecipientProofRevocationRecord(
+		"iso_00000000000000000001", "profile", "cor_00000000000000000020",
+	)
+	if err := persistence.NewRepository(pool).RecordAuditExportRecipientProofRevocation(ctx, record); err != nil {
+		pool.Close()
+		t.Fatal(err)
+	}
+	pool.Close()
+	database, err := persistence.OpenSQL(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := persistence.MigrateDownTo(ctx, database, 25); err == nil {
+		t.Fatal("recipient proof revocation evidence was discarded by schema downgrade")
+	}
+	if err := persistence.RequireCurrentSchema(ctx, database); err != nil {
+		t.Fatalf("failed downgrade changed current schema: %v", err)
 	}
 }
