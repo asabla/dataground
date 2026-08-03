@@ -312,6 +312,13 @@ func TestAuditExportRecipientTrustRevocationBlocksNewAcknowledgements(t *testing
 		t.Fatal(err)
 	}
 	defer database.Close()
+	defer func() {
+		if _, cleanupErr := database.ExecContext(ctx, `
+			TRUNCATE audit_export_recipient_trust_events, audit_export_deliveries CASCADE
+		`); cleanupErr != nil {
+			t.Errorf("clean protected recipient trust fixture: %v", cleanupErr)
+		}
+	}()
 	if err := persistence.MigrateDownTo(ctx, database, 23); err == nil {
 		t.Fatal("recipient trust evidence was discarded by schema downgrade")
 	}
