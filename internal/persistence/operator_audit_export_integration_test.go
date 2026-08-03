@@ -167,6 +167,18 @@ func resetOperatorAuditDatabase(t *testing.T, ctx context.Context) *pgxpool.Pool
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := database.ExecContext(ctx, `
+		DO $$
+		BEGIN
+			IF to_regclass('audit_export_recipient_trust_events') IS NOT NULL THEN
+				EXECUTE 'TRUNCATE audit_export_recipient_trust_events, audit_export_deliveries CASCADE';
+			END IF;
+		END;
+		$$;
+	`); err != nil {
+		database.Close()
+		t.Fatalf("clear protected audit export fixtures: %v", err)
+	}
 	if err := persistence.MigrateDownTo(ctx, database, 0); err != nil {
 		database.Close()
 		t.Fatalf("reset schema: %v", err)
