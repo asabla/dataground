@@ -85,6 +85,9 @@ func (repository *Repository) ChangeAuditExportRecipientTrust(
 		return fmt.Errorf("begin audit export recipient trust change: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	if err := lockAuditExportRecipientProofRevocations(ctx, tx, change.IsolationDomainID); err != nil {
+		return err
+	}
 	if err := lockAuditExportRecipientTrust(ctx, tx, change.IsolationDomainID, change.RecipientID); err != nil {
 		return err
 	}
@@ -136,6 +139,22 @@ func (repository *Repository) ChangeAuditExportRecipientTrust(
 			latest.TrustProfileSHA256 == change.TrustProfileSHA256 &&
 			latest.Contract != legacyAuditExportRecipientTrustContract) {
 		return ErrAuditExportRecipientTrustConflict
+	}
+	if change.Operation == "activate" {
+		var databaseNow time.Time
+		if err := tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&databaseNow); err != nil {
+			return fmt.Errorf("read audit export recipient proof revocation clock: %w", err)
+		}
+		revoked, err := auditExportRecipientProofRevoked(
+			ctx, tx, change.IsolationDomainID, change.ProofingAuthorityID,
+			change.ProofingTrustProfileSHA256, change.ProofingSigningKeyID, databaseNow,
+		)
+		if err != nil {
+			return err
+		}
+		if revoked {
+			return ErrAuditExportRecipientTrustUnauthorized
+		}
 	}
 
 	if _, err := tx.Exec(ctx, `
@@ -212,6 +231,9 @@ func authorizeAuditExportRecipientTrust(
 	delivery AuditExportDelivery,
 	acknowledgement AuditExportDeliveryAcknowledgement,
 ) (int64, error) {
+	if err := lockAuditExportRecipientProofRevocations(ctx, tx, delivery.IsolationDomainID); err != nil {
+		return 0, err
+	}
 	if err := lockAuditExportRecipientTrust(ctx, tx, delivery.IsolationDomainID, delivery.RecipientID); err != nil {
 		return 0, err
 	}
@@ -225,11 +247,23 @@ func authorizeAuditExportRecipientTrust(
 	if err := tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&databaseNow); err != nil {
 		return 0, fmt.Errorf("read audit export recipient trust clock: %w", err)
 	}
+	revoked := false
+	if exists && latest.Operation == "activate" &&
+		latest.Contract == AuditExportRecipientTrustAuthorizationContract {
+		revoked, err = auditExportRecipientProofRevoked(
+			ctx, tx, delivery.IsolationDomainID, latest.ProofingAuthorityID,
+			latest.ProofingTrustProfileSHA256, latest.ProofingSigningKeyID, databaseNow,
+		)
+		if err != nil {
+			return 0, err
+		}
+	}
 	if !exists || latest.Operation != "activate" ||
 		latest.Contract != AuditExportRecipientTrustAuthorizationContract ||
 		latest.TrustProfileSHA256 != acknowledgement.RecipientTrustProfileSHA256 ||
 		latest.TrustContract != auditExportRecipientTrustProfileContract ||
 		!latest.IdentityProofExpiresAt.After(databaseNow) ||
+		revoked ||
 		!containsAuditExportRecipientTrustKey(latest.KeyIDs, acknowledgement.RecipientSigningKeyID) {
 		return 0, ErrAuditExportRecipientTrustUnauthorized
 	}

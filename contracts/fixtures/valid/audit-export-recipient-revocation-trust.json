@@ -1,0 +1,10 @@
+{
+  "contract": "dataground.audit-export-recipient-revocation-trust/ed25519/v1",
+  "authorityId": "archive-revocation.primary",
+  "keys": [
+    {
+      "keyId": "revocation_key_01",
+      "publicKey": "11qYAYLef8b95hGzPJmsA5v-kK5T4gZT1ivFUOH2cPs"
+    }
+  ]
+}

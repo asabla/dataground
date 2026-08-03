@@ -82,7 +82,16 @@
         "recipientId": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,127}$" },
         "recipientIdentityProofExpiresAt": { "type": "string", "format": "date-time" },
         "recipientIdentityProofSha256": { "$ref": "#/$defs/digest" },
+        "recipientProofRevocationEffectiveAt": { "type": "string", "format": "date-time" },
+        "recipientProofRevocationScope": { "enum": ["profile", "key"] },
+        "recipientProofRevocationSha256": { "$ref": "#/$defs/digest" },
         "recipientProofingAuthorityId": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{0,127}$"
+        },
+        "recipientProofingSigningKeyId": { "$ref": "#/$defs/resourceId" },
+        "recipientProofingTrustProfileSha256": { "$ref": "#/$defs/digest" },
+        "recipientRevocationAuthorityId": {
           "type": "string",
           "pattern": "^[a-z][a-z0-9._-]{0,127}$"
         },

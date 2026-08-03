@@ -85,6 +85,18 @@
       "valid": true
     },
     {
+      "file": "valid/audit-export-recipient-revocation-trust.json",
+      "schema": "AuditExportRecipientRevocationTrust",
+      "document": "audit-export-recipient-revocation-trust",
+      "valid": true
+    },
+    {
+      "file": "valid/audit-export-recipient-proof-revocation.json",
+      "schema": "AuditExportRecipientProofRevocation",
+      "document": "audit-export-recipient-proof-revocation",
+      "valid": true
+    },
+    {
       "file": "invalid/agent-service-missing-name.json",
       "schema": "AgentService",
       "valid": false
@@ -142,6 +154,12 @@
       "file": "invalid/audit-export-delivery-receipt-cross-kind.json",
       "schema": "AuditExportDeliveryReceiptV2",
       "document": "audit-export-delivery-receipt-v2",
+      "valid": false
+    },
+    {
+      "file": "invalid/audit-export-recipient-proof-revocation-scope.json",
+      "schema": "AuditExportRecipientProofRevocation",
+      "document": "audit-export-recipient-proof-revocation",
       "valid": false
     }
   ]

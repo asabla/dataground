@@ -152,6 +152,12 @@ const auditExportRecipientProofingTrust = await readJson(
 const auditExportRecipientIdentityProof = await readJson(
   "contracts/schemas/audit-export-recipient-identity-proof.schema.json",
 );
+const auditExportRecipientRevocationTrust = await readJson(
+  "contracts/schemas/audit-export-recipient-revocation-trust.schema.json",
+);
+const auditExportRecipientProofRevocation = await readJson(
+  "contracts/schemas/audit-export-recipient-proof-revocation.schema.json",
+);
 assert.equal(
   releaseManifest.$schema,
   "https://json-schema.org/draft/2020-12/schema",
@@ -181,12 +187,21 @@ const validateAuditExportDeliveryReceiptV2 = ajv.compile(auditExportDeliveryRece
 const validateAuditExportRecipientTrust = ajv.compile(auditExportRecipientTrust);
 const validateAuditExportRecipientProofingTrust = ajv.compile(auditExportRecipientProofingTrust);
 const validateAuditExportRecipientIdentityProof = ajv.compile(auditExportRecipientIdentityProof);
+const validateAuditExportRecipientRevocationTrust = ajv.compile(
+  auditExportRecipientRevocationTrust,
+);
+const validateAuditExportRecipientProofRevocation = ajv.compile(
+  auditExportRecipientProofRevocation,
+);
 const fixtureManifest = await readJson("contracts/fixtures/manifest.json");
 const validRecipientTrustFixture = await readJson(
   "contracts/fixtures/valid/audit-export-recipient-trust.json",
 );
 const validRecipientProofingTrustFixture = await readJson(
   "contracts/fixtures/valid/audit-export-recipient-proofing-trust.json",
+);
+const validRecipientRevocationTrustFixture = await readJson(
+  "contracts/fixtures/valid/audit-export-recipient-revocation-trust.json",
 );
 
 for (const fixture of fixtureManifest.fixtures) {
@@ -210,6 +225,10 @@ for (const fixture of fixtureManifest.fixtures) {
     validate = validateAuditExportRecipientProofingTrust;
   } else if (fixture.document === "audit-export-recipient-identity-proof") {
     validate = validateAuditExportRecipientIdentityProof;
+  } else if (fixture.document === "audit-export-recipient-revocation-trust") {
+    validate = validateAuditExportRecipientRevocationTrust;
+  } else if (fixture.document === "audit-export-recipient-proof-revocation") {
+    validate = validateAuditExportRecipientProofRevocation;
   } else {
     validate = ajv.compile({
       $ref: `urn:dataground:openapi:v1#/components/schemas/${fixture.schema}`,
@@ -277,6 +296,30 @@ for (const fixture of fixtureManifest.fixtures) {
       value.proofingTrustProfileSha256,
       `sha256:${proofingTrustDigest}`,
       `${fixture.file} must bind the proofing trust fixture`,
+    );
+  }
+  if (fixture.document === "audit-export-recipient-proof-revocation" && fixture.valid) {
+    const digest = createHash("sha256").update(JSON.stringify(value.content)).digest("hex");
+    assert.equal(
+      value.contentSha256,
+      `sha256:${digest}`,
+      `${fixture.file} must bind its canonical content bytes`,
+    );
+    const proofingTrustDigest = createHash("sha256")
+      .update(`${JSON.stringify(validRecipientProofingTrustFixture)}\n`)
+      .digest("hex");
+    assert.equal(
+      value.content.proofingTrustProfileSha256,
+      `sha256:${proofingTrustDigest}`,
+      `${fixture.file} must bind the proofing trust fixture`,
+    );
+    const revocationTrustDigest = createHash("sha256")
+      .update(`${JSON.stringify(validRecipientRevocationTrustFixture)}\n`)
+      .digest("hex");
+    assert.equal(
+      value.revocationTrustProfileSha256,
+      `sha256:${revocationTrustDigest}`,
+      `${fixture.file} must bind the revocation trust fixture`,
     );
   }
 }

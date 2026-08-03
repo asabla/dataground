@@ -1,0 +1,22 @@
+{
+  "contract": "dataground.audit-export-recipient-proof-revocation/ed25519/v1",
+  "content": {
+    "contract": "dataground.audit-export-recipient-proof-revocation/v1",
+    "isolationDomainId": "iso_00000000000000000001",
+    "scope": "profile",
+    "proofingAuthorityId": "archive-proofing.primary",
+    "proofingTrustProfileSha256": "sha256:902c8f679a4f253e202e6af1d876e4256019a5e4b65a284ac52540d733544fd7",
+    "proofingSigningKeyId": "proofing_key_01",
+    "reasonSha256": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+    "revocationAuthorityId": "archive-revocation.primary",
+    "issuedAt": "2026-08-03T20:30:00Z",
+    "effectiveAt": "2026-08-03T19:30:00Z"
+  },
+  "contentSha256": "sha256:07b9c1aa2cb562df5cd0659c2ccb6f5d4fe4d912b819a49c84d557b605e8411f",
+  "revocationTrustProfileSha256": "sha256:fda65dcf6d971cd401f95e9d84a88cc9fd8a75ec76b7bb37eb4c0f337c524b38",
+  "signature": {
+    "contract": "dataground.audit-export-recipient-proof-revocation-signature/ed25519/v1",
+    "keyId": "revocation_key_01",
+    "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dataground:schema:audit-export-recipient-revocation-trust:v1",
+  "title": "DataGround audit export recipient revocation authority trust profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "authorityId", "keys"],
+  "properties": {
+    "contract": { "const": "dataground.audit-export-recipient-revocation-trust/ed25519/v1" },
+    "authorityId": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,127}$" },
+    "keys": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["keyId", "publicKey"],
+        "properties": {
+          "keyId": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{2,63}$" },
+          "publicKey": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" }
+        }
+      }
+    }
+  }
+}
