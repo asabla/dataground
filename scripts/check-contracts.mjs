@@ -135,6 +135,7 @@ const releaseManifest = await readJson("contracts/schemas/release-manifest.schem
 const authorizationAuditExport = await readJson(
   "contracts/schemas/authorization-audit-export.schema.json",
 );
+const operatorAuditExport = await readJson("contracts/schemas/operator-audit-export.schema.json");
 assert.equal(
   releaseManifest.$schema,
   "https://json-schema.org/draft/2020-12/schema",
@@ -155,6 +156,7 @@ addFormats(ajv);
 ajv.addSchema(openApi, "urn:dataground:openapi:v1");
 const validateReleaseManifest = ajv.compile(releaseManifest);
 const validateAuthorizationAuditExport = ajv.compile(authorizationAuditExport);
+const validateOperatorAuditExport = ajv.compile(operatorAuditExport);
 const fixtureManifest = await readJson("contracts/fixtures/manifest.json");
 
 for (const fixture of fixtureManifest.fixtures) {
@@ -164,6 +166,8 @@ for (const fixture of fixtureManifest.fixtures) {
     validate = validateReleaseManifest;
   } else if (fixture.document === "authorization-audit-export") {
     validate = validateAuthorizationAuditExport;
+  } else if (fixture.document === "operator-audit-export") {
+    validate = validateOperatorAuditExport;
   } else {
     validate = ajv.compile({
       $ref: `urn:dataground:openapi:v1#/components/schemas/${fixture.schema}`,
@@ -175,7 +179,11 @@ for (const fixture of fixtureManifest.fixtures) {
     fixture.valid,
     `${fixture.file} expected valid=${fixture.valid}; ${ajv.errorsText(validate.errors)}`,
   );
-  if (fixture.document === "authorization-audit-export" && fixture.valid) {
+  if (
+    (fixture.document === "authorization-audit-export" ||
+      fixture.document === "operator-audit-export") &&
+    fixture.valid
+  ) {
     const digest = createHash("sha256").update(JSON.stringify(value.content)).digest("hex");
     assert.equal(
       value.contentSha256,

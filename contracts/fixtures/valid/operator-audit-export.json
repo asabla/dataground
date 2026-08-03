@@ -1,0 +1,32 @@
+{
+  "content": {
+    "schemaVersion": "dataground.dev.operator-audit-export/v1",
+    "exportId": "oax_00000000000000000001",
+    "isolationDomainId": "iso_00000000000000000001",
+    "requestedBy": "operator@example.invalid",
+    "correlationId": "cor_00000000000000000001",
+    "cursor": "",
+    "nextCursor": "v1.AQAAAAAAAAABAAAAAAAAAAE",
+    "complete": true,
+    "records": [
+      {
+        "sequence": "1",
+        "auditId": "aud_00000000000000000001",
+        "recordedAt": "2026-08-03T12:00:00Z",
+        "actorId": "operator@example.invalid",
+        "action": "oidc-provider-credential.activate",
+        "resourceType": "oidc-provider-credential",
+        "resourceId": "opc_00000000000000000001",
+        "outcome": "succeeded",
+        "correlationId": "cor_00000000000000000002",
+        "safeMetadata": {
+          "endpoint": "jwks",
+          "generation": 1,
+          "providerId": "primary",
+          "reasonDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      }
+    ]
+  },
+  "contentSha256": "sha256:7edf49534ac16cf19ffed21f6db2c313d4f5100ddd384fb6bdcf0823916d49be"
+}
