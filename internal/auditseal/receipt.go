@@ -17,11 +17,14 @@ import (
 var auditExportDeliveryRecipientPattern = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,127}$`)
 
 const (
-	DeliveryReceiptContract          = "dataground.audit-export-delivery-receipt/ed25519/v1"
-	DeliveryReceiptSignatureContract = "dataground.audit-export-delivery-receipt-signature/ed25519/v1"
+	DeliveryReceiptContract          = "dataground.audit-export-delivery-receipt/ed25519/v2"
+	DeliveryReceiptSignatureContract = "dataground.audit-export-delivery-receipt-signature/ed25519/v2"
 	RecipientTrustContract           = "dataground.audit-export-recipient-trust/ed25519/v1"
 
-	deliveryReceiptDomain = "DataGround audit export delivery receipt v1\n"
+	legacyDeliveryReceiptContract          = "dataground.audit-export-delivery-receipt/ed25519/v1"
+	legacyDeliveryReceiptSignatureContract = "dataground.audit-export-delivery-receipt-signature/ed25519/v1"
+	deliveryReceiptDomain                  = "DataGround audit export delivery receipt v2\n"
+	legacyDeliveryReceiptDomain            = "DataGround audit export delivery receipt v1\n"
 )
 
 type RecipientTrustProfile struct {
@@ -61,10 +64,37 @@ type DeliveryReceipt struct {
 
 type VerifiedDeliveryReceipt struct {
 	ReceiptSHA256               [sha256.Size]byte
+	DeliveryContract            string
 	Contract                    string
 	RecipientTrustProfileSHA256 string
 	SigningKeyID                string
 	AcceptedAt                  time.Time
+}
+
+type RecipientTrustEvidence struct {
+	Contract    string
+	RecipientID string
+	SHA256      string
+	KeyIDs      []string
+}
+
+func InspectRecipientTrustProfileFile(path string) (RecipientTrustEvidence, error) {
+	trust, canonical, err := readRecipientTrustProfile(path)
+	if err != nil {
+		return RecipientTrustEvidence{}, err
+	}
+	defer clear(canonical)
+	digest := sha256.Sum256(canonical)
+	keyIDs := make([]string, len(trust.Keys))
+	for index, key := range trust.Keys {
+		keyIDs[index] = key.KeyID
+	}
+	return RecipientTrustEvidence{
+		Contract:    trust.Contract,
+		RecipientID: trust.RecipientID,
+		SHA256:      digestString(digest),
+		KeyIDs:      keyIDs,
+	}, nil
 }
 
 type deliveryReceiptSigningFields struct {
@@ -111,7 +141,7 @@ func VerifyDeliveryReceiptFile(
 	}
 	defer clear(content)
 	contentDigest := sha256.Sum256(bytes.TrimSuffix(content, []byte{'\n'}))
-	if receipt.Contract != DeliveryReceiptContract ||
+	if !validDeliveryReceiptVersion(receipt) ||
 		receipt.ContentSHA256 != digestString(contentDigest) ||
 		receipt.RecipientTrustProfileSHA256 != digestString(trustDigest) ||
 		trust.RecipientID != delivery.RecipientID ||
@@ -124,6 +154,7 @@ func VerifyDeliveryReceiptFile(
 	}
 	return VerifiedDeliveryReceipt{
 		ReceiptSHA256:               sha256.Sum256(encoded),
+		DeliveryContract:            receipt.Content.DeliveryContract,
 		Contract:                    receipt.Contract,
 		RecipientTrustProfileSHA256: receipt.RecipientTrustProfileSHA256,
 		SigningKeyID:                receipt.Signature.KeyID,
@@ -178,7 +209,11 @@ func validateRecipientTrustProfile(trust RecipientTrustProfile) error {
 }
 
 func verifyDeliveryReceiptSignature(receipt DeliveryReceipt, trust RecipientTrustProfile) error {
-	if receipt.Signature.Contract != DeliveryReceiptSignatureContract ||
+	expectedSignatureContract := DeliveryReceiptSignatureContract
+	if receipt.Contract == legacyDeliveryReceiptContract {
+		expectedSignatureContract = legacyDeliveryReceiptSignatureContract
+	}
+	if receipt.Signature.Contract != expectedSignatureContract ||
 		!keyIDPattern.MatchString(receipt.Signature.KeyID) {
 		return errors.New("audit export delivery receipt signature fields are invalid")
 	}
@@ -221,15 +256,22 @@ func deliveryReceiptSigningMessage(receipt DeliveryReceipt) ([]byte, error) {
 	if err != nil {
 		return nil, errors.New("encode audit export delivery receipt signing message")
 	}
-	message := make([]byte, 0, len(deliveryReceiptDomain)+len(canonical))
-	message = append(message, deliveryReceiptDomain...)
+	domain := deliveryReceiptDomain
+	if receipt.Contract == legacyDeliveryReceiptContract {
+		domain = legacyDeliveryReceiptDomain
+	}
+	message := make([]byte, 0, len(domain)+len(canonical))
+	message = append(message, domain...)
 	message = append(message, canonical...)
 	clear(canonical)
 	return message, nil
 }
 
 func sameDeliveryReceiptContent(content DeliveryReceiptContent, delivery persistence.AuditExportDelivery) bool {
-	return content.DeliveryContract == delivery.Contract &&
+	validDeliveryContract := content.DeliveryContract == delivery.Contract ||
+		(delivery.Contract == persistence.AuditExportDeliveryContract &&
+			content.DeliveryContract == persistence.AuditExportDeliveryReceiptVerifiedContract)
+	return validDeliveryContract &&
 		content.DeliveryID == delivery.DeliveryID &&
 		content.IsolationDomainID == delivery.IsolationDomainID &&
 		content.ExportKind == delivery.ExportKind &&
@@ -240,6 +282,17 @@ func sameDeliveryReceiptContent(content DeliveryReceiptContent, delivery persist
 		content.ExportSigningKeyID == delivery.SigningKeyID &&
 		content.RecipientID == delivery.RecipientID &&
 		content.DestinationSHA256 == digestStringFromBytes(delivery.DestinationDigest)
+}
+
+func validDeliveryReceiptVersion(receipt DeliveryReceipt) bool {
+	switch receipt.Contract {
+	case DeliveryReceiptContract:
+		return receipt.Content.DeliveryContract == persistence.AuditExportDeliveryContract
+	case legacyDeliveryReceiptContract:
+		return receipt.Content.DeliveryContract == persistence.AuditExportDeliveryReceiptVerifiedContract
+	default:
+		return false
+	}
 }
 
 func canonicalReceiptTime(value time.Time) bool {

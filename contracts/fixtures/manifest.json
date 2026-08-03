@@ -61,6 +61,12 @@
       "valid": true
     },
     {
+      "file": "valid/audit-export-delivery-receipt-v2.json",
+      "schema": "AuditExportDeliveryReceiptV2",
+      "document": "audit-export-delivery-receipt-v2",
+      "valid": true
+    },
+    {
       "file": "valid/audit-export-recipient-trust.json",
       "schema": "AuditExportRecipientTrust",
       "document": "audit-export-recipient-trust",
@@ -122,8 +128,8 @@
     },
     {
       "file": "invalid/audit-export-delivery-receipt-cross-kind.json",
-      "schema": "AuditExportDeliveryReceipt",
-      "document": "audit-export-delivery-receipt",
+      "schema": "AuditExportDeliveryReceiptV2",
+      "document": "audit-export-delivery-receipt-v2",
       "valid": false
     }
   ]

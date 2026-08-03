@@ -140,6 +140,9 @@ const auditExportEnvelope = await readJson("contracts/schemas/audit-export-envel
 const auditExportDeliveryReceipt = await readJson(
   "contracts/schemas/audit-export-delivery-receipt.schema.json",
 );
+const auditExportDeliveryReceiptV2 = await readJson(
+  "contracts/schemas/audit-export-delivery-receipt-v2.schema.json",
+);
 const auditExportRecipientTrust = await readJson(
   "contracts/schemas/audit-export-recipient-trust.schema.json",
 );
@@ -168,6 +171,7 @@ const validateAuthorizationAuditExport = ajv.getSchema(authorizationAuditExport.
 const validateOperatorAuditExport = ajv.getSchema(operatorAuditExport.$id);
 const validateAuditExportEnvelope = ajv.compile(auditExportEnvelope);
 const validateAuditExportDeliveryReceipt = ajv.compile(auditExportDeliveryReceipt);
+const validateAuditExportDeliveryReceiptV2 = ajv.compile(auditExportDeliveryReceiptV2);
 const validateAuditExportRecipientTrust = ajv.compile(auditExportRecipientTrust);
 const fixtureManifest = await readJson("contracts/fixtures/manifest.json");
 
@@ -184,6 +188,8 @@ for (const fixture of fixtureManifest.fixtures) {
     validate = validateAuditExportEnvelope;
   } else if (fixture.document === "audit-export-delivery-receipt") {
     validate = validateAuditExportDeliveryReceipt;
+  } else if (fixture.document === "audit-export-delivery-receipt-v2") {
+    validate = validateAuditExportDeliveryReceiptV2;
   } else if (fixture.document === "audit-export-recipient-trust") {
     validate = validateAuditExportRecipientTrust;
   } else {
@@ -219,7 +225,11 @@ for (const fixture of fixtureManifest.fixtures) {
       `${fixture.file} must bind its canonical export bytes`,
     );
   }
-  if (fixture.document === "audit-export-delivery-receipt" && fixture.valid) {
+  if (
+    (fixture.document === "audit-export-delivery-receipt" ||
+      fixture.document === "audit-export-delivery-receipt-v2") &&
+    fixture.valid
+  ) {
     const digest = createHash("sha256").update(JSON.stringify(value.content)).digest("hex");
     assert.equal(
       value.contentSha256,

@@ -69,7 +69,8 @@ func TestExecuteRequestKeepsPreparationAndAcknowledgementDistinct(t *testing.T) 
 	acknowledge.correlationID = "cor_00000000000000000002"
 	acknowledge.acknowledgement = persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       digest[:],
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v1",
+		DeliveryContract:            persistence.AuditExportDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v2",
 		RecipientTrustProfileSHA256: "sha256:" + strings.Repeat("3", 64),
 		RecipientSigningKeyID:       "archive_key_01",
 		AcceptedAt:                  time.Date(2026, 8, 3, 15, 30, 0, 123000, time.UTC),

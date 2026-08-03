@@ -17,9 +17,11 @@ import (
 )
 
 const (
-	AuditExportDeliveryContract        = "dataground.audit-export-delivery/v2"
-	auditExportDeliveryLegacyContract  = "dataground.audit-export-delivery/v1"
-	auditExportDeliveryReceiptContract = "dataground.audit-export-delivery-receipt/ed25519/v1"
+	AuditExportDeliveryContract                = "dataground.audit-export-delivery/v3"
+	auditExportDeliveryLegacyContract          = "dataground.audit-export-delivery/v1"
+	AuditExportDeliveryReceiptVerifiedContract = "dataground.audit-export-delivery/v2"
+	auditExportDeliveryReceiptContract         = "dataground.audit-export-delivery-receipt/ed25519/v2"
+	auditExportDeliveryLegacyReceiptContract   = "dataground.audit-export-delivery-receipt/ed25519/v1"
 )
 
 var (
@@ -55,6 +57,7 @@ type AuditExportDeliveryAttribution struct {
 
 type AuditExportDeliveryAcknowledgement struct {
 	AcknowledgementDigest       []byte
+	DeliveryContract            string
 	ReceiptContract             string
 	RecipientTrustProfileSHA256 string
 	RecipientSigningKeyID       string
@@ -93,7 +96,12 @@ func (attribution AuditExportDeliveryAttribution) Valid() bool {
 func (acknowledgement AuditExportDeliveryAcknowledgement) Valid() bool {
 	_, offset := acknowledgement.AcceptedAt.Zone()
 	return len(acknowledgement.AcknowledgementDigest) == sha256.Size &&
-		acknowledgement.ReceiptContract == auditExportDeliveryReceiptContract &&
+		(acknowledgement.DeliveryContract == AuditExportDeliveryContract ||
+			acknowledgement.DeliveryContract == AuditExportDeliveryReceiptVerifiedContract) &&
+		((acknowledgement.DeliveryContract == AuditExportDeliveryContract &&
+			acknowledgement.ReceiptContract == auditExportDeliveryReceiptContract) ||
+			(acknowledgement.DeliveryContract == AuditExportDeliveryReceiptVerifiedContract &&
+				acknowledgement.ReceiptContract == auditExportDeliveryLegacyReceiptContract)) &&
 		auditExportDeliveryDigest.MatchString(acknowledgement.RecipientTrustProfileSHA256) &&
 		auditExportDeliveryKeyID.MatchString(acknowledgement.RecipientSigningKeyID) &&
 		!acknowledgement.AcceptedAt.IsZero() && offset == 0 &&
@@ -208,7 +216,7 @@ func (repository *Repository) AcknowledgeAuditExportDelivery(
 	if err != nil {
 		return err
 	}
-	if !exists || !sameAuditExportDelivery(existing, delivery) {
+	if !exists || !sameAuditExportDeliveryPreparation(existing, delivery) {
 		return ErrAuditExportDeliveryConflict
 	}
 	if status == "acknowledged" {
@@ -224,6 +232,13 @@ func (repository *Repository) AcknowledgeAuditExportDelivery(
 	if status != "prepared" {
 		return ErrAuditExportDeliveryConflict
 	}
+	if acknowledgement.DeliveryContract != delivery.Contract {
+		return ErrAuditExportDeliveryConflict
+	}
+	recipientTrustGeneration, err := authorizeAuditExportRecipientTrust(ctx, tx, delivery, acknowledgement)
+	if err != nil {
+		return err
+	}
 	if err := insertAuditExportDeliveryOperation(
 		ctx, tx, delivery, "acknowledge", acknowledgement.Attribution, acknowledgement.AcknowledgementDigest,
 	); err != nil {
@@ -234,11 +249,11 @@ func (repository *Repository) AcknowledgeAuditExportDelivery(
 		SET status = 'acknowledged', acknowledgement_digest = $2,
 		    acknowledgement_contract = $3, recipient_trust_profile_sha256 = $4,
 		    recipient_signing_key_id = $5, recipient_accepted_at = $6,
-		    acknowledged_at = clock_timestamp()
+		    recipient_trust_generation = $7, acknowledged_at = clock_timestamp()
 		WHERE delivery_id = $1 AND status = 'prepared'
 	`, delivery.DeliveryID, acknowledgement.AcknowledgementDigest, acknowledgement.ReceiptContract,
 		acknowledgement.RecipientTrustProfileSHA256, acknowledgement.RecipientSigningKeyID,
-		acknowledgement.AcceptedAt.UTC())
+		acknowledgement.AcceptedAt.UTC(), recipientTrustGeneration)
 	if err != nil {
 		return fmt.Errorf("acknowledge audit export delivery: %w", err)
 	}
@@ -257,7 +272,8 @@ func (repository *Repository) AcknowledgeAuditExportDelivery(
 				'envelopeDigest', $7::text,
 				'reasonDigest', $8::text,
 				'recipientSigningKeyId', $9::text,
-				'recipientTrustProfileSha256', $10::text
+				'recipientTrustGeneration', $10::bigint,
+				'recipientTrustProfileSha256', $11::text
 			),
 			clock_timestamp()
 		)
@@ -265,7 +281,7 @@ func (repository *Repository) AcknowledgeAuditExportDelivery(
 		delivery.DeliveryID, acknowledgement.Attribution.CorrelationID,
 		digestBytes(acknowledgement.AcknowledgementDigest), digestBytes(delivery.EnvelopeDigest),
 		digestBytes(acknowledgement.Attribution.ReasonDigest), acknowledgement.RecipientSigningKeyID,
-		acknowledgement.RecipientTrustProfileSHA256); err != nil {
+		recipientTrustGeneration, acknowledgement.RecipientTrustProfileSHA256); err != nil {
 		return fmt.Errorf("audit export delivery acknowledgement: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -314,6 +330,7 @@ func readAuditExportDelivery(
 	var hasAcknowledgedAt bool
 	var acknowledgementContract, recipientTrustProfileSHA256, recipientSigningKeyID *string
 	var recipientAcceptedAt *time.Time
+	var recipientTrustGeneration *int64
 	err := tx.QueryRow(ctx, `
 		SELECT delivery.contract, delivery.delivery_id, delivery.isolation_domain_id,
 		       delivery.export_kind, delivery.export_id, delivery.envelope_digest,
@@ -322,6 +339,7 @@ func readAuditExportDelivery(
 		       delivery.acknowledgement_digest, delivery.acknowledged_at IS NOT NULL,
 		       delivery.acknowledgement_contract, delivery.recipient_trust_profile_sha256,
 		       delivery.recipient_signing_key_id, delivery.recipient_accepted_at,
+		       delivery.recipient_trust_generation,
 		       operation.actor_id, operation.reason_digest, operation.correlation_id,
 		       operation.evidence_digest
 		FROM audit_export_deliveries AS delivery
@@ -336,7 +354,7 @@ func readAuditExportDelivery(
 		&delivery.RecipientID, &delivery.DestinationDigest, &status,
 		&acknowledgementDigest, &hasAcknowledgedAt,
 		&acknowledgementContract, &recipientTrustProfileSHA256,
-		&recipientSigningKeyID, &recipientAcceptedAt,
+		&recipientSigningKeyID, &recipientAcceptedAt, &recipientTrustGeneration,
 		&attribution.ActorID, &attribution.ReasonDigest, &attribution.CorrelationID,
 		&preparationEvidence,
 	)
@@ -349,19 +367,31 @@ func readAuditExportDelivery(
 	}
 	validPrepared := status == "prepared" && delivery.Contract == AuditExportDeliveryContract &&
 		len(acknowledgementDigest) == 0 && !hasAcknowledgedAt && acknowledgementContract == nil &&
-		recipientTrustProfileSHA256 == nil && recipientSigningKeyID == nil && recipientAcceptedAt == nil
+		recipientTrustProfileSHA256 == nil && recipientSigningKeyID == nil && recipientAcceptedAt == nil &&
+		recipientTrustGeneration == nil
 	validLegacyAcknowledged := status == "acknowledged" && delivery.Contract == auditExportDeliveryLegacyContract &&
 		len(acknowledgementDigest) == sha256.Size && hasAcknowledgedAt && acknowledgementContract == nil &&
-		recipientTrustProfileSHA256 == nil && recipientSigningKeyID == nil && recipientAcceptedAt == nil
-	validVerifiedAcknowledged := status == "acknowledged" && delivery.Contract == AuditExportDeliveryContract &&
+		recipientTrustProfileSHA256 == nil && recipientSigningKeyID == nil && recipientAcceptedAt == nil &&
+		recipientTrustGeneration == nil
+	validReceiptVerifiedAcknowledged := status == "acknowledged" &&
+		delivery.Contract == AuditExportDeliveryReceiptVerifiedContract &&
+		len(acknowledgementDigest) == sha256.Size && hasAcknowledgedAt && acknowledgementContract != nil &&
+		*acknowledgementContract == auditExportDeliveryLegacyReceiptContract &&
+		recipientTrustProfileSHA256 != nil && auditExportDeliveryDigest.MatchString(*recipientTrustProfileSHA256) &&
+		recipientSigningKeyID != nil && auditExportDeliveryKeyID.MatchString(*recipientSigningKeyID) &&
+		recipientAcceptedAt != nil && !recipientAcceptedAt.IsZero() && credentialTimestampExact(*recipientAcceptedAt) &&
+		recipientTrustGeneration == nil
+	validAuthorizedAcknowledged := status == "acknowledged" && delivery.Contract == AuditExportDeliveryContract &&
 		len(acknowledgementDigest) == sha256.Size && hasAcknowledgedAt && acknowledgementContract != nil &&
 		*acknowledgementContract == auditExportDeliveryReceiptContract &&
 		recipientTrustProfileSHA256 != nil && auditExportDeliveryDigest.MatchString(*recipientTrustProfileSHA256) &&
 		recipientSigningKeyID != nil && auditExportDeliveryKeyID.MatchString(*recipientSigningKeyID) &&
-		recipientAcceptedAt != nil && !recipientAcceptedAt.IsZero() && credentialTimestampExact(*recipientAcceptedAt)
+		recipientAcceptedAt != nil && !recipientAcceptedAt.IsZero() && credentialTimestampExact(*recipientAcceptedAt) &&
+		recipientTrustGeneration != nil && *recipientTrustGeneration > 0
 	if !validStoredAuditExportDelivery(delivery) || !attribution.Valid() ||
 		subtle.ConstantTimeCompare(preparationEvidence, delivery.EnvelopeDigest) != 1 ||
-		(!validPrepared && !validLegacyAcknowledged && !validVerifiedAcknowledged) {
+		(!validPrepared && !validLegacyAcknowledged && !validReceiptVerifiedAcknowledged &&
+			!validAuthorizedAcknowledged) {
 		return AuditExportDelivery{}, AuditExportDeliveryAttribution{}, "", false,
 			ErrAuditExportDeliveryConflict
 	}
@@ -378,11 +408,13 @@ func readAuditExportDeliveryAcknowledgement(
 	var deliveryContract string
 	var receiptContract, recipientTrustProfileSHA256, recipientSigningKeyID *string
 	var acceptedAt *time.Time
+	var recipientTrustGeneration *int64
 	err := tx.QueryRow(ctx, `
 		SELECT delivery.contract, operation.actor_id, operation.reason_digest, operation.correlation_id,
 		       operation.evidence_digest, delivery.acknowledgement_digest,
 		       delivery.acknowledgement_contract, delivery.recipient_trust_profile_sha256,
-		       delivery.recipient_signing_key_id, delivery.recipient_accepted_at
+		       delivery.recipient_signing_key_id, delivery.recipient_accepted_at,
+		       delivery.recipient_trust_generation
 		FROM audit_export_delivery_operations AS operation
 		JOIN audit_export_deliveries AS delivery ON delivery.delivery_id = operation.delivery_id
 		WHERE operation.delivery_id = $1 AND operation.operation = 'acknowledge'
@@ -390,6 +422,7 @@ func readAuditExportDeliveryAcknowledgement(
 		&deliveryContract, &acknowledgement.Attribution.ActorID, &acknowledgement.Attribution.ReasonDigest,
 		&acknowledgement.Attribution.CorrelationID, &operationEvidence, &recordedEvidence,
 		&receiptContract, &recipientTrustProfileSHA256, &recipientSigningKeyID, &acceptedAt,
+		&recipientTrustGeneration,
 	)
 	if err != nil {
 		return AuditExportDeliveryAcknowledgement{}, fmt.Errorf("read audit export delivery acknowledgement: %w", err)
@@ -400,7 +433,8 @@ func readAuditExportDeliveryAcknowledgement(
 		return AuditExportDeliveryAcknowledgement{}, ErrAuditExportDeliveryConflict
 	}
 	if deliveryContract == auditExportDeliveryLegacyContract {
-		if receiptContract != nil || recipientTrustProfileSHA256 != nil || recipientSigningKeyID != nil || acceptedAt != nil {
+		if receiptContract != nil || recipientTrustProfileSHA256 != nil || recipientSigningKeyID != nil ||
+			acceptedAt != nil || recipientTrustGeneration != nil {
 			return AuditExportDeliveryAcknowledgement{}, ErrAuditExportDeliveryConflict
 		}
 		return acknowledgement, nil
@@ -408,7 +442,15 @@ func readAuditExportDeliveryAcknowledgement(
 	if receiptContract == nil || recipientTrustProfileSHA256 == nil || recipientSigningKeyID == nil || acceptedAt == nil {
 		return AuditExportDeliveryAcknowledgement{}, ErrAuditExportDeliveryConflict
 	}
+	if deliveryContract == AuditExportDeliveryReceiptVerifiedContract && recipientTrustGeneration != nil {
+		return AuditExportDeliveryAcknowledgement{}, ErrAuditExportDeliveryConflict
+	}
+	if deliveryContract == AuditExportDeliveryContract &&
+		(recipientTrustGeneration == nil || *recipientTrustGeneration < 1) {
+		return AuditExportDeliveryAcknowledgement{}, ErrAuditExportDeliveryConflict
+	}
 	acknowledgement.ReceiptContract = *receiptContract
+	acknowledgement.DeliveryContract = deliveryContract
 	acknowledgement.RecipientTrustProfileSHA256 = *recipientTrustProfileSHA256
 	acknowledgement.RecipientSigningKeyID = *recipientSigningKeyID
 	acknowledgement.AcceptedAt = acceptedAt.UTC()
@@ -439,7 +481,9 @@ func sameAuditExportDeliveryPreparation(left, right AuditExportDelivery) bool {
 	if sameAuditExportDelivery(left, right) {
 		return true
 	}
-	if left.Contract != auditExportDeliveryLegacyContract || right.Contract != AuditExportDeliveryContract {
+	if (left.Contract != auditExportDeliveryLegacyContract &&
+		left.Contract != AuditExportDeliveryReceiptVerifiedContract) ||
+		right.Contract != AuditExportDeliveryContract {
 		return false
 	}
 	left.Contract = AuditExportDeliveryContract
@@ -456,6 +500,7 @@ func sameAuditExportDeliveryAcknowledgement(
 	right AuditExportDeliveryAcknowledgement,
 ) bool {
 	return subtle.ConstantTimeCompare(left.AcknowledgementDigest, right.AcknowledgementDigest) == 1 &&
+		left.DeliveryContract == right.DeliveryContract &&
 		left.ReceiptContract == right.ReceiptContract &&
 		left.RecipientTrustProfileSHA256 == right.RecipientTrustProfileSHA256 &&
 		left.RecipientSigningKeyID == right.RecipientSigningKeyID &&
@@ -489,7 +534,8 @@ func validStoredAuditExportDelivery(delivery AuditExportDelivery) bool {
 	if delivery.Contract == AuditExportDeliveryContract {
 		return delivery.Valid()
 	}
-	if delivery.Contract != auditExportDeliveryLegacyContract {
+	if delivery.Contract != auditExportDeliveryLegacyContract &&
+		delivery.Contract != AuditExportDeliveryReceiptVerifiedContract {
 		return false
 	}
 	delivery.Contract = AuditExportDeliveryContract

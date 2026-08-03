@@ -92,6 +92,7 @@ func run(ctx context.Context, arguments []string) error {
 		}
 		request.acknowledgement = persistence.AuditExportDeliveryAcknowledgement{
 			AcknowledgementDigest:       receipt.ReceiptSHA256[:],
+			DeliveryContract:            receipt.DeliveryContract,
 			ReceiptContract:             receipt.Contract,
 			RecipientTrustProfileSHA256: receipt.RecipientTrustProfileSHA256,
 			RecipientSigningKeyID:       receipt.SigningKeyID,
