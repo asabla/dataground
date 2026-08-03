@@ -49,6 +49,12 @@
       "valid": true
     },
     {
+      "file": "valid/audit-export-envelope.json",
+      "schema": "AuditExportEnvelope",
+      "document": "audit-export-envelope",
+      "valid": true
+    },
+    {
       "file": "invalid/agent-service-missing-name.json",
       "schema": "AgentService",
       "valid": false
@@ -94,6 +100,12 @@
       "file": "invalid/operator-audit-export-nested-metadata.json",
       "schema": "OperatorAuditExport",
       "document": "operator-audit-export",
+      "valid": false
+    },
+    {
+      "file": "invalid/audit-export-envelope-kind-mismatch.json",
+      "schema": "AuditExportEnvelope",
+      "document": "audit-export-envelope",
       "valid": false
     }
   ]

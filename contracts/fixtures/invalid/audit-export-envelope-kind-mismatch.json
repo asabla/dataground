@@ -1,0 +1,25 @@
+{
+  "contract": "dataground.audit-export-envelope/ed25519/v1",
+  "exportKind": "operator",
+  "exportSha256": "sha256:289a116a341d1836c4b1ce1b256eeb8a15925f206eb4784b652cf44d7415ec4e",
+  "trustProfileSha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "export": {
+    "content": {
+      "schemaVersion": "dataground.dev.authorization-audit-export/v1",
+      "exportId": "aex_00000000000000000001",
+      "isolationDomainId": "iso_00000000000000000001",
+      "requestedBy": "operator@example.invalid",
+      "correlationId": "cor_00000000000000000005",
+      "cursor": "",
+      "nextCursor": "v1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "complete": true,
+      "records": []
+    },
+    "contentSha256": "sha256:37c9034a99dee20d860b415bffff6931a4798fbf95a2305931c37e1352934678"
+  },
+  "signature": {
+    "contract": "dataground.audit-export-signature/ed25519/v1",
+    "keyId": "audit_key_01",
+    "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  }
+}

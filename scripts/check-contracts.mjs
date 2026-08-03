@@ -136,6 +136,7 @@ const authorizationAuditExport = await readJson(
   "contracts/schemas/authorization-audit-export.schema.json",
 );
 const operatorAuditExport = await readJson("contracts/schemas/operator-audit-export.schema.json");
+const auditExportEnvelope = await readJson("contracts/schemas/audit-export-envelope.schema.json");
 assert.equal(
   releaseManifest.$schema,
   "https://json-schema.org/draft/2020-12/schema",
@@ -155,8 +156,11 @@ const ajv = new Ajv2020({ allErrors: true, strict: false });
 addFormats(ajv);
 ajv.addSchema(openApi, "urn:dataground:openapi:v1");
 const validateReleaseManifest = ajv.compile(releaseManifest);
-const validateAuthorizationAuditExport = ajv.compile(authorizationAuditExport);
-const validateOperatorAuditExport = ajv.compile(operatorAuditExport);
+ajv.addSchema(authorizationAuditExport);
+ajv.addSchema(operatorAuditExport);
+const validateAuthorizationAuditExport = ajv.getSchema(authorizationAuditExport.$id);
+const validateOperatorAuditExport = ajv.getSchema(operatorAuditExport.$id);
+const validateAuditExportEnvelope = ajv.compile(auditExportEnvelope);
 const fixtureManifest = await readJson("contracts/fixtures/manifest.json");
 
 for (const fixture of fixtureManifest.fixtures) {
@@ -168,6 +172,8 @@ for (const fixture of fixtureManifest.fixtures) {
     validate = validateAuthorizationAuditExport;
   } else if (fixture.document === "operator-audit-export") {
     validate = validateOperatorAuditExport;
+  } else if (fixture.document === "audit-export-envelope") {
+    validate = validateAuditExportEnvelope;
   } else {
     validate = ajv.compile({
       $ref: `urn:dataground:openapi:v1#/components/schemas/${fixture.schema}`,
@@ -189,6 +195,16 @@ for (const fixture of fixtureManifest.fixtures) {
       value.contentSha256,
       `sha256:${digest}`,
       `${fixture.file} must bind its canonical content bytes`,
+    );
+  }
+  if (fixture.document === "audit-export-envelope" && fixture.valid) {
+    const digest = createHash("sha256")
+      .update(`${JSON.stringify(value.export)}\n`)
+      .digest("hex");
+    assert.equal(
+      value.exportSha256,
+      `sha256:${digest}`,
+      `${fixture.file} must bind its canonical export bytes`,
     );
   }
 }

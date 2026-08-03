@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dataground:schema:audit-export-envelope:v1",
+  "title": "DataGround signed audit export envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "exportKind",
+    "exportSha256",
+    "trustProfileSha256",
+    "export",
+    "signature"
+  ],
+  "properties": {
+    "contract": {
+      "const": "dataground.audit-export-envelope/ed25519/v1"
+    },
+    "exportKind": {
+      "enum": ["authorization", "operator"]
+    },
+    "exportSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "trustProfileSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "export": {},
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "keyId", "signature"],
+      "properties": {
+        "contract": {
+          "const": "dataground.audit-export-signature/ed25519/v1"
+        },
+        "keyId": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{2,63}$"
+        },
+        "signature": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{86}$"
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "exportKind": {
+          "const": "authorization"
+        },
+        "export": {
+          "$ref": "urn:dataground:schema:authorization-audit-export:v1"
+        }
+      }
+    },
+    {
+      "properties": {
+        "exportKind": {
+          "const": "operator"
+        },
+        "export": {
+          "$ref": "urn:dataground:schema:operator-audit-export:v1"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}
