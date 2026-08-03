@@ -11,19 +11,22 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
 )
 
 const (
-	oidcProviderCredentialContract         = "dataground.oidc-provider-credential/v1"
+	oidcProviderCredentialContract         = "dataground.oidc-provider-credential/v2"
 	maximumOIDCProviderCredentialBytes     = 16 << 10
 	maximumOIDCProviderBearerTokenBytes    = 8 << 10
 	maximumOIDCProviderCredentialLifetime  = 31 * 24 * time.Hour
 	oidcProviderCredentialClockSkew        = 5 * time.Minute
 	oidcProviderCredentialLockPollInterval = 100 * time.Millisecond
 )
+
+var oidcProviderCredentialIsolationDomainPattern = regexp.MustCompile(`^iso_[0-9a-z]{20,32}$`)
 
 var (
 	ErrOIDCProviderCredentialInvalid              = errors.New("OIDC provider credential is invalid")
@@ -38,6 +41,7 @@ var (
 // BearerToken is copied and never modified. A revoked publication must omit it.
 type OIDCProviderCredentialPublication struct {
 	Path                   string
+	IsolationDomainID      string
 	Generation             uint64
 	ProviderID             string
 	ProviderRegistrySHA256 string
@@ -55,6 +59,7 @@ func (OIDCProviderCredentialPublication) MarshalJSON() ([]byte, error) {
 
 type oidcProviderCredentialDocument struct {
 	Contract               string          `json:"contract"`
+	IsolationDomainID      string          `json:"isolationDomainId"`
 	Generation             uint64          `json:"generation"`
 	ProviderID             string          `json:"providerId"`
 	ProviderRegistrySHA256 string          `json:"providerRegistrySha256"`
@@ -68,6 +73,7 @@ type oidcProviderCredentialDocument struct {
 
 type oidcProviderCredentialSnapshot struct {
 	Generation             uint64
+	IsolationDomainID      string
 	ProviderID             string
 	ProviderRegistrySHA256 string
 	Endpoint               string
@@ -83,6 +89,7 @@ type oidcProviderCredentialSnapshot struct {
 func LoadOIDCProviderBearerCredential(
 	ctx context.Context,
 	path string,
+	isolationDomainID string,
 	providerID string,
 	providerRegistrySHA256 string,
 	endpoint string,
@@ -92,7 +99,7 @@ func LoadOIDCProviderBearerCredential(
 		return nil, err
 	}
 	defer clear(snapshot.BearerToken)
-	if snapshot.ProviderID != providerID ||
+	if snapshot.IsolationDomainID != isolationDomainID || snapshot.ProviderID != providerID ||
 		snapshot.ProviderRegistrySHA256 != providerRegistrySHA256 || snapshot.Endpoint != endpoint {
 		return nil, ErrOIDCProviderCredentialInvalid
 	}
@@ -117,26 +124,12 @@ func PublishOIDCProviderCredential(ctx context.Context, publication OIDCProvider
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !validOIDCProviderCredentialPath(publication.Path) || publication.Generation == 0 ||
-		!ValidOIDCProviderBinding(publication.ProviderID, publication.ProviderRegistrySHA256) ||
-		!ValidOIDCProviderEndpoint(publication.Endpoint) {
-		return ErrOIDCProviderCredentialInvalid
+	if err := ValidateOIDCProviderCredentialPublication(publication); err != nil {
+		return err
 	}
-	now := time.Now()
 	activatedAt := publication.ActivatedAt.UTC()
 	expiresAt := publication.ExpiresAt.UTC()
 	revokedAt := publication.RevokedAt.UTC()
-	if publication.Revoked {
-		if !publication.ActivatedAt.IsZero() || !publication.ExpiresAt.IsZero() ||
-			publication.RevokedAt.IsZero() || len(publication.BearerToken) != 0 {
-			return ErrOIDCProviderCredentialInvalid
-		}
-	} else if publication.ActivatedAt.IsZero() || publication.ExpiresAt.IsZero() ||
-		!publication.RevokedAt.IsZero() ||
-		!expiresAt.After(activatedAt) || expiresAt.Sub(activatedAt) > maximumOIDCProviderCredentialLifetime ||
-		!ValidOIDCProviderBearerToken(publication.BearerToken) {
-		return ErrOIDCProviderCredentialInvalid
-	}
 
 	lock, err := acquireOIDCProviderCredentialLock(ctx, publication.Path)
 	if err != nil {
@@ -153,7 +146,8 @@ func PublishOIDCProviderCredential(ctx context.Context, publication OIDCProvider
 	}
 	defer clear(current.BearerToken)
 	if exists {
-		if publication.ProviderID != current.ProviderID || publication.Endpoint != current.Endpoint {
+		if publication.IsolationDomainID != current.IsolationDomainID ||
+			publication.ProviderID != current.ProviderID || publication.Endpoint != current.Endpoint {
 			return ErrOIDCProviderCredentialConflict
 		}
 		switch {
@@ -173,17 +167,9 @@ func PublishOIDCProviderCredential(ctx context.Context, publication OIDCProvider
 	} else if publication.Generation != 1 {
 		return ErrOIDCProviderCredentialRollback
 	}
-	if publication.Revoked {
-		if revokedAt.Before(now.Add(-oidcProviderCredentialClockSkew)) ||
-			revokedAt.After(now.Add(oidcProviderCredentialClockSkew)) {
-			return ErrOIDCProviderCredentialInvalid
-		}
-	} else if activatedAt.After(now.Add(oidcProviderCredentialClockSkew)) || !expiresAt.After(now) {
-		return ErrOIDCProviderCredentialInvalid
-	}
-
 	document := map[string]any{
 		"contract":               oidcProviderCredentialContract,
+		"isolationDomainId":      publication.IsolationDomainID,
 		"generation":             publication.Generation,
 		"providerId":             publication.ProviderID,
 		"providerRegistrySha256": publication.ProviderRegistrySHA256,
@@ -220,8 +206,45 @@ func PublishOIDCProviderCredential(ctx context.Context, publication OIDCProvider
 	return nil
 }
 
+// ValidateOIDCProviderCredentialPublication applies the complete non-filesystem
+// publication contract. Callers may use it before reserving an external effect;
+// PublishOIDCProviderCredential repeats it at effect time.
+func ValidateOIDCProviderCredentialPublication(publication OIDCProviderCredentialPublication) error {
+	if !validOIDCProviderCredentialPath(publication.Path) ||
+		!ValidOIDCProviderIsolationDomain(publication.IsolationDomainID) || publication.Generation == 0 ||
+		!ValidOIDCProviderBinding(publication.ProviderID, publication.ProviderRegistrySHA256) ||
+		!ValidOIDCProviderEndpoint(publication.Endpoint) {
+		return ErrOIDCProviderCredentialInvalid
+	}
+	now := time.Now()
+	activatedAt := publication.ActivatedAt.UTC()
+	expiresAt := publication.ExpiresAt.UTC()
+	revokedAt := publication.RevokedAt.UTC()
+	if publication.Revoked {
+		if !publication.ActivatedAt.IsZero() || !publication.ExpiresAt.IsZero() ||
+			publication.RevokedAt.IsZero() || len(publication.BearerToken) != 0 ||
+			revokedAt.Before(now.Add(-oidcProviderCredentialClockSkew)) ||
+			revokedAt.After(now.Add(oidcProviderCredentialClockSkew)) {
+			return ErrOIDCProviderCredentialInvalid
+		}
+		return nil
+	}
+	if publication.ActivatedAt.IsZero() || publication.ExpiresAt.IsZero() ||
+		!publication.RevokedAt.IsZero() || !expiresAt.After(activatedAt) ||
+		expiresAt.Sub(activatedAt) > maximumOIDCProviderCredentialLifetime ||
+		activatedAt.After(now.Add(oidcProviderCredentialClockSkew)) || !expiresAt.After(now) ||
+		!ValidOIDCProviderBearerToken(publication.BearerToken) {
+		return ErrOIDCProviderCredentialInvalid
+	}
+	return nil
+}
+
 func ValidOIDCProviderEndpoint(endpoint string) bool {
 	return endpoint == "discovery" || endpoint == "jwks"
+}
+
+func ValidOIDCProviderIsolationDomain(isolationDomainID string) bool {
+	return oidcProviderCredentialIsolationDomainPattern.MatchString(isolationDomainID)
 }
 
 func ValidOIDCProviderBearerToken(token []byte) bool {
@@ -266,13 +289,15 @@ func loadOIDCProviderCredential(ctx context.Context, path string) (oidcProviderC
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) ||
-		document.Contract != oidcProviderCredentialContract || document.Generation == 0 ||
+		document.Contract != oidcProviderCredentialContract ||
+		!ValidOIDCProviderIsolationDomain(document.IsolationDomainID) || document.Generation == 0 ||
 		!ValidOIDCProviderBinding(document.ProviderID, document.ProviderRegistrySHA256) ||
 		!ValidOIDCProviderEndpoint(document.Endpoint) {
 		return snapshot, ErrOIDCProviderCredentialInvalid
 	}
 	snapshot = oidcProviderCredentialSnapshot{
-		Generation: document.Generation, ProviderID: document.ProviderID,
+		Generation: document.Generation, IsolationDomainID: document.IsolationDomainID,
+		ProviderID:             document.ProviderID,
 		ProviderRegistrySHA256: document.ProviderRegistrySHA256, Endpoint: document.Endpoint,
 	}
 	switch document.Status {
@@ -319,7 +344,8 @@ func loadCurrentOIDCProviderCredential(ctx context.Context, path string) (oidcPr
 }
 
 func sameOIDCProviderCredentialPublication(publication OIDCProviderCredentialPublication, current oidcProviderCredentialSnapshot) bool {
-	return publication.Generation == current.Generation && publication.ProviderID == current.ProviderID &&
+	return publication.Generation == current.Generation && publication.IsolationDomainID == current.IsolationDomainID &&
+		publication.ProviderID == current.ProviderID &&
 		publication.ProviderRegistrySHA256 == current.ProviderRegistrySHA256 && publication.Endpoint == current.Endpoint &&
 		publication.Revoked == current.Revoked && (publication.Revoked ||
 		(publication.ActivatedAt.UTC().Equal(current.ActivatedAt) && publication.ExpiresAt.UTC().Equal(current.ExpiresAt) &&

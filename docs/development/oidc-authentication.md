@@ -60,7 +60,8 @@ The owner-only request selects exactly one registered profile and pins the SHA-2
 
 ```json
 {
-  "contract": "dataground.oidc-keyset-import/oidc-discovery/v3",
+  "contract": "dataground.oidc-keyset-import/oidc-discovery/v4",
+  "isolationDomainId": "iso_00000000000000000001",
   "providerId": "primary",
   "providerRegistryFile": "/etc/dataground/oidc-providers.json",
   "providerRegistrySha256": "REPLACE_WITH_LOWERCASE_SHA256",
@@ -76,8 +77,9 @@ Activate or rotate a local endpoint credential from a fresh owner-only token fil
 
 ```json
 {
-  "contract": "dataground.oidc-provider-credential-request/v1",
+  "contract": "dataground.oidc-provider-credential-request/v2",
   "operation": "activate",
+  "isolationDomainId": "iso_00000000000000000001",
   "generation": 1,
   "providerId": "primary",
   "providerRegistrySha256": "REPLACE_WITH_LOWERCASE_SHA256",
@@ -85,13 +87,16 @@ Activate or rotate a local endpoint credential from a fresh owner-only token fil
   "activatedAt": "REPLACE_WITH_RFC3339_UTC_TIME",
   "expiresAt": "REPLACE_WITH_BOUNDED_RFC3339_UTC_EXPIRY",
   "bearerTokenFile": "/run/dataground/provider-jwks.token",
-  "publicationFile": "/var/lib/dataground/oidc-credentials/primary-jwks.json"
+  "publicationFile": "/var/lib/dataground/oidc-credentials/primary-jwks.json",
+  "actorId": "operator_one",
+  "reason": "activate the reviewed provider credential",
+  "correlationId": "cor_00000000000000000001"
 }
 ```
 
-The request, token file, publication directory, and installed credential are owner-only and free of symlinks. The token file contains one bounded RFC 6750 bearer token without whitespace or a trailing newline. Run `go run ./cmd/dataground-oidc-provider-credential -request-file /run/dataground/provider-credential.json`, then remove the input token through the installation's approved sensitive-file procedure. Activation starts at generation 1; rotation increments exactly by one. Exact replay is read-only, while rollback, gaps, conflicting reuse, binding drift, and unsafe filesystem replacement fail closed. The command holds the verified directory by descriptor, installs a mode-`0600` canonical publication through same-directory atomic rename, and synchronizes the directory before success.
+The request, token file, publication directory, and installed credential are owner-only and free of symlinks. The token file contains one bounded RFC 6750 bearer token without whitespace or a trailing newline. Migrate the audit database, set `DATAGROUND_DATABASE_URL`, and run `go run ./cmd/dataground-oidc-provider-credential -request-file /run/dataground/provider-credential.json`, then remove the input token through the installation's approved sensitive-file procedure. Activation starts at generation 1; rotation increments exactly by one. Exact replay is read-only, while rollback, gaps, conflicting reuse, cross-domain use, binding drift, and unsafe filesystem replacement fail closed. The command first reserves an exact isolation-scoped, operator-attributed operation in PostgreSQL, then holds the verified directory by descriptor, installs a mode-`0600` canonical publication through same-directory atomic rename, synchronizes the directory, and atomically marks the operation successful with an append-only audit record. A `prepared` row means the filesystem outcome is absent or unresolved; recovery repeats the exact owner-only request. The confidential operation row binds the credential digest but the audit record, output, and errors never expose credential bytes or that digest.
 
-Local revocation uses the next generation with `operation` set to `revoke`, includes a `revokedAt` no more than five minutes from the command clock, and omits `activatedAt`, `expiresAt`, and `bearerTokenFile`. It installs a timestamped durable tombstone instead of deleting the prior state; a later locally acquired credential may be activated only at the following generation. A publication path remains permanently scoped to its first provider and endpoint, while a new registry digest may be adopted only through the next generation. This boundary controls DataGround's use of a credential but does not acquire it from the provider, revoke it at the provider, or create a durable operator audit stream. Provider-side issuance, remote revocation, custody before installation, and audit delivery remain deployment responsibilities.
+Local revocation uses the next generation with `operation` set to `revoke`, includes a `revokedAt` no more than five minutes from the command clock, and omits `activatedAt`, `expiresAt`, and `bearerTokenFile`. It retains the isolation domain, actor, reason, and correlation fields and installs a timestamped durable tombstone instead of deleting the prior state; a later locally acquired credential may be activated only at the following generation. A publication path remains permanently scoped to its first isolation domain, provider, and endpoint, while a new registry digest may be adopted only through the next generation. This boundary audits DataGround's local credential use but does not acquire a credential from the provider or revoke it at the provider. Provider-side issuance, remote revocation, custody before installation, and audit delivery remain deployment responsibilities.
 
 After the required credential publications are active, create the import request with mode `0600`, select a positive keyset sequence greater than the installed generation, choose a keyset expiry after the current time and no more than 24 hours ahead, and run `go run ./cmd/dataground-oidc-keyset-import -request-file /run/dataground/keyset-import-request.json`. The import command uses the process trust store, writes no intermediate JWKS, emits no key or credential document, consumes copied credential bytes after one attempt, and carries the selected provider binding into the published keyset generation. Private-key custody, provider-side credential acquisition and revocation, retry scheduling, and broader workload-identity authentication remain deployment responsibilities.
 
@@ -271,4 +276,4 @@ Before a verified token can reach identity resolution, PostgreSQL reserves SHA-2
 
 When `dpop.nonce` is present, a valid proof must include one recent resource-server nonce. A missing, malformed, expired, or wrong-key nonce returns `401`, one unpredictable `DPoP-Nonce`, `Cache-Control: no-store`, and a `WWW-Authenticate: DPoP` challenge with `use_dpop_nonce`. PostgreSQL stores only nonce digests under the exact isolation domain and DPoP key digest, accepts the same recent nonce with distinct proof identifiers, keeps only the configured overlap per key, and reclaims expired rows in bounded batches. Database or randomness failure returns authentication unavailable without emitting a challenge. The accepted capacity record covers the exact configured issuance, rotation, and validation profile; broader deployment load and failure certification remain required.
 
-This is not production API activation. A deployment still needs an authorization server that issues DPoP-bound access tokens, reviewed TLS ingress that routes the configured origin without rewriting its canonical path, a reviewed decision to enable and size nonce enforcement, upstream provider credential acquisition and revocation with durable operational audit, complete production release certification beyond the signed loopback slice, and reviewed non-loopback deployment activation. The executable's OIDC profile therefore remains loopback-only.
+This is not production API activation. A deployment still needs an authorization server that issues DPoP-bound access tokens, reviewed TLS ingress that routes the configured origin without rewriting its canonical path, a reviewed decision to enable and size nonce enforcement, upstream provider credential acquisition and remote revocation, complete production release certification beyond the signed loopback slice, and reviewed non-loopback deployment activation. The executable's OIDC profile therefore remains loopback-only.

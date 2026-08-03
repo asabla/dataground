@@ -231,8 +231,9 @@ func TestRunRejectsUnsafeOIDCProviderCredentials(t *testing.T) {
 			}
 			registryPath, digest := writeOIDCProviderRegistry(t, directory, []map[string]any{profile})
 			content, err := json.Marshal(map[string]any{
-				"contract": "dataground.oidc-provider-credential/v1", "generation": 1,
-				"providerId": "primary", "providerRegistrySha256": digest, "endpoint": "discovery",
+				"contract": "dataground.oidc-provider-credential/v2", "generation": 1,
+				"isolationDomainId": "iso_00000000000000000001",
+				"providerId":        "primary", "providerRegistrySha256": digest, "endpoint": "discovery",
 				"status": "active", "activatedAt": time.Now().UTC().Add(-time.Minute),
 				"expiresAt": time.Now().UTC().Add(time.Hour), "bearerToken": test.token,
 			})
@@ -261,7 +262,8 @@ func TestRunRejectsRevokedOIDCProviderCredentialBeforeProviderAccess(t *testing.
 	registryPath, digest := writeOIDCProviderRegistry(t, directory, []map[string]any{profile})
 	publishOIDCProviderCredentialForImport(t, credential, digest, "discovery", "provider-secret")
 	if err := authn.PublishOIDCProviderCredential(context.Background(), authn.OIDCProviderCredentialPublication{
-		Path: credential, Generation: 2, ProviderID: "primary", ProviderRegistrySHA256: digest,
+		Path: credential, IsolationDomainID: "iso_00000000000000000001",
+		Generation: 2, ProviderID: "primary", ProviderRegistrySHA256: digest,
 		Endpoint: "discovery", RevokedAt: time.Now().UTC(), Revoked: true,
 	}); err != nil {
 		t.Fatal(err)
@@ -301,7 +303,7 @@ func TestReadOIDCKeysetImportRequestRejectsDuplicateMembers(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(ownerOnlyOIDCTestDirectory(t), "request.json")
-	content := []byte(`{"contract":"dataground.oidc-keyset-import/oidc-discovery/v3","sequence":1,"sequence":2}`)
+	content := []byte(`{"contract":"dataground.oidc-keyset-import/oidc-discovery/v4","sequence":1,"sequence":2}`)
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -321,6 +323,7 @@ func TestReadOIDCKeysetImportRequestRejectsPathCollisions(t *testing.T) {
 			requestPath := filepath.Join(directory, "request.json")
 			request := map[string]any{
 				"contract":               oidcKeysetImportRequestContract,
+				"isolationDomainId":      "iso_00000000000000000001",
 				"providerId":             "primary",
 				"providerRegistryFile":   filepath.Join(directory, "providers.json"),
 				"providerRegistrySha256": strings.Repeat("0", sha256.Size*2),
@@ -384,6 +387,7 @@ func writeOIDCKeysetImportRequest(
 	t.Helper()
 	encoded, err := json.Marshal(map[string]any{
 		"contract":               oidcKeysetImportRequestContract,
+		"isolationDomainId":      "iso_00000000000000000001",
 		"providerId":             providerID,
 		"providerRegistryFile":   registryPath,
 		"providerRegistrySha256": registryDigest,
@@ -421,7 +425,8 @@ func publishOIDCProviderCredentialForImport(
 	t.Helper()
 	now := time.Now().UTC().Truncate(time.Second)
 	if err := authn.PublishOIDCProviderCredential(context.Background(), authn.OIDCProviderCredentialPublication{
-		Path: path, Generation: 1, ProviderID: "primary", ProviderRegistrySHA256: registryDigest,
+		Path: path, IsolationDomainID: "iso_00000000000000000001",
+		Generation: 1, ProviderID: "primary", ProviderRegistrySHA256: registryDigest,
 		Endpoint: endpoint, ActivatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
 		BearerToken: []byte(token),
 	}); err != nil {

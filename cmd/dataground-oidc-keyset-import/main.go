@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	oidcKeysetImportRequestContract     = "dataground.oidc-keyset-import/oidc-discovery/v3"
+	oidcKeysetImportRequestContract     = "dataground.oidc-keyset-import/oidc-discovery/v4"
 	oidcProviderRegistryContract        = "dataground.oidc-provider-registry/v2"
 	maximumOIDCKeysetImportRequestBytes = 64 << 10
 	maximumOIDCProviderRegistryBytes    = 256 << 10
@@ -29,6 +29,7 @@ const (
 
 type oidcKeysetImportRequest struct {
 	Contract               string    `json:"contract"`
+	IsolationDomainID      string    `json:"isolationDomainId"`
 	ProviderID             string    `json:"providerId"`
 	ProviderRegistryFile   string    `json:"providerRegistryFile"`
 	ProviderRegistrySHA256 string    `json:"providerRegistrySha256"`
@@ -150,7 +151,7 @@ func readOIDCKeysetImportRequest(path string) (oidcKeysetImportRequest, error) {
 		return request, errors.New("OIDC keyset import request is invalid")
 	}
 	if request.Contract != oidcKeysetImportRequestContract || request.Sequence == 0 ||
-		request.ExpiresAt.IsZero() ||
+		request.ExpiresAt.IsZero() || !authn.ValidOIDCProviderIsolationDomain(request.IsolationDomainID) ||
 		!canonicalAbsolutePath(request.ProviderRegistryFile) ||
 		!authn.ValidOIDCProviderBinding(request.ProviderID, request.ProviderRegistrySHA256) ||
 		!canonicalAbsolutePath(request.PublicationFile) ||
@@ -286,7 +287,8 @@ func loadOIDCProviderBearerToken(
 		return nil, errors.New("OIDC provider credential file is invalid")
 	}
 	token, err := authn.LoadOIDCProviderBearerCredential(
-		ctx, credentialFile, request.ProviderID, request.ProviderRegistrySHA256, endpoint,
+		ctx, credentialFile, request.IsolationDomainID,
+		request.ProviderID, request.ProviderRegistrySHA256, endpoint,
 	)
 	if err != nil {
 		return nil, errors.New("OIDC provider credential is unavailable")

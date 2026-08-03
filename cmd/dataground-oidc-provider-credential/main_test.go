@@ -11,9 +11,10 @@ import (
 	"time"
 
 	"github.com/asabla/dataground/internal/authn"
+	"github.com/asabla/dataground/internal/persistence"
 )
 
-func TestRunActivatesAndRevokesOIDCProviderCredential(t *testing.T) {
+func TestPublishOIDCProviderCredentialActivatesAndRevokesWithAuditCoordination(t *testing.T) {
 	t.Parallel()
 	directory := ownerOnlyOIDCTestDirectory(t)
 	publication := filepath.Join(directory, "credential.json")
@@ -21,15 +22,28 @@ func TestRunActivatesAndRevokesOIDCProviderCredential(t *testing.T) {
 	activate := writeOIDCProviderCredentialCommandRequest(t, directory, "activate.json", map[string]any{
 		"contract": oidcProviderCredentialRequestContract, "operation": "activate", "generation": 1,
 		"providerId": "primary", "providerRegistrySha256": strings.Repeat("1", 64), "endpoint": "jwks",
+		"isolationDomainId": "iso_00000000000000000001", "actorId": "operator_one",
+		"reason": "install the reviewed provider credential", "correlationId": "cor_00000000000000000001",
 		"activatedAt":     time.Now().UTC().Add(-time.Minute).Truncate(time.Second),
 		"expiresAt":       time.Now().UTC().Add(time.Hour).Truncate(time.Second),
 		"bearerTokenFile": token, "publicationFile": publication,
 	})
-	if err := run(context.Background(), []string{"-request-file", activate}); err != nil {
+	activateRequest, err := readOIDCProviderCredentialRequest(activate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := &recordingOIDCProviderCredentialOperationRepository{}
+	if err := publishOIDCProviderCredential(
+		context.Background(), repository, activateRequest, []byte("provider-secret"),
+	); err != nil {
 		t.Fatalf("activate credential: %v", err)
 	}
+	if repository.prepared != 1 || repository.completed != 1 {
+		t.Fatalf("audit coordination prepare=%d complete=%d", repository.prepared, repository.completed)
+	}
 	loaded, err := authn.LoadOIDCProviderBearerCredential(
-		context.Background(), publication, "primary", strings.Repeat("1", 64), "jwks",
+		context.Background(), publication, "iso_00000000000000000001",
+		"primary", strings.Repeat("1", 64), "jwks",
 	)
 	if err != nil || string(loaded) != "provider-secret" {
 		t.Fatalf("loaded token = %q, err = %v", loaded, err)
@@ -39,14 +53,21 @@ func TestRunActivatesAndRevokesOIDCProviderCredential(t *testing.T) {
 	revoke := writeOIDCProviderCredentialCommandRequest(t, directory, "revoke.json", map[string]any{
 		"contract": oidcProviderCredentialRequestContract, "operation": "revoke", "generation": 2,
 		"providerId": "primary", "providerRegistrySha256": strings.Repeat("1", 64), "endpoint": "jwks",
+		"isolationDomainId": "iso_00000000000000000001", "actorId": "operator_one",
+		"reason": "stop local provider credential use", "correlationId": "cor_00000000000000000002",
 		"revokedAt":       time.Now().UTC().Truncate(time.Second),
 		"publicationFile": publication,
 	})
-	if err := run(context.Background(), []string{"-request-file", revoke}); err != nil {
+	revokeRequest, err := readOIDCProviderCredentialRequest(revoke)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := publishOIDCProviderCredential(context.Background(), repository, revokeRequest, nil); err != nil {
 		t.Fatalf("revoke credential: %v", err)
 	}
 	if _, err := authn.LoadOIDCProviderBearerCredential(
-		context.Background(), publication, "primary", strings.Repeat("1", 64), "jwks",
+		context.Background(), publication, "iso_00000000000000000001",
+		"primary", strings.Repeat("1", 64), "jwks",
 	); !errors.Is(err, authn.ErrOIDCProviderCredentialRevoked) {
 		t.Fatalf("revoked credential error = %v", err)
 	}
@@ -60,6 +81,8 @@ func TestReadOIDCProviderCredentialRequestRejectsAmbiguousOperations(t *testing.
 	base := map[string]any{
 		"contract": oidcProviderCredentialRequestContract, "operation": "activate", "generation": 1,
 		"providerId": "primary", "providerRegistrySha256": strings.Repeat("1", 64), "endpoint": "discovery",
+		"isolationDomainId": "iso_00000000000000000001", "actorId": "operator_one",
+		"reason": "install the reviewed provider credential", "correlationId": "cor_00000000000000000003",
 		"activatedAt":     time.Now().UTC().Add(-time.Minute).Truncate(time.Second),
 		"expiresAt":       time.Now().UTC().Add(time.Hour).Truncate(time.Second),
 		"bearerTokenFile": token, "publicationFile": publication,
@@ -91,12 +114,68 @@ func TestReadOIDCProviderCredentialRequestRejectsAmbiguousOperations(t *testing.
 	}
 }
 
+func TestPublishOIDCProviderCredentialFailsBeforeFilesystemEffectWhenPreparationFails(t *testing.T) {
+	t.Parallel()
+	directory := ownerOnlyOIDCTestDirectory(t)
+	publication := filepath.Join(directory, "credential.json")
+	requestPath := writeOIDCProviderCredentialCommandRequest(t, directory, "request.json", map[string]any{
+		"contract": oidcProviderCredentialRequestContract, "operation": "activate", "generation": 1,
+		"providerId": "primary", "providerRegistrySha256": strings.Repeat("1", 64), "endpoint": "jwks",
+		"isolationDomainId": "iso_00000000000000000001", "actorId": "operator_one",
+		"reason": "install the reviewed provider credential", "correlationId": "cor_00000000000000000004",
+		"activatedAt":     time.Now().UTC().Add(-time.Minute).Truncate(time.Second),
+		"expiresAt":       time.Now().UTC().Add(time.Hour).Truncate(time.Second),
+		"bearerTokenFile": filepath.Join(directory, "token"), "publicationFile": publication,
+	})
+	request, err := readOIDCProviderCredentialRequest(requestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := &recordingOIDCProviderCredentialOperationRepository{prepareErr: errors.New("database unavailable")}
+	if err := publishOIDCProviderCredential(
+		context.Background(), repository, request, []byte("provider-secret"),
+	); err == nil {
+		t.Fatal("publication succeeded without durable preparation")
+	}
+	if _, err := os.Stat(publication); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("publication file exists after failed preparation: %v", err)
+	}
+}
+
+type recordingOIDCProviderCredentialOperationRepository struct {
+	prepared   int
+	completed  int
+	prepareErr error
+}
+
+func (repository *recordingOIDCProviderCredentialOperationRepository) PrepareOIDCProviderCredentialOperation(
+	_ context.Context,
+	operation persistence.OIDCProviderCredentialOperation,
+) error {
+	if !operation.Valid() {
+		return persistence.ErrOIDCProviderCredentialOperationInvalid
+	}
+	repository.prepared++
+	return repository.prepareErr
+}
+
+func (repository *recordingOIDCProviderCredentialOperationRepository) CompleteOIDCProviderCredentialOperation(
+	_ context.Context,
+	operation persistence.OIDCProviderCredentialOperation,
+) error {
+	if !operation.Valid() {
+		return persistence.ErrOIDCProviderCredentialOperationInvalid
+	}
+	repository.completed++
+	return nil
+}
+
 func TestReadOIDCProviderCredentialRequestRejectsDuplicateAndReadableInput(t *testing.T) {
 	t.Parallel()
 	directory := ownerOnlyOIDCTestDirectory(t)
 	path := writeOIDCProviderCredentialCommandFile(
 		t, directory, "duplicate.json",
-		`{"contract":"dataground.oidc-provider-credential-request/v1","generation":1,"generation":2}`,
+		`{"contract":"dataground.oidc-provider-credential-request/v2","generation":1,"generation":2}`,
 		0o600,
 	)
 	if _, err := readOIDCProviderCredentialRequest(path); err == nil {
