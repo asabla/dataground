@@ -30,7 +30,7 @@ func TestAuditExportDeliveryValidationClosesIdentityAndAttribution(t *testing.T)
 		t.Fatal("unknown stored delivery contract was accepted")
 	}
 	for name, mutate := range map[string]func(*AuditExportDelivery){
-		"wrong contract":        func(value *AuditExportDelivery) { value.Contract = "dataground.audit-export-delivery/v2" },
+		"wrong contract":        func(value *AuditExportDelivery) { value.Contract = "dataground.audit-export-delivery/v3" },
 		"cross-kind export":     func(value *AuditExportDelivery) { value.ExportID = "aex_00000000000000000001" },
 		"short envelope digest": func(value *AuditExportDelivery) { value.EnvelopeDigest = value.EnvelopeDigest[:31] },
 		"invalid trust digest":  func(value *AuditExportDelivery) { value.TrustProfileSHA256 = "sha256:bad" },
