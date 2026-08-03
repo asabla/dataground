@@ -167,15 +167,7 @@ func resetOperatorAuditDatabase(t *testing.T, ctx context.Context) *pgxpool.Pool
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.ExecContext(ctx, `
-		DO $$
-		BEGIN
-			IF to_regclass('audit_export_recipient_trust_events') IS NOT NULL THEN
-				EXECUTE 'TRUNCATE audit_export_recipient_trust_events, audit_export_deliveries CASCADE';
-			END IF;
-		END;
-		$$;
-	`); err != nil {
+	if _, err := database.ExecContext(ctx, clearProtectedAuditExportFixturesSQL); err != nil {
 		database.Close()
 		t.Fatalf("clear protected audit export fixtures: %v", err)
 	}
@@ -192,8 +184,31 @@ func resetOperatorAuditDatabase(t *testing.T, ctx context.Context) *pgxpool.Pool
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		cleanupDatabase, cleanupErr := persistence.OpenSQL(cleanupCtx, databaseURL)
+		if cleanupErr != nil {
+			t.Errorf("open protected audit export fixture cleanup: %v", cleanupErr)
+			return
+		}
+		defer cleanupDatabase.Close()
+		if _, cleanupErr := cleanupDatabase.ExecContext(cleanupCtx, clearProtectedAuditExportFixturesSQL); cleanupErr != nil {
+			t.Errorf("clear protected audit export fixtures: %v", cleanupErr)
+		}
+	})
 	return pool
 }
+
+const clearProtectedAuditExportFixturesSQL = `
+	DO $$
+	BEGIN
+		IF to_regclass('audit_export_recipient_trust_events') IS NOT NULL THEN
+			EXECUTE 'TRUNCATE audit_export_recipient_trust_events, audit_export_deliveries CASCADE';
+		END IF;
+	END;
+	$$;
+`
 
 func insertOperatorAuditRecord(t *testing.T, ctx context.Context, pool *pgxpool.Pool, domainID, correlationID, action string) {
 	t.Helper()
