@@ -435,7 +435,7 @@ func auditExportRecipientTrustChange(
 	if operation == "activate" {
 		keyIDs = []string{"archive_key_01"}
 	}
-	return persistence.AuditExportRecipientTrustChange{
+	change := persistence.AuditExportRecipientTrustChange{
 		Contract:           persistence.AuditExportRecipientTrustAuthorizationContract,
 		Operation:          operation,
 		IsolationDomainID:  delivery.IsolationDomainID,
@@ -448,4 +448,16 @@ func auditExportRecipientTrustChange(
 		ReasonDigest:       reasonDigest[:],
 		CorrelationID:      correlationID,
 	}
+	if operation == "activate" {
+		verifiedAt := time.Now().UTC().Truncate(time.Microsecond).Add(-time.Hour)
+		change.IdentityProofContract = "dataground.audit-export-recipient-identity-proof/ed25519/v1"
+		change.IdentityProofSHA256 = "sha256:" + strings.Repeat("4", 64)
+		change.IdentityProofEvidenceSHA256 = "sha256:" + strings.Repeat("5", 64)
+		change.ProofingAuthorityID = "archive-proofing.primary"
+		change.ProofingTrustProfileSHA256 = "sha256:" + strings.Repeat("6", 64)
+		change.ProofingSigningKeyID = "proofing_key_01"
+		change.IdentityProofVerifiedAt = verifiedAt
+		change.IdentityProofExpiresAt = verifiedAt.Add(24 * time.Hour)
+	}
+	return change
 }

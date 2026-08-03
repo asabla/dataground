@@ -1,0 +1,10 @@
+{
+  "contract": "dataground.audit-export-recipient-proofing-trust/ed25519/v1",
+  "authorityId": "archive-proofing.primary",
+  "keys": [
+    {
+      "keyId": "proofing_key_01",
+      "publicKey": "11qYAYLef8b95hGzPJmsA5v-kK5T4gZT1ivFUOH2cPs"
+    }
+  ]
+}

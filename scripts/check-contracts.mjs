@@ -146,6 +146,12 @@ const auditExportDeliveryReceiptV2 = await readJson(
 const auditExportRecipientTrust = await readJson(
   "contracts/schemas/audit-export-recipient-trust.schema.json",
 );
+const auditExportRecipientProofingTrust = await readJson(
+  "contracts/schemas/audit-export-recipient-proofing-trust.schema.json",
+);
+const auditExportRecipientIdentityProof = await readJson(
+  "contracts/schemas/audit-export-recipient-identity-proof.schema.json",
+);
 assert.equal(
   releaseManifest.$schema,
   "https://json-schema.org/draft/2020-12/schema",
@@ -173,7 +179,15 @@ const validateAuditExportEnvelope = ajv.compile(auditExportEnvelope);
 const validateAuditExportDeliveryReceipt = ajv.compile(auditExportDeliveryReceipt);
 const validateAuditExportDeliveryReceiptV2 = ajv.compile(auditExportDeliveryReceiptV2);
 const validateAuditExportRecipientTrust = ajv.compile(auditExportRecipientTrust);
+const validateAuditExportRecipientProofingTrust = ajv.compile(auditExportRecipientProofingTrust);
+const validateAuditExportRecipientIdentityProof = ajv.compile(auditExportRecipientIdentityProof);
 const fixtureManifest = await readJson("contracts/fixtures/manifest.json");
+const validRecipientTrustFixture = await readJson(
+  "contracts/fixtures/valid/audit-export-recipient-trust.json",
+);
+const validRecipientProofingTrustFixture = await readJson(
+  "contracts/fixtures/valid/audit-export-recipient-proofing-trust.json",
+);
 
 for (const fixture of fixtureManifest.fixtures) {
   const value = await readJson(`contracts/fixtures/${fixture.file}`);
@@ -192,6 +206,10 @@ for (const fixture of fixtureManifest.fixtures) {
     validate = validateAuditExportDeliveryReceiptV2;
   } else if (fixture.document === "audit-export-recipient-trust") {
     validate = validateAuditExportRecipientTrust;
+  } else if (fixture.document === "audit-export-recipient-proofing-trust") {
+    validate = validateAuditExportRecipientProofingTrust;
+  } else if (fixture.document === "audit-export-recipient-identity-proof") {
+    validate = validateAuditExportRecipientIdentityProof;
   } else {
     validate = ajv.compile({
       $ref: `urn:dataground:openapi:v1#/components/schemas/${fixture.schema}`,
@@ -235,6 +253,30 @@ for (const fixture of fixtureManifest.fixtures) {
       value.contentSha256,
       `sha256:${digest}`,
       `${fixture.file} must bind its canonical content bytes`,
+    );
+  }
+  if (fixture.document === "audit-export-recipient-identity-proof" && fixture.valid) {
+    const digest = createHash("sha256").update(JSON.stringify(value.content)).digest("hex");
+    assert.equal(
+      value.contentSha256,
+      `sha256:${digest}`,
+      `${fixture.file} must bind its canonical content bytes`,
+    );
+    const recipientTrustDigest = createHash("sha256")
+      .update(`${JSON.stringify(validRecipientTrustFixture)}\n`)
+      .digest("hex");
+    assert.equal(
+      value.content.recipientTrustProfileSha256,
+      `sha256:${recipientTrustDigest}`,
+      `${fixture.file} must bind the recipient trust fixture`,
+    );
+    const proofingTrustDigest = createHash("sha256")
+      .update(`${JSON.stringify(validRecipientProofingTrustFixture)}\n`)
+      .digest("hex");
+    assert.equal(
+      value.proofingTrustProfileSha256,
+      `sha256:${proofingTrustDigest}`,
+      `${fixture.file} must bind the proofing trust fixture`,
     );
   }
 }
