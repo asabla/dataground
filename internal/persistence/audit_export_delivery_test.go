@@ -25,12 +25,16 @@ func TestAuditExportDeliveryValidationClosesIdentityAndAttribution(t *testing.T)
 	if !validStoredAuditExportDelivery(stored) {
 		t.Fatal("legacy stored delivery was rejected")
 	}
-	stored.Contract = "dataground.audit-export-delivery/v3"
+	stored.Contract = AuditExportDeliveryReceiptVerifiedContract
+	if !validStoredAuditExportDelivery(stored) {
+		t.Fatal("receipt-verified stored delivery was rejected")
+	}
+	stored.Contract = "dataground.audit-export-delivery/v4"
 	if validStoredAuditExportDelivery(stored) {
 		t.Fatal("unknown stored delivery contract was accepted")
 	}
 	for name, mutate := range map[string]func(*AuditExportDelivery){
-		"wrong contract":        func(value *AuditExportDelivery) { value.Contract = "dataground.audit-export-delivery/v3" },
+		"wrong contract":        func(value *AuditExportDelivery) { value.Contract = "dataground.audit-export-delivery/v4" },
 		"cross-kind export":     func(value *AuditExportDelivery) { value.ExportID = "aex_00000000000000000001" },
 		"short envelope digest": func(value *AuditExportDelivery) { value.EnvelopeDigest = value.EnvelopeDigest[:31] },
 		"invalid trust digest":  func(value *AuditExportDelivery) { value.TrustProfileSHA256 = "sha256:bad" },
@@ -58,7 +62,8 @@ func TestAuditExportDeliveryValidationClosesIdentityAndAttribution(t *testing.T)
 	}
 	acknowledgement := AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       digest[:],
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v1",
+		DeliveryContract:            AuditExportDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v2",
 		RecipientTrustProfileSHA256: "sha256:" + strings.Repeat("3", 64),
 		RecipientSigningKeyID:       "archive_key_01",
 		AcceptedAt:                  time.Date(2026, 8, 3, 15, 30, 0, 123000, time.UTC),
@@ -66,6 +71,16 @@ func TestAuditExportDeliveryValidationClosesIdentityAndAttribution(t *testing.T)
 	}
 	if !acknowledgement.Valid() {
 		t.Fatal("valid verified acknowledgement was rejected")
+	}
+	legacyAcknowledgement := acknowledgement
+	legacyAcknowledgement.DeliveryContract = AuditExportDeliveryReceiptVerifiedContract
+	legacyAcknowledgement.ReceiptContract = auditExportDeliveryLegacyReceiptContract
+	if !legacyAcknowledgement.Valid() {
+		t.Fatal("legacy receipt-verified acknowledgement was rejected")
+	}
+	legacyAcknowledgement.ReceiptContract = auditExportDeliveryReceiptContract
+	if legacyAcknowledgement.Valid() {
+		t.Fatal("mismatched delivery and receipt versions were accepted")
 	}
 	acknowledgement.AcceptedAt = acknowledgement.AcceptedAt.Add(time.Nanosecond)
 	if acknowledgement.Valid() {

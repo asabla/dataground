@@ -216,8 +216,10 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 	case "sensitive":
 		_, ok := value.(bool)
 		return ok
-	case "generation":
+	case "generation", "recipientTrustGeneration":
 		return validOperatorAuditInteger(value, 1)
+	case "recipientTrustKeyCount":
+		return validOperatorAuditIntegerRange(value, 0, 8)
 	case "sizeBytes":
 		return validOperatorAuditInteger(value, 0)
 	}
@@ -256,12 +258,16 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 }
 
 func validOperatorAuditInteger(value any, minimum int64) bool {
+	return validOperatorAuditIntegerRange(value, minimum, math.MaxInt64)
+}
+
+func validOperatorAuditIntegerRange(value any, minimum int64, maximum int64) bool {
 	number, ok := value.(json.Number)
 	if !ok {
 		return false
 	}
 	parsed, err := strconv.ParseInt(string(number), 10, 64)
-	return err == nil && parsed >= minimum
+	return err == nil && parsed >= minimum && parsed <= maximum
 }
 
 func validOperatorAuditText(value string, maximum int) bool {

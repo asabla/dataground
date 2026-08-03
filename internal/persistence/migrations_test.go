@@ -76,12 +76,13 @@ func TestMigrationsRoundTrip(t *testing.T) {
 			(SELECT contract FROM audit_export_deliveries WHERE delivery_id = 'adl_00000000000000000001'),
 			(SELECT contract FROM audit_export_deliveries WHERE delivery_id = 'adl_00000000000000000002'),
 			(SELECT num_nonnulls(acknowledgement_contract, recipient_trust_profile_sha256,
-			                     recipient_signing_key_id, recipient_accepted_at)
+			                     recipient_signing_key_id, recipient_accepted_at,
+			                     recipient_trust_generation)
 			 FROM audit_export_deliveries WHERE delivery_id = 'adl_00000000000000000002')
 	`).Scan(&preparedContract, &acknowledgedContract, &acknowledgedVerificationFields); err != nil {
-		t.Fatalf("inspect schema 23 delivery upgrade: %v", err)
+		t.Fatalf("inspect schema 24 delivery upgrade: %v", err)
 	}
-	if preparedContract != "dataground.audit-export-delivery/v2" ||
+	if preparedContract != "dataground.audit-export-delivery/v3" ||
 		acknowledgedContract != "dataground.audit-export-delivery/v1" || acknowledgedVerificationFields != 0 {
 		t.Fatalf("upgraded contracts = %q, %q; legacy verification fields = %d",
 			preparedContract, acknowledgedContract, acknowledgedVerificationFields)
@@ -176,13 +177,15 @@ func TestMigrationsRoundTrip(t *testing.T) {
 		      'oidc_provider_credential_operations',
 		      'operator_audit_exports',
 		      'audit_export_deliveries',
-		      'audit_export_delivery_operations'
+		      'audit_export_delivery_operations',
+		      'audit_export_recipient_trust_events',
+		      'audit_export_recipient_trust_keys'
 		  )
 	`).Scan(&tables); err != nil {
 		t.Fatalf("inspect migrated tables: %v", err)
 	}
-	if tables != 26 {
-		t.Fatalf("expected 26 representative tables, got %d", tables)
+	if tables != 28 {
+		t.Fatalf("expected 28 representative tables, got %d", tables)
 	}
 
 	var rateLimitBucketPrimaryKey string

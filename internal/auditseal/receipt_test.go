@@ -20,7 +20,9 @@ func TestVerifyDeliveryReceiptBindsExactDeliveryAndRecipientTrust(t *testing.T) 
 	if err != nil {
 		t.Fatalf("verify delivery receipt: %v", err)
 	}
-	if verified.Contract != DeliveryReceiptContract || verified.SigningKeyID != fixture.keyID ||
+	if verified.Contract != DeliveryReceiptContract ||
+		verified.DeliveryContract != persistence.AuditExportDeliveryContract ||
+		verified.SigningKeyID != fixture.keyID ||
 		verified.AcceptedAt != fixture.receipt.Content.AcceptedAt ||
 		verified.RecipientTrustProfileSHA256 != fixture.receipt.RecipientTrustProfileSHA256 {
 		t.Fatalf("verified receipt = %#v", verified)
@@ -75,12 +77,60 @@ func TestDeliveryReceiptSigningMessageHasOneTerminalNewline(t *testing.T) {
 	}
 }
 
+func TestInspectRecipientTrustProfileReturnsOnlyAuthorizationEvidence(t *testing.T) {
+	fixture := newDeliveryReceiptFixture(t, time.Date(2026, 8, 3, 15, 30, 0, 123000, time.UTC))
+	evidence, err := InspectRecipientTrustProfileFile(fixture.trustFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := os.ReadFile(fixture.trustFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(encoded)
+	if evidence.Contract != RecipientTrustContract || evidence.RecipientID != fixture.delivery.RecipientID ||
+		evidence.SHA256 != digestString(digest) || len(evidence.KeyIDs) != 1 ||
+		evidence.KeyIDs[0] != fixture.keyID {
+		t.Fatalf("recipient trust evidence = %#v", evidence)
+	}
+}
+
+func TestVerifyDeliveryReceiptPreservesLegacyReceiptContract(t *testing.T) {
+	fixture := newDeliveryReceiptFixture(t, time.Date(2026, 8, 3, 15, 30, 0, 123000, time.UTC))
+	fixture.receipt.Contract = legacyDeliveryReceiptContract
+	fixture.receipt.Content.DeliveryContract = persistence.AuditExportDeliveryReceiptVerifiedContract
+	fixture.receipt.Signature.Contract = legacyDeliveryReceiptSignatureContract
+	content, err := canonicalJSON(fixture.receipt.Content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contentDigest := sha256.Sum256(content[:len(content)-1])
+	fixture.receipt.ContentSHA256 = digestString(contentDigest)
+	message, err := deliveryReceiptSigningMessage(fixture.receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.receipt.Signature.Signature = base64.RawURLEncoding.EncodeToString(
+		ed25519.Sign(fixture.privateKey, message),
+	)
+	writeCanonicalPrivate(t, fixture.receiptFile, fixture.receipt)
+	verified, err := VerifyDeliveryReceiptFile(fixture.receiptFile, fixture.trustFile, fixture.delivery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verified.Contract != legacyDeliveryReceiptContract ||
+		verified.DeliveryContract != persistence.AuditExportDeliveryReceiptVerifiedContract {
+		t.Fatalf("legacy verified receipt = %#v", verified)
+	}
+}
+
 type deliveryReceiptFixture struct {
 	delivery    persistence.AuditExportDelivery
 	receipt     DeliveryReceipt
 	receiptFile string
 	trustFile   string
 	keyID       string
+	privateKey  ed25519.PrivateKey
 }
 
 func newDeliveryReceiptFixture(t *testing.T, acceptedAt time.Time) deliveryReceiptFixture {
@@ -140,6 +190,7 @@ func newDeliveryReceiptFixture(t *testing.T, acceptedAt time.Time) deliveryRecei
 	writeCanonicalPrivate(t, receiptFile, receipt)
 	writeCanonicalPrivate(t, trustFile, trust)
 	return deliveryReceiptFixture{
-		delivery: delivery, receipt: receipt, receiptFile: receiptFile, trustFile: trustFile, keyID: keyID,
+		delivery: delivery, receipt: receipt, receiptFile: receiptFile, trustFile: trustFile,
+		keyID: keyID, privateKey: privateKey,
 	}
 }
