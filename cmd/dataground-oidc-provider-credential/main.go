@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -12,20 +13,25 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/asabla/dataground/internal/authn"
+	"github.com/asabla/dataground/internal/persistence"
 )
 
 const (
-	oidcProviderCredentialRequestContract     = "dataground.oidc-provider-credential-request/v1"
+	oidcProviderCredentialRequestContract     = persistence.OIDCProviderCredentialRequestContract
 	maximumOIDCProviderCredentialRequestBytes = 64 << 10
 	maximumOIDCProviderCredentialTokenBytes   = 8 << 10
 	maximumOIDCProviderCredentialRequestDepth = 16
+	maximumOIDCProviderCredentialReasonBytes  = 512
 )
 
 type oidcProviderCredentialRequest struct {
 	Contract               string          `json:"contract"`
 	Operation              string          `json:"operation"`
+	IsolationDomainID      string          `json:"isolationDomainId"`
 	Generation             uint64          `json:"generation"`
 	ProviderID             string          `json:"providerId"`
 	ProviderRegistrySHA256 string          `json:"providerRegistrySha256"`
@@ -35,10 +41,18 @@ type oidcProviderCredentialRequest struct {
 	RevokedAt              json.RawMessage `json:"revokedAt,omitempty"`
 	BearerTokenFile        json.RawMessage `json:"bearerTokenFile,omitempty"`
 	PublicationFile        string          `json:"publicationFile"`
+	ActorID                string          `json:"actorId"`
+	Reason                 string          `json:"reason"`
+	CorrelationID          string          `json:"correlationId"`
 	activation             time.Time
 	expiry                 time.Time
 	revocation             time.Time
 	tokenFile              string
+}
+
+type oidcProviderCredentialOperationRepository interface {
+	PrepareOIDCProviderCredentialOperation(context.Context, persistence.OIDCProviderCredentialOperation) error
+	CompleteOIDCProviderCredentialOperation(context.Context, persistence.OIDCProviderCredentialOperation) error
 }
 
 func main() {
@@ -82,14 +96,80 @@ func run(ctx context.Context, arguments []string) error {
 			return errors.New("OIDC provider bearer token is invalid")
 		}
 	}
+	databaseURL := os.Getenv("DATAGROUND_DATABASE_URL")
+	if databaseURL == "" {
+		return errors.New("DATAGROUND_DATABASE_URL is required")
+	}
 	operationCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	return authn.PublishOIDCProviderCredential(operationCtx, authn.OIDCProviderCredentialPublication{
-		Path: request.PublicationFile, Generation: request.Generation, ProviderID: request.ProviderID,
+	database, err := persistence.OpenSQL(operationCtx, databaseURL)
+	if err != nil {
+		return err
+	}
+	if err := persistence.RequireCurrentSchema(operationCtx, database); err != nil {
+		database.Close()
+		return err
+	}
+	if err := database.Close(); err != nil {
+		return err
+	}
+	pool, err := persistence.OpenPool(operationCtx, databaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	return publishOIDCProviderCredential(
+		operationCtx,
+		persistence.NewRepository(pool),
+		request,
+		token,
+	)
+}
+
+func publishOIDCProviderCredential(
+	ctx context.Context,
+	repository oidcProviderCredentialOperationRepository,
+	request oidcProviderCredentialRequest,
+	token []byte,
+) error {
+	if repository == nil {
+		return errors.New("OIDC provider credential operation repository is required")
+	}
+	reason := []byte(request.Reason)
+	request.Reason = ""
+	defer clear(reason)
+	reasonDigest := sha256.Sum256(reason)
+	pathDigest := sha256.Sum256([]byte(request.PublicationFile))
+	credentialDigest := sha256.Sum256(token)
+	publication := authn.OIDCProviderCredentialPublication{
+		Path: request.PublicationFile, IsolationDomainID: request.IsolationDomainID,
+		Generation: request.Generation, ProviderID: request.ProviderID,
 		ProviderRegistrySHA256: request.ProviderRegistrySHA256, Endpoint: request.Endpoint,
 		ActivatedAt: request.activation, ExpiresAt: request.expiry,
 		RevokedAt: request.revocation, Revoked: request.Operation == "revoke", BearerToken: token,
-	})
+	}
+	if err := authn.ValidateOIDCProviderCredentialPublication(publication); err != nil {
+		return err
+	}
+	operation := persistence.OIDCProviderCredentialOperation{
+		Contract: request.Contract, IsolationDomainID: request.IsolationDomainID,
+		Operation: request.Operation, Generation: request.Generation, ProviderID: request.ProviderID,
+		ProviderRegistrySHA256: request.ProviderRegistrySHA256, Endpoint: request.Endpoint,
+		PublicationPathDigest: pathDigest[:], CredentialDigest: credentialDigest[:],
+		ActivatedAt: request.activation, ExpiresAt: request.expiry,
+		RevokedAt: request.revocation, ActorID: request.ActorID, CorrelationID: request.CorrelationID,
+		ReasonDigest: reasonDigest[:],
+	}
+	if !operation.Valid() {
+		return errors.New("OIDC provider credential operation attribution is invalid")
+	}
+	if err := repository.PrepareOIDCProviderCredentialOperation(ctx, operation); err != nil {
+		return err
+	}
+	if err := authn.PublishOIDCProviderCredential(ctx, publication); err != nil {
+		return err
+	}
+	return repository.CompleteOIDCProviderCredentialOperation(ctx, operation)
 }
 
 func readOIDCProviderCredentialRequest(path string) (oidcProviderCredentialRequest, error) {
@@ -114,8 +194,18 @@ func readOIDCProviderCredentialRequest(path string) (oidcProviderCredentialReque
 		request.Contract != oidcProviderCredentialRequestContract || request.Generation == 0 ||
 		!authn.ValidOIDCProviderBinding(request.ProviderID, request.ProviderRegistrySHA256) ||
 		!authn.ValidOIDCProviderEndpoint(request.Endpoint) || !canonicalOIDCProviderCredentialPath(request.PublicationFile) ||
-		request.PublicationFile == path {
+		request.PublicationFile == path || !validOIDCProviderCredentialReason(request.Reason) {
 		return request, errors.New("OIDC provider credential request is invalid")
+	}
+	pathDigest := sha256.Sum256([]byte(request.PublicationFile))
+	reasonDigest := sha256.Sum256([]byte(request.Reason))
+	emptyCredentialDigest := sha256.Sum256(nil)
+	attribution := persistence.OIDCProviderCredentialOperation{
+		Contract: request.Contract, IsolationDomainID: request.IsolationDomainID,
+		Operation: request.Operation, Generation: request.Generation, ProviderID: request.ProviderID,
+		ProviderRegistrySHA256: request.ProviderRegistrySHA256, Endpoint: request.Endpoint,
+		PublicationPathDigest: pathDigest[:], CredentialDigest: emptyCredentialDigest[:], ActorID: request.ActorID,
+		CorrelationID: request.CorrelationID, ReasonDigest: reasonDigest[:],
 	}
 	switch request.Operation {
 	case "activate":
@@ -129,16 +219,37 @@ func readOIDCProviderCredentialRequest(path string) (oidcProviderCredentialReque
 			request.tokenFile == request.PublicationFile {
 			return request, errors.New("OIDC provider credential activation request is invalid")
 		}
+		attribution.ActivatedAt = request.activation
+		attribution.ExpiresAt = request.expiry
+		// The token is validated and bound immediately before preparation.
+		attribution.CredentialDigest = make([]byte, sha256.Size)
 	case "revoke":
 		if len(request.ActivatedAt) != 0 || len(request.ExpiresAt) != 0 || len(request.BearerTokenFile) != 0 ||
 			rawJSONNullOrMissing(request.RevokedAt) || json.Unmarshal(request.RevokedAt, &request.revocation) != nil ||
 			request.revocation.IsZero() {
 			return request, errors.New("OIDC provider credential revocation request is invalid")
 		}
+		attribution.RevokedAt = request.revocation
 	default:
 		return request, errors.New("OIDC provider credential operation is invalid")
 	}
+	if !attribution.Valid() {
+		return request, errors.New("OIDC provider credential operation attribution is invalid")
+	}
 	return request, nil
+}
+
+func validOIDCProviderCredentialReason(reason string) bool {
+	if reason == "" || len(reason) > maximumOIDCProviderCredentialReasonBytes ||
+		!utf8.ValidString(reason) || strings.TrimSpace(reason) != reason {
+		return false
+	}
+	for _, character := range reason {
+		if unicode.IsControl(character) {
+			return false
+		}
+	}
+	return true
 }
 
 func rawJSONNullOrMissing(value json.RawMessage) bool {
