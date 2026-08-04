@@ -103,6 +103,9 @@
         "signingKeyId": { "$ref": "#/$defs/resourceId" },
         "sensitive": { "type": "boolean" },
         "sizeBytes": { "type": "integer", "minimum": 0 },
+        "transportContract": {
+          "const": "dataground.audit-export-transport/s3-immutable/v1"
+        },
         "trustProfileSha256": { "$ref": "#/$defs/digest" }
       }
     },

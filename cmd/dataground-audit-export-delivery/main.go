@@ -33,6 +33,7 @@ type auditExportDeliveryRepository interface {
 
 type commandRequest struct {
 	operation          string
+	deliveryContract   string
 	deliveryID         string
 	isolationDomainID  string
 	envelopeFile       string
@@ -93,7 +94,7 @@ func run(ctx context.Context, arguments []string) error {
 		if err != nil {
 			return err
 		}
-		delivery.Contract = persistence.AuditExportEncryptedDeliveryContract
+		delivery.Contract = request.deliveryContract
 		delivery.EncryptedPackageDigest = encrypted.PackageSHA256[:]
 		delivery.RecipientTrustProfileSHA256 = encrypted.RecipientTrustProfileSHA256
 		delivery.RecipientEncryptionKeyID = encrypted.EncryptionKeyID
@@ -182,6 +183,12 @@ func parseArguments(arguments []string) (commandRequest, error) {
 	flags.SetOutput(io.Discard)
 	var destinationSHA256 string
 	flags.StringVar(&request.operation, "operation", "", "prepare or acknowledge")
+	flags.StringVar(
+		&request.deliveryContract,
+		"delivery-contract",
+		persistence.AuditExportTransportedDeliveryContract,
+		"versioned encrypted delivery contract",
+	)
 	flags.StringVar(&request.deliveryID, "delivery-id", "", "stable audit export delivery identifier")
 	flags.StringVar(&request.isolationDomainID, "isolation-domain", "", "exact isolation domain identifier")
 	flags.StringVar(&request.envelopeFile, "envelope-file", "", "canonical signed audit export envelope")
@@ -211,11 +218,14 @@ func parseArguments(arguments []string) (commandRequest, error) {
 	}
 	switch request.operation {
 	case "prepare":
-		if request.receiptFile != "" || request.encryptedFile == "" || request.recipientTrustFile == "" {
+		if request.deliveryContract != persistence.AuditExportTransportedDeliveryContract ||
+			request.receiptFile != "" || request.encryptedFile == "" || request.recipientTrustFile == "" {
 			return commandRequest{}, errors.New("audit export delivery preparation arguments are invalid")
 		}
 	case "acknowledge":
-		if request.receiptFile == "" || request.recipientTrustFile == "" ||
+		if (request.deliveryContract != persistence.AuditExportEncryptedDeliveryContract &&
+			request.deliveryContract != persistence.AuditExportTransportedDeliveryContract) ||
+			request.encryptedFile == "" || request.receiptFile == "" || request.recipientTrustFile == "" ||
 			request.receiptFile == request.recipientTrustFile || request.receiptFile == request.envelopeFile ||
 			request.receiptFile == request.trustFile || request.recipientTrustFile == request.envelopeFile ||
 			request.recipientTrustFile == request.trustFile {

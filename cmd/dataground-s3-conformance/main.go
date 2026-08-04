@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/asabla/dataground/internal/execution/s3artifactconformance"
+	"github.com/asabla/dataground/internal/execution/s3auditconformance"
 	"github.com/asabla/dataground/internal/execution/s3conformance"
 	"github.com/asabla/dataground/internal/execution/s3store"
 )
@@ -63,13 +64,18 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		store,
 		s3artifactconformance.Config{RunID: *runID},
 	)
+	auditExportErr := s3auditconformance.Run(
+		ctx,
+		store,
+		s3auditconformance.Config{RunID: *runID},
+	)
 	encoder := json.NewEncoder(stdout)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(report); err != nil {
 		fmt.Fprintln(stderr, "could not encode S3 conformance report")
 		return 1
 	}
-	if enforcementErr != nil || artifactErr != nil {
+	if enforcementErr != nil || artifactErr != nil || auditExportErr != nil {
 		fmt.Fprintln(stderr, "S3 object conformance failed")
 		return 1
 	}

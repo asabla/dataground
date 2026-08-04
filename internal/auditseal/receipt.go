@@ -17,17 +17,20 @@ import (
 var auditExportDeliveryRecipientPattern = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,127}$`)
 
 const (
-	DeliveryReceiptContract                   = "dataground.audit-export-delivery-receipt/ed25519/v2"
-	DeliveryReceiptSignatureContract          = "dataground.audit-export-delivery-receipt-signature/ed25519/v2"
-	EncryptedDeliveryReceiptContract          = "dataground.audit-export-delivery-receipt/ed25519/v3"
-	EncryptedDeliveryReceiptSignatureContract = "dataground.audit-export-delivery-receipt-signature/ed25519/v3"
-	RecipientTrustContract                    = "dataground.audit-export-recipient-trust/ed25519/v1"
-	RecipientEncryptionTrustContract          = "dataground.audit-export-recipient-trust/ed25519-x25519/v2"
+	DeliveryReceiptContract                     = "dataground.audit-export-delivery-receipt/ed25519/v2"
+	DeliveryReceiptSignatureContract            = "dataground.audit-export-delivery-receipt-signature/ed25519/v2"
+	EncryptedDeliveryReceiptContract            = "dataground.audit-export-delivery-receipt/ed25519/v3"
+	EncryptedDeliveryReceiptSignatureContract   = "dataground.audit-export-delivery-receipt-signature/ed25519/v3"
+	TransportedDeliveryReceiptContract          = "dataground.audit-export-delivery-receipt/ed25519/v4"
+	TransportedDeliveryReceiptSignatureContract = "dataground.audit-export-delivery-receipt-signature/ed25519/v4"
+	RecipientTrustContract                      = "dataground.audit-export-recipient-trust/ed25519/v1"
+	RecipientEncryptionTrustContract            = "dataground.audit-export-recipient-trust/ed25519-x25519/v2"
 
 	legacyDeliveryReceiptContract          = "dataground.audit-export-delivery-receipt/ed25519/v1"
 	legacyDeliveryReceiptSignatureContract = "dataground.audit-export-delivery-receipt-signature/ed25519/v1"
 	deliveryReceiptDomain                  = "DataGround audit export delivery receipt v2\n"
 	encryptedDeliveryReceiptDomain         = "DataGround audit export delivery receipt v3\n"
+	transportedDeliveryReceiptDomain       = "DataGround audit export delivery receipt v4\n"
 	legacyDeliveryReceiptDomain            = "DataGround audit export delivery receipt v1\n"
 )
 
@@ -276,6 +279,8 @@ func verifyDeliveryReceiptSignature(receipt DeliveryReceipt, trust RecipientTrus
 		expectedSignatureContract = legacyDeliveryReceiptSignatureContract
 	} else if receipt.Contract == EncryptedDeliveryReceiptContract {
 		expectedSignatureContract = EncryptedDeliveryReceiptSignatureContract
+	} else if receipt.Contract == TransportedDeliveryReceiptContract {
+		expectedSignatureContract = TransportedDeliveryReceiptSignatureContract
 	}
 	if receipt.Signature.Contract != expectedSignatureContract ||
 		!keyIDPattern.MatchString(receipt.Signature.KeyID) {
@@ -326,6 +331,8 @@ func deliveryReceiptSigningMessage(receipt DeliveryReceipt) ([]byte, error) {
 		domain = legacyDeliveryReceiptDomain
 	} else if receipt.Contract == EncryptedDeliveryReceiptContract {
 		domain = encryptedDeliveryReceiptDomain
+	} else if receipt.Contract == TransportedDeliveryReceiptContract {
+		domain = transportedDeliveryReceiptDomain
 	}
 	message := make([]byte, 0, len(domain)+len(canonical))
 	message = append(message, domain...)
@@ -351,7 +358,8 @@ func sameDeliveryReceiptContent(content DeliveryReceiptContent, delivery persist
 		content.DestinationSHA256 != digestStringFromBytes(delivery.DestinationDigest) {
 		return false
 	}
-	if delivery.Contract == persistence.AuditExportEncryptedDeliveryContract {
+	if delivery.Contract == persistence.AuditExportEncryptedDeliveryContract ||
+		delivery.Contract == persistence.AuditExportTransportedDeliveryContract {
 		return content.EncryptedPackageSHA256 == digestStringFromBytes(delivery.EncryptedPackageDigest) &&
 			content.RecipientEncryptionKeyID == delivery.RecipientEncryptionKeyID &&
 			content.RecipientTrustGeneration > 0
@@ -362,6 +370,8 @@ func sameDeliveryReceiptContent(content DeliveryReceiptContent, delivery persist
 
 func validDeliveryReceiptVersion(receipt DeliveryReceipt) bool {
 	switch receipt.Contract {
+	case TransportedDeliveryReceiptContract:
+		return receipt.Content.DeliveryContract == persistence.AuditExportTransportedDeliveryContract
 	case EncryptedDeliveryReceiptContract:
 		return receipt.Content.DeliveryContract == persistence.AuditExportEncryptedDeliveryContract
 	case DeliveryReceiptContract:
