@@ -106,10 +106,18 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		return 1
 	}
 	if runErr != nil {
-		fmt.Fprintln(stderr, "enforcement recovery conformance failed")
+		fmt.Fprintln(stderr, failureMessage(runErr))
 		return 1
 	}
 	return 0
+}
+
+func failureMessage(runErr error) string {
+	var suiteErr *recoveryconformance.SuiteError
+	if errors.As(runErr, &suiteErr) && suiteErr.DiagnosticCode != "" {
+		return "enforcement recovery conformance failed: " + suiteErr.DiagnosticCode
+	}
+	return "enforcement recovery conformance failed"
 }
 
 func execute(

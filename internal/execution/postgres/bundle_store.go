@@ -4,13 +4,53 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 
 	"github.com/asabla/dataground/internal/execution"
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// EnforcementBundlePersistenceStage is a safe, bounded classification of the
+// database operation that failed. It intentionally excludes SQL text,
+// connection details, database messages, and values from the attempted record.
+type EnforcementBundlePersistenceStage string
+
+const (
+	EnforcementBundlePersistenceBegin        EnforcementBundlePersistenceStage = "begin"
+	EnforcementBundlePersistenceRevisionRead EnforcementBundlePersistenceStage = "revision-read"
+	EnforcementBundlePersistenceInsert       EnforcementBundlePersistenceStage = "insert"
+	EnforcementBundlePersistenceRecordRead   EnforcementBundlePersistenceStage = "record-read"
+	EnforcementBundlePersistenceRecordCheck  EnforcementBundlePersistenceStage = "record-check"
+	EnforcementBundlePersistenceAudit        EnforcementBundlePersistenceStage = "audit"
+	EnforcementBundlePersistenceCommit       EnforcementBundlePersistenceStage = "commit"
+)
+
+type enforcementBundlePersistenceError struct {
+	stage EnforcementBundlePersistenceStage
+}
+
+func (err *enforcementBundlePersistenceError) Error() string {
+	return "enforcement bundle persistence failed during " + string(err.stage)
+}
+
+func (err *enforcementBundlePersistenceError) Unwrap() error {
+	return ErrPersistence
+}
+
+// EnforcementBundlePersistenceFailure returns a safe failure stage without
+// exposing the PostgreSQL error that established it.
+func EnforcementBundlePersistenceFailure(err error) (EnforcementBundlePersistenceStage, bool) {
+	var persistenceErr *enforcementBundlePersistenceError
+	if !errors.As(err, &persistenceErr) {
+		return "", false
+	}
+	return persistenceErr.stage, true
+}
+
+func enforcementBundlePersistenceFailure(stage EnforcementBundlePersistenceStage) error {
+	return &enforcementBundlePersistenceError{stage: stage}
+}
 
 func (store *Store) BindEnforcementBundle(
 	ctx context.Context,
@@ -22,7 +62,7 @@ func (store *Store) BindEnforcementBundle(
 	}
 	transaction, err := store.pool.Begin(ctx)
 	if err != nil {
-		return execution.EnforcementBundleRecord{}, fmt.Errorf("begin enforcement bundle binding: %w", ErrPersistence)
+		return execution.EnforcementBundleRecord{}, enforcementBundlePersistenceFailure(EnforcementBundlePersistenceBegin)
 	}
 	defer transaction.Rollback(ctx)
 	var revisionExists bool
@@ -36,7 +76,7 @@ func (store *Store) BindEnforcementBundle(
 		return execution.EnforcementBundleRecord{}, execution.ErrEnforcementBundleRevisionMissing
 	}
 	if err != nil {
-		return execution.EnforcementBundleRecord{}, fmt.Errorf("read enforcement bundle revision: %w", ErrPersistence)
+		return execution.EnforcementBundleRecord{}, enforcementBundlePersistenceFailure(EnforcementBundlePersistenceRevisionRead)
 	}
 	provenance := normalized.Record.Provenance
 	now := store.now()
@@ -78,7 +118,7 @@ func (store *Store) BindEnforcementBundle(
 		if errors.As(err, &databaseError) && databaseError.Code == "23503" {
 			return execution.EnforcementBundleRecord{}, execution.ErrEnforcementBundleRevisionMissing
 		}
-		return execution.EnforcementBundleRecord{}, fmt.Errorf("bind enforcement bundle: %w", ErrPersistence)
+		return execution.EnforcementBundleRecord{}, enforcementBundlePersistenceFailure(EnforcementBundlePersistenceInsert)
 	}
 	existing, err := getEnforcementBundleRecord(
 		ctx,
@@ -98,7 +138,7 @@ func (store *Store) BindEnforcementBundle(
 			"bindingDigest":  provenance.BindingDigest,
 		})
 		if err != nil {
-			return execution.EnforcementBundleRecord{}, fmt.Errorf("encode enforcement bundle audit metadata: %w", ErrPersistence)
+			return execution.EnforcementBundleRecord{}, enforcementBundlePersistenceFailure(EnforcementBundlePersistenceAudit)
 		}
 		_, err = transaction.Exec(ctx, `
 			INSERT INTO audit_records (
@@ -116,11 +156,11 @@ func (store *Store) BindEnforcementBundle(
 			now,
 		)
 		if err != nil {
-			return execution.EnforcementBundleRecord{}, fmt.Errorf("audit enforcement bundle binding: %w", ErrPersistence)
+			return execution.EnforcementBundleRecord{}, enforcementBundlePersistenceFailure(EnforcementBundlePersistenceAudit)
 		}
 	}
 	if err := transaction.Commit(ctx); err != nil {
-		return execution.EnforcementBundleRecord{}, fmt.Errorf("commit enforcement bundle binding: %w", ErrPersistence)
+		return execution.EnforcementBundleRecord{}, enforcementBundlePersistenceFailure(EnforcementBundlePersistenceCommit)
 	}
 	return existing, nil
 }
@@ -172,11 +212,11 @@ func getEnforcementBundleRecord(
 		return execution.EnforcementBundleRecord{}, execution.ErrEnforcementBundleMissing
 	}
 	if err != nil {
-		return execution.EnforcementBundleRecord{}, fmt.Errorf("read enforcement bundle: %w", ErrPersistence)
+		return execution.EnforcementBundleRecord{}, enforcementBundlePersistenceFailure(EnforcementBundlePersistenceRecordRead)
 	}
 	normalized, err := execution.NormalizeEnforcementBundleRecord(record)
 	if err != nil {
-		return execution.EnforcementBundleRecord{}, fmt.Errorf("validate persisted enforcement bundle: %w", ErrPersistence)
+		return execution.EnforcementBundleRecord{}, enforcementBundlePersistenceFailure(EnforcementBundlePersistenceRecordCheck)
 	}
 	return normalized, nil
 }

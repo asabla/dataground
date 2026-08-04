@@ -73,6 +73,21 @@ func TestRunRequiresDatabaseConfiguration(t *testing.T) {
 	}
 }
 
+func TestFailureMessageIncludesOnlyBoundedSuiteDiagnostic(t *testing.T) {
+	runErr := &recoveryconformance.SuiteError{
+		Phase:          recoveryconformance.PhaseRecover,
+		Case:           "concurrent-catalog-adoption-after-restarts",
+		DiagnosticCode: "catalog-bind-insert-failed",
+	}
+	if message := failureMessage(runErr); message !=
+		"enforcement recovery conformance failed: catalog-bind-insert-failed" {
+		t.Fatalf("message = %q", message)
+	}
+	if message := failureMessage(context.Canceled); message != "enforcement recovery conformance failed" {
+		t.Fatalf("fallback message = %q", message)
+	}
+}
+
 func TestValidPhaseIncludesCommitLossRecoveryBoundary(t *testing.T) {
 	for _, phase := range []recoveryconformance.Phase{
 		recoveryconformance.PhasePrepare,

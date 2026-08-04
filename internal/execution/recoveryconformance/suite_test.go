@@ -14,9 +14,40 @@ import (
 	"testing"
 
 	"github.com/asabla/dataground/internal/execution"
+	"github.com/asabla/dataground/internal/execution/postgres"
 )
 
 const testRunID = "0123456789abcdef0123456789abcdef"
+
+func TestRecoveryResultDiagnosticCodesAreBounded(t *testing.T) {
+	tests := []struct {
+		name   string
+		result recoveryResult
+		want   string
+	}{
+		{
+			name: "catalog stage",
+			result: recoveryResult{
+				err:              execution.ErrEnforcementBundleUnavailable,
+				bindAttempted:    true,
+				bindFailureStage: postgres.EnforcementBundlePersistenceInsert,
+			},
+			want: "catalog-bind-insert-failed",
+		},
+		{
+			name:   "object failure",
+			result: recoveryResult{err: execution.ErrEnforcementBundleUnavailable},
+			want:   "object-finalization-unavailable",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := test.result.diagnosticCode(); got != test.want {
+				t.Fatalf("diagnostic code = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
 
 type memoryBackend struct {
 	mutex   sync.Mutex
