@@ -181,6 +181,31 @@ func TestVerifyEncryptedDeliveryReceiptBindsPackageAndTrustGeneration(t *testing
 	if verified.Contract != EncryptedDeliveryReceiptContract || verified.RecipientTrustGeneration != 7 {
 		t.Fatalf("encrypted delivery receipt = %#v", verified)
 	}
+	fixture.delivery.Contract = persistence.AuditExportTransportedDeliveryContract
+	fixture.receipt.Contract = TransportedDeliveryReceiptContract
+	fixture.receipt.Content.DeliveryContract = persistence.AuditExportTransportedDeliveryContract
+	fixture.receipt.Signature.Contract = TransportedDeliveryReceiptSignatureContract
+	content, err = canonicalJSON(fixture.receipt.Content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contentDigest = sha256.Sum256(content[:len(content)-1])
+	fixture.receipt.ContentSHA256 = digestString(contentDigest)
+	message, err = deliveryReceiptSigningMessage(fixture.receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.receipt.Signature.Signature = base64.RawURLEncoding.EncodeToString(
+		ed25519.Sign(fixture.privateKey, message),
+	)
+	writeCanonicalPrivate(t, fixture.receiptFile, fixture.receipt)
+	verified, err = VerifyDeliveryReceiptFile(fixture.receiptFile, fixture.trustFile, fixture.delivery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verified.Contract != TransportedDeliveryReceiptContract || verified.RecipientTrustGeneration != 7 {
+		t.Fatalf("transported delivery receipt = %#v", verified)
+	}
 	fixture.delivery.EncryptedPackageDigest = append([]byte(nil), fixture.delivery.EncryptedPackageDigest...)
 	fixture.delivery.EncryptedPackageDigest[0] ^= 1
 	if _, err := VerifyDeliveryReceiptFile(fixture.receiptFile, fixture.trustFile, fixture.delivery); err == nil {

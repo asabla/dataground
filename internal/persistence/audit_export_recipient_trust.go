@@ -278,7 +278,7 @@ func authorizeAuditExportRecipientTrust(
 	}
 	expectedAuthorizationContract := AuditExportRecipientTrustAuthorizationContract
 	expectedTrustContract := auditExportRecipientTrustProfileContract
-	if delivery.Contract == AuditExportEncryptedDeliveryContract {
+	if encryptedAuditExportDeliveryContract(delivery.Contract) {
 		expectedAuthorizationContract = AuditExportRecipientEncryptionAuthorizationContract
 		expectedTrustContract = auditExportRecipientEncryptionTrustProfileContract
 	}
@@ -289,7 +289,7 @@ func authorizeAuditExportRecipientTrust(
 		!latest.IdentityProofExpiresAt.After(databaseNow) ||
 		revoked ||
 		!containsAuditExportRecipientTrustKey(latest.KeyIDs, acknowledgement.RecipientSigningKeyID) ||
-		(delivery.Contract == AuditExportEncryptedDeliveryContract &&
+		(encryptedAuditExportDeliveryContract(delivery.Contract) &&
 			(latest.Generation != delivery.RecipientTrustGeneration ||
 				latest.Generation != acknowledgement.RecipientTrustGeneration ||
 				latest.TrustProfileSHA256 != delivery.RecipientTrustProfileSHA256 ||

@@ -73,6 +73,18 @@
       "valid": true
     },
     {
+      "file": "valid/audit-export-delivery-receipt-v4.json",
+      "schema": "AuditExportDeliveryReceiptV4",
+      "document": "audit-export-delivery-receipt-v4",
+      "valid": true
+    },
+    {
+      "file": "valid/audit-export-delivery-destination.json",
+      "schema": "AuditExportDeliveryDestination",
+      "document": "audit-export-delivery-destination",
+      "valid": true
+    },
+    {
       "file": "valid/audit-export-recipient-trust.json",
       "schema": "AuditExportRecipientTrust",
       "document": "audit-export-recipient-trust",

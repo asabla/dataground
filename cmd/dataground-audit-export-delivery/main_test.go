@@ -65,8 +65,31 @@ func TestParseArgumentsAcceptsEncryptedPreparation(t *testing.T) {
 		"-reason", "archive encrypted incident export",
 		"-correlation-id", "cor_00000000000000000001",
 	})
-	if err != nil || request.encryptedFile == "" || request.recipientTrustFile == "" {
+	if err != nil || request.encryptedFile == "" || request.recipientTrustFile == "" ||
+		request.deliveryContract != persistence.AuditExportTransportedDeliveryContract {
 		t.Fatalf("encrypted preparation request = %#v; error = %v", request, err)
+	}
+}
+
+func TestParseArgumentsAcceptsHistoricalEncryptedAcknowledgement(t *testing.T) {
+	request, err := parseArguments([]string{
+		"-operation", "acknowledge",
+		"-delivery-contract", persistence.AuditExportEncryptedDeliveryContract,
+		"-delivery-id", "adl_00000000000000000001",
+		"-isolation-domain", "iso_00000000000000000001",
+		"-envelope-file", "/run/dataground/audit/envelope.json",
+		"-encrypted-file", "/run/dataground/audit/encrypted.json",
+		"-trust-file", "/run/dataground/audit/trust.json",
+		"-recipient", "archive.primary",
+		"-recipient-trust-file", "/run/dataground/audit/recipient-trust.json",
+		"-destination-sha256", "sha256:" + strings.Repeat("1", 64),
+		"-receipt-file", "/run/dataground/audit/receipt.json",
+		"-actor", "operator@example.invalid",
+		"-reason", "acknowledge historical encrypted delivery",
+		"-correlation-id", "cor_00000000000000000001",
+	})
+	if err != nil || request.deliveryContract != persistence.AuditExportEncryptedDeliveryContract {
+		t.Fatalf("historical acknowledgement request = %#v; error = %v", request, err)
 	}
 }
 

@@ -29,12 +29,12 @@ func TestAuditExportDeliveryValidationClosesIdentityAndAttribution(t *testing.T)
 	if !validStoredAuditExportDelivery(stored) {
 		t.Fatal("receipt-verified stored delivery was rejected")
 	}
-	stored.Contract = "dataground.audit-export-delivery/v5"
+	stored.Contract = "dataground.audit-export-delivery/v6"
 	if validStoredAuditExportDelivery(stored) {
 		t.Fatal("unknown stored delivery contract was accepted")
 	}
 	for name, mutate := range map[string]func(*AuditExportDelivery){
-		"wrong contract":        func(value *AuditExportDelivery) { value.Contract = "dataground.audit-export-delivery/v5" },
+		"wrong contract":        func(value *AuditExportDelivery) { value.Contract = "dataground.audit-export-delivery/v6" },
 		"cross-kind export":     func(value *AuditExportDelivery) { value.ExportID = "aex_00000000000000000001" },
 		"short envelope digest": func(value *AuditExportDelivery) { value.EnvelopeDigest = value.EnvelopeDigest[:31] },
 		"invalid trust digest":  func(value *AuditExportDelivery) { value.TrustProfileSHA256 = "sha256:bad" },
@@ -86,6 +86,17 @@ func TestAuditExportDeliveryValidationClosesIdentityAndAttribution(t *testing.T)
 	encryptedAcknowledgement.RecipientTrustGeneration = 1
 	if !encryptedAcknowledgement.Valid() {
 		t.Fatal("valid encrypted acknowledgement was rejected")
+	}
+	transported := cloneAuditExportDelivery(encrypted)
+	transported.Contract = AuditExportTransportedDeliveryContract
+	if !transported.Valid() || !validStoredAuditExportDelivery(transported) {
+		t.Fatal("valid transport-required delivery was rejected")
+	}
+	transportedAcknowledgement := encryptedAcknowledgement
+	transportedAcknowledgement.DeliveryContract = AuditExportTransportedDeliveryContract
+	transportedAcknowledgement.ReceiptContract = auditExportTransportedDeliveryReceiptContract
+	if !transportedAcknowledgement.Valid() {
+		t.Fatal("valid transported acknowledgement was rejected")
 	}
 	legacyAcknowledgement := acknowledgement
 	legacyAcknowledgement.DeliveryContract = AuditExportDeliveryReceiptVerifiedContract

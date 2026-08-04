@@ -146,6 +146,12 @@ const auditExportDeliveryReceiptV2 = await readJson(
 const auditExportDeliveryReceiptV3 = await readJson(
   "contracts/schemas/audit-export-delivery-receipt-v3.schema.json",
 );
+const auditExportDeliveryReceiptV4 = await readJson(
+  "contracts/schemas/audit-export-delivery-receipt-v4.schema.json",
+);
+const auditExportDeliveryDestination = await readJson(
+  "contracts/schemas/audit-export-delivery-destination.schema.json",
+);
 const auditExportRecipientTrust = await readJson(
   "contracts/schemas/audit-export-recipient-trust.schema.json",
 );
@@ -166,6 +172,11 @@ const auditExportRecipientRevocationTrust = await readJson(
 );
 const auditExportRecipientProofRevocation = await readJson(
   "contracts/schemas/audit-export-recipient-proof-revocation.schema.json",
+);
+assert.equal(
+  operatorAuditExport.$defs.safeMetadata.properties.transportContract.const,
+  "dataground.audit-export-transport/s3-immutable/v1",
+  "operator audit transport metadata must remain closed and versioned",
 );
 assert.equal(
   releaseManifest.$schema,
@@ -194,6 +205,8 @@ const validateAuditExportEnvelope = ajv.compile(auditExportEnvelope);
 const validateAuditExportDeliveryReceipt = ajv.compile(auditExportDeliveryReceipt);
 const validateAuditExportDeliveryReceiptV2 = ajv.compile(auditExportDeliveryReceiptV2);
 const validateAuditExportDeliveryReceiptV3 = ajv.compile(auditExportDeliveryReceiptV3);
+const validateAuditExportDeliveryReceiptV4 = ajv.compile(auditExportDeliveryReceiptV4);
+const validateAuditExportDeliveryDestination = ajv.compile(auditExportDeliveryDestination);
 const validateAuditExportRecipientTrust = ajv.compile(auditExportRecipientTrust);
 const validateAuditExportRecipientTrustV2 = ajv.compile(auditExportRecipientTrustV2);
 const validateAuditExportEncryptedPackage = ajv.compile(auditExportEncryptedPackage);
@@ -215,6 +228,9 @@ const validRecipientProofingTrustFixture = await readJson(
 const validRecipientRevocationTrustFixture = await readJson(
   "contracts/fixtures/valid/audit-export-recipient-revocation-trust.json",
 );
+const validDeliveryDestinationFixture = await readJson(
+  "contracts/fixtures/valid/audit-export-delivery-destination.json",
+);
 
 for (const fixture of fixtureManifest.fixtures) {
   const value = await readJson(`contracts/fixtures/${fixture.file}`);
@@ -233,6 +249,10 @@ for (const fixture of fixtureManifest.fixtures) {
     validate = validateAuditExportDeliveryReceiptV2;
   } else if (fixture.document === "audit-export-delivery-receipt-v3") {
     validate = validateAuditExportDeliveryReceiptV3;
+  } else if (fixture.document === "audit-export-delivery-receipt-v4") {
+    validate = validateAuditExportDeliveryReceiptV4;
+  } else if (fixture.document === "audit-export-delivery-destination") {
+    validate = validateAuditExportDeliveryDestination;
   } else if (fixture.document === "audit-export-recipient-trust") {
     validate = validateAuditExportRecipientTrust;
   } else if (fixture.document === "audit-export-recipient-trust-v2") {
@@ -269,6 +289,32 @@ for (const fixture of fixtureManifest.fixtures) {
       `sha256:${digest}`,
       `${fixture.file} must bind its canonical content bytes`,
     );
+
+    if (fixture.document === "audit-export-delivery-receipt-v4") {
+      const destinationDigest = createHash("sha256")
+        .update(`${JSON.stringify(validDeliveryDestinationFixture)}\n`)
+        .digest("hex");
+      const objectDigest = validDeliveryDestinationFixture.objectKey
+        .split("/")
+        .at(-1)
+        .replace(/\.json$/, "");
+      assert.equal(
+        value.content.destinationSha256,
+        `sha256:${destinationDigest}`,
+        `${fixture.file} must bind the destination fixture`,
+      );
+      assert.equal(
+        value.content.encryptedPackageSha256,
+        `sha256:${objectDigest}`,
+        `${fixture.file} and destination must bind the same encrypted package`,
+      );
+      assert.equal(value.content.deliveryId, validDeliveryDestinationFixture.deliveryId);
+      assert.equal(
+        value.content.isolationDomainId,
+        validDeliveryDestinationFixture.isolationDomainId,
+      );
+      assert.equal(value.content.recipientId, validDeliveryDestinationFixture.recipientId);
+    }
   }
   if (fixture.document === "audit-export-envelope" && fixture.valid) {
     const digest = createHash("sha256")
@@ -283,7 +329,8 @@ for (const fixture of fixtureManifest.fixtures) {
   if (
     (fixture.document === "audit-export-delivery-receipt" ||
       fixture.document === "audit-export-delivery-receipt-v2" ||
-      fixture.document === "audit-export-delivery-receipt-v3") &&
+      fixture.document === "audit-export-delivery-receipt-v3" ||
+      fixture.document === "audit-export-delivery-receipt-v4") &&
     fixture.valid
   ) {
     const digest = createHash("sha256").update(JSON.stringify(value.content)).digest("hex");

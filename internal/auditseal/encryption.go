@@ -268,6 +268,22 @@ func VerifyEncryptedPackageFile(
 	}, nil
 }
 
+// ReadEncryptedPackageFile returns an owned copy of the exact stable encrypted
+// package bytes after checking the expected digest. Callers use it immediately
+// before transport so a post-verification file replacement cannot change the
+// externally visible effect.
+func ReadEncryptedPackageFile(path string, expected [sha256.Size]byte) ([]byte, error) {
+	encoded, err := readStablePrivateFile(path, maximumEncryptedBytes)
+	if err != nil {
+		return nil, fmt.Errorf("read audit export encrypted package for transport: %w", err)
+	}
+	if sha256.Sum256(encoded) != expected {
+		clear(encoded)
+		return nil, errors.New("audit export encrypted package changed before transport")
+	}
+	return encoded, nil
+}
+
 func recipientEncryptionKey(trust RecipientTrustProfile, keyID string) (TrustedKey, error) {
 	index := sort.Search(len(trust.EncryptionKeys), func(index int) bool {
 		return trust.EncryptionKeys[index].KeyID >= keyID
