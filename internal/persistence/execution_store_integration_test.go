@@ -466,9 +466,37 @@ func TestDurableEnforcementBundleCatalogIsImmutableAuditedAndScoped(t *testing.T
 	binding := execution.EnforcementBundleBinding{
 		Record: record, ActorID: "worker:rosetta", CorrelationID: "correlation-bundle-1",
 	}
-	bound, err := store.BindEnforcementBundle(ctx, binding)
-	if err != nil {
-		t.Fatalf("bind enforcement bundle: %v", err)
+	start := make(chan struct{})
+	results := make(chan execution.EnforcementBundleRecord, 8)
+	errorsByWorker := make(chan error, 8)
+	var binders sync.WaitGroup
+	for range 8 {
+		binders.Add(1)
+		go func() {
+			defer binders.Done()
+			<-start
+			bound, bindErr := store.BindEnforcementBundle(ctx, binding)
+			results <- bound
+			errorsByWorker <- bindErr
+		}()
+	}
+	close(start)
+	binders.Wait()
+	close(results)
+	close(errorsByWorker)
+	for bindErr := range errorsByWorker {
+		if bindErr != nil {
+			t.Fatalf("bind enforcement bundle concurrently: %v", bindErr)
+		}
+	}
+	var bound execution.EnforcementBundleRecord
+	for result := range results {
+		if bound.ID == "" {
+			bound = result
+		}
+		if !execution.EqualEnforcementBundleRecords(bound, result) {
+			t.Fatalf("concurrent enforcement bundle result = %#v, want %#v", result, bound)
+		}
 	}
 	if bound.ObjectKey != execution.EnforcementBundleObjectKey(record) {
 		t.Fatalf("derived object key = %q", bound.ObjectKey)
