@@ -91,7 +91,7 @@ func (store *Store) BindEnforcementBundle(
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
 			$11, $12, $13, $14, $15, $16, $17, $18, $19
 		)
-		ON CONFLICT (isolation_domain_id, id) DO NOTHING
+		ON CONFLICT DO NOTHING
 	`,
 		normalized.Record.IsolationDomainID,
 		normalized.Record.ID,
@@ -126,6 +126,9 @@ func (store *Store) BindEnforcementBundle(
 		normalized.Record.IsolationDomainID,
 		normalized.Record.ID,
 	)
+	if errors.Is(err, execution.ErrEnforcementBundleMissing) && result.RowsAffected() == 0 {
+		return execution.EnforcementBundleRecord{}, execution.ErrEnforcementBundleConflict
+	}
 	if err != nil {
 		return execution.EnforcementBundleRecord{}, err
 	}
