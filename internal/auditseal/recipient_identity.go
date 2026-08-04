@@ -84,7 +84,8 @@ func VerifyRecipientIdentityProofFile(
 ) (VerifiedRecipientIdentityProof, error) {
 	var verified VerifiedRecipientIdentityProof
 	if !distinctPaths(proofFile, proofingTrustProfileFile) ||
-		recipientTrust.Contract != RecipientTrustContract ||
+		(recipientTrust.Contract != RecipientTrustContract &&
+			recipientTrust.Contract != RecipientEncryptionTrustContract) ||
 		!auditExportIsolationDomainPattern.MatchString(isolationDomainID) ||
 		now.IsZero() {
 		return verified, errors.New("audit export recipient identity proof inputs are invalid")

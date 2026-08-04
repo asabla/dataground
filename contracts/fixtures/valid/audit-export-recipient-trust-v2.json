@@ -1,0 +1,16 @@
+{
+  "contract": "dataground.audit-export-recipient-trust/ed25519-x25519/v2",
+  "recipientId": "archive.primary",
+  "signingKeys": [
+    {
+      "keyId": "archive_signing_key_01",
+      "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
+  ],
+  "encryptionKeys": [
+    {
+      "keyId": "archive_encryption_key_01",
+      "publicKey": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+    }
+  ]
+}

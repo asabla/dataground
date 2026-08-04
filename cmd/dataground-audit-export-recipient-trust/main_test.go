@@ -99,6 +99,32 @@ func TestExecuteRequestForwardsExactValidatedChange(t *testing.T) {
 	}
 }
 
+func TestNewTrustChangeSelectsEncryptionAuthorization(t *testing.T) {
+	request := commandRequest{
+		operation: "activate", isolationDomainID: "iso_00000000000000000001",
+		recipientID: "archive.primary", generation: 1,
+		actorID: "operator@example.invalid", reason: "activate encrypted archive trust",
+		correlationID: "cor_00000000000000000001",
+	}
+	verifiedAt := time.Date(2026, 8, 4, 20, 0, 0, 0, time.UTC)
+	profile := auditseal.RecipientTrustEvidence{
+		Contract: auditseal.RecipientEncryptionTrustContract, RecipientID: request.recipientID,
+		SHA256: "sha256:" + strings.Repeat("3", 64), KeyIDs: []string{"archive_signing_key_01"},
+		EncryptionKeyIDs: []string{"archive_encryption_key_01"},
+	}
+	proof := auditseal.VerifiedRecipientIdentityProof{
+		Contract: auditseal.RecipientIdentityProofContract, SHA256: "sha256:" + strings.Repeat("4", 64),
+		EvidenceSHA256: "sha256:" + strings.Repeat("5", 64), AuthorityID: "archive-proofing.primary",
+		ProofingTrustProfileSHA256: "sha256:" + strings.Repeat("6", 64), SigningKeyID: "proofing_key_01",
+		VerifiedAt: verifiedAt, ExpiresAt: verifiedAt.Add(24 * time.Hour),
+	}
+	change := newTrustChange(request, profile, proof)
+	if change.Contract != persistence.AuditExportRecipientEncryptionAuthorizationContract ||
+		len(change.EncryptionKeyIDs) != 1 || !change.Valid() {
+		t.Fatalf("encryption trust change = %#v", change)
+	}
+}
+
 type recipientTrustRepositoryStub struct {
 	calls  int
 	change persistence.AuditExportRecipientTrustChange

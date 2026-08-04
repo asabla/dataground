@@ -34,6 +34,18 @@ func TestAuditExportRecipientTrustChangeValidation(t *testing.T) {
 	if !valid.Valid() {
 		t.Fatal("valid recipient trust change was rejected")
 	}
+	encrypted := valid
+	encrypted.Contract = AuditExportRecipientEncryptionAuthorizationContract
+	encrypted.TrustContract = auditExportRecipientEncryptionTrustProfileContract
+	encrypted.EncryptionKeyIDs = []string{"archive_encryption_key_01"}
+	if !encrypted.Valid() {
+		t.Fatal("valid encryption-capable recipient trust change was rejected")
+	}
+	missingEncryptionKey := encrypted
+	missingEncryptionKey.EncryptionKeyIDs = nil
+	if missingEncryptionKey.Valid() {
+		t.Fatal("encryption-capable trust without encryption keys was accepted")
+	}
 	for name, mutate := range map[string]func(*AuditExportRecipientTrustChange){
 		"contract":       func(value *AuditExportRecipientTrustChange) { value.Contract = "v2" },
 		"operation":      func(value *AuditExportRecipientTrustChange) { value.Operation = "delete" },

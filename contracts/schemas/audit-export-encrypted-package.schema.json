@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dataground:schema:audit-export-encrypted-package:v1",
+  "title": "DataGround recipient-encrypted audit export package",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "envelopeSha256",
+    "exportKind",
+    "exportId",
+    "isolationDomainId",
+    "recipientId",
+    "recipientTrustProfileSha256",
+    "encryptionKeyId",
+    "ephemeralPublicKey",
+    "nonce",
+    "ciphertext"
+  ],
+  "properties": {
+    "contract": { "const": "dataground.audit-export-encrypted-package/x25519-aes256gcm/v1" },
+    "envelopeSha256": { "$ref": "#/$defs/sha256" },
+    "exportKind": { "enum": ["authorization", "operator"] },
+    "exportId": { "type": "string" },
+    "isolationDomainId": { "type": "string", "pattern": "^iso_[0-9a-z]{20,32}$" },
+    "recipientId": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,127}$" },
+    "recipientTrustProfileSha256": { "$ref": "#/$defs/sha256" },
+    "encryptionKeyId": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{2,63}$" },
+    "ephemeralPublicKey": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" },
+    "nonce": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16}$" },
+    "ciphertext": { "type": "string", "pattern": "^[A-Za-z0-9_-]{22,}$" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "exportKind": { "const": "authorization" } },
+        "required": ["exportKind"]
+      },
+      "then": { "properties": { "exportId": { "pattern": "^aex_[0-9a-z]{20,32}$" } } },
+      "else": { "properties": { "exportId": { "pattern": "^oax_[0-9a-z]{20,32}$" } } }
+    }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

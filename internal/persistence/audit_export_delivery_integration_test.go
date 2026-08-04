@@ -22,6 +22,23 @@ func TestAuditExportDeliveryAcknowledgementIsScopedReplayableAndAudited(t *testi
 	delivery := auditExportDeliveryFixture("adl_00000000000000000001")
 	activateAuditExportRecipientTrust(t, ctx, repository, delivery, 1, "sha256:"+strings.Repeat("3", 64),
 		"cor_00000000000000000009")
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO audit_export_deliveries (
+			delivery_id, isolation_domain_id, contract, export_kind, export_id,
+			envelope_digest, export_sha256, trust_profile_sha256, signing_key_id,
+			recipient_id, destination_digest, encrypted_package_digest,
+			recipient_trust_profile_sha256, recipient_encryption_key_id,
+			recipient_trust_generation
+		) VALUES (
+			'adl_00000000000000000099', $1, 'dataground.audit-export-delivery/v4',
+			'operator', 'oax_00000000000000000001', decode(repeat('11', 32), 'hex'),
+			'sha256:' || repeat('1', 64), 'sha256:' || repeat('2', 64), 'audit_key_01',
+			'archive.primary', decode(repeat('22', 32), 'hex'), decode(repeat('33', 32), 'hex'),
+			'sha256:' || repeat('3', 64), 'archive_encryption_key_02', 1
+		)
+	`, delivery.IsolationDomainID); err == nil {
+		t.Fatal("direct delivery preparation bypassed recipient encryption authorization")
+	}
 	prepare := auditExportDeliveryAttribution("prepare delivery", "cor_00000000000000000001")
 	if err := repository.PrepareAuditExportDelivery(ctx, delivery, prepare); err != nil {
 		t.Fatalf("prepare delivery: %v", err)
@@ -44,10 +61,11 @@ func TestAuditExportDeliveryAcknowledgementIsScopedReplayableAndAudited(t *testi
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       acknowledgementDigest[:],
-		DeliveryContract:            persistence.AuditExportDeliveryContract,
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v2",
+		DeliveryContract:            persistence.AuditExportEncryptedDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v3",
 		RecipientTrustProfileSHA256: "sha256:" + strings.Repeat("3", 64),
 		RecipientSigningKeyID:       "archive_key_01",
+		RecipientTrustGeneration:    1,
 		AcceptedAt:                  time.Date(2026, 8, 3, 15, 30, 0, 123000, time.UTC),
 		Attribution: auditExportDeliveryAttribution(
 			"record archive receipt",
@@ -210,10 +228,11 @@ func TestAuditExportDeliveryConcurrentReplayConverges(t *testing.T) {
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       acknowledgementDigest[:],
-		DeliveryContract:            persistence.AuditExportDeliveryContract,
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v2",
+		DeliveryContract:            persistence.AuditExportEncryptedDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v3",
 		RecipientTrustProfileSHA256: "sha256:" + strings.Repeat("3", 64),
 		RecipientSigningKeyID:       "archive_key_01",
+		RecipientTrustGeneration:    1,
 		AcceptedAt:                  time.Date(2026, 8, 3, 15, 30, 0, 123000, time.UTC),
 		Attribution: auditExportDeliveryAttribution(
 			"record archive receipt",
@@ -254,10 +273,11 @@ func TestAuditExportRecipientTrustRevocationBlocksNewAcknowledgements(t *testing
 	wrongKeyDigest := sha256.Sum256([]byte("wrong-key archive receipt"))
 	wrongKey := persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       wrongKeyDigest[:],
-		DeliveryContract:            persistence.AuditExportDeliveryContract,
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v2",
+		DeliveryContract:            persistence.AuditExportEncryptedDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v3",
 		RecipientTrustProfileSHA256: profileDigest,
 		RecipientSigningKeyID:       "archive_key_02",
+		RecipientTrustGeneration:    1,
 		AcceptedAt:                  time.Date(2026, 8, 3, 15, 30, 0, 123000, time.UTC),
 		Attribution: auditExportDeliveryAttribution(
 			"record archive receipt", "cor_00000000000000000002",
@@ -277,10 +297,11 @@ func TestAuditExportRecipientTrustRevocationBlocksNewAcknowledgements(t *testing
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       acknowledgementDigest[:],
-		DeliveryContract:            persistence.AuditExportDeliveryContract,
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v2",
+		DeliveryContract:            persistence.AuditExportEncryptedDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v3",
 		RecipientTrustProfileSHA256: profileDigest,
 		RecipientSigningKeyID:       "archive_key_01",
+		RecipientTrustGeneration:    1,
 		AcceptedAt:                  time.Date(2026, 8, 3, 15, 30, 0, 123000, time.UTC),
 		Attribution: auditExportDeliveryAttribution(
 			"record archive receipt", "cor_00000000000000000002",
@@ -360,10 +381,11 @@ func TestExternalRecipientProofRevocationBlocksActivationAndAcknowledgement(t *t
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       acknowledgementDigest[:],
-		DeliveryContract:            persistence.AuditExportDeliveryContract,
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v2",
+		DeliveryContract:            persistence.AuditExportEncryptedDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v3",
 		RecipientTrustProfileSHA256: profileDigest,
 		RecipientSigningKeyID:       "archive_key_01",
+		RecipientTrustGeneration:    1,
 		AcceptedAt:                  time.Now().UTC().Truncate(time.Microsecond),
 		Attribution: auditExportDeliveryAttribution(
 			"record archive receipt", "cor_00000000000000000002",
@@ -440,10 +462,11 @@ func TestCompletedAcknowledgementSurvivesExternalRecipientProofRevocation(t *tes
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       acknowledgementDigest[:],
-		DeliveryContract:            persistence.AuditExportDeliveryContract,
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v2",
+		DeliveryContract:            persistence.AuditExportEncryptedDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v3",
 		RecipientTrustProfileSHA256: profileDigest, RecipientSigningKeyID: "archive_key_01",
-		AcceptedAt: time.Now().UTC().Truncate(time.Microsecond),
+		RecipientTrustGeneration: 1,
+		AcceptedAt:               time.Now().UTC().Truncate(time.Microsecond),
 		Attribution: auditExportDeliveryAttribution(
 			"record archive receipt", "cor_00000000000000000002",
 		),
@@ -495,10 +518,11 @@ func TestFutureRecipientProofRevocationActivatesOnDatabaseClock(t *testing.T) {
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       acknowledgementDigest[:],
-		DeliveryContract:            persistence.AuditExportDeliveryContract,
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v2",
+		DeliveryContract:            persistence.AuditExportEncryptedDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v3",
 		RecipientTrustProfileSHA256: "sha256:" + strings.Repeat("3", 64),
 		RecipientSigningKeyID:       "archive_key_01",
+		RecipientTrustGeneration:    1,
 		AcceptedAt:                  time.Now().UTC().Truncate(time.Microsecond),
 		Attribution: auditExportDeliveryAttribution(
 			"record archive receipt", "cor_00000000000000000002",
@@ -533,10 +557,11 @@ func TestExternalRecipientProofRevocationSerializesWithAcknowledgement(t *testin
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       acknowledgementDigest[:],
-		DeliveryContract:            persistence.AuditExportDeliveryContract,
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v2",
+		DeliveryContract:            persistence.AuditExportEncryptedDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v3",
 		RecipientTrustProfileSHA256: profileDigest, RecipientSigningKeyID: "archive_key_01",
-		AcceptedAt: time.Now().UTC().Truncate(time.Microsecond),
+		RecipientTrustGeneration: 1,
+		AcceptedAt:               time.Now().UTC().Truncate(time.Microsecond),
 		Attribution: auditExportDeliveryAttribution(
 			"record archive receipt", "cor_00000000000000000002",
 		),
@@ -601,10 +626,11 @@ func TestAuditExportRecipientTrustRevocationSerializesWithAcknowledgement(t *tes
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       acknowledgementDigest[:],
-		DeliveryContract:            persistence.AuditExportDeliveryContract,
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v2",
+		DeliveryContract:            persistence.AuditExportEncryptedDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v3",
 		RecipientTrustProfileSHA256: profileDigest,
 		RecipientSigningKeyID:       "archive_key_01",
+		RecipientTrustGeneration:    1,
 		AcceptedAt:                  time.Date(2026, 8, 3, 15, 30, 0, 123000, time.UTC),
 		Attribution: auditExportDeliveryAttribution(
 			"record archive receipt", "cor_00000000000000000002",
@@ -653,13 +679,17 @@ func TestAuditExportRecipientTrustRevocationSerializesWithAcknowledgement(t *tes
 func auditExportDeliveryFixture(deliveryID string) persistence.AuditExportDelivery {
 	envelopeDigest := sha256.Sum256([]byte("sealed envelope"))
 	destinationDigest := sha256.Sum256([]byte("archive.primary\nobject-prefix"))
+	packageDigest := sha256.Sum256([]byte("recipient encrypted package"))
 	return persistence.AuditExportDelivery{
-		Contract: persistence.AuditExportDeliveryContract, DeliveryID: deliveryID,
+		Contract: persistence.AuditExportEncryptedDeliveryContract, DeliveryID: deliveryID,
 		IsolationDomainID: "iso_00000000000000000001", ExportKind: "operator",
 		ExportID: "oax_00000000000000000001", EnvelopeDigest: envelopeDigest[:],
 		ExportSHA256:       "sha256:" + strings.Repeat("1", 64),
 		TrustProfileSHA256: "sha256:" + strings.Repeat("2", 64), SigningKeyID: "audit_key_01",
 		RecipientID: "archive.primary", DestinationDigest: destinationDigest[:],
+		EncryptedPackageDigest:      packageDigest[:],
+		RecipientTrustProfileSHA256: "sha256:" + strings.Repeat("3", 64),
+		RecipientEncryptionKeyID:    "archive_encryption_key_01",
 	}
 }
 
@@ -695,18 +725,21 @@ func auditExportRecipientTrustChange(
 ) persistence.AuditExportRecipientTrustChange {
 	reasonDigest := sha256.Sum256([]byte(operation + " archive trust"))
 	var keyIDs []string
+	var encryptionKeyIDs []string
 	if operation == "activate" {
 		keyIDs = []string{"archive_key_01"}
+		encryptionKeyIDs = []string{"archive_encryption_key_01"}
 	}
 	change := persistence.AuditExportRecipientTrustChange{
-		Contract:           persistence.AuditExportRecipientTrustAuthorizationContract,
+		Contract:           persistence.AuditExportRecipientEncryptionAuthorizationContract,
 		Operation:          operation,
 		IsolationDomainID:  delivery.IsolationDomainID,
 		RecipientID:        delivery.RecipientID,
 		Generation:         generation,
-		TrustContract:      "dataground.audit-export-recipient-trust/ed25519/v1",
+		TrustContract:      "dataground.audit-export-recipient-trust/ed25519-x25519/v2",
 		TrustProfileSHA256: profileDigest,
 		KeyIDs:             keyIDs,
+		EncryptionKeyIDs:   encryptionKeyIDs,
 		ActorID:            "operator@example.invalid",
 		ReasonDigest:       reasonDigest[:],
 		CorrelationID:      correlationID,

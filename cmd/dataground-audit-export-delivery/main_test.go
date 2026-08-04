@@ -50,6 +50,26 @@ func TestParseArgumentsRejectsIncompleteAndMixedModes(t *testing.T) {
 	}
 }
 
+func TestParseArgumentsAcceptsEncryptedPreparation(t *testing.T) {
+	request, err := parseArguments([]string{
+		"-operation", "prepare",
+		"-delivery-id", "adl_00000000000000000001",
+		"-isolation-domain", "iso_00000000000000000001",
+		"-envelope-file", "/run/dataground/audit/envelope.json",
+		"-encrypted-file", "/run/dataground/audit/encrypted.json",
+		"-trust-file", "/run/dataground/audit/trust.json",
+		"-recipient", "archive.primary",
+		"-recipient-trust-file", "/run/dataground/audit/recipient-trust.json",
+		"-destination-sha256", "sha256:" + strings.Repeat("1", 64),
+		"-actor", "operator@example.invalid",
+		"-reason", "archive encrypted incident export",
+		"-correlation-id", "cor_00000000000000000001",
+	})
+	if err != nil || request.encryptedFile == "" || request.recipientTrustFile == "" {
+		t.Fatalf("encrypted preparation request = %#v; error = %v", request, err)
+	}
+}
+
 func TestExecuteRequestKeepsPreparationAndAcknowledgementDistinct(t *testing.T) {
 	digest := sha256.Sum256([]byte("evidence"))
 	delivery := validDelivery(digest)

@@ -28,6 +28,7 @@ type commandRequest struct {
 	recipientID       string
 	generation        int64
 	trustFile         string
+	trustContract     string
 	trustSHA256       string
 	identityProofFile string
 	proofingTrustFile string
@@ -55,7 +56,7 @@ func run(ctx context.Context, arguments []string) error {
 		return err
 	}
 	profile := auditseal.RecipientTrustEvidence{
-		Contract:    "dataground.audit-export-recipient-trust/ed25519/v1",
+		Contract:    request.trustContract,
 		RecipientID: request.recipientID,
 		SHA256:      request.trustSHA256,
 	}
@@ -125,8 +126,12 @@ func newTrustChange(
 	identityProof auditseal.VerifiedRecipientIdentityProof,
 ) persistence.AuditExportRecipientTrustChange {
 	reasonDigest := sha256.Sum256([]byte(request.reason))
+	authorizationContract := persistence.AuditExportRecipientTrustAuthorizationContract
+	if profile.Contract == auditseal.RecipientEncryptionTrustContract {
+		authorizationContract = persistence.AuditExportRecipientEncryptionAuthorizationContract
+	}
 	return persistence.AuditExportRecipientTrustChange{
-		Contract:                    persistence.AuditExportRecipientTrustAuthorizationContract,
+		Contract:                    authorizationContract,
 		Operation:                   request.operation,
 		IsolationDomainID:           request.isolationDomainID,
 		RecipientID:                 request.recipientID,
@@ -134,6 +139,7 @@ func newTrustChange(
 		TrustContract:               profile.Contract,
 		TrustProfileSHA256:          profile.SHA256,
 		KeyIDs:                      append([]string(nil), profile.KeyIDs...),
+		EncryptionKeyIDs:            append([]string(nil), profile.EncryptionKeyIDs...),
 		IdentityProofContract:       identityProof.Contract,
 		IdentityProofSHA256:         identityProof.SHA256,
 		IdentityProofEvidenceSHA256: identityProof.EvidenceSHA256,
@@ -157,6 +163,12 @@ func parseArguments(arguments []string) (commandRequest, error) {
 	flags.StringVar(&request.recipientID, "recipient", "", "deployment-owned recipient identifier")
 	flags.Int64Var(&request.generation, "generation", 0, "sequential trust generation")
 	flags.StringVar(&request.trustFile, "trust-file", "", "canonical recipient trust profile")
+	flags.StringVar(
+		&request.trustContract,
+		"trust-contract",
+		auditseal.RecipientTrustContract,
+		"exact trust profile contract to revoke",
+	)
 	flags.StringVar(&request.trustSHA256, "trust-sha256", "", "exact active trust profile digest to revoke")
 	flags.StringVar(&request.identityProofFile, "identity-proof-file", "", "signed recipient identity and key-custody proof")
 	flags.StringVar(&request.proofingTrustFile, "proofing-trust-file", "", "recipient proofing authority trust profile")
@@ -181,6 +193,10 @@ func parseArguments(arguments []string) (commandRequest, error) {
 			(request.trustFile != "" || !validTrustDigest(request.trustSHA256) ||
 				request.identityProofFile != "" || request.proofingTrustFile != "")) {
 		return commandRequest{}, errors.New("audit export recipient trust evidence is invalid")
+	}
+	if request.trustContract != auditseal.RecipientTrustContract &&
+		request.trustContract != auditseal.RecipientEncryptionTrustContract {
+		return commandRequest{}, errors.New("audit export recipient trust contract is invalid")
 	}
 	if !validReason(request.reason) {
 		return commandRequest{}, errors.New("audit export recipient trust reason is invalid")

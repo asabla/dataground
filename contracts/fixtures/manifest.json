@@ -67,9 +67,27 @@
       "valid": true
     },
     {
+      "file": "valid/audit-export-delivery-receipt-v3.json",
+      "schema": "AuditExportDeliveryReceiptV3",
+      "document": "audit-export-delivery-receipt-v3",
+      "valid": true
+    },
+    {
       "file": "valid/audit-export-recipient-trust.json",
       "schema": "AuditExportRecipientTrust",
       "document": "audit-export-recipient-trust",
+      "valid": true
+    },
+    {
+      "file": "valid/audit-export-recipient-trust-v2.json",
+      "schema": "AuditExportRecipientTrustV2",
+      "document": "audit-export-recipient-trust-v2",
+      "valid": true
+    },
+    {
+      "file": "valid/audit-export-encrypted-package.json",
+      "schema": "AuditExportEncryptedPackage",
+      "document": "audit-export-encrypted-package",
       "valid": true
     },
     {
@@ -148,6 +166,12 @@
       "file": "invalid/audit-export-envelope-kind-mismatch.json",
       "schema": "AuditExportEnvelope",
       "document": "audit-export-envelope",
+      "valid": false
+    },
+    {
+      "file": "invalid/audit-export-encrypted-package-cross-kind.json",
+      "schema": "AuditExportEncryptedPackage",
+      "document": "audit-export-encrypted-package",
       "valid": false
     },
     {

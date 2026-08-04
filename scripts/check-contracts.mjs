@@ -143,8 +143,17 @@ const auditExportDeliveryReceipt = await readJson(
 const auditExportDeliveryReceiptV2 = await readJson(
   "contracts/schemas/audit-export-delivery-receipt-v2.schema.json",
 );
+const auditExportDeliveryReceiptV3 = await readJson(
+  "contracts/schemas/audit-export-delivery-receipt-v3.schema.json",
+);
 const auditExportRecipientTrust = await readJson(
   "contracts/schemas/audit-export-recipient-trust.schema.json",
+);
+const auditExportRecipientTrustV2 = await readJson(
+  "contracts/schemas/audit-export-recipient-trust-v2.schema.json",
+);
+const auditExportEncryptedPackage = await readJson(
+  "contracts/schemas/audit-export-encrypted-package.schema.json",
 );
 const auditExportRecipientProofingTrust = await readJson(
   "contracts/schemas/audit-export-recipient-proofing-trust.schema.json",
@@ -184,7 +193,10 @@ const validateOperatorAuditExport = ajv.getSchema(operatorAuditExport.$id);
 const validateAuditExportEnvelope = ajv.compile(auditExportEnvelope);
 const validateAuditExportDeliveryReceipt = ajv.compile(auditExportDeliveryReceipt);
 const validateAuditExportDeliveryReceiptV2 = ajv.compile(auditExportDeliveryReceiptV2);
+const validateAuditExportDeliveryReceiptV3 = ajv.compile(auditExportDeliveryReceiptV3);
 const validateAuditExportRecipientTrust = ajv.compile(auditExportRecipientTrust);
+const validateAuditExportRecipientTrustV2 = ajv.compile(auditExportRecipientTrustV2);
+const validateAuditExportEncryptedPackage = ajv.compile(auditExportEncryptedPackage);
 const validateAuditExportRecipientProofingTrust = ajv.compile(auditExportRecipientProofingTrust);
 const validateAuditExportRecipientIdentityProof = ajv.compile(auditExportRecipientIdentityProof);
 const validateAuditExportRecipientRevocationTrust = ajv.compile(
@@ -219,8 +231,14 @@ for (const fixture of fixtureManifest.fixtures) {
     validate = validateAuditExportDeliveryReceipt;
   } else if (fixture.document === "audit-export-delivery-receipt-v2") {
     validate = validateAuditExportDeliveryReceiptV2;
+  } else if (fixture.document === "audit-export-delivery-receipt-v3") {
+    validate = validateAuditExportDeliveryReceiptV3;
   } else if (fixture.document === "audit-export-recipient-trust") {
     validate = validateAuditExportRecipientTrust;
+  } else if (fixture.document === "audit-export-recipient-trust-v2") {
+    validate = validateAuditExportRecipientTrustV2;
+  } else if (fixture.document === "audit-export-encrypted-package") {
+    validate = validateAuditExportEncryptedPackage;
   } else if (fixture.document === "audit-export-recipient-proofing-trust") {
     validate = validateAuditExportRecipientProofingTrust;
   } else if (fixture.document === "audit-export-recipient-identity-proof") {
@@ -264,7 +282,8 @@ for (const fixture of fixtureManifest.fixtures) {
   }
   if (
     (fixture.document === "audit-export-delivery-receipt" ||
-      fixture.document === "audit-export-delivery-receipt-v2") &&
+      fixture.document === "audit-export-delivery-receipt-v2" ||
+      fixture.document === "audit-export-delivery-receipt-v3") &&
     fixture.valid
   ) {
     const digest = createHash("sha256").update(JSON.stringify(value.content)).digest("hex");
