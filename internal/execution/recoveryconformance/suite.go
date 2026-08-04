@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 
 	"github.com/asabla/dataground/internal/execution"
+	"github.com/asabla/dataground/internal/execution/postgres"
 	"github.com/asabla/dataground/internal/identity"
 )
 
@@ -71,8 +72,9 @@ type Report struct {
 }
 
 type SuiteError struct {
-	Phase Phase
-	Case  string
+	Phase          Phase
+	Case           string
+	DiagnosticCode string
 }
 
 func (err *SuiteError) Error() string {
@@ -212,18 +214,26 @@ func RunRecover(ctx context.Context, catalog Catalog, backend Backend, config Co
 				return
 			}
 			bound, finalizationErr := finalizer.Finalize(ctx, request)
-			results <- recoveryResult{record: bound, err: finalizationErr}
+			results <- recoveryResult{
+				record:           bound,
+				err:              finalizationErr,
+				bindAttempted:    synchronized.bindAttempted,
+				bindFailureStage: synchronized.bindFailureStage,
+			}
 		}()
 	}
 	workers.Wait()
 	close(results)
 	for result := range results {
-		if result.err != nil || !execution.EqualEnforcementBundleRecords(result.record, fixture.Record) {
-			return fail(ctx, report, "concurrent-catalog-adoption-after-restarts")
+		if result.err != nil {
+			return failWithDiagnostic(ctx, report, "concurrent-catalog-adoption-after-restarts", result.diagnosticCode())
+		}
+		if !execution.EqualEnforcementBundleRecords(result.record, fixture.Record) {
+			return failWithDiagnostic(ctx, report, "concurrent-catalog-adoption-after-restarts", "worker-record-mismatch")
 		}
 	}
 	if observed.writes.Load() != ConcurrentRecoveryWorkers {
-		return fail(ctx, report, "concurrent-catalog-adoption-after-restarts")
+		return failWithDiagnostic(ctx, report, "concurrent-catalog-adoption-after-restarts", "object-write-count-mismatch")
 	}
 	report.Cases = append(report.Cases, CaseResult{Name: "concurrent-catalog-adoption-after-restarts", Status: "passed"})
 
@@ -328,11 +338,15 @@ func requireFreshScope(ctx context.Context, catalog Catalog, backend Backend, fi
 }
 
 func fail(ctx context.Context, report Report, caseName string) (Report, error) {
+	return failWithDiagnostic(ctx, report, caseName, "")
+}
+
+func failWithDiagnostic(ctx context.Context, report Report, caseName string, diagnosticCode string) (Report, error) {
 	report.Cases = append(report.Cases, CaseResult{Name: caseName, Status: "failed"})
 	if err := ctx.Err(); err != nil {
 		return report, err
 	}
-	return report, &SuiteError{Phase: report.Phase, Case: caseName}
+	return report, &SuiteError{Phase: report.Phase, Case: caseName, DiagnosticCode: diagnosticCode}
 }
 
 func read(ctx context.Context, backend Backend, key string) ([]byte, error) {
@@ -391,8 +405,26 @@ func (backend *observedBackend) PutEnforcementObjectIfAbsent(
 }
 
 type recoveryResult struct {
-	record execution.EnforcementBundleRecord
-	err    error
+	record           execution.EnforcementBundleRecord
+	err              error
+	bindAttempted    bool
+	bindFailureStage postgres.EnforcementBundlePersistenceStage
+}
+
+func (result recoveryResult) diagnosticCode() string {
+	if result.bindFailureStage != "" {
+		return "catalog-bind-" + string(result.bindFailureStage) + "-failed"
+	}
+	if result.bindAttempted {
+		return "catalog-bind-result-failed"
+	}
+	if errors.Is(result.err, execution.ErrEnforcementBundleConflict) {
+		return "object-finalization-conflict"
+	}
+	if errors.Is(result.err, execution.ErrEnforcementBundleRevisionMissing) {
+		return "catalog-revision-missing"
+	}
+	return "object-finalization-unavailable"
 }
 
 type arrivalBarrier struct {
@@ -422,9 +454,23 @@ func (barrier *arrivalBarrier) arrive(ctx context.Context) error {
 
 type barrierCatalog struct {
 	Catalog
-	barrier *arrivalBarrier
-	once    sync.Once
-	err     error
+	barrier          *arrivalBarrier
+	once             sync.Once
+	err              error
+	bindAttempted    bool
+	bindFailureStage postgres.EnforcementBundlePersistenceStage
+}
+
+func (catalog *barrierCatalog) BindEnforcementBundle(
+	ctx context.Context,
+	binding execution.EnforcementBundleBinding,
+) (execution.EnforcementBundleRecord, error) {
+	catalog.bindAttempted = true
+	record, err := catalog.Catalog.BindEnforcementBundle(ctx, binding)
+	if stage, ok := postgres.EnforcementBundlePersistenceFailure(err); ok {
+		catalog.bindFailureStage = stage
+	}
+	return record, err
 }
 
 func (catalog *barrierCatalog) GetEnforcementBundleRecord(
