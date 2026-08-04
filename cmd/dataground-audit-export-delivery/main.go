@@ -36,6 +36,7 @@ type commandRequest struct {
 	deliveryID         string
 	isolationDomainID  string
 	envelopeFile       string
+	encryptedFile      string
 	trustFile          string
 	recipientID        string
 	destinationDigest  []byte
@@ -82,6 +83,21 @@ func run(ctx context.Context, arguments []string) error {
 		RecipientID:        request.recipientID,
 		DestinationDigest:  request.destinationDigest,
 	}
+	if request.encryptedFile != "" {
+		encrypted, err := auditseal.VerifyEncryptedPackageFile(
+			request.encryptedFile,
+			request.envelopeFile,
+			request.trustFile,
+			request.recipientTrustFile,
+		)
+		if err != nil {
+			return err
+		}
+		delivery.Contract = persistence.AuditExportEncryptedDeliveryContract
+		delivery.EncryptedPackageDigest = encrypted.PackageSHA256[:]
+		delivery.RecipientTrustProfileSHA256 = encrypted.RecipientTrustProfileSHA256
+		delivery.RecipientEncryptionKeyID = encrypted.EncryptionKeyID
+	}
 	if !delivery.Valid() || delivery.IsolationDomainID != evidence.IsolationDomainID {
 		return errors.New("audit export delivery scope is invalid")
 	}
@@ -97,6 +113,7 @@ func run(ctx context.Context, arguments []string) error {
 			RecipientTrustProfileSHA256: receipt.RecipientTrustProfileSHA256,
 			RecipientSigningKeyID:       receipt.SigningKeyID,
 			AcceptedAt:                  receipt.AcceptedAt,
+			RecipientTrustGeneration:    receipt.RecipientTrustGeneration,
 		}
 	}
 	reasonDigest := sha256.Sum256([]byte(request.reason))
@@ -168,6 +185,7 @@ func parseArguments(arguments []string) (commandRequest, error) {
 	flags.StringVar(&request.deliveryID, "delivery-id", "", "stable audit export delivery identifier")
 	flags.StringVar(&request.isolationDomainID, "isolation-domain", "", "exact isolation domain identifier")
 	flags.StringVar(&request.envelopeFile, "envelope-file", "", "canonical signed audit export envelope")
+	flags.StringVar(&request.encryptedFile, "encrypted-file", "", "recipient-encrypted audit export package")
 	flags.StringVar(&request.trustFile, "trust-file", "", "pinned audit export trust profile")
 	flags.StringVar(&request.recipientID, "recipient", "", "deployment-owned recipient identifier")
 	flags.StringVar(&destinationSHA256, "destination-sha256", "", "digest of the canonical destination binding")
@@ -193,7 +211,7 @@ func parseArguments(arguments []string) (commandRequest, error) {
 	}
 	switch request.operation {
 	case "prepare":
-		if request.receiptFile != "" || request.recipientTrustFile != "" {
+		if request.receiptFile != "" || request.encryptedFile == "" || request.recipientTrustFile == "" {
 			return commandRequest{}, errors.New("audit export delivery preparation arguments are invalid")
 		}
 	case "acknowledge":
@@ -205,6 +223,20 @@ func parseArguments(arguments []string) (commandRequest, error) {
 		}
 	default:
 		return commandRequest{}, errors.New("audit export delivery operation is invalid")
+	}
+	paths := []string{request.envelopeFile, request.trustFile, request.recipientTrustFile}
+	if request.encryptedFile != "" {
+		paths = append(paths, request.encryptedFile)
+	}
+	if request.receiptFile != "" {
+		paths = append(paths, request.receiptFile)
+	}
+	for left := range paths {
+		for right := left + 1; right < len(paths); right++ {
+			if paths[left] == paths[right] {
+				return commandRequest{}, errors.New("audit export delivery evidence files are invalid")
+			}
+		}
 	}
 	return request, nil
 }

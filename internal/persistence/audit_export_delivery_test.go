@@ -29,12 +29,12 @@ func TestAuditExportDeliveryValidationClosesIdentityAndAttribution(t *testing.T)
 	if !validStoredAuditExportDelivery(stored) {
 		t.Fatal("receipt-verified stored delivery was rejected")
 	}
-	stored.Contract = "dataground.audit-export-delivery/v4"
+	stored.Contract = "dataground.audit-export-delivery/v5"
 	if validStoredAuditExportDelivery(stored) {
 		t.Fatal("unknown stored delivery contract was accepted")
 	}
 	for name, mutate := range map[string]func(*AuditExportDelivery){
-		"wrong contract":        func(value *AuditExportDelivery) { value.Contract = "dataground.audit-export-delivery/v4" },
+		"wrong contract":        func(value *AuditExportDelivery) { value.Contract = "dataground.audit-export-delivery/v5" },
 		"cross-kind export":     func(value *AuditExportDelivery) { value.ExportID = "aex_00000000000000000001" },
 		"short envelope digest": func(value *AuditExportDelivery) { value.EnvelopeDigest = value.EnvelopeDigest[:31] },
 		"invalid trust digest":  func(value *AuditExportDelivery) { value.TrustProfileSHA256 = "sha256:bad" },
@@ -71,6 +71,21 @@ func TestAuditExportDeliveryValidationClosesIdentityAndAttribution(t *testing.T)
 	}
 	if !acknowledgement.Valid() {
 		t.Fatal("valid verified acknowledgement was rejected")
+	}
+	encrypted := cloneAuditExportDelivery(valid)
+	encrypted.Contract = AuditExportEncryptedDeliveryContract
+	encrypted.EncryptedPackageDigest = append([]byte(nil), digest[:]...)
+	encrypted.RecipientTrustProfileSHA256 = "sha256:" + strings.Repeat("3", 64)
+	encrypted.RecipientEncryptionKeyID = "archive_encryption_key_01"
+	if !encrypted.Valid() {
+		t.Fatal("valid encrypted delivery was rejected")
+	}
+	encryptedAcknowledgement := acknowledgement
+	encryptedAcknowledgement.DeliveryContract = AuditExportEncryptedDeliveryContract
+	encryptedAcknowledgement.ReceiptContract = auditExportEncryptedDeliveryReceiptContract
+	encryptedAcknowledgement.RecipientTrustGeneration = 1
+	if !encryptedAcknowledgement.Valid() {
+		t.Fatal("valid encrypted acknowledgement was rejected")
 	}
 	legacyAcknowledgement := acknowledgement
 	legacyAcknowledgement.DeliveryContract = AuditExportDeliveryReceiptVerifiedContract

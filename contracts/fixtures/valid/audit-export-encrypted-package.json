@@ -1,0 +1,13 @@
+{
+  "contract": "dataground.audit-export-encrypted-package/x25519-aes256gcm/v1",
+  "envelopeSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "exportKind": "authorization",
+  "exportId": "aex_00000000000000000001",
+  "isolationDomainId": "iso_00000000000000000001",
+  "recipientId": "archive.primary",
+  "recipientTrustProfileSha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "encryptionKeyId": "archive_encryption_key_01",
+  "ephemeralPublicKey": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+  "nonce": "DDDDDDDDDDDDDDDD",
+  "ciphertext": "EEEEEEEEEEEEEEEEEEEEEE"
+}

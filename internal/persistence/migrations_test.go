@@ -180,13 +180,14 @@ func TestMigrationsRoundTrip(t *testing.T) {
 		      'audit_export_delivery_operations',
 		      'audit_export_recipient_proof_revocations',
 		      'audit_export_recipient_trust_events',
-		      'audit_export_recipient_trust_keys'
+		      'audit_export_recipient_trust_keys',
+		      'audit_export_recipient_encryption_keys'
 		  )
 	`).Scan(&tables); err != nil {
 		t.Fatalf("inspect migrated tables: %v", err)
 	}
-	if tables != 29 {
-		t.Fatalf("expected 29 representative tables, got %d", tables)
+	if tables != 30 {
+		t.Fatalf("expected 30 representative tables, got %d", tables)
 	}
 
 	var rateLimitBucketPrimaryKey string
@@ -282,7 +283,7 @@ func TestRecipientIdentityMigrationPermitsProofUpgradeWithoutKeyRotation(t *test
 		t.Fatal(err)
 	}
 	if contracts != "dataground.audit-export-recipient-trust-authorization/v1,"+
-		"dataground.audit-export-recipient-trust-authorization/v2" {
+		"dataground.audit-export-recipient-trust-authorization/v3" {
 		t.Fatalf("recipient trust authorization contracts = %q", contracts)
 	}
 }

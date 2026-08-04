@@ -1,6 +1,7 @@
 package auditseal
 
 import (
+	"crypto/ecdh"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -121,6 +122,69 @@ func TestVerifyDeliveryReceiptPreservesLegacyReceiptContract(t *testing.T) {
 	if verified.Contract != legacyDeliveryReceiptContract ||
 		verified.DeliveryContract != persistence.AuditExportDeliveryReceiptVerifiedContract {
 		t.Fatalf("legacy verified receipt = %#v", verified)
+	}
+}
+
+func TestVerifyEncryptedDeliveryReceiptBindsPackageAndTrustGeneration(t *testing.T) {
+	fixture := newDeliveryReceiptFixture(t, time.Date(2026, 8, 4, 20, 30, 0, 123000, time.UTC))
+	encryptionPrivateKey, err := ecdh.X25519().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trust := RecipientTrustProfile{
+		Contract: RecipientEncryptionTrustContract, RecipientID: fixture.delivery.RecipientID,
+		SigningKeys: []TrustedKey{{
+			KeyID:     fixture.keyID,
+			PublicKey: base64.RawURLEncoding.EncodeToString(fixture.privateKey.Public().(ed25519.PublicKey)),
+		}},
+		EncryptionKeys: []TrustedKey{{
+			KeyID:     "archive_encryption_key_01",
+			PublicKey: base64.RawURLEncoding.EncodeToString(encryptionPrivateKey.PublicKey().Bytes()),
+		}},
+	}
+	canonicalTrust, err := canonicalJSON(trust)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustDigest := sha256.Sum256(canonicalTrust)
+	packageDigest := sha256.Sum256([]byte("encrypted package"))
+	fixture.delivery.Contract = persistence.AuditExportEncryptedDeliveryContract
+	fixture.delivery.EncryptedPackageDigest = packageDigest[:]
+	fixture.delivery.RecipientTrustProfileSHA256 = digestString(trustDigest)
+	fixture.delivery.RecipientEncryptionKeyID = "archive_encryption_key_01"
+	fixture.receipt.Contract = EncryptedDeliveryReceiptContract
+	fixture.receipt.Content.DeliveryContract = persistence.AuditExportEncryptedDeliveryContract
+	fixture.receipt.Content.EncryptedPackageSHA256 = digestString(packageDigest)
+	fixture.receipt.Content.RecipientEncryptionKeyID = fixture.delivery.RecipientEncryptionKeyID
+	fixture.receipt.Content.RecipientTrustGeneration = 7
+	fixture.receipt.RecipientTrustProfileSHA256 = digestString(trustDigest)
+	fixture.receipt.Signature.Contract = EncryptedDeliveryReceiptSignatureContract
+	content, err := canonicalJSON(fixture.receipt.Content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contentDigest := sha256.Sum256(content[:len(content)-1])
+	fixture.receipt.ContentSHA256 = digestString(contentDigest)
+	message, err := deliveryReceiptSigningMessage(fixture.receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.receipt.Signature.Signature = base64.RawURLEncoding.EncodeToString(
+		ed25519.Sign(fixture.privateKey, message),
+	)
+	writeCanonicalPrivate(t, fixture.receiptFile, fixture.receipt)
+	writeCanonicalPrivate(t, fixture.trustFile, trust)
+	verified, err := VerifyDeliveryReceiptFile(fixture.receiptFile, fixture.trustFile, fixture.delivery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verified.Contract != EncryptedDeliveryReceiptContract || verified.RecipientTrustGeneration != 7 {
+		t.Fatalf("encrypted delivery receipt = %#v", verified)
+	}
+	fixture.delivery.EncryptedPackageDigest = append([]byte(nil), fixture.delivery.EncryptedPackageDigest...)
+	fixture.delivery.EncryptedPackageDigest[0] ^= 1
+	if _, err := VerifyDeliveryReceiptFile(fixture.receiptFile, fixture.trustFile, fixture.delivery); err == nil {
+		t.Fatal("encrypted delivery receipt accepted a changed package digest")
 	}
 }
 

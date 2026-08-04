@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dataground:schema:audit-export-recipient-trust:v2",
+  "title": "DataGround audit export recipient signing and encryption trust profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "recipientId", "signingKeys", "encryptionKeys"],
+  "properties": {
+    "contract": { "const": "dataground.audit-export-recipient-trust/ed25519-x25519/v2" },
+    "recipientId": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,127}$" },
+    "signingKeys": { "$ref": "#/$defs/keys" },
+    "encryptionKeys": { "$ref": "#/$defs/keys" }
+  },
+  "$defs": {
+    "keys": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["keyId", "publicKey"],
+        "properties": {
+          "keyId": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{2,63}$" },
+          "publicKey": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" }
+        }
+      }
+    }
+  }
+}
