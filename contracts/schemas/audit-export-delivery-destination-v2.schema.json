@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dataground:schema:audit-export-delivery-destination:s3-mtls:v2",
+  "title": "DataGround authenticated audit export S3 delivery destination",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "deliveryId",
+    "isolationDomainId",
+    "recipientId",
+    "transportContract",
+    "endpoint",
+    "bucket",
+    "addressingStyle",
+    "objectKey",
+    "clientCertificateSha256",
+    "serverTrustSha256"
+  ],
+  "properties": {
+    "contract": { "const": "dataground.audit-export-delivery-destination/s3-mtls/v2" },
+    "deliveryId": { "type": "string", "pattern": "^adl_[0-9a-z]{20,32}$" },
+    "isolationDomainId": { "type": "string", "pattern": "^iso_[0-9a-z]{20,32}$" },
+    "recipientId": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,127}$" },
+    "transportContract": { "const": "dataground.audit-export-transport/s3-immutable-mtls/v2" },
+    "endpoint": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "bucket": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 63,
+      "pattern": "^[a-z0-9][a-z0-9.-]*[a-z0-9]$"
+    },
+    "addressingStyle": { "enum": ["path", "virtual-hosted"] },
+    "objectKey": {
+      "type": "string",
+      "pattern": "^audit-export-deliveries/v1/iso_[0-9a-z]{20,32}/adl_[0-9a-z]{20,32}/[0-9a-f]{64}\\.json$"
+    },
+    "clientCertificateSha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "serverTrustSha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

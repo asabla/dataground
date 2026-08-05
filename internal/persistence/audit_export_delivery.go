@@ -21,6 +21,7 @@ const (
 	AuditExportEncryptedDeliveryContract          = "dataground.audit-export-delivery/v4"
 	AuditExportTransportedDeliveryContract        = "dataground.audit-export-delivery/v5"
 	AuditExportDeliveryTransportContract          = "dataground.audit-export-transport/s3-immutable/v1"
+	AuditExportDeliveryMTLSTransportContract      = "dataground.audit-export-transport/s3-immutable-mtls/v2"
 	auditExportDeliveryLegacyContract             = "dataground.audit-export-delivery/v1"
 	AuditExportDeliveryReceiptVerifiedContract    = "dataground.audit-export-delivery/v2"
 	auditExportDeliveryReceiptContract            = "dataground.audit-export-delivery-receipt/ed25519/v2"
@@ -249,11 +250,13 @@ func (repository *Repository) PrepareAuditExportDelivery(
 func (repository *Repository) ReserveAuditExportDeliveryTransport(
 	ctx context.Context,
 	delivery AuditExportDelivery,
+	transportContract string,
 	attribution AuditExportDeliveryAttribution,
 ) error {
 	if repository == nil || repository.pool == nil || ctx == nil ||
 		delivery.Contract != AuditExportTransportedDeliveryContract ||
-		!delivery.Valid() || !attribution.Valid() {
+		!delivery.Valid() || !validAuditExportDeliveryTransportContract(transportContract) ||
+		!attribution.Valid() {
 		return ErrAuditExportDeliveryInvalid
 	}
 	if err := ctx.Err(); err != nil {
@@ -276,14 +279,14 @@ func (repository *Repository) ReserveAuditExportDeliveryTransport(
 	if !exists || status != "prepared" || !sameAuditExportDeliveryPreparation(existing, delivery) {
 		return ErrAuditExportDeliveryConflict
 	}
-	transportAttribution, transportContract, state, found, err := readAuditExportDeliveryTransport(
+	transportAttribution, storedTransportContract, state, found, err := readAuditExportDeliveryTransport(
 		ctx, tx, delivery.DeliveryID,
 	)
 	if err != nil {
 		return err
 	}
 	if found {
-		if transportContract != AuditExportDeliveryTransportContract ||
+		if storedTransportContract != transportContract ||
 			(state != "reserved" && state != "completed") ||
 			!sameAuditExportDeliveryAttribution(transportAttribution, attribution) {
 			return ErrAuditExportDeliveryConflict
@@ -316,7 +319,7 @@ func (repository *Repository) ReserveAuditExportDeliveryTransport(
 			delivery_id, isolation_domain_id, transport_contract,
 			destination_digest, encrypted_package_digest
 		) VALUES ($1, $2, $3, $4, $5)
-	`, existing.DeliveryID, existing.IsolationDomainID, AuditExportDeliveryTransportContract,
+	`, existing.DeliveryID, existing.IsolationDomainID, transportContract,
 		existing.DestinationDigest, existing.EncryptedPackageDigest); err != nil {
 		return mapAuditExportDeliveryWriteError("reserve audit export delivery transport", err)
 	}
@@ -338,7 +341,7 @@ func (repository *Repository) ReserveAuditExportDeliveryTransport(
 	`, identity.New("aud"), existing.IsolationDomainID, attribution.ActorID,
 		existing.DeliveryID, attribution.CorrelationID, digestBytes(existing.DestinationDigest),
 		digestBytes(existing.EncryptedPackageDigest), digestBytes(attribution.ReasonDigest),
-		AuditExportDeliveryTransportContract); err != nil {
+		transportContract); err != nil {
 		return fmt.Errorf("audit export delivery transport reservation: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -350,11 +353,13 @@ func (repository *Repository) ReserveAuditExportDeliveryTransport(
 func (repository *Repository) CompleteAuditExportDeliveryTransport(
 	ctx context.Context,
 	delivery AuditExportDelivery,
+	transportContract string,
 	attribution AuditExportDeliveryAttribution,
 ) error {
 	if repository == nil || repository.pool == nil || ctx == nil ||
 		delivery.Contract != AuditExportTransportedDeliveryContract ||
-		!delivery.Valid() || !attribution.Valid() {
+		!delivery.Valid() || !validAuditExportDeliveryTransportContract(transportContract) ||
+		!attribution.Valid() {
 		return ErrAuditExportDeliveryInvalid
 	}
 	if err := ctx.Err(); err != nil {
@@ -377,13 +382,13 @@ func (repository *Repository) CompleteAuditExportDeliveryTransport(
 	if !exists || status != "prepared" || !sameAuditExportDeliveryPreparation(existing, delivery) {
 		return ErrAuditExportDeliveryConflict
 	}
-	transportAttribution, transportContract, state, found, err := readAuditExportDeliveryTransport(
+	transportAttribution, storedTransportContract, state, found, err := readAuditExportDeliveryTransport(
 		ctx, tx, delivery.DeliveryID,
 	)
 	if err != nil {
 		return err
 	}
-	if !found || transportContract != AuditExportDeliveryTransportContract ||
+	if !found || storedTransportContract != transportContract ||
 		!sameAuditExportDeliveryAttribution(transportAttribution, attribution) {
 		return ErrAuditExportDeliveryConflict
 	}
@@ -422,7 +427,7 @@ func (repository *Repository) CompleteAuditExportDeliveryTransport(
 	`, identity.New("aud"), existing.IsolationDomainID, attribution.ActorID,
 		existing.DeliveryID, attribution.CorrelationID, digestBytes(existing.DestinationDigest),
 		digestBytes(existing.EncryptedPackageDigest), digestBytes(attribution.ReasonDigest),
-		AuditExportDeliveryTransportContract); err != nil {
+		transportContract); err != nil {
 		return fmt.Errorf("audit export delivery transport completion: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -486,7 +491,7 @@ func (repository *Repository) AcknowledgeAuditExportDelivery(
 		if err != nil {
 			return err
 		}
-		if !found || transportContract != AuditExportDeliveryTransportContract ||
+		if !found || !validAuditExportDeliveryTransportContract(transportContract) ||
 			transportState != "completed" {
 			return ErrAuditExportDeliveryConflict
 		}
@@ -544,6 +549,11 @@ func (repository *Repository) AcknowledgeAuditExportDelivery(
 		return fmt.Errorf("commit audit export delivery acknowledgement: %w", err)
 	}
 	return nil
+}
+
+func validAuditExportDeliveryTransportContract(contract string) bool {
+	return contract == AuditExportDeliveryTransportContract ||
+		contract == AuditExportDeliveryMTLSTransportContract
 }
 
 func lockAuditExportDelivery(ctx context.Context, tx pgx.Tx, deliveryID string) error {

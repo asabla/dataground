@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/asabla/dataground/internal/auditseal"
 	"github.com/asabla/dataground/internal/audittransport"
 	"github.com/asabla/dataground/internal/persistence"
 )
@@ -40,6 +41,7 @@ func TestParseArgumentsRequiresDistinctCompleteEvidence(t *testing.T) {
 		"invalid digest":      append(append([]string{}, base...), "-destination-sha256", "sha256:bad"),
 		"colliding files":     append(append([]string{}, base...), "-destination-file", "/run/dataground/audit/encrypted.json"),
 		"control reason":      append(append([]string{}, base...), "-reason", "line one\nline two"),
+		"partial mTLS":        append(append([]string{}, base...), "-client-certificate-file", "/run/dataground/audit/client.pem"),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseArguments(arguments); err == nil {
@@ -79,7 +81,8 @@ func TestExecuteTransportCompletesOnlyAfterExactReadBack(t *testing.T) {
 	repository := &transportRepositoryStub{}
 	store := &transportObjectStoreStub{}
 	if err := executeTransport(
-		context.Background(), repository, store, delivery, attribution, path,
+		context.Background(), repository, store, delivery,
+		persistence.AuditExportDeliveryTransportContract, attribution, path,
 		"audit-export-deliveries/v1/iso_00000000000000000001/"+
 			"adl_00000000000000000001/"+strings.Repeat("5", 64)+".json",
 	); err != nil {
@@ -91,7 +94,8 @@ func TestExecuteTransportCompletesOnlyAfterExactReadBack(t *testing.T) {
 	store.openErr = audittransport.ErrObjectUnavailable
 	repository.completed = 0
 	if err := executeTransport(
-		context.Background(), repository, store, delivery, attribution, path, "object",
+		context.Background(), repository, store, delivery,
+		persistence.AuditExportDeliveryTransportContract, attribution, path, "object",
 	); !errors.Is(err, audittransport.ErrObjectUnavailable) {
 		t.Fatalf("error = %v", err)
 	}
@@ -114,6 +118,38 @@ func TestHTTPStyleLoopbackRequiresLiteralHTTPAddress(t *testing.T) {
 	}
 }
 
+func TestTransportProfilesRejectCredentialDowngrade(t *testing.T) {
+	loopback := auditseal.VerifiedDeliveryDestination{
+		TransportContract: persistence.AuditExportDeliveryTransportContract,
+		Endpoint:          "http://127.0.0.1:8333",
+		AddressingStyle:   "path",
+	}
+	transport, allowHTTP, err := newHTTPTransport(
+		commandRequest{allowLoopbackHTTP: true}, loopback,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport.CloseIdleConnections()
+	if !allowHTTP {
+		t.Fatal("loopback development profile did not preserve explicit HTTP permission")
+	}
+	if _, _, err := newHTTPTransport(commandRequest{
+		allowLoopbackHTTP:     true,
+		clientCertificateFile: "/run/dataground/audit/client.pem",
+	}, loopback); err == nil {
+		t.Fatal("loopback profile accepted mTLS identity material")
+	}
+	mtls := auditseal.VerifiedDeliveryDestination{
+		TransportContract: persistence.AuditExportDeliveryMTLSTransportContract,
+		Endpoint:          "https://archive.internal.example",
+		AddressingStyle:   "virtual-hosted",
+	}
+	if _, _, err := newHTTPTransport(commandRequest{allowLoopbackHTTP: true}, mtls); err == nil {
+		t.Fatal("mTLS profile accepted loopback downgrade permission")
+	}
+}
+
 type transportRepositoryStub struct {
 	reserved  int
 	completed int
@@ -122,6 +158,7 @@ type transportRepositoryStub struct {
 func (repository *transportRepositoryStub) ReserveAuditExportDeliveryTransport(
 	context.Context,
 	persistence.AuditExportDelivery,
+	string,
 	persistence.AuditExportDeliveryAttribution,
 ) error {
 	repository.reserved++
@@ -131,6 +168,7 @@ func (repository *transportRepositoryStub) ReserveAuditExportDeliveryTransport(
 func (repository *transportRepositoryStub) CompleteAuditExportDeliveryTransport(
 	context.Context,
 	persistence.AuditExportDelivery,
+	string,
 	persistence.AuditExportDeliveryAttribution,
 ) error {
 	repository.completed++

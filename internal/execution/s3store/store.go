@@ -1,6 +1,6 @@
-// Package s3store adapts the bounded enforcement-object ports to the S3 REST
-// protocol. Its operator-owned RoundTripper is the future authentication seam,
-// keeping credentials and workload-identity policy outside product state.
+// Package s3store adapts bounded platform-object ports to the S3 REST protocol.
+// Callers own the RoundTripper; audit export can supply pinned mTLS while
+// credentials and workload-identity policy remain outside product state.
 package s3store
 
 import (

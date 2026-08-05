@@ -85,6 +85,12 @@
       "valid": true
     },
     {
+      "file": "valid/audit-export-delivery-destination-mtls.json",
+      "schema": "AuditExportDeliveryDestinationV2",
+      "document": "audit-export-delivery-destination-v2",
+      "valid": true
+    },
+    {
       "file": "valid/audit-export-recipient-trust.json",
       "schema": "AuditExportRecipientTrust",
       "document": "audit-export-recipient-trust",
@@ -184,6 +190,12 @@
       "file": "invalid/audit-export-encrypted-package-cross-kind.json",
       "schema": "AuditExportEncryptedPackage",
       "document": "audit-export-encrypted-package",
+      "valid": false
+    },
+    {
+      "file": "invalid/audit-export-delivery-destination-mtls-unbound.json",
+      "schema": "AuditExportDeliveryDestinationV2",
+      "document": "audit-export-delivery-destination-v2",
       "valid": false
     },
     {
