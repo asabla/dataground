@@ -242,13 +242,17 @@ func TestAuditExportDeliveryRequiresCompletedTransportBeforeAcknowledgement(t *t
 	transportAttribution := auditExportDeliveryAttribution(
 		"transport delivery", "cor_00000000000000000030",
 	)
-	if err := repository.ReserveAuditExportDeliveryTransport(ctx, delivery, transportAttribution); err != nil {
+	if err := repository.ReserveAuditExportDeliveryTransport(
+		ctx, delivery, persistence.AuditExportDeliveryTransportContract, transportAttribution,
+	); err != nil {
 		t.Fatal(err)
 	}
 	if err := repository.AcknowledgeAuditExportDelivery(ctx, delivery, acknowledgement); !errors.Is(err, persistence.ErrAuditExportDeliveryConflict) {
 		t.Fatalf("acknowledgement during transport error = %v", err)
 	}
-	if err := repository.CompleteAuditExportDeliveryTransport(ctx, delivery, transportAttribution); err != nil {
+	if err := repository.CompleteAuditExportDeliveryTransport(
+		ctx, delivery, persistence.AuditExportDeliveryTransportContract, transportAttribution,
+	); err != nil {
 		t.Fatal(err)
 	}
 	if err := repository.AcknowledgeAuditExportDelivery(ctx, delivery, acknowledgement); err != nil {
@@ -286,7 +290,7 @@ func TestAuditExportDeliveryTransportRequiresCurrentRecipientTrust(t *testing.T)
 		"transport delivery", "cor_00000000000000000030",
 	)
 	if err := repository.ReserveAuditExportDeliveryTransport(
-		ctx, delivery, transport,
+		ctx, delivery, persistence.AuditExportDeliveryTransportContract, transport,
 	); !errors.Is(err, persistence.ErrAuditExportRecipientTrustUnauthorized) {
 		t.Fatalf("transport under revoked trust error = %v", err)
 	}
@@ -307,6 +311,73 @@ func TestAuditExportDeliveryTransportRequiresCurrentRecipientTrust(t *testing.T)
 	`, delivery.DeliveryID, delivery.IsolationDomainID, delivery.DestinationDigest,
 		delivery.EncryptedPackageDigest); err == nil {
 		t.Fatal("direct transport reservation bypassed revoked recipient trust")
+	}
+}
+
+func TestAuditExportDeliveryMTLSTransportPersistsExactContract(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := resetOperatorAuditDatabase(t, ctx)
+	defer pool.Close()
+	repository := persistence.NewRepository(pool)
+	delivery := auditExportDeliveryFixture("adl_00000000000000000001")
+	activateAuditExportRecipientTrust(
+		t, ctx, repository, delivery, 1, "sha256:"+strings.Repeat("3", 64),
+		"cor_00000000000000000009",
+	)
+	if err := repository.PrepareAuditExportDelivery(
+		ctx, delivery,
+		auditExportDeliveryAttribution("prepare delivery", "cor_00000000000000000001"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	attribution := auditExportDeliveryAttribution(
+		"transport delivery", "cor_00000000000000000030",
+	)
+	if err := repository.ReserveAuditExportDeliveryTransport(
+		ctx, delivery, persistence.AuditExportDeliveryMTLSTransportContract, attribution,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.ReserveAuditExportDeliveryTransport(
+		ctx, delivery, persistence.AuditExportDeliveryTransportContract, attribution,
+	); !errors.Is(err, persistence.ErrAuditExportDeliveryConflict) {
+		t.Fatalf("transport contract substitution error = %v", err)
+	}
+	if err := repository.CompleteAuditExportDeliveryTransport(
+		ctx, delivery, persistence.AuditExportDeliveryMTLSTransportContract, attribution,
+	); err != nil {
+		t.Fatal(err)
+	}
+	var contract, state string
+	if err := pool.QueryRow(ctx, `
+		SELECT transport_contract, state
+		FROM audit_export_delivery_transports
+		WHERE delivery_id = $1
+	`, delivery.DeliveryID).Scan(&contract, &state); err != nil {
+		t.Fatal(err)
+	}
+	if contract != persistence.AuditExportDeliveryMTLSTransportContract || state != "completed" {
+		t.Fatalf("transport = %q %q", contract, state)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE audit_export_delivery_transports
+		SET transport_contract = 'dataground.audit-export-transport/s3-immutable/v1'
+		WHERE delivery_id = $1
+	`, delivery.DeliveryID); err == nil {
+		t.Fatal("direct valid transport contract substitution was accepted")
+	}
+	pool.Close()
+	database, err := persistence.OpenSQL(ctx, os.Getenv("DATAGROUND_TEST_DATABASE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := persistence.MigrateDownTo(ctx, database, 28); err == nil {
+		t.Fatal("authenticated transport evidence was discarded by schema downgrade")
+	}
+	if err := persistence.RequireCurrentSchema(ctx, database); err != nil {
+		t.Fatalf("failed downgrade changed current schema: %v", err)
 	}
 }
 
@@ -348,10 +419,14 @@ func TestAuditExportDeliveryConcurrentReplayConverges(t *testing.T) {
 		"transport delivery", "cor_00000000000000000030",
 	)
 	runConcurrent(func() error {
-		return repository.ReserveAuditExportDeliveryTransport(ctx, delivery, transportAttribution)
+		return repository.ReserveAuditExportDeliveryTransport(
+			ctx, delivery, persistence.AuditExportDeliveryTransportContract, transportAttribution,
+		)
 	})
 	runConcurrent(func() error {
-		return repository.CompleteAuditExportDeliveryTransport(ctx, delivery, transportAttribution)
+		return repository.CompleteAuditExportDeliveryTransport(
+			ctx, delivery, persistence.AuditExportDeliveryTransportContract, transportAttribution,
+		)
 	})
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
@@ -850,10 +925,14 @@ func completeAuditExportDeliveryTransport(
 	attribution := auditExportDeliveryAttribution(
 		"transport delivery", "cor_00000000000000000030",
 	)
-	if err := repository.ReserveAuditExportDeliveryTransport(ctx, delivery, attribution); err != nil {
+	if err := repository.ReserveAuditExportDeliveryTransport(
+		ctx, delivery, persistence.AuditExportDeliveryTransportContract, attribution,
+	); err != nil {
 		t.Fatalf("reserve audit export delivery transport: %v", err)
 	}
-	if err := repository.CompleteAuditExportDeliveryTransport(ctx, delivery, attribution); err != nil {
+	if err := repository.CompleteAuditExportDeliveryTransport(
+		ctx, delivery, persistence.AuditExportDeliveryTransportContract, attribution,
+	); err != nil {
 		t.Fatalf("complete audit export delivery transport: %v", err)
 	}
 }

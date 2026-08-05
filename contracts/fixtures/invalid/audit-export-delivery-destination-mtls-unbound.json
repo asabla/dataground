@@ -1,0 +1,12 @@
+{
+  "contract": "dataground.audit-export-delivery-destination/s3-mtls/v2",
+  "deliveryId": "adl_00000000000000000001",
+  "isolationDomainId": "iso_00000000000000000001",
+  "recipientId": "archive.primary",
+  "transportContract": "dataground.audit-export-transport/s3-immutable-mtls/v2",
+  "endpoint": "https://archive.internal.example",
+  "bucket": "dataground-audit",
+  "addressingStyle": "virtual-hosted",
+  "objectKey": "audit-export-deliveries/v1/iso_00000000000000000001/adl_00000000000000000001/5555555555555555555555555555555555555555555555555555555555555555.json",
+  "clientCertificateSha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+}

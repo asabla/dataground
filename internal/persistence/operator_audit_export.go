@@ -261,7 +261,7 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 	case "recipientSigningKeyId", "signingKeyId":
 		return operatorAuditResourceID.MatchString(text)
 	case "transportContract":
-		return text == AuditExportDeliveryTransportContract
+		return validAuditExportDeliveryTransportContract(text)
 	default:
 		return false
 	}

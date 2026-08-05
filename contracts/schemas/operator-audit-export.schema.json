@@ -104,7 +104,10 @@
         "sensitive": { "type": "boolean" },
         "sizeBytes": { "type": "integer", "minimum": 0 },
         "transportContract": {
-          "const": "dataground.audit-export-transport/s3-immutable/v1"
+          "enum": [
+            "dataground.audit-export-transport/s3-immutable/v1",
+            "dataground.audit-export-transport/s3-immutable-mtls/v2"
+          ]
         },
         "trustProfileSha256": { "$ref": "#/$defs/digest" }
       }

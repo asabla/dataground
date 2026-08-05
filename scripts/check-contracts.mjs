@@ -152,6 +152,9 @@ const auditExportDeliveryReceiptV4 = await readJson(
 const auditExportDeliveryDestination = await readJson(
   "contracts/schemas/audit-export-delivery-destination.schema.json",
 );
+const auditExportDeliveryDestinationV2 = await readJson(
+  "contracts/schemas/audit-export-delivery-destination-v2.schema.json",
+);
 const auditExportRecipientTrust = await readJson(
   "contracts/schemas/audit-export-recipient-trust.schema.json",
 );
@@ -173,9 +176,12 @@ const auditExportRecipientRevocationTrust = await readJson(
 const auditExportRecipientProofRevocation = await readJson(
   "contracts/schemas/audit-export-recipient-proof-revocation.schema.json",
 );
-assert.equal(
-  operatorAuditExport.$defs.safeMetadata.properties.transportContract.const,
-  "dataground.audit-export-transport/s3-immutable/v1",
+assert.deepEqual(
+  operatorAuditExport.$defs.safeMetadata.properties.transportContract.enum,
+  [
+    "dataground.audit-export-transport/s3-immutable/v1",
+    "dataground.audit-export-transport/s3-immutable-mtls/v2",
+  ],
   "operator audit transport metadata must remain closed and versioned",
 );
 assert.equal(
@@ -207,6 +213,7 @@ const validateAuditExportDeliveryReceiptV2 = ajv.compile(auditExportDeliveryRece
 const validateAuditExportDeliveryReceiptV3 = ajv.compile(auditExportDeliveryReceiptV3);
 const validateAuditExportDeliveryReceiptV4 = ajv.compile(auditExportDeliveryReceiptV4);
 const validateAuditExportDeliveryDestination = ajv.compile(auditExportDeliveryDestination);
+const validateAuditExportDeliveryDestinationV2 = ajv.compile(auditExportDeliveryDestinationV2);
 const validateAuditExportRecipientTrust = ajv.compile(auditExportRecipientTrust);
 const validateAuditExportRecipientTrustV2 = ajv.compile(auditExportRecipientTrustV2);
 const validateAuditExportEncryptedPackage = ajv.compile(auditExportEncryptedPackage);
@@ -253,6 +260,8 @@ for (const fixture of fixtureManifest.fixtures) {
     validate = validateAuditExportDeliveryReceiptV4;
   } else if (fixture.document === "audit-export-delivery-destination") {
     validate = validateAuditExportDeliveryDestination;
+  } else if (fixture.document === "audit-export-delivery-destination-v2") {
+    validate = validateAuditExportDeliveryDestinationV2;
   } else if (fixture.document === "audit-export-recipient-trust") {
     validate = validateAuditExportRecipientTrust;
   } else if (fixture.document === "audit-export-recipient-trust-v2") {
