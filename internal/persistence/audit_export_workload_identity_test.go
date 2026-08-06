@@ -63,12 +63,18 @@ func TestAuditExportWorkloadIdentityChangeValidation(t *testing.T) {
 
 func TestOperatorAuditMetadataAcceptsWorkloadIdentityEvidence(t *testing.T) {
 	for key, value := range map[string]any{
-		"clientCertificateSha256":     "sha256:" + strings.Repeat("1", 64),
-		"workloadId":                  "audit-export.dispatcher",
-		"workloadIdentityAuthorityId": "workload-issuer.primary",
-		"workloadIdentityExpiresAt":   "2026-08-06T10:58:00Z",
-		"workloadIdentityGeneration":  json.Number("1"),
-		"workloadIdentityGrantSha256": "sha256:" + strings.Repeat("2", 64),
+		"clientCertificateSha256":               "sha256:" + strings.Repeat("1", 64),
+		"workloadId":                            "audit-export.dispatcher",
+		"workloadIdentityAuthorityId":           "workload-issuer.primary",
+		"workloadIdentityExpiresAt":             "2026-08-06T10:58:00Z",
+		"workloadIdentityGeneration":            json.Number("1"),
+		"workloadIdentityGrantSha256":           "sha256:" + strings.Repeat("2", 64),
+		"workloadIdentityRevocationAuthorityId": "workload-revocation.primary",
+		"workloadIdentityRevocationEffectiveAt": "2026-08-06T10:58:00Z",
+		"workloadIdentityRevocationScope":       "key",
+		"workloadIdentityRevocationSha256":      "sha256:" + strings.Repeat("3", 64),
+		"workloadIdentitySigningKeyId":          "issuer_key_01",
+		"workloadIdentityTrustProfileSha256":    "sha256:" + strings.Repeat("4", 64),
 	} {
 		if !validOperatorAuditMetadataField(key, value) {
 			t.Fatalf("valid workload identity metadata %q was rejected", key)

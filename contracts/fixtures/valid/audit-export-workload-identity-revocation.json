@@ -1,0 +1,22 @@
+{
+  "contract": "dataground.audit-export-workload-identity-revocation/ed25519/v1",
+  "content": {
+    "contract": "dataground.audit-export-workload-identity-revocation/v1",
+    "isolationDomainId": "iso_00000000000000000001",
+    "scope": "key",
+    "workloadIdentityAuthorityId": "workload-issuer.primary",
+    "workloadIdentityTrustProfileSha256": "sha256:a6e1c0bfc75bfba00417f6bda947ba8ab1b3d26d039245574165a6d4d7d92989",
+    "workloadIdentitySigningKeyId": "issuer_key_01",
+    "reasonSha256": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+    "revocationAuthorityId": "audit-workload-revocation.primary",
+    "issuedAt": "2026-08-06T18:30:00Z",
+    "effectiveAt": "2026-08-06T17:30:00Z"
+  },
+  "contentSha256": "sha256:d7a00de2b6d2fb559c7c3a3fe39e864a060be6afc7011f537365574367728278",
+  "revocationTrustProfileSha256": "sha256:a50ed66fdd7fe4e003639417512fc211a2f29478ab916e9a8d56fabe044aca01",
+  "signature": {
+    "contract": "dataground.audit-export-workload-identity-revocation-signature/ed25519/v1",
+    "keyId": "revocation_key_01",
+    "signature": "UmTb5xNnc8iyG_QgglX5vJ9Pl35FPo-ercjbnWcEsCK3yuKCtc-rpH5aGWpKUeCZ58EtoN6vgTp9rhfSK2OFCg"
+  }
+}

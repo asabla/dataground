@@ -106,6 +106,9 @@ func (repository *Repository) ChangeAuditExportWorkloadIdentity(
 		return fmt.Errorf("begin audit export workload identity change: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	if err := lockAuditExportWorkloadIdentityRevocations(ctx, tx, change.IsolationDomainID); err != nil {
+		return err
+	}
 	if err := lockAuditExportWorkloadIdentity(ctx, tx, change.IsolationDomainID, change.WorkloadID); err != nil {
 		return err
 	}
@@ -163,6 +166,16 @@ func (repository *Repository) ChangeAuditExportWorkloadIdentity(
 		}
 		if change.IssuedAt.After(databaseNow.Add(5*time.Minute)) ||
 			change.NotBefore.After(databaseNow) || !change.ExpiresAt.After(databaseNow) {
+			return ErrAuditExportWorkloadIdentityUnauthorized
+		}
+		revoked, err := auditExportWorkloadIdentityRevoked(
+			ctx, tx, change.IsolationDomainID, change.AuthorityID,
+			change.IssuerTrustProfileSHA256, change.IssuerSigningKeyID, databaseNow,
+		)
+		if err != nil {
+			return err
+		}
+		if revoked {
 			return ErrAuditExportWorkloadIdentityUnauthorized
 		}
 	}
@@ -225,6 +238,9 @@ func authorizeAuditExportWorkloadIdentity(
 	if !authorization.Valid() {
 		return ErrAuditExportWorkloadIdentityUnauthorized
 	}
+	if err := lockAuditExportWorkloadIdentityRevocations(ctx, tx, isolationDomainID); err != nil {
+		return err
+	}
 	if err := lockAuditExportWorkloadIdentity(ctx, tx, isolationDomainID, authorization.WorkloadID); err != nil {
 		return err
 	}
@@ -241,6 +257,16 @@ func authorizeAuditExportWorkloadIdentity(
 		latest.ClientCertificateSHA256 != authorization.ClientCertificateSHA256 ||
 		latest.Audience != auditExportWorkloadIdentityAudience ||
 		latest.NotBefore.After(databaseNow) || !latest.ExpiresAt.After(databaseNow) {
+		return ErrAuditExportWorkloadIdentityUnauthorized
+	}
+	revoked, err := auditExportWorkloadIdentityRevoked(
+		ctx, tx, isolationDomainID, latest.AuthorityID,
+		latest.IssuerTrustProfileSHA256, latest.IssuerSigningKeyID, databaseNow,
+	)
+	if err != nil {
+		return err
+	}
+	if revoked {
 		return ErrAuditExportWorkloadIdentityUnauthorized
 	}
 	return nil

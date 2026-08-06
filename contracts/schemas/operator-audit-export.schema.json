@@ -119,7 +119,16 @@
         },
         "workloadIdentityExpiresAt": { "type": "string", "format": "date-time" },
         "workloadIdentityGeneration": { "type": "integer", "minimum": 1 },
-        "workloadIdentityGrantSha256": { "$ref": "#/$defs/digest" }
+        "workloadIdentityGrantSha256": { "$ref": "#/$defs/digest" },
+        "workloadIdentityRevocationAuthorityId": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{0,127}$"
+        },
+        "workloadIdentityRevocationEffectiveAt": { "type": "string", "format": "date-time" },
+        "workloadIdentityRevocationScope": { "enum": ["profile", "key"] },
+        "workloadIdentityRevocationSha256": { "$ref": "#/$defs/digest" },
+        "workloadIdentitySigningKeyId": { "$ref": "#/$defs/resourceId" },
+        "workloadIdentityTrustProfileSha256": { "$ref": "#/$defs/digest" }
       }
     },
     "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },

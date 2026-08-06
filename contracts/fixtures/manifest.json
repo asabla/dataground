@@ -157,6 +157,18 @@
       "valid": true
     },
     {
+      "file": "valid/audit-export-workload-identity-revocation-trust.json",
+      "schema": "AuditExportWorkloadIdentityRevocationTrust",
+      "document": "audit-export-workload-identity-revocation-trust",
+      "valid": true
+    },
+    {
+      "file": "valid/audit-export-workload-identity-revocation.json",
+      "schema": "AuditExportWorkloadIdentityRevocation",
+      "document": "audit-export-workload-identity-revocation",
+      "valid": true
+    },
+    {
       "file": "invalid/agent-service-missing-name.json",
       "schema": "AgentService",
       "valid": false
@@ -232,6 +244,12 @@
       "file": "invalid/audit-export-recipient-proof-revocation-scope.json",
       "schema": "AuditExportRecipientProofRevocation",
       "document": "audit-export-recipient-proof-revocation",
+      "valid": false
+    },
+    {
+      "file": "invalid/audit-export-workload-identity-revocation-scope.json",
+      "schema": "AuditExportWorkloadIdentityRevocation",
+      "document": "audit-export-workload-identity-revocation",
       "valid": false
     }
   ]
