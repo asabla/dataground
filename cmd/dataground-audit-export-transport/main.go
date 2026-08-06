@@ -24,37 +24,42 @@ import (
 )
 
 type transportRepository interface {
-	ReserveAuditExportDeliveryTransport(
+	ReserveAuditExportDeliveryTransportWithWorkloadIdentity(
 		context.Context,
 		persistence.AuditExportDelivery,
 		string,
+		persistence.AuditExportWorkloadIdentityAuthorization,
 		persistence.AuditExportDeliveryAttribution,
 	) error
-	CompleteAuditExportDeliveryTransport(
+	CompleteAuditExportDeliveryTransportWithWorkloadIdentity(
 		context.Context,
 		persistence.AuditExportDelivery,
 		string,
+		persistence.AuditExportWorkloadIdentityAuthorization,
 		persistence.AuditExportDeliveryAttribution,
 	) error
 }
 
 type commandRequest struct {
-	deliveryID            string
-	isolationDomainID     string
-	envelopeFile          string
-	encryptedFile         string
-	trustFile             string
-	recipientTrustFile    string
-	recipientID           string
-	destinationFile       string
-	destinationDigest     []byte
-	actorID               string
-	reason                string
-	correlationID         string
-	allowLoopbackHTTP     bool
-	clientCertificateFile string
-	clientPrivateKeyFile  string
-	serverTrustBundleFile string
+	deliveryID                string
+	deliveryContract          string
+	isolationDomainID         string
+	envelopeFile              string
+	encryptedFile             string
+	trustFile                 string
+	recipientTrustFile        string
+	recipientID               string
+	destinationFile           string
+	destinationDigest         []byte
+	actorID                   string
+	reason                    string
+	correlationID             string
+	allowLoopbackHTTP         bool
+	clientCertificateFile     string
+	clientPrivateKeyFile      string
+	serverTrustBundleFile     string
+	workloadIdentityGrantFile string
+	workloadIdentityTrustFile string
 }
 
 func main() {
@@ -86,7 +91,7 @@ func run(ctx context.Context, arguments []string) error {
 		return err
 	}
 	delivery := persistence.AuditExportDelivery{
-		Contract:   persistence.AuditExportTransportedDeliveryContract,
+		Contract:   request.deliveryContract,
 		DeliveryID: request.deliveryID, IsolationDomainID: request.isolationDomainID,
 		ExportKind: evidence.ExportKind, ExportID: evidence.ExportID,
 		EnvelopeDigest: evidence.EnvelopeSHA256[:], ExportSHA256: evidence.ExportSHA256,
@@ -104,6 +109,25 @@ func run(ctx context.Context, arguments []string) error {
 	destination, err := auditseal.VerifyDeliveryDestinationFile(request.destinationFile, delivery)
 	if err != nil {
 		return err
+	}
+	var workloadIdentity persistence.AuditExportWorkloadIdentityAuthorization
+	if delivery.Contract == persistence.AuditExportWorkloadDeliveryContract {
+		grant, err := auditseal.VerifyWorkloadIdentityGrantFile(
+			request.workloadIdentityGrantFile, request.workloadIdentityTrustFile,
+			delivery.IsolationDomainID, destination.WorkloadID,
+			destination.ClientCertificateSHA256, time.Now().UTC(),
+		)
+		if err != nil {
+			return err
+		}
+		if grant.SHA256 != destination.WorkloadIdentityGrantSHA256 {
+			return errors.New("audit export transport workload identity does not match the destination")
+		}
+		workloadIdentity = persistence.AuditExportWorkloadIdentityAuthorization{
+			WorkloadID: destination.WorkloadID, GrantSHA256: grant.SHA256,
+			ClientCertificateSHA256: grant.ClientCertificateSHA256,
+			Generation:              destination.WorkloadIdentityGeneration,
+		}
 	}
 	transport, allowHTTPForLoopback, err := newHTTPTransport(request, destination)
 	if err != nil {
@@ -155,6 +179,7 @@ func run(ctx context.Context, arguments []string) error {
 		objects,
 		delivery,
 		destination.TransportContract,
+		workloadIdentity,
 		attribution,
 		request.encryptedFile,
 		destination.ObjectKey,
@@ -167,18 +192,18 @@ func executeTransport(
 	objects audittransport.ObjectStore,
 	delivery persistence.AuditExportDelivery,
 	transportContract string,
+	workloadIdentity persistence.AuditExportWorkloadIdentityAuthorization,
 	attribution persistence.AuditExportDeliveryAttribution,
 	encryptedFile string,
 	objectKey string,
 ) error {
 	if repository == nil || objects == nil || !delivery.Valid() ||
-		(transportContract != persistence.AuditExportDeliveryTransportContract &&
-			transportContract != persistence.AuditExportDeliveryMTLSTransportContract) ||
+		!validTransportAuthorization(delivery, transportContract, workloadIdentity) ||
 		!attribution.Valid() {
 		return errors.New("audit export transport dependencies are invalid")
 	}
-	if err := repository.ReserveAuditExportDeliveryTransport(
-		ctx, delivery, transportContract, attribution,
+	if err := repository.ReserveAuditExportDeliveryTransportWithWorkloadIdentity(
+		ctx, delivery, transportContract, workloadIdentity, attribution,
 	); err != nil {
 		return err
 	}
@@ -192,8 +217,8 @@ func executeTransport(
 	if err := audittransport.Execute(ctx, objects, objectKey, content, digest); err != nil {
 		return err
 	}
-	return repository.CompleteAuditExportDeliveryTransport(
-		ctx, delivery, transportContract, attribution,
+	return repository.CompleteAuditExportDeliveryTransportWithWorkloadIdentity(
+		ctx, delivery, transportContract, workloadIdentity, attribution,
 	)
 }
 
@@ -202,6 +227,7 @@ func parseArguments(arguments []string) (commandRequest, error) {
 	flags := flag.NewFlagSet("dataground-audit-export-transport", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var destinationSHA256 string
+	flags.StringVar(&request.deliveryContract, "delivery-contract", persistence.AuditExportWorkloadDeliveryContract, "versioned transported delivery contract")
 	flags.StringVar(&request.deliveryID, "delivery-id", "", "stable audit export delivery identifier")
 	flags.StringVar(&request.isolationDomainID, "isolation-domain", "", "exact isolation domain identifier")
 	flags.StringVar(&request.envelopeFile, "envelope-file", "", "canonical signed audit export envelope")
@@ -218,6 +244,8 @@ func parseArguments(arguments []string) (commandRequest, error) {
 	flags.StringVar(&request.clientCertificateFile, "client-certificate-file", "", "owner-only mTLS client certificate chain")
 	flags.StringVar(&request.clientPrivateKeyFile, "client-private-key-file", "", "owner-only mTLS client private key")
 	flags.StringVar(&request.serverTrustBundleFile, "server-trust-bundle-file", "", "owner-only pinned server CA bundle")
+	flags.StringVar(&request.workloadIdentityGrantFile, "workload-identity-grant-file", "", "signed workload identity grant")
+	flags.StringVar(&request.workloadIdentityTrustFile, "workload-identity-trust-file", "", "workload identity issuer trust profile")
 	if err := flags.Parse(arguments); err != nil || flags.NArg() != 0 ||
 		request.deliveryID == "" || request.isolationDomainID == "" ||
 		request.envelopeFile == "" || request.encryptedFile == "" || request.trustFile == "" ||
@@ -250,6 +278,20 @@ func parseArguments(arguments []string) (commandRequest, error) {
 	if configuredMTLSFiles != 0 && configuredMTLSFiles != len(mtlsFiles) {
 		return commandRequest{}, errors.New("audit export transport mTLS arguments are incomplete")
 	}
+	if request.deliveryContract != persistence.AuditExportTransportedDeliveryContract &&
+		request.deliveryContract != persistence.AuditExportWorkloadDeliveryContract {
+		return commandRequest{}, errors.New("audit export transport delivery contract is invalid")
+	}
+	if (request.deliveryContract == persistence.AuditExportWorkloadDeliveryContract &&
+		(request.workloadIdentityGrantFile == "" || request.workloadIdentityTrustFile == "" ||
+			configuredMTLSFiles != len(mtlsFiles) || request.allowLoopbackHTTP)) ||
+		(request.deliveryContract == persistence.AuditExportTransportedDeliveryContract &&
+			(request.workloadIdentityGrantFile != "" || request.workloadIdentityTrustFile != "")) {
+		return commandRequest{}, errors.New("audit export transport workload identity evidence is invalid")
+	}
+	if request.workloadIdentityGrantFile != "" {
+		paths = append(paths, request.workloadIdentityGrantFile, request.workloadIdentityTrustFile)
+	}
 	for left := range paths {
 		for right := left + 1; right < len(paths); right++ {
 			if paths[left] == paths[right] {
@@ -279,7 +321,8 @@ func newHTTPTransport(
 		transport := base.Clone()
 		transport.Proxy = nil
 		return transport, true, nil
-	case persistence.AuditExportDeliveryMTLSTransportContract:
+	case persistence.AuditExportDeliveryMTLSTransportContract,
+		persistence.AuditExportDeliveryWorkloadTransportContract:
 		if request.allowLoopbackHTTP || request.clientCertificateFile == "" ||
 			request.clientPrivateKeyFile == "" || request.serverTrustBundleFile == "" ||
 			!isHTTPSOrigin(destination.Endpoint) {
@@ -299,6 +342,21 @@ func newHTTPTransport(
 	default:
 		return nil, false, errors.New("audit export transport contract is unsupported")
 	}
+}
+
+func validTransportAuthorization(
+	delivery persistence.AuditExportDelivery,
+	transportContract string,
+	workloadIdentity persistence.AuditExportWorkloadIdentityAuthorization,
+) bool {
+	if delivery.Contract == persistence.AuditExportWorkloadDeliveryContract {
+		return transportContract == persistence.AuditExportDeliveryWorkloadTransportContract &&
+			workloadIdentity.Valid()
+	}
+	return delivery.Contract == persistence.AuditExportTransportedDeliveryContract &&
+		(transportContract == persistence.AuditExportDeliveryTransportContract ||
+			transportContract == persistence.AuditExportDeliveryMTLSTransportContract) &&
+		workloadIdentity == (persistence.AuditExportWorkloadIdentityAuthorization{})
 }
 
 func validReason(value string) bool {

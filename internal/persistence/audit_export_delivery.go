@@ -20,13 +20,16 @@ const (
 	AuditExportDeliveryContract                   = "dataground.audit-export-delivery/v3"
 	AuditExportEncryptedDeliveryContract          = "dataground.audit-export-delivery/v4"
 	AuditExportTransportedDeliveryContract        = "dataground.audit-export-delivery/v5"
+	AuditExportWorkloadDeliveryContract           = "dataground.audit-export-delivery/v6"
 	AuditExportDeliveryTransportContract          = "dataground.audit-export-transport/s3-immutable/v1"
 	AuditExportDeliveryMTLSTransportContract      = "dataground.audit-export-transport/s3-immutable-mtls/v2"
+	AuditExportDeliveryWorkloadTransportContract  = "dataground.audit-export-transport/s3-immutable-mtls-workload/v3"
 	auditExportDeliveryLegacyContract             = "dataground.audit-export-delivery/v1"
 	AuditExportDeliveryReceiptVerifiedContract    = "dataground.audit-export-delivery/v2"
 	auditExportDeliveryReceiptContract            = "dataground.audit-export-delivery-receipt/ed25519/v2"
 	auditExportEncryptedDeliveryReceiptContract   = "dataground.audit-export-delivery-receipt/ed25519/v3"
 	auditExportTransportedDeliveryReceiptContract = "dataground.audit-export-delivery-receipt/ed25519/v4"
+	auditExportWorkloadDeliveryReceiptContract    = "dataground.audit-export-delivery-receipt/ed25519/v5"
 	auditExportDeliveryLegacyReceiptContract      = "dataground.audit-export-delivery-receipt/ed25519/v1"
 )
 
@@ -123,6 +126,7 @@ func (acknowledgement AuditExportDeliveryAcknowledgement) Valid() bool {
 		(acknowledgement.DeliveryContract == AuditExportDeliveryContract ||
 			acknowledgement.DeliveryContract == AuditExportEncryptedDeliveryContract ||
 			acknowledgement.DeliveryContract == AuditExportTransportedDeliveryContract ||
+			acknowledgement.DeliveryContract == AuditExportWorkloadDeliveryContract ||
 			acknowledgement.DeliveryContract == AuditExportDeliveryReceiptVerifiedContract) &&
 		((acknowledgement.DeliveryContract == AuditExportDeliveryContract &&
 			acknowledgement.ReceiptContract == auditExportDeliveryReceiptContract &&
@@ -132,6 +136,9 @@ func (acknowledgement AuditExportDeliveryAcknowledgement) Valid() bool {
 				acknowledgement.RecipientTrustGeneration > 0) ||
 			(acknowledgement.DeliveryContract == AuditExportTransportedDeliveryContract &&
 				acknowledgement.ReceiptContract == auditExportTransportedDeliveryReceiptContract &&
+				acknowledgement.RecipientTrustGeneration > 0) ||
+			(acknowledgement.DeliveryContract == AuditExportWorkloadDeliveryContract &&
+				acknowledgement.ReceiptContract == auditExportWorkloadDeliveryReceiptContract &&
 				acknowledgement.RecipientTrustGeneration > 0) ||
 			(acknowledgement.DeliveryContract == AuditExportDeliveryReceiptVerifiedContract &&
 				acknowledgement.ReceiptContract == auditExportDeliveryLegacyReceiptContract &&
@@ -253,9 +260,23 @@ func (repository *Repository) ReserveAuditExportDeliveryTransport(
 	transportContract string,
 	attribution AuditExportDeliveryAttribution,
 ) error {
+	return repository.ReserveAuditExportDeliveryTransportWithWorkloadIdentity(
+		ctx, delivery, transportContract, AuditExportWorkloadIdentityAuthorization{}, attribution,
+	)
+}
+
+func (repository *Repository) ReserveAuditExportDeliveryTransportWithWorkloadIdentity(
+	ctx context.Context,
+	delivery AuditExportDelivery,
+	transportContract string,
+	workloadIdentity AuditExportWorkloadIdentityAuthorization,
+	attribution AuditExportDeliveryAttribution,
+) error {
 	if repository == nil || repository.pool == nil || ctx == nil ||
-		delivery.Contract != AuditExportTransportedDeliveryContract ||
+		(delivery.Contract != AuditExportTransportedDeliveryContract &&
+			delivery.Contract != AuditExportWorkloadDeliveryContract) ||
 		!delivery.Valid() || !validAuditExportDeliveryTransportContract(transportContract) ||
+		!validAuditExportDeliveryTransportAuthorization(delivery, transportContract, workloadIdentity) ||
 		!attribution.Valid() {
 		return ErrAuditExportDeliveryInvalid
 	}
@@ -279,7 +300,7 @@ func (repository *Repository) ReserveAuditExportDeliveryTransport(
 	if !exists || status != "prepared" || !sameAuditExportDeliveryPreparation(existing, delivery) {
 		return ErrAuditExportDeliveryConflict
 	}
-	transportAttribution, storedTransportContract, state, found, err := readAuditExportDeliveryTransport(
+	transportAttribution, storedTransportContract, storedWorkloadIdentity, state, found, err := readAuditExportDeliveryTransport(
 		ctx, tx, delivery.DeliveryID,
 	)
 	if err != nil {
@@ -288,6 +309,7 @@ func (repository *Repository) ReserveAuditExportDeliveryTransport(
 	if found {
 		if storedTransportContract != transportContract ||
 			(state != "reserved" && state != "completed") ||
+			!sameAuditExportWorkloadIdentityAuthorization(storedWorkloadIdentity, workloadIdentity) ||
 			!sameAuditExportDeliveryAttribution(transportAttribution, attribution) {
 			return ErrAuditExportDeliveryConflict
 		}
@@ -299,6 +321,13 @@ func (repository *Repository) ReserveAuditExportDeliveryTransport(
 			if generation != existing.RecipientTrustGeneration {
 				return ErrAuditExportDeliveryConflict
 			}
+			if existing.Contract == AuditExportWorkloadDeliveryContract {
+				if err := authorizeAuditExportWorkloadIdentity(
+					ctx, tx, existing.IsolationDomainID, workloadIdentity,
+				); err != nil {
+					return err
+				}
+			}
 		}
 		return tx.Commit(ctx)
 	}
@@ -309,6 +338,13 @@ func (repository *Repository) ReserveAuditExportDeliveryTransport(
 	if generation != existing.RecipientTrustGeneration {
 		return ErrAuditExportDeliveryConflict
 	}
+	if delivery.Contract == AuditExportWorkloadDeliveryContract {
+		if err := authorizeAuditExportWorkloadIdentity(
+			ctx, tx, delivery.IsolationDomainID, workloadIdentity,
+		); err != nil {
+			return err
+		}
+	}
 	if err := insertAuditExportDeliveryOperation(
 		ctx, tx, existing, "transport", attribution, existing.EncryptedPackageDigest,
 	); err != nil {
@@ -317,10 +353,16 @@ func (repository *Repository) ReserveAuditExportDeliveryTransport(
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO audit_export_delivery_transports (
 			delivery_id, isolation_domain_id, transport_contract,
-			destination_digest, encrypted_package_digest
-		) VALUES ($1, $2, $3, $4, $5)
+			destination_digest, encrypted_package_digest, workload_id,
+			workload_identity_grant_sha256, workload_identity_generation,
+			client_certificate_sha256
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`, existing.DeliveryID, existing.IsolationDomainID, transportContract,
-		existing.DestinationDigest, existing.EncryptedPackageDigest); err != nil {
+		existing.DestinationDigest, existing.EncryptedPackageDigest,
+		nullAuditExportRecipientTrustText(workloadIdentity.WorkloadID),
+		nullAuditExportRecipientTrustText(workloadIdentity.GrantSHA256),
+		nullAuditExportDeliveryGeneration(workloadIdentity.Generation),
+		nullAuditExportRecipientTrustText(workloadIdentity.ClientCertificateSHA256)); err != nil {
 		return mapAuditExportDeliveryWriteError("reserve audit export delivery transport", err)
 	}
 	if _, err := tx.Exec(ctx, `
@@ -334,14 +376,18 @@ func (repository *Repository) ReserveAuditExportDeliveryTransport(
 				'destinationDigest', $6::text,
 				'encryptedPackageDigest', $7::text,
 				'reasonDigest', $8::text,
-				'transportContract', $9::text
+				'transportContract', $9::text,
+				'workloadId', NULLIF($10::text, ''),
+				'workloadIdentityGeneration', NULLIF($11::bigint, 0),
+				'workloadIdentityGrantSha256', NULLIF($12::text, '')
 			),
 			clock_timestamp()
 		)
 	`, identity.New("aud"), existing.IsolationDomainID, attribution.ActorID,
 		existing.DeliveryID, attribution.CorrelationID, digestBytes(existing.DestinationDigest),
 		digestBytes(existing.EncryptedPackageDigest), digestBytes(attribution.ReasonDigest),
-		transportContract); err != nil {
+		transportContract, workloadIdentity.WorkloadID, workloadIdentity.Generation,
+		workloadIdentity.GrantSHA256); err != nil {
 		return fmt.Errorf("audit export delivery transport reservation: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -356,9 +402,23 @@ func (repository *Repository) CompleteAuditExportDeliveryTransport(
 	transportContract string,
 	attribution AuditExportDeliveryAttribution,
 ) error {
+	return repository.CompleteAuditExportDeliveryTransportWithWorkloadIdentity(
+		ctx, delivery, transportContract, AuditExportWorkloadIdentityAuthorization{}, attribution,
+	)
+}
+
+func (repository *Repository) CompleteAuditExportDeliveryTransportWithWorkloadIdentity(
+	ctx context.Context,
+	delivery AuditExportDelivery,
+	transportContract string,
+	workloadIdentity AuditExportWorkloadIdentityAuthorization,
+	attribution AuditExportDeliveryAttribution,
+) error {
 	if repository == nil || repository.pool == nil || ctx == nil ||
-		delivery.Contract != AuditExportTransportedDeliveryContract ||
+		(delivery.Contract != AuditExportTransportedDeliveryContract &&
+			delivery.Contract != AuditExportWorkloadDeliveryContract) ||
 		!delivery.Valid() || !validAuditExportDeliveryTransportContract(transportContract) ||
+		!validAuditExportDeliveryTransportAuthorization(delivery, transportContract, workloadIdentity) ||
 		!attribution.Valid() {
 		return ErrAuditExportDeliveryInvalid
 	}
@@ -382,13 +442,14 @@ func (repository *Repository) CompleteAuditExportDeliveryTransport(
 	if !exists || status != "prepared" || !sameAuditExportDeliveryPreparation(existing, delivery) {
 		return ErrAuditExportDeliveryConflict
 	}
-	transportAttribution, storedTransportContract, state, found, err := readAuditExportDeliveryTransport(
+	transportAttribution, storedTransportContract, storedWorkloadIdentity, state, found, err := readAuditExportDeliveryTransport(
 		ctx, tx, delivery.DeliveryID,
 	)
 	if err != nil {
 		return err
 	}
 	if !found || storedTransportContract != transportContract ||
+		!sameAuditExportWorkloadIdentityAuthorization(storedWorkloadIdentity, workloadIdentity) ||
 		!sameAuditExportDeliveryAttribution(transportAttribution, attribution) {
 		return ErrAuditExportDeliveryConflict
 	}
@@ -420,14 +481,18 @@ func (repository *Repository) CompleteAuditExportDeliveryTransport(
 				'destinationDigest', $6::text,
 				'encryptedPackageDigest', $7::text,
 				'reasonDigest', $8::text,
-				'transportContract', $9::text
+				'transportContract', $9::text,
+				'workloadId', NULLIF($10::text, ''),
+				'workloadIdentityGeneration', NULLIF($11::bigint, 0),
+				'workloadIdentityGrantSha256', NULLIF($12::text, '')
 			),
 			clock_timestamp()
 		)
 	`, identity.New("aud"), existing.IsolationDomainID, attribution.ActorID,
 		existing.DeliveryID, attribution.CorrelationID, digestBytes(existing.DestinationDigest),
 		digestBytes(existing.EncryptedPackageDigest), digestBytes(attribution.ReasonDigest),
-		transportContract); err != nil {
+		transportContract, workloadIdentity.WorkloadID, workloadIdentity.Generation,
+		workloadIdentity.GrantSHA256); err != nil {
 		return fmt.Errorf("audit export delivery transport completion: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -484,14 +549,16 @@ func (repository *Repository) AcknowledgeAuditExportDelivery(
 	if acknowledgement.DeliveryContract != delivery.Contract {
 		return ErrAuditExportDeliveryConflict
 	}
-	if existing.Contract == AuditExportTransportedDeliveryContract {
-		_, transportContract, transportState, found, err := readAuditExportDeliveryTransport(
+	if existing.Contract == AuditExportTransportedDeliveryContract ||
+		existing.Contract == AuditExportWorkloadDeliveryContract {
+		_, transportContract, workloadIdentity, transportState, found, err := readAuditExportDeliveryTransport(
 			ctx, tx, delivery.DeliveryID,
 		)
 		if err != nil {
 			return err
 		}
 		if !found || !validAuditExportDeliveryTransportContract(transportContract) ||
+			!validAuditExportDeliveryTransportAuthorization(existing, transportContract, workloadIdentity) ||
 			transportState != "completed" {
 			return ErrAuditExportDeliveryConflict
 		}
@@ -553,7 +620,21 @@ func (repository *Repository) AcknowledgeAuditExportDelivery(
 
 func validAuditExportDeliveryTransportContract(contract string) bool {
 	return contract == AuditExportDeliveryTransportContract ||
-		contract == AuditExportDeliveryMTLSTransportContract
+		contract == AuditExportDeliveryMTLSTransportContract ||
+		contract == AuditExportDeliveryWorkloadTransportContract
+}
+
+func validAuditExportDeliveryTransportAuthorization(
+	delivery AuditExportDelivery,
+	transportContract string,
+	authorization AuditExportWorkloadIdentityAuthorization,
+) bool {
+	if delivery.Contract == AuditExportWorkloadDeliveryContract {
+		return transportContract == AuditExportDeliveryWorkloadTransportContract && authorization.Valid()
+	}
+	return delivery.Contract == AuditExportTransportedDeliveryContract &&
+		transportContract != AuditExportDeliveryWorkloadTransportContract &&
+		authorization == (AuditExportWorkloadIdentityAuthorization{})
 }
 
 func lockAuditExportDelivery(ctx context.Context, tx pgx.Tx, deliveryID string) error {
@@ -587,8 +668,17 @@ func readAuditExportDeliveryTransport(
 	ctx context.Context,
 	tx pgx.Tx,
 	deliveryID string,
-) (AuditExportDeliveryAttribution, string, string, bool, error) {
+) (
+	AuditExportDeliveryAttribution,
+	string,
+	AuditExportWorkloadIdentityAuthorization,
+	string,
+	bool,
+	error,
+) {
+
 	var attribution AuditExportDeliveryAttribution
+	var workloadIdentity AuditExportWorkloadIdentityAuthorization
 	var transportContract, state string
 	var operationEvidence, deliveryEvidence, transportEvidence []byte
 	var deliveryDestination, transportDestination []byte
@@ -597,7 +687,12 @@ func readAuditExportDeliveryTransport(
 		       operation.evidence_digest, delivery.encrypted_package_digest,
 		       transport.encrypted_package_digest,
 		       delivery.destination_digest, transport.destination_digest,
-		       transport.transport_contract, transport.state
+		       transport.transport_contract,
+		       COALESCE(transport.workload_id, ''),
+		       COALESCE(transport.workload_identity_grant_sha256, ''),
+		       COALESCE(transport.workload_identity_generation, 0),
+		       COALESCE(transport.client_certificate_sha256, ''),
+		       transport.state
 		FROM audit_export_delivery_transports AS transport
 		JOIN audit_export_deliveries AS delivery ON delivery.delivery_id = transport.delivery_id
 		JOIN audit_export_delivery_operations AS operation
@@ -607,21 +702,24 @@ func readAuditExportDeliveryTransport(
 		&attribution.ActorID, &attribution.ReasonDigest, &attribution.CorrelationID,
 		&operationEvidence, &deliveryEvidence, &transportEvidence,
 		&deliveryDestination, &transportDestination,
-		&transportContract, &state,
+		&transportContract, &workloadIdentity.WorkloadID, &workloadIdentity.GrantSHA256,
+		&workloadIdentity.Generation, &workloadIdentity.ClientCertificateSHA256, &state,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return AuditExportDeliveryAttribution{}, "", "", false, nil
+		return AuditExportDeliveryAttribution{}, "", AuditExportWorkloadIdentityAuthorization{}, "", false, nil
 	}
 	if err != nil {
-		return AuditExportDeliveryAttribution{}, "", "", false,
+		return AuditExportDeliveryAttribution{}, "", AuditExportWorkloadIdentityAuthorization{}, "", false,
 			fmt.Errorf("read audit export delivery transport: %w", err)
 	}
 	if !attribution.Valid() || subtle.ConstantTimeCompare(operationEvidence, deliveryEvidence) != 1 ||
 		subtle.ConstantTimeCompare(operationEvidence, transportEvidence) != 1 ||
-		subtle.ConstantTimeCompare(deliveryDestination, transportDestination) != 1 {
-		return AuditExportDeliveryAttribution{}, "", "", false, ErrAuditExportDeliveryConflict
+		subtle.ConstantTimeCompare(deliveryDestination, transportDestination) != 1 ||
+		((transportContract == AuditExportDeliveryWorkloadTransportContract) != workloadIdentity.Valid()) {
+		return AuditExportDeliveryAttribution{}, "", AuditExportWorkloadIdentityAuthorization{}, "", false,
+			ErrAuditExportDeliveryConflict
 	}
-	return attribution, transportContract, state, true, nil
+	return attribution, transportContract, workloadIdentity, state, true, nil
 }
 
 func readAuditExportDelivery(
@@ -714,7 +812,9 @@ func readAuditExportDelivery(
 		((delivery.Contract == AuditExportEncryptedDeliveryContract &&
 			*acknowledgementContract == auditExportEncryptedDeliveryReceiptContract) ||
 			(delivery.Contract == AuditExportTransportedDeliveryContract &&
-				*acknowledgementContract == auditExportTransportedDeliveryReceiptContract)) &&
+				*acknowledgementContract == auditExportTransportedDeliveryReceiptContract) ||
+			(delivery.Contract == AuditExportWorkloadDeliveryContract &&
+				*acknowledgementContract == auditExportWorkloadDeliveryReceiptContract)) &&
 		storedRecipientTrustProfileSHA256 != nil &&
 		auditExportDeliveryDigest.MatchString(*storedRecipientTrustProfileSHA256) &&
 		recipientSigningKeyID != nil && auditExportDeliveryKeyID.MatchString(*recipientSigningKeyID) &&
@@ -900,7 +1000,17 @@ func validStoredAuditExportDelivery(delivery AuditExportDelivery) bool {
 
 func encryptedAuditExportDeliveryContract(contract string) bool {
 	return contract == AuditExportEncryptedDeliveryContract ||
-		contract == AuditExportTransportedDeliveryContract
+		contract == AuditExportTransportedDeliveryContract ||
+		contract == AuditExportWorkloadDeliveryContract
+}
+
+func sameAuditExportWorkloadIdentityAuthorization(
+	left AuditExportWorkloadIdentityAuthorization,
+	right AuditExportWorkloadIdentityAuthorization,
+) bool {
+	return left.WorkloadID == right.WorkloadID && left.GrantSHA256 == right.GrantSHA256 &&
+		left.ClientCertificateSHA256 == right.ClientCertificateSHA256 &&
+		left.Generation == right.Generation
 }
 
 func nullAuditExportDeliveryBytes(value []byte) any {

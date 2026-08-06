@@ -1,0 +1,21 @@
+{
+  "contract": "dataground.audit-export-workload-identity-grant/ed25519/v1",
+  "content": {
+    "contract": "dataground.audit-export-workload-identity-grant/v1",
+    "isolationDomainId": "iso_00000000000000000001",
+    "workloadId": "audit-export.dispatcher",
+    "audience": "dataground.audit-export-transport",
+    "clientCertificateSha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+    "authorityId": "workload-issuer.primary",
+    "issuedAt": "2026-08-06T09:58:00Z",
+    "notBefore": "2026-08-06T09:59:00Z",
+    "expiresAt": "2026-08-06T11:00:00Z"
+  },
+  "contentSha256": "sha256:b7f115899962215193ae7ac17df7ef8ea33d997783ac97bd96bc72c27dc2f26e",
+  "issuerTrustProfileSha256": "sha256:a6e1c0bfc75bfba00417f6bda947ba8ab1b3d26d039245574165a6d4d7d92989",
+  "signature": {
+    "contract": "dataground.audit-export-workload-identity-grant-signature/ed25519/v1",
+    "keyId": "issuer_key_01",
+    "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  }
+}

@@ -149,11 +149,17 @@ const auditExportDeliveryReceiptV3 = await readJson(
 const auditExportDeliveryReceiptV4 = await readJson(
   "contracts/schemas/audit-export-delivery-receipt-v4.schema.json",
 );
+const auditExportDeliveryReceiptV5 = await readJson(
+  "contracts/schemas/audit-export-delivery-receipt-v5.schema.json",
+);
 const auditExportDeliveryDestination = await readJson(
   "contracts/schemas/audit-export-delivery-destination.schema.json",
 );
 const auditExportDeliveryDestinationV2 = await readJson(
   "contracts/schemas/audit-export-delivery-destination-v2.schema.json",
+);
+const auditExportDeliveryDestinationV3 = await readJson(
+  "contracts/schemas/audit-export-delivery-destination-v3.schema.json",
 );
 const auditExportRecipientTrust = await readJson(
   "contracts/schemas/audit-export-recipient-trust.schema.json",
@@ -176,11 +182,18 @@ const auditExportRecipientRevocationTrust = await readJson(
 const auditExportRecipientProofRevocation = await readJson(
   "contracts/schemas/audit-export-recipient-proof-revocation.schema.json",
 );
+const auditExportWorkloadIdentityTrust = await readJson(
+  "contracts/schemas/audit-export-workload-identity-trust.schema.json",
+);
+const auditExportWorkloadIdentityGrant = await readJson(
+  "contracts/schemas/audit-export-workload-identity-grant.schema.json",
+);
 assert.deepEqual(
   operatorAuditExport.$defs.safeMetadata.properties.transportContract.enum,
   [
     "dataground.audit-export-transport/s3-immutable/v1",
     "dataground.audit-export-transport/s3-immutable-mtls/v2",
+    "dataground.audit-export-transport/s3-immutable-mtls-workload/v3",
   ],
   "operator audit transport metadata must remain closed and versioned",
 );
@@ -212,8 +225,10 @@ const validateAuditExportDeliveryReceipt = ajv.compile(auditExportDeliveryReceip
 const validateAuditExportDeliveryReceiptV2 = ajv.compile(auditExportDeliveryReceiptV2);
 const validateAuditExportDeliveryReceiptV3 = ajv.compile(auditExportDeliveryReceiptV3);
 const validateAuditExportDeliveryReceiptV4 = ajv.compile(auditExportDeliveryReceiptV4);
+const validateAuditExportDeliveryReceiptV5 = ajv.compile(auditExportDeliveryReceiptV5);
 const validateAuditExportDeliveryDestination = ajv.compile(auditExportDeliveryDestination);
 const validateAuditExportDeliveryDestinationV2 = ajv.compile(auditExportDeliveryDestinationV2);
+const validateAuditExportDeliveryDestinationV3 = ajv.compile(auditExportDeliveryDestinationV3);
 const validateAuditExportRecipientTrust = ajv.compile(auditExportRecipientTrust);
 const validateAuditExportRecipientTrustV2 = ajv.compile(auditExportRecipientTrustV2);
 const validateAuditExportEncryptedPackage = ajv.compile(auditExportEncryptedPackage);
@@ -225,6 +240,8 @@ const validateAuditExportRecipientRevocationTrust = ajv.compile(
 const validateAuditExportRecipientProofRevocation = ajv.compile(
   auditExportRecipientProofRevocation,
 );
+const validateAuditExportWorkloadIdentityTrust = ajv.compile(auditExportWorkloadIdentityTrust);
+const validateAuditExportWorkloadIdentityGrant = ajv.compile(auditExportWorkloadIdentityGrant);
 const fixtureManifest = await readJson("contracts/fixtures/manifest.json");
 const validRecipientTrustFixture = await readJson(
   "contracts/fixtures/valid/audit-export-recipient-trust.json",
@@ -237,6 +254,12 @@ const validRecipientRevocationTrustFixture = await readJson(
 );
 const validDeliveryDestinationFixture = await readJson(
   "contracts/fixtures/valid/audit-export-delivery-destination.json",
+);
+const validWorkloadDestinationFixture = await readJson(
+  "contracts/fixtures/valid/audit-export-delivery-destination-workload.json",
+);
+const validWorkloadIdentityTrustFixture = await readJson(
+  "contracts/fixtures/valid/audit-export-workload-identity-trust.json",
 );
 
 for (const fixture of fixtureManifest.fixtures) {
@@ -258,10 +281,14 @@ for (const fixture of fixtureManifest.fixtures) {
     validate = validateAuditExportDeliveryReceiptV3;
   } else if (fixture.document === "audit-export-delivery-receipt-v4") {
     validate = validateAuditExportDeliveryReceiptV4;
+  } else if (fixture.document === "audit-export-delivery-receipt-v5") {
+    validate = validateAuditExportDeliveryReceiptV5;
   } else if (fixture.document === "audit-export-delivery-destination") {
     validate = validateAuditExportDeliveryDestination;
   } else if (fixture.document === "audit-export-delivery-destination-v2") {
     validate = validateAuditExportDeliveryDestinationV2;
+  } else if (fixture.document === "audit-export-delivery-destination-v3") {
+    validate = validateAuditExportDeliveryDestinationV3;
   } else if (fixture.document === "audit-export-recipient-trust") {
     validate = validateAuditExportRecipientTrust;
   } else if (fixture.document === "audit-export-recipient-trust-v2") {
@@ -276,6 +303,10 @@ for (const fixture of fixtureManifest.fixtures) {
     validate = validateAuditExportRecipientRevocationTrust;
   } else if (fixture.document === "audit-export-recipient-proof-revocation") {
     validate = validateAuditExportRecipientProofRevocation;
+  } else if (fixture.document === "audit-export-workload-identity-trust") {
+    validate = validateAuditExportWorkloadIdentityTrust;
+  } else if (fixture.document === "audit-export-workload-identity-grant") {
+    validate = validateAuditExportWorkloadIdentityGrant;
   } else {
     validate = ajv.compile({
       $ref: `urn:dataground:openapi:v1#/components/schemas/${fixture.schema}`,
@@ -339,7 +370,8 @@ for (const fixture of fixtureManifest.fixtures) {
     (fixture.document === "audit-export-delivery-receipt" ||
       fixture.document === "audit-export-delivery-receipt-v2" ||
       fixture.document === "audit-export-delivery-receipt-v3" ||
-      fixture.document === "audit-export-delivery-receipt-v4") &&
+      fixture.document === "audit-export-delivery-receipt-v4" ||
+      fixture.document === "audit-export-delivery-receipt-v5") &&
     fixture.valid
   ) {
     const digest = createHash("sha256").update(JSON.stringify(value.content)).digest("hex");
@@ -396,6 +428,39 @@ for (const fixture of fixtureManifest.fixtures) {
       `sha256:${revocationTrustDigest}`,
       `${fixture.file} must bind the revocation trust fixture`,
     );
+  }
+  if (fixture.document === "audit-export-workload-identity-grant" && fixture.valid) {
+    const digest = createHash("sha256").update(JSON.stringify(value.content)).digest("hex");
+    assert.equal(
+      value.contentSha256,
+      `sha256:${digest}`,
+      `${fixture.file} must bind its canonical content bytes`,
+    );
+    const trustDigest = createHash("sha256")
+      .update(`${JSON.stringify(validWorkloadIdentityTrustFixture)}\n`)
+      .digest("hex");
+    assert.equal(
+      value.issuerTrustProfileSha256,
+      `sha256:${trustDigest}`,
+      `${fixture.file} must bind the workload identity trust fixture`,
+    );
+  }
+  if (fixture.document === "audit-export-delivery-receipt-v5" && fixture.valid) {
+    const destinationDigest = createHash("sha256")
+      .update(`${JSON.stringify(validWorkloadDestinationFixture)}\n`)
+      .digest("hex");
+    const objectDigest = validWorkloadDestinationFixture.objectKey
+      .split("/")
+      .at(-1)
+      .replace(/\.json$/, "");
+    assert.equal(value.content.destinationSha256, `sha256:${destinationDigest}`);
+    assert.equal(value.content.encryptedPackageSha256, `sha256:${objectDigest}`);
+    assert.equal(value.content.deliveryId, validWorkloadDestinationFixture.deliveryId);
+    assert.equal(
+      value.content.isolationDomainId,
+      validWorkloadDestinationFixture.isolationDomainId,
+    );
+    assert.equal(value.content.recipientId, validWorkloadDestinationFixture.recipientId);
   }
 }
 

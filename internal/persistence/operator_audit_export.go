@@ -216,7 +216,7 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 	case "sensitive":
 		_, ok := value.(bool)
 		return ok
-	case "generation", "recipientTrustGeneration":
+	case "generation", "recipientTrustGeneration", "workloadIdentityGeneration":
 		return validOperatorAuditInteger(value, 1)
 	case "recipientTrustKeyCount", "recipientEncryptionKeyCount":
 		return validOperatorAuditIntegerRange(value, 0, 8)
@@ -228,11 +228,12 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 		return false
 	}
 	switch key {
-	case "acknowledgementDigest", "artifactDigest", "bindingDigest", "destinationDigest",
+	case "acknowledgementDigest", "artifactDigest", "bindingDigest", "clientCertificateSha256", "destinationDigest",
 		"encryptedPackageDigest", "envelopeDigest", "identityDigest", "planDigest", "policyDigest",
 		"providerRegistrySha256", "publicationPathDigest", "reasonDigest",
 		"recipientIdentityProofSha256", "recipientProofRevocationSha256",
-		"recipientProofingTrustProfileSha256", "recipientTrustProfileSha256", "trustProfileSha256":
+		"recipientProofingTrustProfileSha256", "recipientTrustProfileSha256", "trustProfileSha256",
+		"workloadIdentityGrantSha256":
 		return operatorAuditDigest.MatchString(text)
 	case "principalId":
 		return operatorAuditResourceID.MatchString(text)
@@ -243,9 +244,11 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 		return validOperatorAuditText(text, 128)
 	case "artifactKind":
 		return operatorAuditVocabulary.MatchString(text)
-	case "providerId", "recipientProofingAuthorityId", "recipientRevocationAuthorityId":
+	case "providerId", "recipientProofingAuthorityId", "recipientRevocationAuthorityId",
+		"workloadIdentityAuthorityId":
 		return operatorAuditProviderID.MatchString(text)
-	case "recipientIdentityProofExpiresAt", "recipientProofRevocationEffectiveAt":
+	case "recipientIdentityProofExpiresAt", "recipientProofRevocationEffectiveAt",
+		"workloadIdentityExpiresAt":
 		parsed, err := time.Parse(time.RFC3339Nano, text)
 		return err == nil && parsed.Equal(parsed.UTC())
 	case "recipientProofingSigningKeyId", "recipientEncryptionKeyId":
@@ -256,7 +259,7 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 		return text == "discovery" || text == "jwks"
 	case "exportKind":
 		return text == "authorization" || text == "operator"
-	case "recipientId":
+	case "recipientId", "workloadId":
 		return operatorAuditProviderID.MatchString(text)
 	case "recipientSigningKeyId", "signingKeyId":
 		return operatorAuditResourceID.MatchString(text)

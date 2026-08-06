@@ -29,12 +29,12 @@ func TestAuditExportDeliveryValidationClosesIdentityAndAttribution(t *testing.T)
 	if !validStoredAuditExportDelivery(stored) {
 		t.Fatal("receipt-verified stored delivery was rejected")
 	}
-	stored.Contract = "dataground.audit-export-delivery/v6"
+	stored.Contract = "dataground.audit-export-delivery/v7"
 	if validStoredAuditExportDelivery(stored) {
 		t.Fatal("unknown stored delivery contract was accepted")
 	}
 	for name, mutate := range map[string]func(*AuditExportDelivery){
-		"wrong contract":        func(value *AuditExportDelivery) { value.Contract = "dataground.audit-export-delivery/v6" },
+		"wrong contract":        func(value *AuditExportDelivery) { value.Contract = "dataground.audit-export-delivery/v7" },
 		"cross-kind export":     func(value *AuditExportDelivery) { value.ExportID = "aex_00000000000000000001" },
 		"short envelope digest": func(value *AuditExportDelivery) { value.EnvelopeDigest = value.EnvelopeDigest[:31] },
 		"invalid trust digest":  func(value *AuditExportDelivery) { value.TrustProfileSHA256 = "sha256:bad" },
@@ -97,6 +97,17 @@ func TestAuditExportDeliveryValidationClosesIdentityAndAttribution(t *testing.T)
 	transportedAcknowledgement.ReceiptContract = auditExportTransportedDeliveryReceiptContract
 	if !transportedAcknowledgement.Valid() {
 		t.Fatal("valid transported acknowledgement was rejected")
+	}
+	workload := cloneAuditExportDelivery(encrypted)
+	workload.Contract = AuditExportWorkloadDeliveryContract
+	if !workload.Valid() || !validStoredAuditExportDelivery(workload) {
+		t.Fatal("valid workload-authorized delivery was rejected")
+	}
+	workloadAcknowledgement := encryptedAcknowledgement
+	workloadAcknowledgement.DeliveryContract = AuditExportWorkloadDeliveryContract
+	workloadAcknowledgement.ReceiptContract = auditExportWorkloadDeliveryReceiptContract
+	if !workloadAcknowledgement.Valid() {
+		t.Fatal("valid workload-authorized acknowledgement was rejected")
 	}
 	legacyAcknowledgement := acknowledgement
 	legacyAcknowledgement.DeliveryContract = AuditExportDeliveryReceiptVerifiedContract

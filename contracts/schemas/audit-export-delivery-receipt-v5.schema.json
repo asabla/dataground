@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dataground:schema:audit-export-delivery-receipt:v5",
+  "title": "DataGround workload-authorized encrypted audit export delivery receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "content", "contentSha256", "recipientTrustProfileSha256", "signature"],
+  "properties": {
+    "contract": { "const": "dataground.audit-export-delivery-receipt/ed25519/v5" },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deliveryContract",
+        "deliveryId",
+        "isolationDomainId",
+        "exportKind",
+        "exportId",
+        "envelopeSha256",
+        "exportSha256",
+        "exportTrustProfileSha256",
+        "exportSigningKeyId",
+        "recipientId",
+        "destinationSha256",
+        "encryptedPackageSha256",
+        "recipientEncryptionKeyId",
+        "recipientTrustGeneration",
+        "acceptedAt"
+      ],
+      "properties": {
+        "deliveryContract": { "const": "dataground.audit-export-delivery/v6" },
+        "deliveryId": { "type": "string", "pattern": "^adl_[0-9a-z]{20,32}$" },
+        "isolationDomainId": { "type": "string", "pattern": "^iso_[0-9a-z]{20,32}$" },
+        "exportKind": { "enum": ["authorization", "operator"] },
+        "exportId": { "type": "string", "pattern": "^(?:aex|oax)_[0-9a-z]{20,32}$" },
+        "envelopeSha256": { "$ref": "#/$defs/sha256" },
+        "exportSha256": { "$ref": "#/$defs/sha256" },
+        "exportTrustProfileSha256": { "$ref": "#/$defs/sha256" },
+        "exportSigningKeyId": { "$ref": "#/$defs/keyId" },
+        "recipientId": { "$ref": "#/$defs/recipientId" },
+        "destinationSha256": { "$ref": "#/$defs/sha256" },
+        "encryptedPackageSha256": { "$ref": "#/$defs/sha256" },
+        "recipientEncryptionKeyId": { "$ref": "#/$defs/keyId" },
+        "recipientTrustGeneration": { "type": "integer", "minimum": 1 },
+        "acceptedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,6})?Z$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "exportKind": { "const": "authorization" } },
+            "required": ["exportKind"]
+          },
+          "then": { "properties": { "exportId": { "pattern": "^aex_[0-9a-z]{20,32}$" } } },
+          "else": { "properties": { "exportId": { "pattern": "^oax_[0-9a-z]{20,32}$" } } }
+        }
+      ]
+    },
+    "contentSha256": { "$ref": "#/$defs/sha256" },
+    "recipientTrustProfileSha256": { "$ref": "#/$defs/sha256" },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "keyId", "signature"],
+      "properties": {
+        "contract": { "const": "dataground.audit-export-delivery-receipt-signature/ed25519/v5" },
+        "keyId": { "$ref": "#/$defs/keyId" },
+        "signature": { "type": "string", "pattern": "^[A-Za-z0-9_-]{86}$" }
+      }
+    }
+  },
+  "$defs": {
+    "keyId": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{2,63}$" },
+    "recipientId": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,127}$" },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

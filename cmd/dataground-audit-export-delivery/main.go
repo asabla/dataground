@@ -186,7 +186,7 @@ func parseArguments(arguments []string) (commandRequest, error) {
 	flags.StringVar(
 		&request.deliveryContract,
 		"delivery-contract",
-		persistence.AuditExportTransportedDeliveryContract,
+		persistence.AuditExportWorkloadDeliveryContract,
 		"versioned encrypted delivery contract",
 	)
 	flags.StringVar(&request.deliveryID, "delivery-id", "", "stable audit export delivery identifier")
@@ -218,13 +218,14 @@ func parseArguments(arguments []string) (commandRequest, error) {
 	}
 	switch request.operation {
 	case "prepare":
-		if request.deliveryContract != persistence.AuditExportTransportedDeliveryContract ||
+		if request.deliveryContract != persistence.AuditExportWorkloadDeliveryContract ||
 			request.receiptFile != "" || request.encryptedFile == "" || request.recipientTrustFile == "" {
 			return commandRequest{}, errors.New("audit export delivery preparation arguments are invalid")
 		}
 	case "acknowledge":
 		if (request.deliveryContract != persistence.AuditExportEncryptedDeliveryContract &&
-			request.deliveryContract != persistence.AuditExportTransportedDeliveryContract) ||
+			request.deliveryContract != persistence.AuditExportTransportedDeliveryContract &&
+			request.deliveryContract != persistence.AuditExportWorkloadDeliveryContract) ||
 			request.encryptedFile == "" || request.receiptFile == "" || request.recipientTrustFile == "" ||
 			request.receiptFile == request.recipientTrustFile || request.receiptFile == request.envelopeFile ||
 			request.receiptFile == request.trustFile || request.recipientTrustFile == request.envelopeFile ||

@@ -1,0 +1,10 @@
+{
+  "contract": "dataground.audit-export-workload-identity-trust/ed25519/v1",
+  "authorityId": "workload-issuer.primary",
+  "keys": [
+    {
+      "keyId": "issuer_key_01",
+      "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
+  ]
+}

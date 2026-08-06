@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dataground:schema:audit-export-workload-identity-trust:v1",
+  "title": "DataGround audit export workload identity issuer trust profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "authorityId", "keys"],
+  "properties": {
+    "contract": { "const": "dataground.audit-export-workload-identity-trust/ed25519/v1" },
+    "authorityId": { "$ref": "#/$defs/partyId" },
+    "keys": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["keyId", "publicKey"],
+        "properties": {
+          "keyId": { "$ref": "#/$defs/keyId" },
+          "publicKey": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "keyId": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{2,63}$" },
+    "partyId": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,127}$" }
+  }
+}

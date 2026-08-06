@@ -1,0 +1,27 @@
+{
+  "contract": "dataground.audit-export-delivery-receipt/ed25519/v5",
+  "content": {
+    "deliveryContract": "dataground.audit-export-delivery/v6",
+    "deliveryId": "adl_00000000000000000001",
+    "isolationDomainId": "iso_00000000000000000001",
+    "exportKind": "authorization",
+    "exportId": "aex_00000000000000000001",
+    "envelopeSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "exportSha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "exportTrustProfileSha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "exportSigningKeyId": "audit_key_01",
+    "recipientId": "archive.primary",
+    "destinationSha256": "sha256:76d651b1d8be16baf92e7ec5108a3c565cb248475ce2831d3ab1cc301da1f31b",
+    "encryptedPackageSha256": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+    "recipientEncryptionKeyId": "archive_encryption_key_01",
+    "recipientTrustGeneration": 7,
+    "acceptedAt": "2026-08-06T10:30:00Z"
+  },
+  "contentSha256": "sha256:109845a50d775bcbe86400a725f9d370acf19d8423b45561665c466ee1cea90d",
+  "recipientTrustProfileSha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+  "signature": {
+    "contract": "dataground.audit-export-delivery-receipt-signature/ed25519/v5",
+    "keyId": "archive_signing_key_01",
+    "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  }
+}

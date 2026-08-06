@@ -66,7 +66,7 @@ func TestParseArgumentsAcceptsEncryptedPreparation(t *testing.T) {
 		"-correlation-id", "cor_00000000000000000001",
 	})
 	if err != nil || request.encryptedFile == "" || request.recipientTrustFile == "" ||
-		request.deliveryContract != persistence.AuditExportTransportedDeliveryContract {
+		request.deliveryContract != persistence.AuditExportWorkloadDeliveryContract {
 		t.Fatalf("encrypted preparation request = %#v; error = %v", request, err)
 	}
 }

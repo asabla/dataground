@@ -19,6 +19,7 @@ import (
 func TestParseArgumentsRequiresDistinctCompleteEvidence(t *testing.T) {
 	digest := "sha256:" + strings.Repeat("1", 64)
 	base := []string{
+		"-delivery-contract", persistence.AuditExportTransportedDeliveryContract,
 		"-delivery-id", "adl_00000000000000000001",
 		"-isolation-domain", "iso_00000000000000000001",
 		"-envelope-file", "/run/dataground/audit/envelope.json",
@@ -48,6 +49,40 @@ func TestParseArgumentsRequiresDistinctCompleteEvidence(t *testing.T) {
 				t.Fatal("invalid arguments were accepted")
 			}
 		})
+	}
+}
+
+func TestParseArgumentsRequiresMTLSForWorkloadDelivery(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("1", 64)
+	base := []string{
+		"-delivery-id", "adl_00000000000000000001",
+		"-isolation-domain", "iso_00000000000000000001",
+		"-envelope-file", "/run/dataground/audit/envelope.json",
+		"-encrypted-file", "/run/dataground/audit/encrypted.json",
+		"-trust-file", "/run/dataground/audit/trust.json",
+		"-recipient-trust-file", "/run/dataground/audit/recipient-trust.json",
+		"-recipient", "archive.primary",
+		"-destination-file", "/run/dataground/audit/destination.json",
+		"-destination-sha256", digest,
+		"-actor", "operator@example.invalid",
+		"-reason", "transport encrypted export",
+		"-correlation-id", "cor_00000000000000000001",
+		"-workload-identity-grant-file", "/run/dataground/audit/workload-grant.json",
+		"-workload-identity-trust-file", "/run/dataground/audit/workload-trust.json",
+	}
+	if _, err := parseArguments(base); err == nil {
+		t.Fatal("workload delivery without mTLS evidence was accepted")
+	}
+	complete := append(append([]string{}, base...),
+		"-client-certificate-file", "/run/dataground/audit/client.pem",
+		"-client-private-key-file", "/run/dataground/audit/client-key.pem",
+		"-server-trust-bundle-file", "/run/dataground/audit/server-ca.pem",
+	)
+	if _, err := parseArguments(complete); err != nil {
+		t.Fatalf("complete workload delivery arguments: %v", err)
+	}
+	if _, err := parseArguments(append(append([]string{}, complete...), "-allow-loopback-http")); err == nil {
+		t.Fatal("workload delivery accepted loopback HTTP downgrade")
 	}
 }
 
@@ -82,7 +117,8 @@ func TestExecuteTransportCompletesOnlyAfterExactReadBack(t *testing.T) {
 	store := &transportObjectStoreStub{}
 	if err := executeTransport(
 		context.Background(), repository, store, delivery,
-		persistence.AuditExportDeliveryTransportContract, attribution, path,
+		persistence.AuditExportDeliveryTransportContract,
+		persistence.AuditExportWorkloadIdentityAuthorization{}, attribution, path,
 		"audit-export-deliveries/v1/iso_00000000000000000001/"+
 			"adl_00000000000000000001/"+strings.Repeat("5", 64)+".json",
 	); err != nil {
@@ -95,7 +131,8 @@ func TestExecuteTransportCompletesOnlyAfterExactReadBack(t *testing.T) {
 	repository.completed = 0
 	if err := executeTransport(
 		context.Background(), repository, store, delivery,
-		persistence.AuditExportDeliveryTransportContract, attribution, path, "object",
+		persistence.AuditExportDeliveryTransportContract,
+		persistence.AuditExportWorkloadIdentityAuthorization{}, attribution, path, "object",
 	); !errors.Is(err, audittransport.ErrObjectUnavailable) {
 		t.Fatalf("error = %v", err)
 	}
@@ -155,20 +192,22 @@ type transportRepositoryStub struct {
 	completed int
 }
 
-func (repository *transportRepositoryStub) ReserveAuditExportDeliveryTransport(
+func (repository *transportRepositoryStub) ReserveAuditExportDeliveryTransportWithWorkloadIdentity(
 	context.Context,
 	persistence.AuditExportDelivery,
 	string,
+	persistence.AuditExportWorkloadIdentityAuthorization,
 	persistence.AuditExportDeliveryAttribution,
 ) error {
 	repository.reserved++
 	return nil
 }
 
-func (repository *transportRepositoryStub) CompleteAuditExportDeliveryTransport(
+func (repository *transportRepositoryStub) CompleteAuditExportDeliveryTransportWithWorkloadIdentity(
 	context.Context,
 	persistence.AuditExportDelivery,
 	string,
+	persistence.AuditExportWorkloadIdentityAuthorization,
 	persistence.AuditExportDeliveryAttribution,
 ) error {
 	repository.completed++
