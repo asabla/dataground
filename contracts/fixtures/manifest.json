@@ -79,6 +79,12 @@
       "valid": true
     },
     {
+      "file": "valid/audit-export-delivery-receipt-v5.json",
+      "schema": "AuditExportDeliveryReceiptV5",
+      "document": "audit-export-delivery-receipt-v5",
+      "valid": true
+    },
+    {
       "file": "valid/audit-export-delivery-destination.json",
       "schema": "AuditExportDeliveryDestination",
       "document": "audit-export-delivery-destination",
@@ -88,6 +94,12 @@
       "file": "valid/audit-export-delivery-destination-mtls.json",
       "schema": "AuditExportDeliveryDestinationV2",
       "document": "audit-export-delivery-destination-v2",
+      "valid": true
+    },
+    {
+      "file": "valid/audit-export-delivery-destination-workload.json",
+      "schema": "AuditExportDeliveryDestinationV3",
+      "document": "audit-export-delivery-destination-v3",
       "valid": true
     },
     {
@@ -130,6 +142,18 @@
       "file": "valid/audit-export-recipient-proof-revocation.json",
       "schema": "AuditExportRecipientProofRevocation",
       "document": "audit-export-recipient-proof-revocation",
+      "valid": true
+    },
+    {
+      "file": "valid/audit-export-workload-identity-trust.json",
+      "schema": "AuditExportWorkloadIdentityTrust",
+      "document": "audit-export-workload-identity-trust",
+      "valid": true
+    },
+    {
+      "file": "valid/audit-export-workload-identity-grant.json",
+      "schema": "AuditExportWorkloadIdentityGrant",
+      "document": "audit-export-workload-identity-grant",
       "valid": true
     },
     {

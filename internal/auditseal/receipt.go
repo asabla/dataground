@@ -23,6 +23,8 @@ const (
 	EncryptedDeliveryReceiptSignatureContract   = "dataground.audit-export-delivery-receipt-signature/ed25519/v3"
 	TransportedDeliveryReceiptContract          = "dataground.audit-export-delivery-receipt/ed25519/v4"
 	TransportedDeliveryReceiptSignatureContract = "dataground.audit-export-delivery-receipt-signature/ed25519/v4"
+	WorkloadDeliveryReceiptContract             = "dataground.audit-export-delivery-receipt/ed25519/v5"
+	WorkloadDeliveryReceiptSignatureContract    = "dataground.audit-export-delivery-receipt-signature/ed25519/v5"
 	RecipientTrustContract                      = "dataground.audit-export-recipient-trust/ed25519/v1"
 	RecipientEncryptionTrustContract            = "dataground.audit-export-recipient-trust/ed25519-x25519/v2"
 
@@ -31,6 +33,7 @@ const (
 	deliveryReceiptDomain                  = "DataGround audit export delivery receipt v2\n"
 	encryptedDeliveryReceiptDomain         = "DataGround audit export delivery receipt v3\n"
 	transportedDeliveryReceiptDomain       = "DataGround audit export delivery receipt v4\n"
+	workloadDeliveryReceiptDomain          = "DataGround audit export delivery receipt v5\n"
 	legacyDeliveryReceiptDomain            = "DataGround audit export delivery receipt v1\n"
 )
 
@@ -281,6 +284,8 @@ func verifyDeliveryReceiptSignature(receipt DeliveryReceipt, trust RecipientTrus
 		expectedSignatureContract = EncryptedDeliveryReceiptSignatureContract
 	} else if receipt.Contract == TransportedDeliveryReceiptContract {
 		expectedSignatureContract = TransportedDeliveryReceiptSignatureContract
+	} else if receipt.Contract == WorkloadDeliveryReceiptContract {
+		expectedSignatureContract = WorkloadDeliveryReceiptSignatureContract
 	}
 	if receipt.Signature.Contract != expectedSignatureContract ||
 		!keyIDPattern.MatchString(receipt.Signature.KeyID) {
@@ -333,6 +338,8 @@ func deliveryReceiptSigningMessage(receipt DeliveryReceipt) ([]byte, error) {
 		domain = encryptedDeliveryReceiptDomain
 	} else if receipt.Contract == TransportedDeliveryReceiptContract {
 		domain = transportedDeliveryReceiptDomain
+	} else if receipt.Contract == WorkloadDeliveryReceiptContract {
+		domain = workloadDeliveryReceiptDomain
 	}
 	message := make([]byte, 0, len(domain)+len(canonical))
 	message = append(message, domain...)
@@ -359,7 +366,8 @@ func sameDeliveryReceiptContent(content DeliveryReceiptContent, delivery persist
 		return false
 	}
 	if delivery.Contract == persistence.AuditExportEncryptedDeliveryContract ||
-		delivery.Contract == persistence.AuditExportTransportedDeliveryContract {
+		delivery.Contract == persistence.AuditExportTransportedDeliveryContract ||
+		delivery.Contract == persistence.AuditExportWorkloadDeliveryContract {
 		return content.EncryptedPackageSHA256 == digestStringFromBytes(delivery.EncryptedPackageDigest) &&
 			content.RecipientEncryptionKeyID == delivery.RecipientEncryptionKeyID &&
 			content.RecipientTrustGeneration > 0
@@ -370,6 +378,8 @@ func sameDeliveryReceiptContent(content DeliveryReceiptContent, delivery persist
 
 func validDeliveryReceiptVersion(receipt DeliveryReceipt) bool {
 	switch receipt.Contract {
+	case WorkloadDeliveryReceiptContract:
+		return receipt.Content.DeliveryContract == persistence.AuditExportWorkloadDeliveryContract
 	case TransportedDeliveryReceiptContract:
 		return receipt.Content.DeliveryContract == persistence.AuditExportTransportedDeliveryContract
 	case EncryptedDeliveryReceiptContract:

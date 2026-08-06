@@ -57,6 +57,7 @@
         "artifactDigest": { "$ref": "#/$defs/digest" },
         "artifactKind": { "type": "string", "pattern": "^[a-z][a-z0-9.-]{0,127}$" },
         "bindingDigest": { "$ref": "#/$defs/digest" },
+        "clientCertificateSha256": { "$ref": "#/$defs/digest" },
         "destinationDigest": { "$ref": "#/$defs/digest" },
         "endpoint": { "enum": ["discovery", "jwks"] },
         "envelopeDigest": { "$ref": "#/$defs/digest" },
@@ -106,10 +107,19 @@
         "transportContract": {
           "enum": [
             "dataground.audit-export-transport/s3-immutable/v1",
-            "dataground.audit-export-transport/s3-immutable-mtls/v2"
+            "dataground.audit-export-transport/s3-immutable-mtls/v2",
+            "dataground.audit-export-transport/s3-immutable-mtls-workload/v3"
           ]
         },
-        "trustProfileSha256": { "$ref": "#/$defs/digest" }
+        "trustProfileSha256": { "$ref": "#/$defs/digest" },
+        "workloadId": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,127}$" },
+        "workloadIdentityAuthorityId": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{0,127}$"
+        },
+        "workloadIdentityExpiresAt": { "type": "string", "format": "date-time" },
+        "workloadIdentityGeneration": { "type": "integer", "minimum": 1 },
+        "workloadIdentityGrantSha256": { "$ref": "#/$defs/digest" }
       }
     },
     "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },

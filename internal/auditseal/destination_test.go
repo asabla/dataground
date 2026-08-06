@@ -122,3 +122,56 @@ func TestVerifyDeliveryDestinationFileBindsMTLSIdentity(t *testing.T) {
 		t.Fatal("mTLS destination without bound server trust was accepted")
 	}
 }
+
+func TestVerifyDeliveryDestinationFileBindsWorkloadAuthorization(t *testing.T) {
+	destination := DeliveryDestination{
+		Contract:   DeliveryDestinationWorkloadContract,
+		DeliveryID: "adl_00000000000000000001", IsolationDomainID: "iso_00000000000000000001",
+		RecipientID:       "archive.primary",
+		TransportContract: persistence.AuditExportDeliveryWorkloadTransportContract,
+		Endpoint:          "https://archive.internal.example", Bucket: "dataground-audit",
+		AddressingStyle: "virtual-hosted",
+		ObjectKey: "audit-export-deliveries/v1/iso_00000000000000000001/" +
+			"adl_00000000000000000001/" + strings.Repeat("5", 64) + ".json",
+		ClientCertificateSHA256:     "sha256:" + strings.Repeat("6", 64),
+		ServerTrustSHA256:           "sha256:" + strings.Repeat("7", 64),
+		WorkloadID:                  "audit-export.dispatcher",
+		WorkloadIdentityGrantSHA256: "sha256:" + strings.Repeat("8", 64),
+		WorkloadIdentityGeneration:  1,
+	}
+	encoded, err := canonicalJSON(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "destination.json")
+	writePrivate(t, path, encoded)
+	digest := sha256.Sum256(encoded)
+	delivery := persistence.AuditExportDelivery{
+		Contract:   persistence.AuditExportWorkloadDeliveryContract,
+		DeliveryID: destination.DeliveryID, IsolationDomainID: destination.IsolationDomainID,
+		ExportKind: "operator", ExportID: "oax_00000000000000000001",
+		EnvelopeDigest: digest[:], ExportSHA256: "sha256:" + strings.Repeat("1", 64),
+		TrustProfileSHA256: "sha256:" + strings.Repeat("2", 64), SigningKeyID: "audit_key_01",
+		RecipientID: destination.RecipientID, DestinationDigest: digest[:],
+		EncryptedPackageDigest:      bytes.Repeat([]byte{0x55}, sha256.Size),
+		RecipientTrustProfileSHA256: "sha256:" + strings.Repeat("3", 64),
+		RecipientEncryptionKeyID:    "archive_encryption_key_01",
+	}
+	verified, err := VerifyDeliveryDestinationFile(path, delivery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verified.WorkloadID != destination.WorkloadID ||
+		verified.WorkloadIdentityGrantSHA256 != destination.WorkloadIdentityGrantSHA256 ||
+		verified.WorkloadIdentityGeneration != destination.WorkloadIdentityGeneration {
+		t.Fatalf("verified destination = %#v", verified)
+	}
+	delivery.Contract = persistence.AuditExportTransportedDeliveryContract
+	if _, err := VerifyDeliveryDestinationFile(path, delivery); err == nil {
+		t.Fatal("workload destination was accepted for a historical delivery")
+	}
+}

@@ -62,8 +62,8 @@ func TestAuditExportDeliveryAcknowledgementIsScopedReplayableAndAudited(t *testi
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       acknowledgementDigest[:],
-		DeliveryContract:            persistence.AuditExportTransportedDeliveryContract,
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v4",
+		DeliveryContract:            persistence.AuditExportWorkloadDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v5",
 		RecipientTrustProfileSHA256: "sha256:" + strings.Repeat("3", 64),
 		RecipientSigningKeyID:       "archive_key_01",
 		RecipientTrustGeneration:    1,
@@ -121,12 +121,13 @@ func TestAuditExportDeliveryAcknowledgementIsScopedReplayableAndAudited(t *testi
 	if err != nil {
 		t.Fatalf("export delivery audit: %v", err)
 	}
-	if !exported.Complete || len(exported.Records) != 5 ||
+	if !exported.Complete || len(exported.Records) != 6 ||
 		exported.Records[0].Action != "audit-export-recipient-trust.activate" ||
-		exported.Records[1].Action != "audit-export-delivery.prepare" ||
-		exported.Records[2].Action != "audit-export-delivery.transport" ||
-		exported.Records[3].Action != "audit-export-delivery.transport-complete" ||
-		exported.Records[4].Action != "audit-export-delivery.acknowledge" {
+		exported.Records[1].Action != "audit-export-workload-identity.activate" ||
+		exported.Records[2].Action != "audit-export-delivery.prepare" ||
+		exported.Records[3].Action != "audit-export-delivery.transport" ||
+		exported.Records[4].Action != "audit-export-delivery.transport-complete" ||
+		exported.Records[5].Action != "audit-export-delivery.acknowledge" {
 		t.Fatalf("delivery audit export = %#v", exported)
 	}
 	revocation := auditExportRecipientTrustChange(delivery, "revoke", 2,
@@ -227,8 +228,8 @@ func TestAuditExportDeliveryRequiresCompletedTransportBeforeAcknowledgement(t *t
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       acknowledgementDigest[:],
-		DeliveryContract:            persistence.AuditExportTransportedDeliveryContract,
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v4",
+		DeliveryContract:            persistence.AuditExportWorkloadDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v5",
 		RecipientTrustProfileSHA256: "sha256:" + strings.Repeat("3", 64),
 		RecipientSigningKeyID:       "archive_key_01", RecipientTrustGeneration: 1,
 		AcceptedAt: time.Now().UTC().Truncate(time.Microsecond),
@@ -242,16 +243,18 @@ func TestAuditExportDeliveryRequiresCompletedTransportBeforeAcknowledgement(t *t
 	transportAttribution := auditExportDeliveryAttribution(
 		"transport delivery", "cor_00000000000000000030",
 	)
-	if err := repository.ReserveAuditExportDeliveryTransport(
-		ctx, delivery, persistence.AuditExportDeliveryTransportContract, transportAttribution,
+	if err := repository.ReserveAuditExportDeliveryTransportWithWorkloadIdentity(
+		ctx, delivery, persistence.AuditExportDeliveryWorkloadTransportContract,
+		auditExportWorkloadIdentityAuthorization(), transportAttribution,
 	); err != nil {
 		t.Fatal(err)
 	}
 	if err := repository.AcknowledgeAuditExportDelivery(ctx, delivery, acknowledgement); !errors.Is(err, persistence.ErrAuditExportDeliveryConflict) {
 		t.Fatalf("acknowledgement during transport error = %v", err)
 	}
-	if err := repository.CompleteAuditExportDeliveryTransport(
-		ctx, delivery, persistence.AuditExportDeliveryTransportContract, transportAttribution,
+	if err := repository.CompleteAuditExportDeliveryTransportWithWorkloadIdentity(
+		ctx, delivery, persistence.AuditExportDeliveryWorkloadTransportContract,
+		auditExportWorkloadIdentityAuthorization(), transportAttribution,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -289,8 +292,9 @@ func TestAuditExportDeliveryTransportRequiresCurrentRecipientTrust(t *testing.T)
 	transport := auditExportDeliveryAttribution(
 		"transport delivery", "cor_00000000000000000030",
 	)
-	if err := repository.ReserveAuditExportDeliveryTransport(
-		ctx, delivery, persistence.AuditExportDeliveryTransportContract, transport,
+	if err := repository.ReserveAuditExportDeliveryTransportWithWorkloadIdentity(
+		ctx, delivery, persistence.AuditExportDeliveryWorkloadTransportContract,
+		auditExportWorkloadIdentityAuthorization(), transport,
 	); !errors.Is(err, persistence.ErrAuditExportRecipientTrustUnauthorized) {
 		t.Fatalf("transport under revoked trust error = %v", err)
 	}
@@ -314,6 +318,88 @@ func TestAuditExportDeliveryTransportRequiresCurrentRecipientTrust(t *testing.T)
 	}
 }
 
+func TestAuditExportDeliveryTransportRequiresCurrentWorkloadIdentity(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := resetOperatorAuditDatabase(t, ctx)
+	defer pool.Close()
+	repository := persistence.NewRepository(pool)
+	delivery := auditExportDeliveryFixture("adl_00000000000000000001")
+	activateAuditExportRecipientTrust(
+		t, ctx, repository, delivery, 1, "sha256:"+strings.Repeat("3", 64),
+		"cor_00000000000000000009",
+	)
+	if err := repository.PrepareAuditExportDelivery(
+		ctx, delivery,
+		auditExportDeliveryAttribution("prepare delivery", "cor_00000000000000000001"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	reasonDigest := sha256.Sum256([]byte("revoke audit export workload identity"))
+	revocation := persistence.AuditExportWorkloadIdentityChange{
+		Contract:  persistence.AuditExportWorkloadIdentityAuthorizationContract,
+		Operation: "revoke", IsolationDomainID: delivery.IsolationDomainID,
+		WorkloadID: "audit-export.dispatcher", Generation: 2,
+		GrantSHA256:             "sha256:" + strings.Repeat("8", 64),
+		ClientCertificateSHA256: "sha256:" + strings.Repeat("6", 64),
+		ActorID:                 "operator@example.invalid", ReasonDigest: reasonDigest[:],
+		CorrelationID: "cor_00000000000000000029",
+	}
+	if err := repository.ChangeAuditExportWorkloadIdentity(ctx, revocation); err != nil {
+		t.Fatal(err)
+	}
+	attribution := auditExportDeliveryAttribution(
+		"transport delivery", "cor_00000000000000000030",
+	)
+	if err := repository.ReserveAuditExportDeliveryTransportWithWorkloadIdentity(
+		ctx, delivery, persistence.AuditExportDeliveryWorkloadTransportContract,
+		auditExportWorkloadIdentityAuthorization(), attribution,
+	); !errors.Is(err, persistence.ErrAuditExportWorkloadIdentityUnauthorized) {
+		t.Fatalf("transport under revoked workload identity error = %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO audit_export_delivery_operations (
+			delivery_id, operation, isolation_domain_id, actor_id, correlation_id,
+			reason_digest, evidence_digest
+		) VALUES ($1, 'transport', $2, $3, $4, $5, $6)
+	`, delivery.DeliveryID, delivery.IsolationDomainID, attribution.ActorID,
+		attribution.CorrelationID, attribution.ReasonDigest, delivery.EncryptedPackageDigest); err != nil {
+		t.Fatalf("install direct transport operation fixture: %v", err)
+	}
+	authorization := auditExportWorkloadIdentityAuthorization()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO audit_export_delivery_transports (
+			delivery_id, isolation_domain_id, transport_contract, destination_digest,
+			encrypted_package_digest, workload_id, workload_identity_grant_sha256,
+			workload_identity_generation, client_certificate_sha256
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, delivery.DeliveryID, delivery.IsolationDomainID,
+		persistence.AuditExportDeliveryWorkloadTransportContract, delivery.DestinationDigest,
+		delivery.EncryptedPackageDigest, authorization.WorkloadID, authorization.GrantSHA256,
+		authorization.Generation, authorization.ClientCertificateSHA256); err == nil {
+		t.Fatal("direct SQL transport bypassed workload identity revocation")
+	}
+}
+
+func TestAuditExportWorkloadIdentityRejectsIncompleteDirectActivation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := resetOperatorAuditDatabase(t, ctx)
+	defer pool.Close()
+	reasonDigest := sha256.Sum256([]byte("incomplete workload identity"))
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO audit_export_workload_identity_events (
+			isolation_domain_id, workload_id, generation, authorization_contract, operation,
+			grant_sha256, client_certificate_sha256, actor_id, reason_digest, correlation_id
+		) VALUES ($1, $2, 1, $3, 'activate', $4, $5, $6, $7, $8)
+	`, "iso_00000000000000000001", "audit-export.dispatcher",
+		persistence.AuditExportWorkloadIdentityAuthorizationContract,
+		"sha256:"+strings.Repeat("8", 64), "sha256:"+strings.Repeat("6", 64),
+		"operator@example.invalid", reasonDigest[:], "cor_00000000000000000031"); err == nil {
+		t.Fatal("direct SQL installed an incomplete workload identity activation")
+	}
+}
+
 func TestAuditExportDeliveryMTLSTransportPersistsExactContract(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -334,18 +420,23 @@ func TestAuditExportDeliveryMTLSTransportPersistsExactContract(t *testing.T) {
 	attribution := auditExportDeliveryAttribution(
 		"transport delivery", "cor_00000000000000000030",
 	)
-	if err := repository.ReserveAuditExportDeliveryTransport(
-		ctx, delivery, persistence.AuditExportDeliveryMTLSTransportContract, attribution,
+	if err := repository.ReserveAuditExportDeliveryTransportWithWorkloadIdentity(
+		ctx, delivery, persistence.AuditExportDeliveryWorkloadTransportContract,
+		auditExportWorkloadIdentityAuthorization(), attribution,
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.ReserveAuditExportDeliveryTransport(
-		ctx, delivery, persistence.AuditExportDeliveryTransportContract, attribution,
+	changedIdentity := auditExportWorkloadIdentityAuthorization()
+	changedIdentity.GrantSHA256 = "sha256:" + strings.Repeat("7", 64)
+	if err := repository.ReserveAuditExportDeliveryTransportWithWorkloadIdentity(
+		ctx, delivery, persistence.AuditExportDeliveryWorkloadTransportContract,
+		changedIdentity, attribution,
 	); !errors.Is(err, persistence.ErrAuditExportDeliveryConflict) {
 		t.Fatalf("transport contract substitution error = %v", err)
 	}
-	if err := repository.CompleteAuditExportDeliveryTransport(
-		ctx, delivery, persistence.AuditExportDeliveryMTLSTransportContract, attribution,
+	if err := repository.CompleteAuditExportDeliveryTransportWithWorkloadIdentity(
+		ctx, delivery, persistence.AuditExportDeliveryWorkloadTransportContract,
+		auditExportWorkloadIdentityAuthorization(), attribution,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +448,7 @@ func TestAuditExportDeliveryMTLSTransportPersistsExactContract(t *testing.T) {
 	`, delivery.DeliveryID).Scan(&contract, &state); err != nil {
 		t.Fatal(err)
 	}
-	if contract != persistence.AuditExportDeliveryMTLSTransportContract || state != "completed" {
+	if contract != persistence.AuditExportDeliveryWorkloadTransportContract || state != "completed" {
 		t.Fatalf("transport = %q %q", contract, state)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -419,20 +510,22 @@ func TestAuditExportDeliveryConcurrentReplayConverges(t *testing.T) {
 		"transport delivery", "cor_00000000000000000030",
 	)
 	runConcurrent(func() error {
-		return repository.ReserveAuditExportDeliveryTransport(
-			ctx, delivery, persistence.AuditExportDeliveryTransportContract, transportAttribution,
+		return repository.ReserveAuditExportDeliveryTransportWithWorkloadIdentity(
+			ctx, delivery, persistence.AuditExportDeliveryWorkloadTransportContract,
+			auditExportWorkloadIdentityAuthorization(), transportAttribution,
 		)
 	})
 	runConcurrent(func() error {
-		return repository.CompleteAuditExportDeliveryTransport(
-			ctx, delivery, persistence.AuditExportDeliveryTransportContract, transportAttribution,
+		return repository.CompleteAuditExportDeliveryTransportWithWorkloadIdentity(
+			ctx, delivery, persistence.AuditExportDeliveryWorkloadTransportContract,
+			auditExportWorkloadIdentityAuthorization(), transportAttribution,
 		)
 	})
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       acknowledgementDigest[:],
-		DeliveryContract:            persistence.AuditExportTransportedDeliveryContract,
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v4",
+		DeliveryContract:            persistence.AuditExportWorkloadDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v5",
 		RecipientTrustProfileSHA256: "sha256:" + strings.Repeat("3", 64),
 		RecipientSigningKeyID:       "archive_key_01",
 		RecipientTrustGeneration:    1,
@@ -477,8 +570,8 @@ func TestAuditExportRecipientTrustRevocationBlocksNewAcknowledgements(t *testing
 	wrongKeyDigest := sha256.Sum256([]byte("wrong-key archive receipt"))
 	wrongKey := persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       wrongKeyDigest[:],
-		DeliveryContract:            persistence.AuditExportTransportedDeliveryContract,
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v4",
+		DeliveryContract:            persistence.AuditExportWorkloadDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v5",
 		RecipientTrustProfileSHA256: profileDigest,
 		RecipientSigningKeyID:       "archive_key_02",
 		RecipientTrustGeneration:    1,
@@ -501,8 +594,8 @@ func TestAuditExportRecipientTrustRevocationBlocksNewAcknowledgements(t *testing
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       acknowledgementDigest[:],
-		DeliveryContract:            persistence.AuditExportTransportedDeliveryContract,
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v4",
+		DeliveryContract:            persistence.AuditExportWorkloadDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v5",
 		RecipientTrustProfileSHA256: profileDigest,
 		RecipientSigningKeyID:       "archive_key_01",
 		RecipientTrustGeneration:    1,
@@ -586,8 +679,8 @@ func TestExternalRecipientProofRevocationBlocksActivationAndAcknowledgement(t *t
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       acknowledgementDigest[:],
-		DeliveryContract:            persistence.AuditExportTransportedDeliveryContract,
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v4",
+		DeliveryContract:            persistence.AuditExportWorkloadDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v5",
 		RecipientTrustProfileSHA256: profileDigest,
 		RecipientSigningKeyID:       "archive_key_01",
 		RecipientTrustGeneration:    1,
@@ -674,8 +767,8 @@ func TestCompletedAcknowledgementSurvivesExternalRecipientProofRevocation(t *tes
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       acknowledgementDigest[:],
-		DeliveryContract:            persistence.AuditExportTransportedDeliveryContract,
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v4",
+		DeliveryContract:            persistence.AuditExportWorkloadDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v5",
 		RecipientTrustProfileSHA256: profileDigest, RecipientSigningKeyID: "archive_key_01",
 		RecipientTrustGeneration: 1,
 		AcceptedAt:               time.Now().UTC().Truncate(time.Microsecond),
@@ -731,8 +824,8 @@ func TestFutureRecipientProofRevocationActivatesOnDatabaseClock(t *testing.T) {
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       acknowledgementDigest[:],
-		DeliveryContract:            persistence.AuditExportTransportedDeliveryContract,
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v4",
+		DeliveryContract:            persistence.AuditExportWorkloadDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v5",
 		RecipientTrustProfileSHA256: "sha256:" + strings.Repeat("3", 64),
 		RecipientSigningKeyID:       "archive_key_01",
 		RecipientTrustGeneration:    1,
@@ -771,8 +864,8 @@ func TestExternalRecipientProofRevocationSerializesWithAcknowledgement(t *testin
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       acknowledgementDigest[:],
-		DeliveryContract:            persistence.AuditExportTransportedDeliveryContract,
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v4",
+		DeliveryContract:            persistence.AuditExportWorkloadDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v5",
 		RecipientTrustProfileSHA256: profileDigest, RecipientSigningKeyID: "archive_key_01",
 		RecipientTrustGeneration: 1,
 		AcceptedAt:               time.Now().UTC().Truncate(time.Microsecond),
@@ -841,8 +934,8 @@ func TestAuditExportRecipientTrustRevocationSerializesWithAcknowledgement(t *tes
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{
 		AcknowledgementDigest:       acknowledgementDigest[:],
-		DeliveryContract:            persistence.AuditExportTransportedDeliveryContract,
-		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v4",
+		DeliveryContract:            persistence.AuditExportWorkloadDeliveryContract,
+		ReceiptContract:             "dataground.audit-export-delivery-receipt/ed25519/v5",
 		RecipientTrustProfileSHA256: profileDigest,
 		RecipientSigningKeyID:       "archive_key_01",
 		RecipientTrustGeneration:    1,
@@ -896,7 +989,7 @@ func auditExportDeliveryFixture(deliveryID string) persistence.AuditExportDelive
 	destinationDigest := sha256.Sum256([]byte("archive.primary\nobject-prefix"))
 	packageDigest := sha256.Sum256([]byte("recipient encrypted package"))
 	return persistence.AuditExportDelivery{
-		Contract: persistence.AuditExportTransportedDeliveryContract, DeliveryID: deliveryID,
+		Contract: persistence.AuditExportWorkloadDeliveryContract, DeliveryID: deliveryID,
 		IsolationDomainID: "iso_00000000000000000001", ExportKind: "operator",
 		ExportID: "oax_00000000000000000001", EnvelopeDigest: envelopeDigest[:],
 		ExportSHA256:       "sha256:" + strings.Repeat("1", 64),
@@ -925,13 +1018,15 @@ func completeAuditExportDeliveryTransport(
 	attribution := auditExportDeliveryAttribution(
 		"transport delivery", "cor_00000000000000000030",
 	)
-	if err := repository.ReserveAuditExportDeliveryTransport(
-		ctx, delivery, persistence.AuditExportDeliveryTransportContract, attribution,
+	if err := repository.ReserveAuditExportDeliveryTransportWithWorkloadIdentity(
+		ctx, delivery, persistence.AuditExportDeliveryWorkloadTransportContract,
+		auditExportWorkloadIdentityAuthorization(), attribution,
 	); err != nil {
 		t.Fatalf("reserve audit export delivery transport: %v", err)
 	}
-	if err := repository.CompleteAuditExportDeliveryTransport(
-		ctx, delivery, persistence.AuditExportDeliveryTransportContract, attribution,
+	if err := repository.CompleteAuditExportDeliveryTransportWithWorkloadIdentity(
+		ctx, delivery, persistence.AuditExportDeliveryWorkloadTransportContract,
+		auditExportWorkloadIdentityAuthorization(), attribution,
 	); err != nil {
 		t.Fatalf("complete audit export delivery transport: %v", err)
 	}
@@ -950,6 +1045,47 @@ func activateAuditExportRecipientTrust(
 	change := auditExportRecipientTrustChange(delivery, "activate", generation, profileDigest, correlationID)
 	if err := repository.ChangeAuditExportRecipientTrust(ctx, change); err != nil {
 		t.Fatalf("activate audit export recipient trust: %v", err)
+	}
+	if generation == 1 {
+		activateAuditExportWorkloadIdentity(t, ctx, repository, delivery)
+	}
+}
+
+func activateAuditExportWorkloadIdentity(
+	t *testing.T,
+	ctx context.Context,
+	repository *persistence.Repository,
+	delivery persistence.AuditExportDelivery,
+) {
+	t.Helper()
+	reasonDigest := sha256.Sum256([]byte("authorize audit export workload identity"))
+	issuedAt := time.Now().UTC().Truncate(time.Microsecond).Add(-2 * time.Minute)
+	change := persistence.AuditExportWorkloadIdentityChange{
+		Contract:  persistence.AuditExportWorkloadIdentityAuthorizationContract,
+		Operation: "activate", IsolationDomainID: delivery.IsolationDomainID,
+		WorkloadID: "audit-export.dispatcher", Generation: 1,
+		GrantContract:            "dataground.audit-export-workload-identity-grant/ed25519/v1",
+		GrantSHA256:              "sha256:" + strings.Repeat("8", 64),
+		Audience:                 "dataground.audit-export-transport",
+		ClientCertificateSHA256:  "sha256:" + strings.Repeat("6", 64),
+		AuthorityID:              "workload-issuer.primary",
+		IssuerTrustProfileSHA256: "sha256:" + strings.Repeat("9", 64),
+		IssuerSigningKeyID:       "issuer_key_01", IssuedAt: issuedAt,
+		NotBefore: issuedAt.Add(time.Minute), ExpiresAt: issuedAt.Add(time.Hour),
+		ActorID: "operator@example.invalid", ReasonDigest: reasonDigest[:],
+		CorrelationID: "cor_00000000000000000028",
+	}
+	if err := repository.ChangeAuditExportWorkloadIdentity(ctx, change); err != nil {
+		t.Fatalf("activate audit export workload identity: %v", err)
+	}
+}
+
+func auditExportWorkloadIdentityAuthorization() persistence.AuditExportWorkloadIdentityAuthorization {
+	return persistence.AuditExportWorkloadIdentityAuthorization{
+		WorkloadID:              "audit-export.dispatcher",
+		GrantSHA256:             "sha256:" + strings.Repeat("8", 64),
+		ClientCertificateSHA256: "sha256:" + strings.Repeat("6", 64),
+		Generation:              1,
 	}
 }
 
