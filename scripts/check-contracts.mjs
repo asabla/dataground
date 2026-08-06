@@ -188,6 +188,12 @@ const auditExportWorkloadIdentityTrust = await readJson(
 const auditExportWorkloadIdentityGrant = await readJson(
   "contracts/schemas/audit-export-workload-identity-grant.schema.json",
 );
+const auditExportWorkloadIdentityRevocationTrust = await readJson(
+  "contracts/schemas/audit-export-workload-identity-revocation-trust.schema.json",
+);
+const auditExportWorkloadIdentityRevocation = await readJson(
+  "contracts/schemas/audit-export-workload-identity-revocation.schema.json",
+);
 assert.deepEqual(
   operatorAuditExport.$defs.safeMetadata.properties.transportContract.enum,
   [
@@ -242,6 +248,12 @@ const validateAuditExportRecipientProofRevocation = ajv.compile(
 );
 const validateAuditExportWorkloadIdentityTrust = ajv.compile(auditExportWorkloadIdentityTrust);
 const validateAuditExportWorkloadIdentityGrant = ajv.compile(auditExportWorkloadIdentityGrant);
+const validateAuditExportWorkloadIdentityRevocationTrust = ajv.compile(
+  auditExportWorkloadIdentityRevocationTrust,
+);
+const validateAuditExportWorkloadIdentityRevocation = ajv.compile(
+  auditExportWorkloadIdentityRevocation,
+);
 const fixtureManifest = await readJson("contracts/fixtures/manifest.json");
 const validRecipientTrustFixture = await readJson(
   "contracts/fixtures/valid/audit-export-recipient-trust.json",
@@ -260,6 +272,9 @@ const validWorkloadDestinationFixture = await readJson(
 );
 const validWorkloadIdentityTrustFixture = await readJson(
   "contracts/fixtures/valid/audit-export-workload-identity-trust.json",
+);
+const validWorkloadIdentityRevocationTrustFixture = await readJson(
+  "contracts/fixtures/valid/audit-export-workload-identity-revocation-trust.json",
 );
 
 for (const fixture of fixtureManifest.fixtures) {
@@ -307,6 +322,10 @@ for (const fixture of fixtureManifest.fixtures) {
     validate = validateAuditExportWorkloadIdentityTrust;
   } else if (fixture.document === "audit-export-workload-identity-grant") {
     validate = validateAuditExportWorkloadIdentityGrant;
+  } else if (fixture.document === "audit-export-workload-identity-revocation-trust") {
+    validate = validateAuditExportWorkloadIdentityRevocationTrust;
+  } else if (fixture.document === "audit-export-workload-identity-revocation") {
+    validate = validateAuditExportWorkloadIdentityRevocation;
   } else {
     validate = ajv.compile({
       $ref: `urn:dataground:openapi:v1#/components/schemas/${fixture.schema}`,
@@ -443,6 +462,30 @@ for (const fixture of fixtureManifest.fixtures) {
       value.issuerTrustProfileSha256,
       `sha256:${trustDigest}`,
       `${fixture.file} must bind the workload identity trust fixture`,
+    );
+  }
+  if (fixture.document === "audit-export-workload-identity-revocation" && fixture.valid) {
+    const digest = createHash("sha256").update(JSON.stringify(value.content)).digest("hex");
+    assert.equal(
+      value.contentSha256,
+      `sha256:${digest}`,
+      `${fixture.file} must bind its canonical content bytes`,
+    );
+    const issuerTrustDigest = createHash("sha256")
+      .update(`${JSON.stringify(validWorkloadIdentityTrustFixture)}\n`)
+      .digest("hex");
+    assert.equal(
+      value.content.workloadIdentityTrustProfileSha256,
+      `sha256:${issuerTrustDigest}`,
+      `${fixture.file} must bind the workload identity trust fixture`,
+    );
+    const revocationTrustDigest = createHash("sha256")
+      .update(`${JSON.stringify(validWorkloadIdentityRevocationTrustFixture)}\n`)
+      .digest("hex");
+    assert.equal(
+      value.revocationTrustProfileSha256,
+      `sha256:${revocationTrustDigest}`,
+      `${fixture.file} must bind the workload identity revocation trust fixture`,
     );
   }
   if (fixture.document === "audit-export-delivery-receipt-v5" && fixture.valid) {

@@ -1,0 +1,10 @@
+{
+  "contract": "dataground.audit-export-workload-identity-revocation-trust/ed25519/v1",
+  "authorityId": "audit-workload-revocation.primary",
+  "keys": [
+    {
+      "keyId": "revocation_key_01",
+      "publicKey": "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ"
+    }
+  ]
+}

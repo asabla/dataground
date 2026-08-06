@@ -381,6 +381,152 @@ func TestAuditExportDeliveryTransportRequiresCurrentWorkloadIdentity(t *testing.
 	}
 }
 
+func TestAuditExportDeliveryTransportRejectsExternalWorkloadIdentityRevocation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := resetOperatorAuditDatabase(t, ctx)
+	defer pool.Close()
+	repository := persistence.NewRepository(pool)
+	delivery := auditExportDeliveryFixture("adl_00000000000000000001")
+	activateAuditExportRecipientTrust(
+		t, ctx, repository, delivery, 1, "sha256:"+strings.Repeat("3", 64),
+		"cor_00000000000000000009",
+	)
+	if err := repository.PrepareAuditExportDelivery(
+		ctx, delivery,
+		auditExportDeliveryAttribution("prepare delivery", "cor_00000000000000000001"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	revocation := auditExportWorkloadIdentityRevocationRecord(
+		delivery.IsolationDomainID, now, "cor_00000000000000000032",
+	)
+	if err := repository.RecordAuditExportWorkloadIdentityRevocation(ctx, revocation); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.RecordAuditExportWorkloadIdentityRevocation(ctx, revocation); err != nil {
+		t.Fatalf("replay external workload identity revocation: %v", err)
+	}
+	changedRevocation := revocation
+	changedRevocation.ActorID = "other-operator@example.invalid"
+	if err := repository.RecordAuditExportWorkloadIdentityRevocation(
+		ctx, changedRevocation,
+	); !errors.Is(err, persistence.ErrAuditExportWorkloadIdentityRevocationConflict) {
+		t.Fatalf("changed external workload identity revocation error = %v", err)
+	}
+	rotationReason := sha256.Sum256([]byte("rotate externally revoked workload issuer key"))
+	rotation := persistence.AuditExportWorkloadIdentityChange{
+		Contract:  persistence.AuditExportWorkloadIdentityAuthorizationContract,
+		Operation: "activate", IsolationDomainID: delivery.IsolationDomainID,
+		WorkloadID: "audit-export.dispatcher", Generation: 2,
+		GrantContract:            "dataground.audit-export-workload-identity-grant/ed25519/v1",
+		GrantSHA256:              "sha256:" + strings.Repeat("d", 64),
+		Audience:                 "dataground.audit-export-transport",
+		ClientCertificateSHA256:  "sha256:" + strings.Repeat("e", 64),
+		AuthorityID:              "workload-issuer.primary",
+		IssuerTrustProfileSHA256: "sha256:" + strings.Repeat("9", 64),
+		IssuerSigningKeyID:       "issuer_key_01",
+		IssuedAt:                 now.Add(-time.Minute),
+		NotBefore:                now.Add(-30 * time.Second),
+		ExpiresAt:                now.Add(time.Hour),
+		ActorID:                  "operator@example.invalid",
+		ReasonDigest:             rotationReason[:],
+		CorrelationID:            "cor_00000000000000000034",
+	}
+	if err := repository.ChangeAuditExportWorkloadIdentity(
+		ctx, rotation,
+	); !errors.Is(err, persistence.ErrAuditExportWorkloadIdentityUnauthorized) {
+		t.Fatalf("rotation under externally revoked issuer key error = %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO audit_export_workload_identity_events (
+			isolation_domain_id, workload_id, generation, authorization_contract, operation,
+			grant_contract, grant_sha256, audience, client_certificate_sha256,
+			authority_id, issuer_trust_profile_sha256, issuer_signing_key_id,
+			issued_at, not_before, expires_at, actor_id, reason_digest, correlation_id
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+	`, rotation.IsolationDomainID, rotation.WorkloadID, rotation.Generation, rotation.Contract,
+		rotation.Operation, rotation.GrantContract, rotation.GrantSHA256, rotation.Audience,
+		rotation.ClientCertificateSHA256, rotation.AuthorityID,
+		rotation.IssuerTrustProfileSHA256, rotation.IssuerSigningKeyID,
+		rotation.IssuedAt, rotation.NotBefore, rotation.ExpiresAt, rotation.ActorID,
+		rotation.ReasonDigest, "cor_00000000000000000035"); err == nil {
+		t.Fatal("direct SQL activated an externally revoked workload issuer key")
+	}
+	attribution := auditExportDeliveryAttribution(
+		"transport delivery", "cor_00000000000000000033",
+	)
+	if err := repository.ReserveAuditExportDeliveryTransportWithWorkloadIdentity(
+		ctx, delivery, persistence.AuditExportDeliveryWorkloadTransportContract,
+		auditExportWorkloadIdentityAuthorization(), attribution,
+	); !errors.Is(err, persistence.ErrAuditExportWorkloadIdentityUnauthorized) {
+		t.Fatalf("transport under externally revoked workload identity error = %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO audit_export_delivery_operations (
+			delivery_id, operation, isolation_domain_id, actor_id, correlation_id,
+			reason_digest, evidence_digest
+		) VALUES ($1, 'transport', $2, $3, $4, $5, $6)
+	`, delivery.DeliveryID, delivery.IsolationDomainID, attribution.ActorID,
+		attribution.CorrelationID, attribution.ReasonDigest, delivery.EncryptedPackageDigest); err != nil {
+		t.Fatalf("install direct transport operation fixture: %v", err)
+	}
+	authorization := auditExportWorkloadIdentityAuthorization()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO audit_export_delivery_transports (
+			delivery_id, isolation_domain_id, transport_contract, destination_digest,
+			encrypted_package_digest, workload_id, workload_identity_grant_sha256,
+			workload_identity_generation, client_certificate_sha256
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, delivery.DeliveryID, delivery.IsolationDomainID,
+		persistence.AuditExportDeliveryWorkloadTransportContract, delivery.DestinationDigest,
+		delivery.EncryptedPackageDigest, authorization.WorkloadID, authorization.GrantSHA256,
+		authorization.Generation, authorization.ClientCertificateSHA256); err == nil {
+		t.Fatal("direct SQL transport bypassed external workload identity revocation")
+	}
+}
+
+func TestFutureExternalWorkloadIdentityRevocationDoesNotBlockEarly(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := resetOperatorAuditDatabase(t, ctx)
+	defer pool.Close()
+	repository := persistence.NewRepository(pool)
+	delivery := auditExportDeliveryFixture("adl_00000000000000000001")
+	activateAuditExportRecipientTrust(
+		t, ctx, repository, delivery, 1, "sha256:"+strings.Repeat("3", 64),
+		"cor_00000000000000000009",
+	)
+	if err := repository.PrepareAuditExportDelivery(
+		ctx, delivery,
+		auditExportDeliveryAttribution("prepare delivery", "cor_00000000000000000001"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	revocation := auditExportWorkloadIdentityRevocationRecord(
+		delivery.IsolationDomainID, now, "cor_00000000000000000036",
+	)
+	revocation.EffectiveAt = now.Add(time.Hour)
+	if err := repository.RecordAuditExportWorkloadIdentityRevocation(ctx, revocation); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.ReserveAuditExportDeliveryTransportWithWorkloadIdentity(
+		ctx, delivery, persistence.AuditExportDeliveryWorkloadTransportContract,
+		auditExportWorkloadIdentityAuthorization(),
+		auditExportDeliveryAttribution("transport delivery", "cor_00000000000000000037"),
+	); err != nil {
+		t.Fatalf("future-effective workload identity revocation blocked early: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE audit_export_workload_identity_revocations
+		SET effective_at = clock_timestamp() - interval '1 second'
+	`); err == nil {
+		t.Fatal("future workload identity revocation was mutable")
+	}
+}
+
 func TestAuditExportWorkloadIdentityRejectsIncompleteDirectActivation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -1086,6 +1232,33 @@ func auditExportWorkloadIdentityAuthorization() persistence.AuditExportWorkloadI
 		GrantSHA256:             "sha256:" + strings.Repeat("8", 64),
 		ClientCertificateSHA256: "sha256:" + strings.Repeat("6", 64),
 		Generation:              1,
+	}
+}
+
+func auditExportWorkloadIdentityRevocationRecord(
+	isolationDomainID string,
+	now time.Time,
+	correlationID string,
+) persistence.AuditExportWorkloadIdentityRevocationRecord {
+	reasonDigest := sha256.Sum256([]byte("record external workload issuer revocation"))
+	return persistence.AuditExportWorkloadIdentityRevocationRecord{
+		Contract:                           persistence.AuditExportWorkloadIdentityRevocationRecordContract,
+		RevocationContract:                 "dataground.audit-export-workload-identity-revocation/ed25519/v1",
+		RevocationSHA256:                   "sha256:" + strings.Repeat("a", 64),
+		IsolationDomainID:                  isolationDomainID,
+		Scope:                              "key",
+		WorkloadIdentityAuthorityID:        "workload-issuer.primary",
+		WorkloadIdentityTrustProfileSHA256: "sha256:" + strings.Repeat("9", 64),
+		WorkloadIdentitySigningKeyID:       "issuer_key_01",
+		ExternalReasonSHA256:               "sha256:" + strings.Repeat("b", 64),
+		RevocationAuthorityID:              "workload-revocation.primary",
+		RevocationTrustProfileSHA256:       "sha256:" + strings.Repeat("c", 64),
+		RevocationSigningKeyID:             "revocation_key_01",
+		IssuedAt:                           now.Add(-time.Minute),
+		EffectiveAt:                        now.Add(-30 * time.Second),
+		ActorID:                            "operator@example.invalid",
+		ReasonDigest:                       reasonDigest[:],
+		CorrelationID:                      correlationID,
 	}
 }
 
