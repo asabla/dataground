@@ -40,6 +40,12 @@ func TestVerifyWorkloadIdentityGrantBindsScopeAudienceAndCertificate(t *testing.
 	); err == nil {
 		t.Fatal("workload identity grant was accepted for another isolation domain")
 	}
+	if _, err := VerifyWorkloadIdentityGrantFile(
+		fixture.grantFile, fixture.trustFile, fixture.grant.Content.IsolationDomainID,
+		"audit-export.other-dispatcher", fixture.grant.Content.ClientCertificateSHA256, fixture.now,
+	); err == nil {
+		t.Fatal("workload identity grant was accepted for another workload")
+	}
 }
 
 func TestVerifyWorkloadIdentityGrantRejectsExpiredOrForgedGrant(t *testing.T) {
