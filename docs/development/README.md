@@ -25,6 +25,7 @@ PostgreSQL 18 is required for durable integration tests and durable control-plan
 | `cmd/dataground-audit-export-workload-identity` | Audited workload identity grant activation, rotation, and local revocation |
 | `cmd/dataground-audit-export-workload-identity-revocation` | Audited external issuer-revocation notice intake |
 | `cmd/dataground-audit-export-revocation-import` | Authenticated digest-pinned external revocation notice acquisition |
+| `cmd/dataground-audit-export-revocation-source` | Audited immutable registry publication and isolation-scoped source governance |
 | `cmd/dataground-audit-export-revocation-authority` | Audited recipient-proof and workload revocation-authority governance |
 | `cmd/dataground-audit-export-proofing-authority` | Audited recipient proofing-authority governance |
 | `cmd/dataground-audit-export-recipient-trust` | Audited recipient trust activation, rotation, and revocation |
