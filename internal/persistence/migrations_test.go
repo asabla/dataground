@@ -182,6 +182,7 @@ func TestMigrationsRoundTrip(t *testing.T) {
 		      'audit_export_workload_identity_revocations',
 		      'audit_export_recipient_proof_revocations',
 		      'audit_export_revocation_acquisitions',
+		      'audit_export_revocation_source_events',
 		      'audit_export_recipient_trust_events',
 		      'audit_export_recipient_trust_keys',
 		      'audit_export_recipient_encryption_keys',
@@ -193,8 +194,8 @@ func TestMigrationsRoundTrip(t *testing.T) {
 	`).Scan(&tables); err != nil {
 		t.Fatalf("inspect migrated tables: %v", err)
 	}
-	if tables != 36 {
-		t.Fatalf("expected 36 representative tables, got %d", tables)
+	if tables != 37 {
+		t.Fatalf("expected 37 representative tables, got %d", tables)
 	}
 
 	var rateLimitBucketPrimaryKey string
@@ -394,12 +395,18 @@ func TestRevocationAcquisitionMigrationPreservesEvidence(t *testing.T) {
 		Purpose:              persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
 		SourceID:             "archive-revocations.primary",
 		SourceRegistrySHA256: "sha256:" + strings.Repeat("f", 64),
+		SourceGeneration:     1,
 	}
 	activateAuditExportRevocationAuthority(
 		t, ctx, repository, record.IsolationDomainID,
 		persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
 		record.RevocationAuthorityID, record.RevocationTrustProfileSHA256,
 		record.RevocationSigningKeyID, "cor_00000000000000000021",
+	)
+	activateAuditExportRevocationSource(
+		t, ctx, repository, record.IsolationDomainID, record.Acquisition.Purpose,
+		record.Acquisition.SourceID, record.Acquisition.SourceRegistrySHA256,
+		1, "cor_00000000000000000022",
 	)
 	if err := repository.RecordAuditExportRecipientProofRevocation(ctx, record); err != nil {
 		pool.Close()
@@ -416,5 +423,105 @@ func TestRevocationAcquisitionMigrationPreservesEvidence(t *testing.T) {
 	}
 	if err := persistence.RequireCurrentSchema(ctx, database); err != nil {
 		t.Fatalf("failed downgrade changed current schema: %v", err)
+	}
+}
+
+func TestRevocationSourceMigrationPreservesEvidence(t *testing.T) {
+	databaseURL := os.Getenv("DATAGROUND_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		if os.Getenv("DATAGROUND_REQUIRE_TEST_DATABASE") == "true" {
+			t.Fatal("DATAGROUND_TEST_DATABASE_URL is required")
+		}
+		t.Skip("DATAGROUND_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := resetOperatorAuditDatabase(t, ctx)
+	repository := persistence.NewRepository(pool)
+	activateAuditExportRevocationSource(
+		t, ctx, repository, "iso_00000000000000000001",
+		persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
+		"archive-revocations.primary", "sha256:"+strings.Repeat("f", 64),
+		1, "cor_00000000000000000023",
+	)
+	pool.Close()
+	database, err := persistence.OpenSQL(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := persistence.MigrateDownTo(ctx, database, 34); err == nil {
+		t.Fatal("revocation source evidence was discarded by schema downgrade")
+	}
+	if err := persistence.RequireCurrentSchema(ctx, database); err != nil {
+		t.Fatalf("failed downgrade changed current schema: %v", err)
+	}
+}
+
+func TestLegacyRevocationAcquisitionReplaySurvivesGovernanceUpgrade(t *testing.T) {
+	databaseURL := os.Getenv("DATAGROUND_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		if os.Getenv("DATAGROUND_REQUIRE_TEST_DATABASE") == "true" {
+			t.Fatal("DATAGROUND_TEST_DATABASE_URL is required")
+		}
+		t.Skip("DATAGROUND_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := resetOperatorAuditDatabase(t, ctx)
+	record := auditExportRecipientProofRevocationRecord(
+		"iso_00000000000000000001", "profile", "cor_00000000000000000024",
+	)
+	repository := persistence.NewRepository(pool)
+	activateAuditExportRevocationAuthority(
+		t, ctx, repository, record.IsolationDomainID,
+		persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
+		record.RevocationAuthorityID, record.RevocationTrustProfileSHA256,
+		record.RevocationSigningKeyID, "cor_00000000000000000025",
+	)
+	if err := repository.RecordAuditExportRecipientProofRevocation(ctx, record); err != nil {
+		pool.Close()
+		t.Fatal(err)
+	}
+	pool.Close()
+	database, err := persistence.OpenSQL(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := persistence.MigrateDownTo(ctx, database, 34); err != nil {
+		t.Fatalf("migrate to legacy acquisition schema: %v", err)
+	}
+	registryDigest := "sha256:" + strings.Repeat("f", 64)
+	if _, err := database.ExecContext(ctx, `
+		INSERT INTO audit_export_revocation_acquisitions (
+			contract, purpose, revocation_sha256, isolation_domain_id,
+			source_id, source_registry_sha256, trust_profile_sha256, correlation_id
+		) VALUES (
+			'dataground.audit-export-revocation-acquisition/v1', 'recipient-proof',
+			$1, $2, 'archive-revocations.primary', $3, $4, $5
+		)
+	`, record.RevocationSHA256, record.IsolationDomainID, registryDigest,
+		record.RevocationTrustProfileSHA256, record.CorrelationID); err != nil {
+		t.Fatalf("insert legacy acquisition receipt: %v", err)
+	}
+	if err := persistence.MigrateUp(ctx, database); err != nil {
+		t.Fatalf("upgrade legacy acquisition receipt: %v", err)
+	}
+	replayPool, err := persistence.OpenPool(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer replayPool.Close()
+	replayed, err := persistence.NewRepository(replayPool).ReplayAuditExportRevocationAcquisition(
+		ctx, persistence.AuditExportRevocationAcquisitionReplay{
+			Purpose:           persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
+			IsolationDomainID: record.IsolationDomainID, SourceID: "archive-revocations.primary",
+			SourceRegistrySHA256: registryDigest, ActorID: record.ActorID,
+			ReasonDigest: record.ReasonDigest, CorrelationID: record.CorrelationID,
+		},
+	)
+	if err != nil || !replayed {
+		t.Fatalf("legacy acquisition replay = %v, %v", replayed, err)
 	}
 }

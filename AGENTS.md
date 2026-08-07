@@ -16,6 +16,8 @@ The deterministic reference runtime supports loopback-only process-local operati
 
 Complete the governed agent-service vertical slice before integrating broad notebook, lakehouse, job, or compatibility surfaces.
 
+New audit-export revocation acquisitions require one current sequential, isolation-scoped source generation for the exact notice purpose, source identifier, and canonical registry digest. Historical exact acquisition replay remains read-only after source rotation or withdrawal.
+
 ## Architecture boundaries
 
 Public clients use DataGround APIs and resource identities. They must never receive OpenShell gateway addresses, sandbox ports, Kubernetes credentials, root storage credentials, or native harness endpoints.

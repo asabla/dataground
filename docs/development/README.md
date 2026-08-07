@@ -101,6 +101,8 @@ Durable mode persists resources, idempotency results, explicit publication and i
 
 After an exact service revision exists, an authorized operator can install its reviewed Cedar invocation policy with `go run ./cmd/dataground-policy-install` and the required `-isolation-domain`, `-service`, `-revision`, `-policy-set`, `-policy-file`, `-actor`, `-reason`, and `-correlation-id` flags. The command requires the current PostgreSQL schema, accepts one bounded regular policy file, validates it against the canonical invocation schema, and atomically records immutable policy bytes plus safe installation audit evidence. Its database credential is the administrative authorization boundary. Identical replay is read-only; changed policy or attribution for the same revision is rejected. This is an internal operator boundary, not public policy authoring, approval workflow, signing, distribution, or reload.
 
+Revocation imports require the current sequential, isolation-scoped source generation in addition to the current revocation authority. The source activation, rotation, and withdrawal procedure is documented in [revocation notice acquisition](audit-export-revocation-acquisition.md).
+
 The worker remains deterministic by default. [Governed development worker guidance](governed-worker.md) documents the explicit single-domain mode that composes exact policy resolution and audit with OpenShell admission, Codex runtime execution, cancellation, and artifact finalization without claiming production certification.
 
 See [design-system guidance](design-system.md) before changing token source, component APIs, themes, density behavior, or Storybook configuration.

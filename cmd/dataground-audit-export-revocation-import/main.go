@@ -22,6 +22,9 @@ type auditExportRevocationImportRepository interface {
 		context.Context,
 		persistence.AuditExportRevocationAcquisitionReplay,
 	) (bool, error)
+	AuthorizeAuditExportRevocationSource(
+		context.Context, string, string, string, string,
+	) (int64, error)
 	RecordAuditExportRecipientProofRevocation(
 		context.Context,
 		persistence.AuditExportRecipientProofRevocationRecord,
@@ -92,6 +95,13 @@ func runWithTransport(ctx context.Context, arguments []string, transport *http.T
 	if err != nil || replayed {
 		return err
 	}
+	sourceGeneration, err := repository.AuthorizeAuditExportRevocationSource(
+		operationCtx, request.isolationDomainID, request.purpose,
+		request.sourceID, request.sourceRegistrySHA256,
+	)
+	if err != nil {
+		return err
+	}
 	acquirer, err := auditseal.NewRevocationNoticeAcquirer(auditseal.RevocationNoticeAcquisitionConfig{
 		IsolationDomainID: request.isolationDomainID, Purpose: request.purpose,
 		SourceID: request.sourceID, SourceRegistryFile: request.sourceRegistryFile,
@@ -105,7 +115,7 @@ func runWithTransport(ctx context.Context, arguments []string, transport *http.T
 	if err != nil {
 		return err
 	}
-	return executeRequest(operationCtx, repository, request, acquired)
+	return executeRequest(operationCtx, repository, request, acquired, sourceGeneration)
 }
 
 func replayRequest(
@@ -129,19 +139,20 @@ func executeRequest(
 	repository auditExportRevocationImportRepository,
 	request commandRequest,
 	acquired auditseal.AcquiredRevocationNotice,
+	sourceGeneration int64,
 ) error {
 	if repository == nil {
 		return errors.New("audit export revocation import repository is required")
 	}
 	switch request.purpose {
 	case auditseal.RevocationNoticePurposeRecipientProof:
-		record := newRecipientProofRecord(request, acquired)
+		record := newRecipientProofRecord(request, acquired, sourceGeneration)
 		if !record.Valid() {
 			return errors.New("acquired recipient proof revocation record is invalid")
 		}
 		return repository.RecordAuditExportRecipientProofRevocation(ctx, record)
 	case auditseal.RevocationNoticePurposeWorkloadIdentity:
-		record := newWorkloadIdentityRecord(request, acquired)
+		record := newWorkloadIdentityRecord(request, acquired, sourceGeneration)
 		if !record.Valid() {
 			return errors.New("acquired workload identity revocation record is invalid")
 		}
@@ -154,6 +165,7 @@ func executeRequest(
 func newRecipientProofRecord(
 	request commandRequest,
 	acquired auditseal.AcquiredRevocationNotice,
+	sourceGeneration int64,
 ) persistence.AuditExportRecipientProofRevocationRecord {
 	if acquired.RecipientProof == nil || acquired.Purpose != request.purpose ||
 		acquired.SourceID != request.sourceID || acquired.SourceRegistrySHA256 != request.sourceRegistrySHA256 {
@@ -178,6 +190,7 @@ func newRecipientProofRecord(
 			Contract: persistence.AuditExportRevocationAcquisitionContract,
 			Purpose:  acquired.Purpose, SourceID: acquired.SourceID,
 			SourceRegistrySHA256: acquired.SourceRegistrySHA256,
+			SourceGeneration:     sourceGeneration,
 		},
 	}
 }
@@ -185,6 +198,7 @@ func newRecipientProofRecord(
 func newWorkloadIdentityRecord(
 	request commandRequest,
 	acquired auditseal.AcquiredRevocationNotice,
+	sourceGeneration int64,
 ) persistence.AuditExportWorkloadIdentityRevocationRecord {
 	if acquired.WorkloadIdentity == nil || acquired.Purpose != request.purpose ||
 		acquired.SourceID != request.sourceID || acquired.SourceRegistrySHA256 != request.sourceRegistrySHA256 {
@@ -209,6 +223,7 @@ func newWorkloadIdentityRecord(
 			Contract: persistence.AuditExportRevocationAcquisitionContract,
 			Purpose:  acquired.Purpose, SourceID: acquired.SourceID,
 			SourceRegistrySHA256: acquired.SourceRegistrySHA256,
+			SourceGeneration:     sourceGeneration,
 		},
 	}
 }
