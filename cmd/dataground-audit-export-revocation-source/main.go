@@ -23,16 +23,17 @@ type auditExportRevocationSourceRepository interface {
 }
 
 type commandRequest struct {
-	operation            string
-	isolationDomainID    string
-	purpose              string
-	sourceID             string
-	generation           int64
-	sourceRegistryFile   string
-	sourceRegistrySHA256 string
-	actorID              string
-	reason               string
-	correlationID        string
+	operation               string
+	isolationDomainID       string
+	purpose                 string
+	sourceID                string
+	generation              int64
+	sourceRegistryInputFile string
+	sourceRegistryFile      string
+	sourceRegistrySHA256    string
+	actorID                 string
+	reason                  string
+	correlationID           string
 }
 
 func main() {
@@ -52,14 +53,6 @@ func run(ctx context.Context, arguments []string) error {
 	}
 	if err := ctx.Err(); err != nil {
 		return err
-	}
-	evidence, err := sourceEvidence(request)
-	if err != nil {
-		return err
-	}
-	change := newSourceChange(request, evidence)
-	if !change.Valid() {
-		return errors.New("audit export revocation source change is invalid")
 	}
 	databaseURL := os.Getenv("DATAGROUND_DATABASE_URL")
 	if databaseURL == "" {
@@ -83,13 +76,28 @@ func run(ctx context.Context, arguments []string) error {
 		return err
 	}
 	defer pool.Close()
+	evidence, err := sourceEvidence(operationCtx, request)
+	if err != nil {
+		return err
+	}
+	change := newSourceChange(request, evidence)
+	if !change.Valid() {
+		return errors.New("audit export revocation source change is invalid")
+	}
 	return executeRequest(operationCtx, persistence.NewRepository(pool), change)
 }
 
-func sourceEvidence(request commandRequest) (auditseal.RevocationSourceEvidence, error) {
+func sourceEvidence(
+	ctx context.Context,
+	request commandRequest,
+) (auditseal.RevocationSourceEvidence, error) {
 	if request.operation == "activate" {
-		return auditseal.InspectRevocationSourceRegistryFile(
-			request.sourceRegistryFile, request.purpose, request.sourceID,
+		return auditseal.PublishRevocationSourceRegistryFile(
+			ctx,
+			auditseal.RevocationSourceRegistryFilePublication{
+				InputPath: request.sourceRegistryInputFile, Path: request.sourceRegistryFile,
+				Purpose: request.purpose, SourceID: request.sourceID,
+			},
 		)
 	}
 	return auditseal.RevocationSourceEvidence{
@@ -132,7 +140,8 @@ func parseArguments(arguments []string) (commandRequest, error) {
 	flags.StringVar(&request.purpose, "purpose", "", "recipient-proof or workload-identity")
 	flags.StringVar(&request.sourceID, "source", "", "deployment-owned revocation source identifier")
 	flags.Int64Var(&request.generation, "generation", 0, "sequential source generation")
-	flags.StringVar(&request.sourceRegistryFile, "source-registry-file", "", "canonical source registry to activate")
+	flags.StringVar(&request.sourceRegistryInputFile, "source-registry-input-file", "", "reviewed owner-only canonical source registry")
+	flags.StringVar(&request.sourceRegistryFile, "source-registry-file", "", "immutable source registry publication path")
 	flags.StringVar(&request.sourceRegistrySHA256, "source-registry-sha256", "", "exact active registry digest to revoke")
 	flags.StringVar(&request.actorID, "actor", "", "authorized operator identifier")
 	flags.StringVar(&request.reason, "reason", "", "operator-visible source change reason")
@@ -153,9 +162,11 @@ func parseArguments(arguments []string) (commandRequest, error) {
 		return commandRequest{}, errors.New("audit export revocation source purpose is invalid")
 	}
 	if (request.operation == "activate" &&
-		(request.sourceRegistryFile == "" || request.sourceRegistrySHA256 != "")) ||
+		(request.sourceRegistryInputFile == "" || request.sourceRegistryFile == "" ||
+			request.sourceRegistrySHA256 != "" || request.sourceRegistryInputFile == request.sourceRegistryFile)) ||
 		(request.operation == "revoke" &&
-			(request.sourceRegistryFile != "" || !validDigest(request.sourceRegistrySHA256))) {
+			(request.sourceRegistryInputFile != "" || request.sourceRegistryFile != "" ||
+				!validDigest(request.sourceRegistrySHA256))) {
 		return commandRequest{}, errors.New("audit export revocation source evidence is invalid")
 	}
 	if !validReason(request.reason) {
