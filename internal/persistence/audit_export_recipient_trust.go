@@ -148,6 +148,12 @@ func (repository *Repository) ChangeAuditExportRecipientTrust(
 		return ErrAuditExportRecipientTrustConflict
 	}
 	if change.Operation == "activate" {
+		if err := requireAuditExportProofingAuthority(
+			ctx, tx, change.IsolationDomainID, change.ProofingAuthorityID,
+			change.ProofingTrustProfileSHA256, change.ProofingSigningKeyID,
+		); err != nil {
+			return err
+		}
 		var databaseNow time.Time
 		if err := tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&databaseNow); err != nil {
 			return fmt.Errorf("read audit export recipient proof revocation clock: %w", err)

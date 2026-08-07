@@ -183,14 +183,16 @@ func TestMigrationsRoundTrip(t *testing.T) {
 		      'audit_export_recipient_trust_events',
 		      'audit_export_recipient_trust_keys',
 		      'audit_export_recipient_encryption_keys',
+		      'audit_export_proofing_authority_events',
+		      'audit_export_proofing_authority_keys',
 		      'audit_export_revocation_authority_events',
 		      'audit_export_revocation_authority_keys'
 		  )
 	`).Scan(&tables); err != nil {
 		t.Fatalf("inspect migrated tables: %v", err)
 	}
-	if tables != 33 {
-		t.Fatalf("expected 33 representative tables, got %d", tables)
+	if tables != 35 {
+		t.Fatalf("expected 35 representative tables, got %d", tables)
 	}
 
 	var rateLimitBucketPrimaryKey string
@@ -267,6 +269,9 @@ func TestRecipientIdentityMigrationPermitsProofUpgradeWithoutKeyRotation(t *test
 	}
 	defer proofPool.Close()
 	delivery := auditExportDeliveryFixture("adl_00000000000000000001")
+	activateAuditExportProofingAuthority(
+		t, ctx, persistence.NewRepository(proofPool), delivery.IsolationDomainID,
+	)
 	upgrade := auditExportRecipientTrustChange(
 		delivery,
 		"activate",
@@ -323,13 +328,44 @@ func TestRecipientProofRevocationMigrationPreservesEvidence(t *testing.T) {
 	}
 	defer database.Close()
 	if _, err := database.ExecContext(ctx, `
-		TRUNCATE audit_export_revocation_authority_keys,
+		TRUNCATE audit_export_proofing_authority_keys,
+		         audit_export_proofing_authority_events,
+		         audit_export_revocation_authority_keys,
 		         audit_export_revocation_authority_events
 	`); err != nil {
 		t.Fatalf("clear revocation authority migration fixture: %v", err)
 	}
 	if err := persistence.MigrateDownTo(ctx, database, 25); err == nil {
 		t.Fatal("recipient proof revocation evidence was discarded by schema downgrade")
+	}
+	if err := persistence.RequireCurrentSchema(ctx, database); err != nil {
+		t.Fatalf("failed downgrade changed current schema: %v", err)
+	}
+}
+
+func TestProofingAuthorityMigrationPreservesEvidence(t *testing.T) {
+	databaseURL := os.Getenv("DATAGROUND_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		if os.Getenv("DATAGROUND_REQUIRE_TEST_DATABASE") == "true" {
+			t.Fatal("DATAGROUND_TEST_DATABASE_URL is required")
+		}
+		t.Skip("DATAGROUND_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := resetOperatorAuditDatabase(t, ctx)
+	repository := persistence.NewRepository(pool)
+	activateAuditExportProofingAuthority(
+		t, ctx, repository, "iso_00000000000000000001",
+	)
+	pool.Close()
+	database, err := persistence.OpenSQL(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := persistence.MigrateDownTo(ctx, database, 32); err == nil {
+		t.Fatal("proofing authority evidence was discarded by schema downgrade")
 	}
 	if err := persistence.RequireCurrentSchema(ctx, database); err != nil {
 		t.Fatalf("failed downgrade changed current schema: %v", err)
