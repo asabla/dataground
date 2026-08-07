@@ -15,7 +15,7 @@ import (
 const revocationSourceRegistryPublicationLockPollInterval = 100 * time.Millisecond
 
 var (
-	ErrRevocationSourceRegistryPublicationConflict = errors.New("audit export revocation source registry publication conflicts with installed content")
+	ErrRevocationSourceRegistryPublicationConflict  = errors.New("audit export revocation source registry publication conflicts with installed content")
 	ErrRevocationSourceRegistryPublicationUncertain = errors.New("audit export revocation source registry publication durability is uncertain")
 )
 
