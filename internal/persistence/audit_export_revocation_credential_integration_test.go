@@ -27,7 +27,7 @@ func TestAuditExportRevocationCredentialsAreSequentialAuditedAndRevocable(t *tes
 		database.Close()
 		t.Fatalf("migrate schema: %v", err)
 	}
-	database.Close()
+	defer database.Close()
 	pool, err := persistence.OpenPool(ctx, databaseURL)
 	if err != nil {
 		t.Fatal(err)
