@@ -23,7 +23,7 @@ const (
 	RevocationNoticePurposeWorkloadIdentity = "workload-identity"
 
 	revocationSourceRegistryContract        = "dataground.audit-export-revocation-source-registry/v1"
-	revocationSourceCredentialContract      = "dataground.audit-export-revocation-source-credential/v1"
+	revocationSourceCredentialContract      = "dataground.audit-export-revocation-source-credential/v2"
 	maximumRevocationSourceRegistryBytes    = 256 << 10
 	maximumRevocationSourceCredentialBytes  = 16 << 10
 	maximumRevocationSourceBearerTokenBytes = 8 << 10
@@ -51,6 +51,7 @@ type RevocationNoticeAcquisitionConfig struct {
 // AcquiredRevocationNotice carries verified signed evidence plus minimized
 // source provenance. Exactly one purpose-specific result is non-nil.
 type AcquiredRevocationNotice struct {
+	Purpose              string
 	Purpose              string
 	SourceID             string
 	SourceRegistrySHA256 string
@@ -159,6 +160,7 @@ type revocationSourceCredential struct {
 type revocationSourceCredentialDocument struct {
 	Contract             string          `json:"contract"`
 	IsolationDomainID    string          `json:"isolationDomainId"`
+	Purpose              string          `json:"purpose"`
 	SourceID             string          `json:"sourceId"`
 	SourceRegistrySHA256 string          `json:"sourceRegistrySha256"`
 	Endpoint             string          `json:"endpoint"`
@@ -495,12 +497,14 @@ func loadRevocationSourceCredential(
 	}
 	credential = revocationSourceCredential{
 		Contract: document.Contract, IsolationDomainID: document.IsolationDomainID,
-		SourceID: document.SourceID, SourceRegistrySHA256: document.SourceRegistrySHA256,
+		Purpose: document.Purpose, SourceID: document.SourceID,
+		SourceRegistrySHA256: document.SourceRegistrySHA256,
 		Endpoint: document.Endpoint, ActivatedAt: document.ActivatedAt.UTC(),
 		ExpiresAt: document.ExpiresAt.UTC(), BearerToken: append([]byte(nil), token[1:len(token)-1]...),
 	}
 	if credential.Contract != revocationSourceCredentialContract ||
-		credential.IsolationDomainID != config.IsolationDomainID || credential.SourceID != config.SourceID ||
+		credential.IsolationDomainID != config.IsolationDomainID ||
+		credential.Purpose != config.Purpose || credential.SourceID != config.SourceID ||
 		credential.SourceRegistrySHA256 != config.SourceRegistrySHA256 || credential.Endpoint != endpoint ||
 		!validRevocationSourceCredentialAt(credential, now) {
 		clear(credential.BearerToken)
@@ -517,6 +521,7 @@ func loadRevocationSourceCredential(
 func validRevocationSourceCredentialAt(credential revocationSourceCredential, now time.Time) bool {
 	return credential.Contract == revocationSourceCredentialContract &&
 		auditExportIsolationDomainPattern.MatchString(credential.IsolationDomainID) &&
+		validRevocationNoticePurpose(credential.Purpose) &&
 		auditExportDeliveryRecipientPattern.MatchString(credential.SourceID) &&
 		digestPattern.MatchString(credential.SourceRegistrySHA256) &&
 		(credential.Endpoint == "notice" || credential.Endpoint == "trust") &&
