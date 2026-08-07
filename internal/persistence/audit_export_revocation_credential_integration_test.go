@@ -41,9 +41,9 @@ func TestAuditExportRevocationCredentialsAreSequentialAuditedAndRevocable(t *tes
 	if err := repository.ChangeAuditExportRevocationSource(
 		ctx,
 		persistence.AuditExportRevocationSourceChange{
-			Contract: persistence.AuditExportRevocationSourceAuthorizationContract,
+			Contract:  persistence.AuditExportRevocationSourceAuthorizationContract,
 			Operation: "activate", IsolationDomainID: isolationDomainID,
-			Purpose: persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
+			Purpose:  persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
 			SourceID: "archive-revocations.primary", Generation: 1,
 			SourceRegistrySHA256: sourceDigest, ActorID: identity.New("usr"),
 			ReasonDigest: sourceReason[:], CorrelationID: identity.New("cor"),
@@ -54,25 +54,25 @@ func TestAuditExportRevocationCredentialsAreSequentialAuditedAndRevocable(t *tes
 
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	notice := persistence.AuditExportRevocationCredentialEvidence{
-		Endpoint: "notice",
+		Endpoint:         "notice",
 		CredentialSHA256: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
-		ActivatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
+		ActivatedAt:      now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
 	}
 	trust := persistence.AuditExportRevocationCredentialEvidence{
-		Endpoint: "trust",
+		Endpoint:         "trust",
 		CredentialSHA256: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
-		ActivatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
+		ActivatedAt:      now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
 	}
 	activate := func(evidence persistence.AuditExportRevocationCredentialEvidence) persistence.AuditExportRevocationCredentialChange {
 		reason := sha256.Sum256([]byte("activate " + evidence.Endpoint + " credential"))
 		return persistence.AuditExportRevocationCredentialChange{
-			Contract: persistence.AuditExportRevocationCredentialAuthorizationContract,
+			Contract:  persistence.AuditExportRevocationCredentialAuthorizationContract,
 			Operation: "activate", IsolationDomainID: isolationDomainID,
-			Purpose: persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
+			Purpose:  persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
 			SourceID: "archive-revocations.primary", SourceRegistrySHA256: sourceDigest,
 			Endpoint: evidence.Endpoint, Generation: 1,
 			CredentialSHA256: evidence.CredentialSHA256,
-			ActivatedAt: evidence.ActivatedAt, ExpiresAt: evidence.ExpiresAt,
+			ActivatedAt:      evidence.ActivatedAt, ExpiresAt: evidence.ExpiresAt,
 			ActorID: identity.New("usr"), ReasonDigest: reason[:],
 			CorrelationID: identity.New("cor"),
 		}
@@ -109,9 +109,9 @@ func TestAuditExportRevocationCredentialsAreSequentialAuditedAndRevocable(t *tes
 	}
 	revokeReason := sha256.Sum256([]byte("record remote notice credential revocation"))
 	revocation := persistence.AuditExportRevocationCredentialChange{
-		Contract: persistence.AuditExportRevocationCredentialAuthorizationContract,
+		Contract:  persistence.AuditExportRevocationCredentialAuthorizationContract,
 		Operation: "revoke", IsolationDomainID: isolationDomainID,
-		Purpose: persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
+		Purpose:  persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
 		SourceID: "archive-revocations.primary", SourceRegistrySHA256: sourceDigest,
 		Endpoint: "notice", Generation: 2, CredentialSHA256: notice.CredentialSHA256,
 		ActorID: identity.New("usr"), ReasonDigest: revokeReason[:],
