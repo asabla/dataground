@@ -391,9 +391,9 @@ func TestRevocationAcquisitionMigrationPreservesEvidence(t *testing.T) {
 		"iso_00000000000000000001", "profile", "cor_00000000000000000020",
 	)
 	record.Acquisition = &persistence.AuditExportRevocationAcquisition{
-		Contract:             persistence.AuditExportRevocationAcquisitionContract,
-		Purpose:              persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
-		SourceID:             "archive-revocations.primary",
+		Contract:                   persistence.AuditExportRevocationAcquisitionContract,
+		Purpose:                    persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
+		SourceID:                   "archive-revocations.primary",
 		SourceRegistrySHA256:       "sha256:" + strings.Repeat("f", 64),
 		SourceGeneration:           1,
 		NoticeCredentialSHA256:     "sha256:" + strings.Repeat("d", 64),
