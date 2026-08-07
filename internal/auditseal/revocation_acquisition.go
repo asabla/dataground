@@ -52,7 +52,6 @@ type RevocationNoticeAcquisitionConfig struct {
 // source provenance. Exactly one purpose-specific result is non-nil.
 type AcquiredRevocationNotice struct {
 	Purpose              string
-	Purpose              string
 	SourceID             string
 	SourceRegistrySHA256 string
 	NoticeCredential     RevocationSourceCredentialEvidence
@@ -149,6 +148,7 @@ type revocationSourceAuthentication struct {
 type revocationSourceCredential struct {
 	Contract             string
 	IsolationDomainID    string
+	Purpose              string
 	SourceID             string
 	SourceRegistrySHA256 string
 	Endpoint             string
