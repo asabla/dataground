@@ -274,6 +274,44 @@ func requireAuditExportRevocationCredential(
 	return generation, nil
 }
 
+func requireAuditExportRevocationCredentialBinding(
+	ctx context.Context,
+	querier auditExportRecipientTrustQuerier,
+	isolationDomainID string,
+	purpose string,
+	sourceID string,
+	sourceRegistrySHA256 string,
+	endpoint string,
+	credentialSHA256 string,
+	expectedGeneration int64,
+) (int64, error) {
+	var generation int64
+	err := querier.QueryRow(ctx, `
+		SELECT generation
+		FROM audit_export_revocation_credential_events
+		WHERE isolation_domain_id = $1 AND purpose = $2 AND source_id = $3
+		  AND source_registry_sha256 = $4 AND endpoint = $5
+		  AND credential_sha256 = $6 AND operation = 'activate'
+		  AND activated_at <= clock_timestamp() AND expires_at > clock_timestamp()
+		  AND generation = (
+			SELECT max(latest.generation)
+			FROM audit_export_revocation_credential_events AS latest
+			WHERE latest.isolation_domain_id = $1 AND latest.purpose = $2
+			  AND latest.source_id = $3 AND latest.source_registry_sha256 = $4
+			  AND latest.endpoint = $5
+		  )
+	`, isolationDomainID, purpose, sourceID, sourceRegistrySHA256,
+		endpoint, credentialSHA256).Scan(&generation)
+	if errors.Is(err, pgx.ErrNoRows) ||
+		(err == nil && expectedGeneration > 0 && generation != expectedGeneration) {
+		return 0, ErrAuditExportRevocationCredentialUnauthorized
+	}
+	if err != nil {
+		return 0, fmt.Errorf("authorize audit export revocation credential binding: %w", err)
+	}
+	return generation, nil
+}
+
 func readAuditExportRevocationCredentialGeneration(
 	ctx context.Context,
 	querier auditExportRecipientTrustQuerier,
