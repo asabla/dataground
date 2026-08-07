@@ -122,7 +122,7 @@ func PrepareProviderDPoPIssuanceSigningMessage(request ProviderDPoPIssuancePrepa
 	if request.Now.IsZero() {
 		request.Now = time.Now().UTC()
 	}
-	statement, canonicalStatement, trust, canonicalTrust, err := loadProviderDPoPIssuanceInputs(
+	statement, canonicalStatement, _, canonicalTrust, err := loadProviderDPoPIssuanceInputs(
 		request.StatementFile, request.TrustProfileFile, request.Now,
 	)
 	if err != nil {
@@ -130,7 +130,6 @@ func PrepareProviderDPoPIssuanceSigningMessage(request ProviderDPoPIssuancePrepa
 	}
 	defer clear(canonicalStatement)
 	defer clear(canonicalTrust)
-	_ = trust
 	if err := verifyProviderDPoPIssuanceReport(statement, request.Now); err != nil {
 		return err
 	}
