@@ -81,14 +81,14 @@ func TestRevocationNoticeAcquirerPinsSourceCredentialsAndVerifiesNotice(t *testi
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	writeCanonicalPrivate(t, noticeCredentialPath, revocationSourceCredentialDocument{
 		Contract: revocationSourceCredentialContract, IsolationDomainID: fixture.isolationDomainID,
-		Purpose: RevocationNoticePurposeRecipientProof,
+		Purpose:  RevocationNoticePurposeRecipientProof,
 		SourceID: "archive-revocations.primary", SourceRegistrySHA256: registrySHA256,
 		Endpoint: "notice", ActivatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
 		BearerToken: json.RawMessage(`"notice-token"`),
 	})
 	writeCanonicalPrivate(t, trustCredentialPath, revocationSourceCredentialDocument{
 		Contract: revocationSourceCredentialContract, IsolationDomainID: fixture.isolationDomainID,
-		Purpose: RevocationNoticePurposeRecipientProof,
+		Purpose:  RevocationNoticePurposeRecipientProof,
 		SourceID: "archive-revocations.primary", SourceRegistrySHA256: registrySHA256,
 		Endpoint: "trust", ActivatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
 		BearerToken: json.RawMessage(`"trust-token"`),
@@ -160,13 +160,13 @@ func TestRevocationNoticeAcquirerRejectsRegistryAndCredentialSubstitution(t *tes
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	for endpoint, credentialPath := range map[string]string{
 		"notice": noticeCredentialPath,
-		"trust": trustCredentialPath,
+		"trust":  trustCredentialPath,
 	} {
 		writeCanonicalPrivate(t, credentialPath, revocationSourceCredentialDocument{
-			Contract: revocationSourceCredentialContract,
-			IsolationDomainID: "iso_00000000000000000001",
-			Purpose: RevocationNoticePurposeRecipientProof,
-			SourceID: "archive-revocations.primary",
+			Contract:             revocationSourceCredentialContract,
+			IsolationDomainID:    "iso_00000000000000000001",
+			Purpose:              RevocationNoticePurposeRecipientProof,
+			SourceID:             "archive-revocations.primary",
 			SourceRegistrySHA256: registrySHA256, Endpoint: endpoint,
 			ActivatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
 			BearerToken: json.RawMessage(`"shared-token"`),
