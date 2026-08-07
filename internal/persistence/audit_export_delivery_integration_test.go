@@ -3,6 +3,7 @@ package persistence_test
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -1118,11 +1119,12 @@ func TestExternalRecipientProofRevocationBlocksActivationAndAcknowledgement(t *t
 	foundAcquisition := false
 	for _, record := range auditPage.Records {
 		if record.CorrelationID == revocation.CorrelationID {
-			foundAcquisition = strings.Contains(
-				string(record.SafeMetadata), `"revocationSourceId":"archive-revocations.primary"`,
-			) && strings.Contains(
-				string(record.SafeMetadata), `"revocationSourceRegistrySha256":"sha256:`,
-			)
+			var metadata map[string]any
+			if err := json.Unmarshal(record.SafeMetadata, &metadata); err != nil {
+				t.Fatalf("decode acquired revocation audit metadata: %v", err)
+			}
+			foundAcquisition = metadata["revocationSourceId"] == "archive-revocations.primary" &&
+				metadata["revocationSourceRegistrySha256"] == revocation.Acquisition.SourceRegistrySHA256
 		}
 	}
 	if !foundAcquisition {
