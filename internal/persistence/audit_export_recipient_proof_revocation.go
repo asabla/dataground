@@ -93,6 +93,14 @@ func (repository *Repository) RecordAuditExportRecipientProofRevocation(
 		}
 		return tx.Commit(ctx)
 	}
+	if err := requireAuditExportRevocationAuthority(
+		ctx, tx, record.IsolationDomainID,
+		AuditExportRevocationAuthorityPurposeRecipientProof,
+		record.RevocationAuthorityID, record.RevocationTrustProfileSHA256,
+		record.RevocationSigningKeyID,
+	); err != nil {
+		return err
+	}
 	var correlatedSHA256 string
 	err = tx.QueryRow(ctx, `
 		SELECT revocation_sha256

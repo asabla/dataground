@@ -6,7 +6,9 @@
   "additionalProperties": false,
   "required": ["contract", "authorityId", "keys"],
   "properties": {
-    "contract": { "const": "dataground.audit-export-workload-identity-revocation-trust/ed25519/v1" },
+    "contract": {
+      "const": "dataground.audit-export-workload-identity-revocation-trust/ed25519/v1"
+    },
     "authorityId": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,127}$" },
     "keys": {
       "type": "array",
@@ -25,5 +27,3 @@
     }
   }
 }
-
-

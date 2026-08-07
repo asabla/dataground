@@ -216,7 +216,8 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 	case "sensitive":
 		_, ok := value.(bool)
 		return ok
-	case "generation", "recipientTrustGeneration", "workloadIdentityGeneration":
+	case "generation", "recipientTrustGeneration", "revocationAuthorityGeneration",
+		"workloadIdentityGeneration":
 		return validOperatorAuditInteger(value, 1)
 	case "recipientTrustKeyCount", "recipientEncryptionKeyCount":
 		return validOperatorAuditIntegerRange(value, 0, 8)
@@ -233,6 +234,7 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 		"providerRegistrySha256", "publicationPathDigest", "reasonDigest",
 		"recipientIdentityProofSha256", "recipientProofRevocationSha256",
 		"recipientProofingTrustProfileSha256", "recipientTrustProfileSha256", "trustProfileSha256",
+		"revocationAuthorityTrustProfileSha256",
 		"workloadIdentityGrantSha256", "workloadIdentityRevocationSha256",
 		"workloadIdentityTrustProfileSha256":
 		return operatorAuditDigest.MatchString(text)
@@ -246,6 +248,7 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 	case "artifactKind":
 		return operatorAuditVocabulary.MatchString(text)
 	case "providerId", "recipientProofingAuthorityId", "recipientRevocationAuthorityId",
+		"revocationAuthorityId",
 		"workloadIdentityAuthorityId", "workloadIdentityRevocationAuthorityId":
 		return operatorAuditProviderID.MatchString(text)
 	case "recipientIdentityProofExpiresAt", "recipientProofRevocationEffectiveAt",
@@ -257,6 +260,9 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 		return auditExportDeliveryKeyID.MatchString(text)
 	case "recipientProofRevocationScope", "workloadIdentityRevocationScope":
 		return text == "profile" || text == "key"
+	case "revocationAuthorityPurpose":
+		return text == AuditExportRevocationAuthorityPurposeRecipientProof ||
+			text == AuditExportRevocationAuthorityPurposeWorkloadIdentity
 	case "endpoint":
 		return text == "discovery" || text == "jwks"
 	case "exportKind":
