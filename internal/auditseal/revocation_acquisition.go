@@ -300,7 +300,7 @@ func (acquirer *RevocationNoticeAcquirer) Acquire(
 	acquired = AcquiredRevocationNotice{
 		Purpose: acquirer.purpose, SourceID: acquirer.sourceID,
 		SourceRegistrySHA256: acquirer.sourceRegistrySHA256,
-		NoticeCredential: acquirer.noticeEvidence, TrustCredential: acquirer.trustEvidence,
+		NoticeCredential:     acquirer.noticeEvidence, TrustCredential: acquirer.trustEvidence,
 	}
 	switch acquirer.purpose {
 	case RevocationNoticePurposeRecipientProof:
@@ -505,7 +505,7 @@ func loadRevocationSourceCredential(
 		Contract: document.Contract, IsolationDomainID: document.IsolationDomainID,
 		Purpose: document.Purpose, SourceID: document.SourceID,
 		SourceRegistrySHA256: document.SourceRegistrySHA256,
-		Endpoint: document.Endpoint, ActivatedAt: document.ActivatedAt.UTC(),
+		Endpoint:             document.Endpoint, ActivatedAt: document.ActivatedAt.UTC(),
 		ExpiresAt: document.ExpiresAt.UTC(), BearerToken: append([]byte(nil), token[1:len(token)-1]...),
 	}
 	if credential.Contract != revocationSourceCredentialContract ||
