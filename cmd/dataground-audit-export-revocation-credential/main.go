@@ -91,13 +91,13 @@ func newCredentialChange(
 	now time.Time,
 ) (persistence.AuditExportRevocationCredentialChange, error) {
 	change := persistence.AuditExportRevocationCredentialChange{
-		Contract: persistence.AuditExportRevocationCredentialAuthorizationContract,
+		Contract:  persistence.AuditExportRevocationCredentialAuthorizationContract,
 		Operation: request.operation, IsolationDomainID: request.isolationDomainID,
 		Purpose: request.purpose, SourceID: request.sourceID,
 		SourceRegistrySHA256: request.sourceRegistrySHA256,
-		Endpoint: request.endpoint, Generation: request.generation,
+		Endpoint:             request.endpoint, Generation: request.generation,
 		CredentialSHA256: request.credentialSHA256,
-		ActorID: request.actorID, CorrelationID: request.correlationID,
+		ActorID:          request.actorID, CorrelationID: request.correlationID,
 	}
 	reasonDigest := sha256.Sum256([]byte(request.reason))
 	change.ReasonDigest = reasonDigest[:]
@@ -106,7 +106,7 @@ func newCredentialChange(
 			request.credentialFile,
 			auditseal.RevocationNoticeAcquisitionConfig{
 				IsolationDomainID: request.isolationDomainID,
-				Purpose: request.purpose, SourceID: request.sourceID,
+				Purpose:           request.purpose, SourceID: request.sourceID,
 				SourceRegistrySHA256: request.sourceRegistrySHA256,
 			},
 			request.endpoint,
