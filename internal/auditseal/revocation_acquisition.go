@@ -54,6 +54,8 @@ type AcquiredRevocationNotice struct {
 	Purpose              string
 	SourceID             string
 	SourceRegistrySHA256 string
+	NoticeCredential     RevocationSourceCredentialEvidence
+	TrustCredential      RevocationSourceCredentialEvidence
 	RecipientProof       *VerifiedRecipientProofRevocation
 	WorkloadIdentity     *VerifiedWorkloadIdentityRevocation
 }
@@ -64,6 +66,15 @@ type RevocationSourceEvidence struct {
 	Purpose              string
 	SourceID             string
 	SourceRegistrySHA256 string
+}
+
+// RevocationSourceCredentialEvidence binds one loaded endpoint token without
+// exposing it. The digest covers the exact canonical credential document.
+type RevocationSourceCredentialEvidence struct {
+	Endpoint         string
+	CredentialSHA256 string
+	ActivatedAt      time.Time
+	ExpiresAt        time.Time
 }
 
 // InspectRevocationSourceRegistryFile validates the complete canonical
@@ -146,6 +157,8 @@ type RevocationNoticeAcquirer struct {
 	used                 bool
 	noticeCredential     revocationSourceCredential
 	trustCredential      revocationSourceCredential
+	noticeEvidence       RevocationSourceCredentialEvidence
+	trustEvidence        RevocationSourceCredentialEvidence
 }
 
 func NewRevocationNoticeAcquirer(
@@ -173,13 +186,13 @@ func NewRevocationNoticeAcquirer(
 		return nil, ErrRevocationNoticeAcquisitionInvalid
 	}
 	now := time.Now().UTC()
-	noticeCredential, err := loadRevocationSourceCredential(
+	noticeCredential, noticeEvidence, err := loadRevocationSourceCredential(
 		profile.NoticeAuthentication.CredentialFile, config, "notice", now,
 	)
 	if err != nil {
 		return nil, err
 	}
-	trustCredential, err := loadRevocationSourceCredential(
+	trustCredential, trustEvidence, err := loadRevocationSourceCredential(
 		profile.TrustAuthentication.CredentialFile, config, "trust", now,
 	)
 	if err != nil {
@@ -213,6 +226,7 @@ func NewRevocationNoticeAcquirer(
 		sourceID: config.SourceID, sourceRegistrySHA256: config.SourceRegistrySHA256,
 		noticeURL: profile.NoticeURL, trustURL: profile.TrustURL,
 		noticeCredential: noticeCredential, trustCredential: trustCredential,
+		noticeEvidence: noticeEvidence, trustEvidence: trustEvidence,
 		client: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		}},
@@ -257,6 +271,7 @@ func (acquirer *RevocationNoticeAcquirer) Acquire(
 	acquired = AcquiredRevocationNotice{
 		Purpose: acquirer.purpose, SourceID: acquirer.sourceID,
 		SourceRegistrySHA256: acquirer.sourceRegistrySHA256,
+		NoticeCredential: acquirer.noticeEvidence, TrustCredential: acquirer.trustEvidence,
 	}
 	switch acquirer.purpose {
 	case RevocationNoticePurposeRecipientProof:
@@ -306,6 +321,22 @@ func (acquirer *RevocationNoticeAcquirer) fetchJSON(
 		return nil, ErrRevocationNoticeAcquisitionInvalid
 	}
 	return readBoundedRevocationResponse(ctx, response.Body)
+}
+
+// CredentialEvidence returns the exact non-secret endpoint credential bindings
+// loaded by this single-use acquirer.
+func (acquirer *RevocationNoticeAcquirer) CredentialEvidence() (
+	RevocationSourceCredentialEvidence,
+	RevocationSourceCredentialEvidence,
+	error,
+) {
+	if acquirer == nil || acquirer.client == nil ||
+		acquirer.noticeEvidence.Endpoint != "notice" ||
+		acquirer.trustEvidence.Endpoint != "trust" {
+		return RevocationSourceCredentialEvidence{}, RevocationSourceCredentialEvidence{},
+			ErrRevocationNoticeAcquisitionUnavailable
+	}
+	return acquirer.noticeEvidence, acquirer.trustEvidence, nil
 }
 
 func (acquirer *RevocationNoticeAcquirer) takeCredentials() (
@@ -416,28 +447,29 @@ func loadRevocationSourceCredential(
 	config RevocationNoticeAcquisitionConfig,
 	endpoint string,
 	now time.Time,
-) (revocationSourceCredential, error) {
+) (revocationSourceCredential, RevocationSourceCredentialEvidence, error) {
 	var credential revocationSourceCredential
 	encoded, err := readStablePrivateFile(path, maximumRevocationSourceCredentialBytes)
 	if err != nil {
-		return credential, ErrRevocationNoticeAcquisitionUnavailable
+		return credential, RevocationSourceCredentialEvidence{},
+			ErrRevocationNoticeAcquisitionUnavailable
 	}
 	defer clear(encoded)
 	var document revocationSourceCredentialDocument
 	if err := decodeCanonicalJSON(encoded, &document, maximumRevocationSourceCredentialBytes); err != nil {
-		return revocationSourceCredential{}, ErrRevocationNoticeAcquisitionInvalid
+		return revocationSourceCredential{}, RevocationSourceCredentialEvidence{}, ErrRevocationNoticeAcquisitionInvalid
 	}
 	canonical, err := canonicalJSON(document)
 	if err != nil || !bytes.Equal(canonical, encoded) {
 		clear(canonical)
-		return revocationSourceCredential{}, ErrRevocationNoticeAcquisitionInvalid
+		return revocationSourceCredential{}, RevocationSourceCredentialEvidence{}, ErrRevocationNoticeAcquisitionInvalid
 	}
 	clear(canonical)
 	token := bytes.TrimSpace(document.BearerToken)
 	if len(token) < 3 || token[0] != '"' || token[len(token)-1] != '"' ||
 		bytes.IndexByte(token[1:len(token)-1], '\\') >= 0 ||
 		bytes.IndexByte(token[1:len(token)-1], '"') >= 0 {
-		return revocationSourceCredential{}, ErrRevocationNoticeAcquisitionInvalid
+		return revocationSourceCredential{}, RevocationSourceCredentialEvidence{}, ErrRevocationNoticeAcquisitionInvalid
 	}
 	credential = revocationSourceCredential{
 		Contract: document.Contract, IsolationDomainID: document.IsolationDomainID,
@@ -450,9 +482,14 @@ func loadRevocationSourceCredential(
 		credential.SourceRegistrySHA256 != config.SourceRegistrySHA256 || credential.Endpoint != endpoint ||
 		!validRevocationSourceCredentialAt(credential, now) {
 		clear(credential.BearerToken)
-		return revocationSourceCredential{}, ErrRevocationNoticeAcquisitionInvalid
+		return revocationSourceCredential{}, RevocationSourceCredentialEvidence{},
+			ErrRevocationNoticeAcquisitionInvalid
 	}
-	return credential, nil
+	digest := sha256.Sum256(encoded)
+	return credential, RevocationSourceCredentialEvidence{
+		Endpoint: endpoint, CredentialSHA256: digestString(digest),
+		ActivatedAt: credential.ActivatedAt, ExpiresAt: credential.ExpiresAt,
+	}, nil
 }
 
 func validRevocationSourceCredentialAt(credential revocationSourceCredential, now time.Time) bool {
