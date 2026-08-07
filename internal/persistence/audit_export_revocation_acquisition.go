@@ -20,15 +20,15 @@ const (
 var ErrAuditExportRevocationAcquisitionConflict = errors.New("audit export revocation acquisition conflicts with durable state")
 
 type AuditExportRevocationAcquisition struct {
-	Contract             string
-	Purpose              string
-	SourceID             string
-	SourceRegistrySHA256      string
-	SourceGeneration          int64
-	NoticeCredentialSHA256    string
+	Contract                   string
+	Purpose                    string
+	SourceID                   string
+	SourceRegistrySHA256       string
+	SourceGeneration           int64
+	NoticeCredentialSHA256     string
 	NoticeCredentialGeneration int64
-	TrustCredentialSHA256     string
-	TrustCredentialGeneration int64
+	TrustCredentialSHA256      string
+	TrustCredentialGeneration  int64
 }
 
 type AuditExportRevocationAcquisitionReplay struct {
