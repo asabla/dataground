@@ -27,8 +27,8 @@ func TestParseArgumentsRequiresClosedCredentialScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, arguments := range map[string][]string{
-		"missing": base[:len(base)-2],
-		"purpose": append(append([]string(nil), base...), "-purpose", "other"),
+		"missing":  base[:len(base)-2],
+		"purpose":  append(append([]string(nil), base...), "-purpose", "other"),
 		"endpoint": append(append([]string(nil), base...), "-endpoint", "other"),
 		"digest": append(append([]string(nil), base...),
 			"-credential-sha256", "sha256:"+strings.Repeat("2", 64)),
@@ -74,13 +74,13 @@ func TestParseArgumentsRequiresExactRevocationDigest(t *testing.T) {
 func TestExecuteRequestRecordsCredentialChange(t *testing.T) {
 	repository := &recordingCredentialRepository{}
 	change := persistence.AuditExportRevocationCredentialChange{
-		Contract: persistence.AuditExportRevocationCredentialAuthorizationContract,
+		Contract:  persistence.AuditExportRevocationCredentialAuthorizationContract,
 		Operation: "revoke", IsolationDomainID: "iso_00000000000000000001",
 		Purpose: "recipient-proof", SourceID: "archive-revocations.primary",
 		SourceRegistrySHA256: "sha256:" + strings.Repeat("1", 64),
-		Endpoint: "notice", Generation: 2,
+		Endpoint:             "notice", Generation: 2,
 		CredentialSHA256: "sha256:" + strings.Repeat("2", 64),
-		ActorID: "operator@example.invalid", ReasonDigest: make([]byte, 32),
+		ActorID:          "operator@example.invalid", ReasonDigest: make([]byte, 32),
 		CorrelationID: "cor_00000000000000000002",
 	}
 	if err := executeRequest(context.Background(), repository, change); err != nil {
