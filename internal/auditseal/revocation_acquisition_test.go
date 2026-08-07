@@ -100,13 +100,25 @@ func TestRevocationNoticeAcquirerPinsSourceCredentialsAndVerifiesNotice(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	noticeEvidence, trustEvidence, err := acquirer.CredentialEvidence()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if noticeEvidence.Endpoint != "notice" || trustEvidence.Endpoint != "trust" ||
+		noticeEvidence.CredentialSHA256 == trustEvidence.CredentialSHA256 ||
+		!noticeEvidence.ActivatedAt.Equal(now.Add(-time.Minute)) ||
+		!trustEvidence.ExpiresAt.Equal(now.Add(time.Hour)) {
+		t.Fatalf("credential evidence = %#v, %#v", noticeEvidence, trustEvidence)
+	}
 	acquired, err := acquirer.Acquire(t.Context(), now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if acquired.RecipientProof == nil || acquired.WorkloadIdentity != nil ||
 		acquired.RecipientProof.RevocationAuthorityID != "archive-revocation.primary" ||
-		acquired.SourceRegistrySHA256 != registrySHA256 {
+		acquired.SourceRegistrySHA256 != registrySHA256 ||
+		acquired.NoticeCredential != noticeEvidence ||
+		acquired.TrustCredential != trustEvidence {
 		t.Fatalf("acquired revocation = %#v", acquired)
 	}
 	if _, err := acquirer.Acquire(t.Context(), now); err == nil {
