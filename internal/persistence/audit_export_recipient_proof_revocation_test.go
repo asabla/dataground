@@ -42,7 +42,11 @@ func TestAuditExportRecipientProofRevocationRecordValidation(t *testing.T) {
 		Purpose:              AuditExportRevocationAuthorityPurposeRecipientProof,
 		SourceID:             "archive-revocations.primary",
 		SourceRegistrySHA256: "sha256:" + strings.Repeat("6", 64),
-		SourceGeneration:     1,
+		SourceGeneration:          1,
+		NoticeCredentialSHA256:    "sha256:" + strings.Repeat("7", 64),
+		NoticeCredentialGeneration: 1,
+		TrustCredentialSHA256:     "sha256:" + strings.Repeat("8", 64),
+		TrustCredentialGeneration: 1,
 	}
 	if !record.Valid() {
 		t.Fatal("valid recipient revocation acquisition was rejected")
