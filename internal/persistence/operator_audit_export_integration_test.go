@@ -203,11 +203,17 @@ func resetOperatorAuditDatabase(t *testing.T, ctx context.Context) *pgxpool.Pool
 const clearProtectedAuditExportFixturesSQL = `
 	DO $$
 	BEGIN
+		IF to_regclass('audit_export_revocation_authority_events') IS NOT NULL THEN
+			EXECUTE 'TRUNCATE audit_export_revocation_authority_keys, audit_export_revocation_authority_events';
+		END IF;
 		IF to_regclass('audit_export_workload_identity_revocations') IS NOT NULL THEN
 			EXECUTE 'TRUNCATE audit_export_workload_identity_revocations';
 		END IF;
 		IF to_regclass('audit_export_recipient_proof_revocations') IS NOT NULL THEN
 			EXECUTE 'TRUNCATE audit_export_recipient_proof_revocations';
+		END IF;
+		IF to_regclass('audit_export_workload_identity_events') IS NOT NULL THEN
+			EXECUTE 'TRUNCATE audit_export_workload_identity_events';
 		END IF;
 		IF to_regclass('audit_export_recipient_trust_events') IS NOT NULL THEN
 			EXECUTE 'TRUNCATE audit_export_recipient_trust_events, audit_export_deliveries CASCADE';
