@@ -18,6 +18,7 @@ PostgreSQL 18 is required for durable integration tests and durable control-plan
 | `cmd/dataground-auth-rate-limit-policy` | Audited authentication admission-policy activator |
 | `cmd/dataground-auth-rate-limit-capacity` | Disposable PostgreSQL admission-capacity evidence runner |
 | `cmd/dataground-oidc-provider-credential` | Audited isolation-scoped provider credential publisher |
+| `cmd/dataground-provider-dpop-issuance` | External-key provider DPoP issuance evidence verifier |
 | `cmd/dataground-audit-export` | Isolation-scoped authorization-decision exporter |
 | `cmd/dataground-audit-export-seal` | External-key authorization/operator audit export sealer |
 | `cmd/dataground-audit-export-encrypt` | Recipient-bound audit export package encryption |
