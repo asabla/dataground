@@ -47,6 +47,49 @@ func TestProviderDPoPIssuanceEvidenceLifecycle(t *testing.T) {
 		envelope.Signature.KeyID != "provider_reviewer_one" {
 		t.Fatalf("verified envelope = %#v", envelope)
 	}
+	if err := InstallProviderDPoPIssuance(ProviderDPoPIssuanceInstallRequest{
+		StatementFile: fixture.statementFile, SignatureFile: fixture.signatureFile,
+		TrustProfileFile: fixture.trustFile, OutputFile: fixture.envelopeFile, Now: fixture.now,
+	}); err != nil {
+		t.Fatalf("replay provider issuance installation: %v", err)
+	}
+	fixture.report.AuthorizationServerNonce = "not-required"
+	writeProviderDPoPIssuanceJSON(t, fixture.reportFile, fixture.report)
+	if _, err := VerifyProviderDPoPIssuanceFile(
+		fixture.envelopeFile, fixture.trustFile, fixture.now,
+	); err == nil {
+		t.Fatal("changed conformance report remained valid")
+	}
+}
+
+func TestProviderDPoPIssuanceRejectsSignatureSubstitution(t *testing.T) {
+	t.Parallel()
+	fixture := newProviderDPoPIssuanceFixture(t)
+	if err := PrepareProviderDPoPIssuanceSigningMessage(ProviderDPoPIssuancePrepareRequest{
+		StatementFile: fixture.statementFile, TrustProfileFile: fixture.trustFile,
+		SigningMessageFile: fixture.messageFile, Now: fixture.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	message, err := os.ReadFile(fixture.messageFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, substitutedKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeProviderDPoPIssuanceJSON(t, fixture.signatureFile, ProviderDPoPIssuanceSignature{
+		Contract:  ProviderDPoPIssuanceSignatureContract,
+		KeyID:     "provider_reviewer_one",
+		Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(substitutedKey, message)),
+	})
+	if err := InstallProviderDPoPIssuance(ProviderDPoPIssuanceInstallRequest{
+		StatementFile: fixture.statementFile, SignatureFile: fixture.signatureFile,
+		TrustProfileFile: fixture.trustFile, OutputFile: fixture.envelopeFile, Now: fixture.now,
+	}); err == nil {
+		t.Fatal("substituted provider reviewer key was accepted")
+	}
 }
 
 func TestProviderDPoPIssuanceRejectsIncompleteConformance(t *testing.T) {
