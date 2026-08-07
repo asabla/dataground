@@ -245,11 +245,13 @@ func sameAuditExportRevocationAcquisition(
 
 func auditExportRevocationAcquisitionMetadata(
 	acquisition *AuditExportRevocationAcquisition,
-) (string, string, int64) {
+) (string, string, int64, string, int64, string, int64) {
 	if acquisition == nil {
-		return "", "", 0
+		return "", "", 0, "", 0, "", 0
 	}
-	return acquisition.SourceID, acquisition.SourceRegistrySHA256, acquisition.SourceGeneration
+	return acquisition.SourceID, acquisition.SourceRegistrySHA256, acquisition.SourceGeneration,
+		acquisition.NoticeCredentialSHA256, acquisition.NoticeCredentialGeneration,
+		acquisition.TrustCredentialSHA256, acquisition.TrustCredentialGeneration
 }
 
 func cloneAuditExportRevocationAcquisition(
