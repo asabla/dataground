@@ -169,6 +169,18 @@
       "valid": true
     },
     {
+      "file": "valid/audit-export-revocation-source-registry.json",
+      "schema": "AuditExportRevocationSourceRegistry",
+      "document": "audit-export-revocation-source-registry",
+      "valid": true
+    },
+    {
+      "file": "valid/audit-export-revocation-source-credential.json",
+      "schema": "AuditExportRevocationSourceCredential",
+      "document": "audit-export-revocation-source-credential",
+      "valid": true
+    },
+    {
       "file": "invalid/agent-service-missing-name.json",
       "schema": "AgentService",
       "valid": false
@@ -250,6 +262,12 @@
       "file": "invalid/audit-export-workload-identity-revocation-scope.json",
       "schema": "AuditExportWorkloadIdentityRevocation",
       "document": "audit-export-workload-identity-revocation",
+      "valid": false
+    },
+    {
+      "file": "invalid/audit-export-revocation-source-registry-http.json",
+      "schema": "AuditExportRevocationSourceRegistry",
+      "document": "audit-export-revocation-source-registry",
       "valid": false
     }
   ]

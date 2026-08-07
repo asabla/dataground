@@ -103,6 +103,28 @@ func TestWorkloadIdentityRevocationSigningMessageHasOneTerminalNewline(t *testin
 	}
 }
 
+func TestVerifyWorkloadIdentityRevocationBytesMatchesFileBoundary(t *testing.T) {
+	fixture := newWorkloadIdentityRevocationFixture(t, "profile")
+	notice, err := os.ReadFile(fixture.revocationFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trust, err := os.ReadFile(fixture.trustFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified, err := VerifyWorkloadIdentityRevocation(
+		notice, trust, fixture.isolationDomainID, fixture.now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verified.Contract != WorkloadIdentityRevocationContract ||
+		verified.RevocationAuthorityID != "archive-revocation.primary" {
+		t.Fatalf("verified workload revocation = %#v", verified)
+	}
+}
+
 type workloadIdentityRevocationFixture struct {
 	isolationDomainID string
 	now               time.Time

@@ -504,6 +504,12 @@ func TestAuditExportDeliveryTransportRejectsExternalWorkloadIdentityRevocation(t
 	revocation := auditExportWorkloadIdentityRevocationRecord(
 		delivery.IsolationDomainID, now, "cor_00000000000000000032",
 	)
+	revocation.Acquisition = &persistence.AuditExportRevocationAcquisition{
+		Contract:             persistence.AuditExportRevocationAcquisitionContract,
+		Purpose:              persistence.AuditExportRevocationAuthorityPurposeWorkloadIdentity,
+		SourceID:             "archive-revocations.primary",
+		SourceRegistrySHA256: "sha256:" + strings.Repeat("f", 64),
+	}
 	activateAuditExportRevocationAuthority(
 		t, ctx, repository, delivery.IsolationDomainID,
 		persistence.AuditExportRevocationAuthorityPurposeWorkloadIdentity,
@@ -522,6 +528,18 @@ func TestAuditExportDeliveryTransportRejectsExternalWorkloadIdentityRevocation(t
 		ctx, changedRevocation,
 	); !errors.Is(err, persistence.ErrAuditExportWorkloadIdentityRevocationConflict) {
 		t.Fatalf("changed external workload identity revocation error = %v", err)
+	}
+	changedSource := revocation
+	changedSource.Acquisition = &persistence.AuditExportRevocationAcquisition{
+		Contract:             persistence.AuditExportRevocationAcquisitionContract,
+		Purpose:              persistence.AuditExportRevocationAuthorityPurposeWorkloadIdentity,
+		SourceID:             "archive-revocations.mirror",
+		SourceRegistrySHA256: revocation.Acquisition.SourceRegistrySHA256,
+	}
+	if err := repository.RecordAuditExportWorkloadIdentityRevocation(
+		ctx, changedSource,
+	); !errors.Is(err, persistence.ErrAuditExportWorkloadIdentityRevocationConflict) {
+		t.Fatalf("changed workload revocation acquisition error = %v", err)
 	}
 	rotationReason := sha256.Sum256([]byte("rotate externally revoked workload issuer key"))
 	rotation := persistence.AuditExportWorkloadIdentityChange{
@@ -1076,6 +1094,12 @@ func TestExternalRecipientProofRevocationBlocksActivationAndAcknowledgement(t *t
 	revocation := auditExportRecipientProofRevocationRecord(
 		delivery.IsolationDomainID, "key", "cor_00000000000000000020",
 	)
+	revocation.Acquisition = &persistence.AuditExportRevocationAcquisition{
+		Contract:             persistence.AuditExportRevocationAcquisitionContract,
+		Purpose:              persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
+		SourceID:             "archive-revocations.primary",
+		SourceRegistrySHA256: "sha256:" + strings.Repeat("f", 64),
+	}
 	activateAuditExportRevocationAuthority(
 		t, ctx, repository, delivery.IsolationDomainID,
 		persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
@@ -1084,6 +1108,50 @@ func TestExternalRecipientProofRevocationBlocksActivationAndAcknowledgement(t *t
 	)
 	if err := repository.RecordAuditExportRecipientProofRevocation(ctx, revocation); err != nil {
 		t.Fatalf("record external recipient proof revocation: %v", err)
+	}
+	auditPage, err := repository.ExportOperatorAuditRecords(
+		ctx, delivery.IsolationDomainID, "", 1000,
+	)
+	if err != nil {
+		t.Fatalf("export acquired revocation audit: %v", err)
+	}
+	foundAcquisition := false
+	for _, record := range auditPage.Records {
+		if record.CorrelationID == revocation.CorrelationID {
+			foundAcquisition = strings.Contains(
+				string(record.SafeMetadata), `"revocationSourceId":"archive-revocations.primary"`,
+			) && strings.Contains(
+				string(record.SafeMetadata), `"revocationSourceRegistrySha256":"sha256:`,
+			)
+		}
+	}
+	if !foundAcquisition {
+		t.Fatal("acquired revocation source provenance was not safely exportable")
+	}
+	replayed, err := repository.ReplayAuditExportRevocationAcquisition(
+		ctx, persistence.AuditExportRevocationAcquisitionReplay{
+			Purpose:              revocation.Acquisition.Purpose,
+			IsolationDomainID:    revocation.IsolationDomainID,
+			SourceID:             revocation.Acquisition.SourceID,
+			SourceRegistrySHA256: revocation.Acquisition.SourceRegistrySHA256,
+			ActorID:              revocation.ActorID, ReasonDigest: revocation.ReasonDigest,
+			CorrelationID: revocation.CorrelationID,
+		},
+	)
+	if err != nil || !replayed {
+		t.Fatalf("observe exact acquired revocation replay = %v, %v", replayed, err)
+	}
+	if replayed, err := repository.ReplayAuditExportRevocationAcquisition(
+		ctx, persistence.AuditExportRevocationAcquisitionReplay{
+			Purpose:              revocation.Acquisition.Purpose,
+			IsolationDomainID:    revocation.IsolationDomainID,
+			SourceID:             "archive-revocations.mirror",
+			SourceRegistrySHA256: revocation.Acquisition.SourceRegistrySHA256,
+			ActorID:              revocation.ActorID, ReasonDigest: revocation.ReasonDigest,
+			CorrelationID: revocation.CorrelationID,
+		},
+	); !errors.Is(err, persistence.ErrAuditExportRevocationAcquisitionConflict) || replayed {
+		t.Fatalf("changed acquired revocation replay = %v, %v", replayed, err)
 	}
 	if err := repository.RecordAuditExportRecipientProofRevocation(ctx, revocation); err != nil {
 		t.Fatalf("replay external recipient proof revocation: %v", err)
@@ -1103,6 +1171,19 @@ func TestExternalRecipientProofRevocationBlocksActivationAndAcknowledgement(t *t
 	changedReplay.ActorID = "other@example.invalid"
 	if err := repository.RecordAuditExportRecipientProofRevocation(ctx, changedReplay); !errors.Is(err, persistence.ErrAuditExportRecipientProofRevocationConflict) {
 		t.Fatalf("changed recipient proof revocation replay error = %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO audit_export_revocation_acquisitions (
+			contract, purpose, revocation_sha256, isolation_domain_id,
+			source_id, source_registry_sha256, trust_profile_sha256, correlation_id
+		) VALUES (
+			'dataground.audit-export-revocation-acquisition/v1', 'recipient-proof',
+			'sha256:' || repeat('9', 64), $1, 'archive-revocations.primary',
+			'sha256:' || repeat('8', 64), 'sha256:' || repeat('7', 64),
+			'cor_00000000000000000029'
+		)
+	`, delivery.IsolationDomainID); err == nil {
+		t.Fatal("unbound revocation acquisition bypassed repository enforcement")
 	}
 	acknowledgementDigest := sha256.Sum256([]byte("archive receipt"))
 	acknowledgement := persistence.AuditExportDeliveryAcknowledgement{

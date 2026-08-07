@@ -93,6 +93,28 @@ func VerifyRecipientProofRevocationFile(
 		return verified, fmt.Errorf("read audit export recipient proof revocation: %w", err)
 	}
 	defer clear(encoded)
+	trustEncoded, err := readStablePrivateFile(revocationTrustProfileFile, maximumControlBytes)
+	if err != nil {
+		return verified, fmt.Errorf("read audit export recipient revocation trust profile: %w", err)
+	}
+	defer clear(trustEncoded)
+	return VerifyRecipientProofRevocation(encoded, trustEncoded, isolationDomainID, now)
+}
+
+// VerifyRecipientProofRevocation verifies one owned in-memory notice and trust
+// profile. Callers must clear both byte slices after use.
+func VerifyRecipientProofRevocation(
+	encoded []byte,
+	trustEncoded []byte,
+	isolationDomainID string,
+	now time.Time,
+) (VerifiedRecipientProofRevocation, error) {
+	var verified VerifiedRecipientProofRevocation
+	if len(encoded) == 0 || len(encoded) > maximumControlBytes ||
+		len(trustEncoded) == 0 || len(trustEncoded) > maximumControlBytes ||
+		!auditExportIsolationDomainPattern.MatchString(isolationDomainID) || now.IsZero() {
+		return verified, errors.New("audit export recipient proof revocation inputs are invalid")
+	}
 	var revocation RecipientProofRevocation
 	if err := decodeCanonicalJSON(encoded, &revocation, maximumControlBytes); err != nil {
 		return verified, errors.New("audit export recipient proof revocation is invalid")
@@ -103,7 +125,7 @@ func VerifyRecipientProofRevocationFile(
 		return verified, errors.New("audit export recipient proof revocation is not canonical")
 	}
 	clear(canonicalRevocation)
-	trust, canonicalTrust, err := readRecipientRevocationTrustProfile(revocationTrustProfileFile)
+	trust, canonicalTrust, err := decodeRecipientRevocationTrustProfile(trustEncoded)
 	if err != nil {
 		return verified, err
 	}
@@ -150,13 +172,11 @@ func VerifyRecipientProofRevocationFile(
 	}, nil
 }
 
-func readRecipientRevocationTrustProfile(path string) (RecipientRevocationTrustProfile, []byte, error) {
+func decodeRecipientRevocationTrustProfile(encoded []byte) (RecipientRevocationTrustProfile, []byte, error) {
 	var trust RecipientRevocationTrustProfile
-	encoded, err := readStablePrivateFile(path, maximumControlBytes)
-	if err != nil {
-		return trust, nil, fmt.Errorf("read audit export recipient revocation trust profile: %w", err)
+	if len(encoded) == 0 || len(encoded) > maximumControlBytes {
+		return trust, nil, errors.New("audit export recipient revocation trust profile is invalid")
 	}
-	defer clear(encoded)
 	if err := decodeCanonicalJSON(encoded, &trust, maximumControlBytes); err != nil {
 		return trust, nil, errors.New("audit export recipient revocation trust profile is invalid")
 	}
@@ -172,6 +192,16 @@ func readRecipientRevocationTrustProfile(path string) (RecipientRevocationTrustP
 		return trust, nil, errors.New("audit export recipient revocation trust profile fields are invalid")
 	}
 	return trust, canonical, nil
+}
+
+func readRecipientRevocationTrustProfile(path string) (RecipientRevocationTrustProfile, []byte, error) {
+	var trust RecipientRevocationTrustProfile
+	encoded, err := readStablePrivateFile(path, maximumControlBytes)
+	if err != nil {
+		return trust, nil, fmt.Errorf("read audit export recipient revocation trust profile: %w", err)
+	}
+	defer clear(encoded)
+	return decodeRecipientRevocationTrustProfile(encoded)
 }
 
 func validRecipientProofRevocationScope(scope, keyID string) bool {

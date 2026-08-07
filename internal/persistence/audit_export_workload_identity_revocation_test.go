@@ -39,6 +39,19 @@ func TestAuditExportWorkloadIdentityRevocationRecordValidation(t *testing.T) {
 	if !record.Valid() {
 		t.Fatal("valid key-scoped audit export workload identity revocation was rejected")
 	}
+	record.Acquisition = &AuditExportRevocationAcquisition{
+		Contract:             AuditExportRevocationAcquisitionContract,
+		Purpose:              AuditExportRevocationAuthorityPurposeWorkloadIdentity,
+		SourceID:             "workload-revocations.primary",
+		SourceRegistrySHA256: "sha256:" + strings.Repeat("6", 64),
+	}
+	if !record.Valid() {
+		t.Fatal("valid workload revocation acquisition was rejected")
+	}
+	record.Acquisition.Purpose = AuditExportRevocationAuthorityPurposeRecipientProof
+	if record.Valid() {
+		t.Fatal("cross-purpose workload revocation acquisition was accepted")
+	}
 }
 
 func validAuditExportWorkloadIdentityRevocationRecord() AuditExportWorkloadIdentityRevocationRecord {

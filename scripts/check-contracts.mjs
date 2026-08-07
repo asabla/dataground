@@ -194,6 +194,12 @@ const auditExportWorkloadIdentityRevocationTrust = await readJson(
 const auditExportWorkloadIdentityRevocation = await readJson(
   "contracts/schemas/audit-export-workload-identity-revocation.schema.json",
 );
+const auditExportRevocationSourceRegistry = await readJson(
+  "contracts/schemas/audit-export-revocation-source-registry.schema.json",
+);
+const auditExportRevocationSourceCredential = await readJson(
+  "contracts/schemas/audit-export-revocation-source-credential.schema.json",
+);
 assert.deepEqual(
   operatorAuditExport.$defs.safeMetadata.properties.transportContract.enum,
   [
@@ -253,6 +259,12 @@ const validateAuditExportWorkloadIdentityRevocationTrust = ajv.compile(
 );
 const validateAuditExportWorkloadIdentityRevocation = ajv.compile(
   auditExportWorkloadIdentityRevocation,
+);
+const validateAuditExportRevocationSourceRegistry = ajv.compile(
+  auditExportRevocationSourceRegistry,
+);
+const validateAuditExportRevocationSourceCredential = ajv.compile(
+  auditExportRevocationSourceCredential,
 );
 const fixtureManifest = await readJson("contracts/fixtures/manifest.json");
 const validRecipientTrustFixture = await readJson(
@@ -326,6 +338,10 @@ for (const fixture of fixtureManifest.fixtures) {
     validate = validateAuditExportWorkloadIdentityRevocationTrust;
   } else if (fixture.document === "audit-export-workload-identity-revocation") {
     validate = validateAuditExportWorkloadIdentityRevocation;
+  } else if (fixture.document === "audit-export-revocation-source-registry") {
+    validate = validateAuditExportRevocationSourceRegistry;
+  } else if (fixture.document === "audit-export-revocation-source-credential") {
+    validate = validateAuditExportRevocationSourceCredential;
   } else {
     validate = ajv.compile({
       $ref: `urn:dataground:openapi:v1#/components/schemas/${fixture.schema}`,

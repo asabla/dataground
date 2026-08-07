@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -180,6 +181,7 @@ func TestMigrationsRoundTrip(t *testing.T) {
 		      'audit_export_delivery_operations',
 		      'audit_export_workload_identity_revocations',
 		      'audit_export_recipient_proof_revocations',
+		      'audit_export_revocation_acquisitions',
 		      'audit_export_recipient_trust_events',
 		      'audit_export_recipient_trust_keys',
 		      'audit_export_recipient_encryption_keys',
@@ -191,8 +193,8 @@ func TestMigrationsRoundTrip(t *testing.T) {
 	`).Scan(&tables); err != nil {
 		t.Fatalf("inspect migrated tables: %v", err)
 	}
-	if tables != 35 {
-		t.Fatalf("expected 35 representative tables, got %d", tables)
+	if tables != 36 {
+		t.Fatalf("expected 36 representative tables, got %d", tables)
 	}
 
 	var rateLimitBucketPrimaryKey string
@@ -366,6 +368,51 @@ func TestProofingAuthorityMigrationPreservesEvidence(t *testing.T) {
 	defer database.Close()
 	if err := persistence.MigrateDownTo(ctx, database, 32); err == nil {
 		t.Fatal("proofing authority evidence was discarded by schema downgrade")
+	}
+	if err := persistence.RequireCurrentSchema(ctx, database); err != nil {
+		t.Fatalf("failed downgrade changed current schema: %v", err)
+	}
+}
+
+func TestRevocationAcquisitionMigrationPreservesEvidence(t *testing.T) {
+	databaseURL := os.Getenv("DATAGROUND_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		if os.Getenv("DATAGROUND_REQUIRE_TEST_DATABASE") == "true" {
+			t.Fatal("DATAGROUND_TEST_DATABASE_URL is required")
+		}
+		t.Skip("DATAGROUND_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := resetOperatorAuditDatabase(t, ctx)
+	repository := persistence.NewRepository(pool)
+	record := auditExportRecipientProofRevocationRecord(
+		"iso_00000000000000000001", "profile", "cor_00000000000000000020",
+	)
+	record.Acquisition = &persistence.AuditExportRevocationAcquisition{
+		Contract:             persistence.AuditExportRevocationAcquisitionContract,
+		Purpose:              persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
+		SourceID:             "archive-revocations.primary",
+		SourceRegistrySHA256: "sha256:" + strings.Repeat("f", 64),
+	}
+	activateAuditExportRevocationAuthority(
+		t, ctx, repository, record.IsolationDomainID,
+		persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
+		record.RevocationAuthorityID, record.RevocationTrustProfileSHA256,
+		record.RevocationSigningKeyID, "cor_00000000000000000021",
+	)
+	if err := repository.RecordAuditExportRecipientProofRevocation(ctx, record); err != nil {
+		pool.Close()
+		t.Fatal(err)
+	}
+	pool.Close()
+	database, err := persistence.OpenSQL(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := persistence.MigrateDownTo(ctx, database, 33); err == nil {
+		t.Fatal("revocation acquisition evidence was discarded by schema downgrade")
 	}
 	if err := persistence.RequireCurrentSchema(ctx, database); err != nil {
 		t.Fatalf("failed downgrade changed current schema: %v", err)

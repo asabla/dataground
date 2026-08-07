@@ -93,6 +93,28 @@ func VerifyWorkloadIdentityRevocationFile(
 		return verified, fmt.Errorf("read audit export workload identity revocation: %w", err)
 	}
 	defer clear(encoded)
+	trustEncoded, err := readStablePrivateFile(revocationTrustProfileFile, maximumControlBytes)
+	if err != nil {
+		return verified, fmt.Errorf("read audit export workload identity revocation trust profile: %w", err)
+	}
+	defer clear(trustEncoded)
+	return VerifyWorkloadIdentityRevocation(encoded, trustEncoded, isolationDomainID, now)
+}
+
+// VerifyWorkloadIdentityRevocation verifies one owned in-memory notice and
+// trust profile. Callers must clear both byte slices after use.
+func VerifyWorkloadIdentityRevocation(
+	encoded []byte,
+	trustEncoded []byte,
+	isolationDomainID string,
+	now time.Time,
+) (VerifiedWorkloadIdentityRevocation, error) {
+	var verified VerifiedWorkloadIdentityRevocation
+	if len(encoded) == 0 || len(encoded) > maximumControlBytes ||
+		len(trustEncoded) == 0 || len(trustEncoded) > maximumControlBytes ||
+		!auditExportIsolationDomainPattern.MatchString(isolationDomainID) || now.IsZero() {
+		return verified, errors.New("audit export workload identity revocation inputs are invalid")
+	}
 	var revocation WorkloadIdentityRevocation
 	if err := decodeCanonicalJSON(encoded, &revocation, maximumControlBytes); err != nil {
 		return verified, errors.New("audit export workload identity revocation is invalid")
@@ -103,7 +125,7 @@ func VerifyWorkloadIdentityRevocationFile(
 		return verified, errors.New("audit export workload identity revocation is not canonical")
 	}
 	clear(canonicalRevocation)
-	trust, canonicalTrust, err := readWorkloadIdentityRevocationTrustProfile(revocationTrustProfileFile)
+	trust, canonicalTrust, err := decodeWorkloadIdentityRevocationTrustProfile(trustEncoded)
 	if err != nil {
 		return verified, err
 	}
@@ -150,13 +172,13 @@ func VerifyWorkloadIdentityRevocationFile(
 	}, nil
 }
 
-func readWorkloadIdentityRevocationTrustProfile(path string) (WorkloadIdentityRevocationTrustProfile, []byte, error) {
+func decodeWorkloadIdentityRevocationTrustProfile(
+	encoded []byte,
+) (WorkloadIdentityRevocationTrustProfile, []byte, error) {
 	var trust WorkloadIdentityRevocationTrustProfile
-	encoded, err := readStablePrivateFile(path, maximumControlBytes)
-	if err != nil {
-		return trust, nil, fmt.Errorf("read audit export workload identity revocation trust profile: %w", err)
+	if len(encoded) == 0 || len(encoded) > maximumControlBytes {
+		return trust, nil, errors.New("audit export workload identity revocation trust profile is invalid")
 	}
-	defer clear(encoded)
 	if err := decodeCanonicalJSON(encoded, &trust, maximumControlBytes); err != nil {
 		return trust, nil, errors.New("audit export workload identity revocation trust profile is invalid")
 	}
@@ -172,6 +194,16 @@ func readWorkloadIdentityRevocationTrustProfile(path string) (WorkloadIdentityRe
 		return trust, nil, errors.New("audit export workload identity revocation trust profile fields are invalid")
 	}
 	return trust, canonical, nil
+}
+
+func readWorkloadIdentityRevocationTrustProfile(path string) (WorkloadIdentityRevocationTrustProfile, []byte, error) {
+	var trust WorkloadIdentityRevocationTrustProfile
+	encoded, err := readStablePrivateFile(path, maximumControlBytes)
+	if err != nil {
+		return trust, nil, fmt.Errorf("read audit export workload identity revocation trust profile: %w", err)
+	}
+	defer clear(encoded)
+	return decodeWorkloadIdentityRevocationTrustProfile(encoded)
 }
 
 func validWorkloadIdentityRevocationScope(scope, keyID string) bool {
