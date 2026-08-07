@@ -206,6 +206,9 @@ const clearProtectedAuditExportFixturesSQL = `
 		IF to_regclass('audit_export_revocation_acquisitions') IS NOT NULL THEN
 			EXECUTE 'TRUNCATE audit_export_revocation_acquisitions';
 		END IF;
+		IF to_regclass('audit_export_revocation_credential_events') IS NOT NULL THEN
+			EXECUTE 'TRUNCATE audit_export_revocation_credential_events';
+		END IF;
 		IF to_regclass('audit_export_revocation_source_events') IS NOT NULL THEN
 			EXECUTE 'TRUNCATE audit_export_revocation_source_events';
 		END IF;
