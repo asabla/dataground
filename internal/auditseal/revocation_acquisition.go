@@ -104,6 +104,28 @@ func InspectRevocationSourceRegistryFile(
 	}, nil
 }
 
+// InspectRevocationSourceCredentialFile validates one exact endpoint
+// credential and returns only its non-secret authorization evidence.
+func InspectRevocationSourceCredentialFile(
+	credentialFile string,
+	config RevocationNoticeAcquisitionConfig,
+	endpoint string,
+	now time.Time,
+) (RevocationSourceCredentialEvidence, error) {
+	if !validRevocationNoticePurpose(config.Purpose) ||
+		!auditExportIsolationDomainPattern.MatchString(config.IsolationDomainID) ||
+		!auditExportDeliveryRecipientPattern.MatchString(config.SourceID) ||
+		!digestPattern.MatchString(config.SourceRegistrySHA256) ||
+		(endpoint != "notice" && endpoint != "trust") || now.IsZero() {
+		return RevocationSourceCredentialEvidence{}, ErrRevocationNoticeAcquisitionInvalid
+	}
+	credential, evidence, err := loadRevocationSourceCredential(
+		credentialFile, config, endpoint, now.UTC(),
+	)
+	clear(credential.BearerToken)
+	return evidence, err
+}
+
 type revocationSourceRegistry struct {
 	Contract string                    `json:"contract"`
 	Sources  []revocationSourceProfile `json:"sources"`
