@@ -230,9 +230,15 @@ func newProviderDPoPIssuanceFixture(t *testing.T) providerDPoPIssuanceFixture {
 			MissingTokenEndpointProofRejected:  true,
 			MismatchedTokenEndpointKeyRejected: true,
 			TokenEndpointProofReplayRejected:   true,
+			WrongTokenEndpointMethodRejected:   true,
+			WrongTokenEndpointURIRejected:      true,
+			StaleTokenEndpointProofRejected:    true,
 			ResourceProofAccepted:              true,
 			MismatchedResourceKeyRejected:      true,
 			ResourceProofReplayRejected:        true,
+			WrongResourceMethodRejected:        true,
+			WrongResourceURIRejected:           true,
+			WrongAccessTokenHashRejected:       true,
 		},
 	}
 	reportFile := filepath.Join(directory, "report.json")
