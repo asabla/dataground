@@ -509,8 +509,12 @@ func TestAuditExportDeliveryTransportRejectsExternalWorkloadIdentityRevocation(t
 		Contract:             persistence.AuditExportRevocationAcquisitionContract,
 		Purpose:              persistence.AuditExportRevocationAuthorityPurposeWorkloadIdentity,
 		SourceID:             "archive-revocations.primary",
-		SourceRegistrySHA256: "sha256:" + strings.Repeat("f", 64),
-		SourceGeneration:     1,
+		SourceRegistrySHA256:       "sha256:" + strings.Repeat("f", 64),
+		SourceGeneration:           1,
+		NoticeCredentialSHA256:     "sha256:" + strings.Repeat("d", 64),
+		NoticeCredentialGeneration: 1,
+		TrustCredentialSHA256:      "sha256:" + strings.Repeat("e", 64),
+		TrustCredentialGeneration:  1,
 	}
 	activateAuditExportRevocationAuthority(
 		t, ctx, repository, delivery.IsolationDomainID,
@@ -522,6 +526,10 @@ func TestAuditExportDeliveryTransportRejectsExternalWorkloadIdentityRevocation(t
 		t, ctx, repository, revocation.IsolationDomainID, revocation.Acquisition.Purpose,
 		revocation.Acquisition.SourceID, revocation.Acquisition.SourceRegistrySHA256,
 		1, "cor_00000000000000000039",
+	)
+	activateAuditExportRevocationCredentials(
+		t, ctx, repository, revocation.IsolationDomainID, revocation.Acquisition,
+		"cor_00000000000000000080", "cor_00000000000000000081",
 	)
 	if err := repository.RecordAuditExportWorkloadIdentityRevocation(ctx, revocation); err != nil {
 		t.Fatal(err)
@@ -556,8 +564,12 @@ func TestAuditExportDeliveryTransportRejectsExternalWorkloadIdentityRevocation(t
 		Contract:             persistence.AuditExportRevocationAcquisitionContract,
 		Purpose:              persistence.AuditExportRevocationAuthorityPurposeWorkloadIdentity,
 		SourceID:             "archive-revocations.mirror",
-		SourceRegistrySHA256: revocation.Acquisition.SourceRegistrySHA256,
-		SourceGeneration:     revocation.Acquisition.SourceGeneration,
+		SourceRegistrySHA256:       revocation.Acquisition.SourceRegistrySHA256,
+		SourceGeneration:           revocation.Acquisition.SourceGeneration,
+		NoticeCredentialSHA256:     revocation.Acquisition.NoticeCredentialSHA256,
+		NoticeCredentialGeneration: revocation.Acquisition.NoticeCredentialGeneration,
+		TrustCredentialSHA256:      revocation.Acquisition.TrustCredentialSHA256,
+		TrustCredentialGeneration:  revocation.Acquisition.TrustCredentialGeneration,
 	}
 	if err := repository.RecordAuditExportWorkloadIdentityRevocation(
 		ctx, changedSource,
@@ -1121,8 +1133,12 @@ func TestExternalRecipientProofRevocationBlocksActivationAndAcknowledgement(t *t
 		Contract:             persistence.AuditExportRevocationAcquisitionContract,
 		Purpose:              persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
 		SourceID:             "archive-revocations.primary",
-		SourceRegistrySHA256: "sha256:" + strings.Repeat("f", 64),
-		SourceGeneration:     1,
+		SourceRegistrySHA256:       "sha256:" + strings.Repeat("f", 64),
+		SourceGeneration:           1,
+		NoticeCredentialSHA256:     "sha256:" + strings.Repeat("d", 64),
+		NoticeCredentialGeneration: 1,
+		TrustCredentialSHA256:      "sha256:" + strings.Repeat("e", 64),
+		TrustCredentialGeneration:  1,
 	}
 	activateAuditExportRevocationAuthority(
 		t, ctx, repository, delivery.IsolationDomainID,
@@ -1139,6 +1155,15 @@ func TestExternalRecipientProofRevocationBlocksActivationAndAcknowledgement(t *t
 		t, ctx, repository, revocation.IsolationDomainID, revocation.Acquisition.Purpose,
 		revocation.Acquisition.SourceID, revocation.Acquisition.SourceRegistrySHA256,
 		1, "cor_00000000000000000023",
+	)
+	if err := repository.RecordAuditExportRecipientProofRevocation(
+		ctx, revocation,
+	); !errors.Is(err, persistence.ErrAuditExportRevocationCredentialUnauthorized) {
+		t.Fatalf("ungoverned recipient revocation credentials error = %v", err)
+	}
+	activateAuditExportRevocationCredentials(
+		t, ctx, repository, revocation.IsolationDomainID, revocation.Acquisition,
+		"cor_00000000000000000082", "cor_00000000000000000083",
 	)
 	if err := repository.RecordAuditExportRecipientProofRevocation(ctx, revocation); err != nil {
 		t.Fatalf("record external recipient proof revocation: %v", err)
@@ -1856,6 +1881,51 @@ func activateAuditExportRevocationSource(
 	}
 	if err := repository.ChangeAuditExportRevocationSource(ctx, change); err != nil {
 		t.Fatalf("activate audit export revocation source: %v", err)
+	}
+}
+
+func activateAuditExportRevocationCredentials(
+	t *testing.T,
+	ctx context.Context,
+	repository *persistence.Repository,
+	isolationDomainID string,
+	acquisition *persistence.AuditExportRevocationAcquisition,
+	noticeCorrelationID string,
+	trustCorrelationID string,
+) {
+	t.Helper()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	for endpoint, values := range map[string]struct {
+		digest        string
+		generation    int64
+		correlationID string
+	}{
+		"notice": {
+			digest: acquisition.NoticeCredentialSHA256,
+			generation: acquisition.NoticeCredentialGeneration,
+			correlationID: noticeCorrelationID,
+		},
+		"trust": {
+			digest: acquisition.TrustCredentialSHA256,
+			generation: acquisition.TrustCredentialGeneration,
+			correlationID: trustCorrelationID,
+		},
+	} {
+		reasonDigest := sha256.Sum256([]byte("authorize " + endpoint + " acquisition credential"))
+		change := persistence.AuditExportRevocationCredentialChange{
+			Contract: persistence.AuditExportRevocationCredentialAuthorizationContract,
+			Operation: "activate", IsolationDomainID: isolationDomainID,
+			Purpose: acquisition.Purpose, SourceID: acquisition.SourceID,
+			SourceRegistrySHA256: acquisition.SourceRegistrySHA256,
+			Endpoint: endpoint, Generation: values.generation,
+			CredentialSHA256: values.digest,
+			ActivatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
+			ActorID: "operator@example.invalid", ReasonDigest: reasonDigest[:],
+			CorrelationID: values.correlationID,
+		}
+		if err := repository.ChangeAuditExportRevocationCredential(ctx, change); err != nil {
+			t.Fatalf("activate %s audit export revocation credential: %v", endpoint, err)
+		}
 	}
 }
 
