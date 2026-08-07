@@ -121,13 +121,14 @@ func TestAuditExportDeliveryAcknowledgementIsScopedReplayableAndAudited(t *testi
 	if err != nil {
 		t.Fatalf("export delivery audit: %v", err)
 	}
-	if !exported.Complete || len(exported.Records) != 6 ||
-		exported.Records[0].Action != "audit-export-recipient-trust.activate" ||
-		exported.Records[1].Action != "audit-export-workload-identity.activate" ||
-		exported.Records[2].Action != "audit-export-delivery.prepare" ||
-		exported.Records[3].Action != "audit-export-delivery.transport" ||
-		exported.Records[4].Action != "audit-export-delivery.transport-complete" ||
-		exported.Records[5].Action != "audit-export-delivery.acknowledge" {
+	if !exported.Complete || len(exported.Records) != 7 ||
+		exported.Records[0].Action != "audit-export-proofing-authority.activate" ||
+		exported.Records[1].Action != "audit-export-recipient-trust.activate" ||
+		exported.Records[2].Action != "audit-export-workload-identity.activate" ||
+		exported.Records[3].Action != "audit-export-delivery.prepare" ||
+		exported.Records[4].Action != "audit-export-delivery.transport" ||
+		exported.Records[5].Action != "audit-export-delivery.transport-complete" ||
+		exported.Records[6].Action != "audit-export-delivery.acknowledge" {
 		t.Fatalf("delivery audit export = %#v", exported)
 	}
 	revocation := auditExportRecipientTrustChange(delivery, "revoke", 2,
@@ -137,6 +138,107 @@ func TestAuditExportDeliveryAcknowledgementIsScopedReplayableAndAudited(t *testi
 	}
 	if err := repository.AcknowledgeAuditExportDelivery(ctx, delivery, acknowledgement); err != nil {
 		t.Fatalf("replay acknowledgement after revocation: %v", err)
+	}
+}
+
+func TestAuditExportRecipientTrustRequiresActiveProofingAuthority(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := resetOperatorAuditDatabase(t, ctx)
+	defer pool.Close()
+	repository := persistence.NewRepository(pool)
+	delivery := auditExportDeliveryFixture("adl_00000000000000000001")
+	change := auditExportRecipientTrustChange(
+		delivery, "activate", 1, "sha256:"+strings.Repeat("3", 64),
+		"cor_00000000000000000009",
+	)
+	if err := repository.ChangeAuditExportRecipientTrust(ctx, change); !errors.Is(err, persistence.ErrAuditExportProofingAuthorityUnauthorized) {
+		t.Fatalf("recipient activation without authority error = %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO audit_export_recipient_trust_events (
+			isolation_domain_id, recipient_id, generation, authorization_contract, operation,
+			trust_contract, trust_profile_sha256, identity_proof_contract,
+			identity_proof_sha256, identity_proof_evidence_sha256, proofing_authority_id,
+			proofing_trust_profile_sha256, proofing_signing_key_id,
+			identity_proof_verified_at, identity_proof_expires_at,
+			actor_id, reason_digest, correlation_id
+		) VALUES (
+			$1, $2, 1, 'dataground.audit-export-recipient-trust-authorization/v3', 'activate',
+			'dataground.audit-export-recipient-trust/ed25519-x25519/v2', $3,
+			'dataground.audit-export-recipient-identity-proof/ed25519/v1',
+			'sha256:' || repeat('4', 64), 'sha256:' || repeat('5', 64),
+			'archive-proofing.primary', 'sha256:' || repeat('6', 64), 'proofing_key_01',
+			clock_timestamp() - interval '1 hour', clock_timestamp() + interval '1 hour',
+			'operator@example.invalid', decode(repeat('5', 64), 'hex'),
+			'cor_00000000000000000010'
+		)
+	`, delivery.IsolationDomainID, delivery.RecipientID, change.TrustProfileSHA256); err == nil {
+		t.Fatal("direct recipient activation bypassed proofing authority governance")
+	}
+	activateAuditExportProofingAuthority(t, ctx, repository, delivery.IsolationDomainID)
+	if err := repository.ChangeAuditExportRecipientTrust(ctx, change); err != nil {
+		t.Fatalf("recipient activation under active proofing authority: %v", err)
+	}
+}
+
+func TestAuditExportProofingAuthorityRotationIsSequentialAndReplayable(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := resetOperatorAuditDatabase(t, ctx)
+	defer pool.Close()
+	repository := persistence.NewRepository(pool)
+	domainID := "iso_00000000000000000001"
+	activateAuditExportProofingAuthority(t, ctx, repository, domainID)
+	first := auditExportProofingAuthorityChange(
+		domainID, "activate", 1, "sha256:"+strings.Repeat("6", 64),
+		[]string{"proofing_key_01"}, "cor_proofingauthority0001",
+	)
+	if err := repository.ChangeAuditExportProofingAuthority(ctx, first); err != nil {
+		t.Fatalf("replay first proofing authority generation: %v", err)
+	}
+	rotation := auditExportProofingAuthorityChange(
+		domainID, "activate", 2, "sha256:"+strings.Repeat("7", 64),
+		[]string{"proofing_key_02"}, "cor_00000000000000000071",
+	)
+	if err := repository.ChangeAuditExportProofingAuthority(ctx, rotation); err != nil {
+		t.Fatalf("rotate proofing authority: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO audit_export_proofing_authority_keys (
+			isolation_domain_id, generation, key_id
+		) VALUES ($1, 2, 'proofing_key_late')
+	`, domainID); err == nil {
+		t.Fatal("proofing authority generation accepted a late signing key")
+	}
+	if err := repository.ChangeAuditExportProofingAuthority(ctx, first); err != nil {
+		t.Fatalf("replay historical proofing authority generation: %v", err)
+	}
+	delivery := auditExportDeliveryFixture("adl_00000000000000000001")
+	change := auditExportRecipientTrustChange(
+		delivery, "activate", 1, "sha256:"+strings.Repeat("3", 64),
+		"cor_00000000000000000009",
+	)
+	if err := repository.ChangeAuditExportRecipientTrust(ctx, change); !errors.Is(err, persistence.ErrAuditExportProofingAuthorityUnauthorized) {
+		t.Fatalf("recipient activation under rotated profile error = %v", err)
+	}
+	withdrawal := auditExportProofingAuthorityChange(
+		domainID, "revoke", 3, rotation.TrustProfileSHA256, nil,
+		"cor_00000000000000000072",
+	)
+	if err := repository.ChangeAuditExportProofingAuthority(ctx, withdrawal); err != nil {
+		t.Fatalf("withdraw proofing authority: %v", err)
+	}
+	changedReplay := withdrawal
+	changedReplay.ActorID = "other@example.invalid"
+	if err := repository.ChangeAuditExportProofingAuthority(ctx, changedReplay); !errors.Is(err, persistence.ErrAuditExportProofingAuthorityConflict) {
+		t.Fatalf("changed proofing authority replay error = %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE audit_export_proofing_authority_events SET actor_id = 'other'`); err == nil {
+		t.Fatal("proofing authority event mutation was accepted")
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM audit_export_proofing_authority_keys`); err == nil {
+		t.Fatal("proofing authority key deletion was accepted")
 	}
 }
 
@@ -629,6 +731,13 @@ func TestAuditExportRevocationAuthorityGovernsNoticeIntakeAndReplay(t *testing.T
 	); err != nil {
 		t.Fatalf("record notice under rotated authority: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO audit_export_revocation_authority_keys (
+			isolation_domain_id, purpose, generation, key_id
+		) VALUES ($1, $2, 2, 'revocation_key_late')
+	`, domainID, persistence.AuditExportRevocationAuthorityPurposeWorkloadIdentity); err == nil {
+		t.Fatal("revocation authority generation accepted a late signing key")
+	}
 	withdrawalReason := sha256.Sum256([]byte("withdraw workload revocation authority"))
 	withdrawal := rotation
 	withdrawal.Operation = "revoke"
@@ -981,6 +1090,9 @@ func TestExternalRecipientProofRevocationBlocksActivationAndAcknowledgement(t *t
 	}
 	otherDomainDelivery := delivery
 	otherDomainDelivery.IsolationDomainID = "iso_00000000000000000002"
+	activateAuditExportProofingAuthority(
+		t, ctx, repository, otherDomainDelivery.IsolationDomainID,
+	)
 	otherDomainActivation := auditExportRecipientTrustChange(
 		otherDomainDelivery, "activate", 1, profileDigest, "cor_00000000000000000021",
 	)
@@ -1376,12 +1488,50 @@ func activateAuditExportRecipientTrust(
 	correlationID string,
 ) {
 	t.Helper()
+	activateAuditExportProofingAuthority(t, ctx, repository, delivery.IsolationDomainID)
 	change := auditExportRecipientTrustChange(delivery, "activate", generation, profileDigest, correlationID)
 	if err := repository.ChangeAuditExportRecipientTrust(ctx, change); err != nil {
 		t.Fatalf("activate audit export recipient trust: %v", err)
 	}
 	if generation == 1 {
 		activateAuditExportWorkloadIdentity(t, ctx, repository, delivery)
+	}
+}
+
+func activateAuditExportProofingAuthority(
+	t *testing.T,
+	ctx context.Context,
+	repository *persistence.Repository,
+	isolationDomainID string,
+) {
+	t.Helper()
+	correlationID := "cor_proofingauthority" + isolationDomainID[len(isolationDomainID)-4:]
+	change := auditExportProofingAuthorityChange(
+		isolationDomainID, "activate", 1, "sha256:"+strings.Repeat("6", 64),
+		[]string{"proofing_key_01"}, correlationID,
+	)
+	if err := repository.ChangeAuditExportProofingAuthority(ctx, change); err != nil {
+		t.Fatalf("activate audit export proofing authority: %v", err)
+	}
+}
+
+func auditExportProofingAuthorityChange(
+	isolationDomainID string,
+	operation string,
+	generation int64,
+	profileDigest string,
+	keyIDs []string,
+	correlationID string,
+) persistence.AuditExportProofingAuthorityChange {
+	reasonDigest := sha256.Sum256([]byte(operation + " audit export proofing authority"))
+	return persistence.AuditExportProofingAuthorityChange{
+		Contract:  persistence.AuditExportProofingAuthorityAuthorizationContract,
+		Operation: operation, IsolationDomainID: isolationDomainID,
+		AuthorityID: "archive-proofing.primary", Generation: generation,
+		TrustContract:      "dataground.audit-export-recipient-proofing-trust/ed25519/v1",
+		TrustProfileSHA256: profileDigest, KeyIDs: keyIDs,
+		ActorID: "operator@example.invalid", ReasonDigest: reasonDigest[:],
+		CorrelationID: correlationID,
 	}
 }
 
