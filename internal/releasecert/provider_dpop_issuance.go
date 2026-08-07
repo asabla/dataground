@@ -63,6 +63,8 @@ type ProviderDPoPIssuanceReport struct {
 	RunID                    string                     `json:"runId"`
 	ProviderID               string                     `json:"providerId"`
 	ProviderRegistrySHA256   string                     `json:"providerRegistrySha256"`
+	OAuthClientProfileID     string                     `json:"oauthClientProfileId"`
+	OAuthClientProfileSHA256 string                     `json:"oauthClientProfileSha256"`
 	Issuer                   string                     `json:"issuer"`
 	TokenEndpoint            string                     `json:"tokenEndpoint"`
 	Audience                 string                     `json:"audience"`
@@ -78,6 +80,8 @@ type ProviderDPoPIssuanceStatement struct {
 	CertificationID          string   `json:"certificationId"`
 	ProviderID               string   `json:"providerId"`
 	ProviderRegistrySHA256   string   `json:"providerRegistrySha256"`
+	OAuthClientProfileID     string   `json:"oauthClientProfileId"`
+	OAuthClientProfileSHA256 string   `json:"oauthClientProfileSha256"`
 	Issuer                   string   `json:"issuer"`
 	TokenEndpoint            string   `json:"tokenEndpoint"`
 	Audience                 string   `json:"audience"`
@@ -321,6 +325,8 @@ func parseProviderDPoPIssuanceStatement(
 		!idPattern.MatchString(statement.CertificationID) ||
 		!providerIDPattern.MatchString(statement.ProviderID) ||
 		!digestPattern.MatchString(statement.ProviderRegistrySHA256) ||
+		!providerIDPattern.MatchString(statement.OAuthClientProfileID) ||
+		!digestPattern.MatchString(statement.OAuthClientProfileSHA256) ||
 		!validProviderDPoPIssuanceURL(statement.Issuer, true) ||
 		!validProviderDPoPIssuanceURL(statement.TokenEndpoint, false) ||
 		statement.Audience != "dataground-api" ||
@@ -368,6 +374,8 @@ func verifyProviderDPoPIssuanceReport(statement ProviderDPoPIssuanceStatement, n
 		report.Contract != ProviderDPoPIssuanceReportContract || !idPattern.MatchString(report.RunID) ||
 		report.ProviderID != statement.ProviderID ||
 		report.ProviderRegistrySHA256 != statement.ProviderRegistrySHA256 ||
+		report.OAuthClientProfileID != statement.OAuthClientProfileID ||
+		report.OAuthClientProfileSHA256 != statement.OAuthClientProfileSHA256 ||
 		report.Issuer != statement.Issuer || report.TokenEndpoint != statement.TokenEndpoint ||
 		report.Audience != statement.Audience ||
 		!equalStrings(report.GrantTypes, statement.GrantTypes) ||
