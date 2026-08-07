@@ -305,7 +305,14 @@ func TestRecipientProofRevocationMigrationPreservesEvidence(t *testing.T) {
 	record := auditExportRecipientProofRevocationRecord(
 		"iso_00000000000000000001", "profile", "cor_00000000000000000020",
 	)
-	if err := persistence.NewRepository(pool).RecordAuditExportRecipientProofRevocation(ctx, record); err != nil {
+	repository := persistence.NewRepository(pool)
+	activateAuditExportRevocationAuthority(
+		t, ctx, repository, record.IsolationDomainID,
+		persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
+		record.RevocationAuthorityID, record.RevocationTrustProfileSHA256,
+		record.RevocationSigningKeyID, "cor_00000000000000000021",
+	)
+	if err := repository.RecordAuditExportRecipientProofRevocation(ctx, record); err != nil {
 		pool.Close()
 		t.Fatal(err)
 	}
@@ -315,6 +322,12 @@ func TestRecipientProofRevocationMigrationPreservesEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer database.Close()
+	if _, err := database.ExecContext(ctx, `
+		TRUNCATE audit_export_revocation_authority_keys,
+		         audit_export_revocation_authority_events
+	`); err != nil {
+		t.Fatalf("clear revocation authority migration fixture: %v", err)
+	}
 	if err := persistence.MigrateDownTo(ctx, database, 25); err == nil {
 		t.Fatal("recipient proof revocation evidence was discarded by schema downgrade")
 	}
