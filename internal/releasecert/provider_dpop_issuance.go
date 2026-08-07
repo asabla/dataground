@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -475,14 +474,13 @@ func validProviderDPoPIssuanceURL(value string, issuer bool) bool {
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.String() != value || parsed.Scheme != "https" || parsed.Host == "" ||
 		parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" || parsed.RawQuery != "" ||
-		parsed.Opaque != "" || parsed.Port() == "443" || strings.ToLower(parsed.Host) != parsed.Host ||
-		strings.HasSuffix(parsed.Hostname(), ".") {
+		parsed.Opaque != "" || parsed.OmitHost {
 		return false
 	}
 	if issuer {
-		return parsed.Path == strings.TrimSuffix(parsed.Path, "/")
+		return true
 	}
-	return parsed.Path != "" && parsed.Path != "/"
+	return parsed.Path != ""
 }
 
 func validProviderDPoPIssuanceGrantTypes(values []string) bool {
