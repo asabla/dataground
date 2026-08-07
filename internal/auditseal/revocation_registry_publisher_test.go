@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
+	"syscall"
 	"testing"
 )
 
@@ -79,6 +81,75 @@ func TestPublishRevocationSourceRegistryFileRejectsUnselectedSource(t *testing.T
 	})
 	if !errors.Is(err, ErrRevocationNoticeAcquisitionInvalid) {
 		t.Fatalf("selection error = %v", err)
+	}
+}
+
+func TestPublishRevocationSourceRegistryFileSerializesConcurrentWriters(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	target := filepath.Join(directory, "published.json")
+	sourceIDs := []string{"archive-revocations.primary", "archive-revocations.secondary"}
+	errorsByWriter := make([]error, len(sourceIDs))
+	var wait sync.WaitGroup
+	for index, sourceID := range sourceIDs {
+		input := filepath.Join(directory, sourceID+".json")
+		if err := os.WriteFile(input, testRevocationSourceRegistry(sourceID), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		wait.Add(1)
+		go func(index int, sourceID, input string) {
+			defer wait.Done()
+			_, errorsByWriter[index] = PublishRevocationSourceRegistryFile(
+				context.Background(),
+				RevocationSourceRegistryFilePublication{
+					InputPath: input, Path: target, Purpose: RevocationNoticePurposeRecipientProof,
+					SourceID: sourceID,
+				},
+			)
+		}(index, sourceID, input)
+	}
+	wait.Wait()
+	succeeded := 0
+	conflicted := 0
+	for _, err := range errorsByWriter {
+		if err == nil {
+			succeeded++
+		} else if errors.Is(err, ErrRevocationSourceRegistryPublicationConflict) {
+			conflicted++
+		} else {
+			t.Fatalf("concurrent publication error = %v", err)
+		}
+	}
+	if succeeded != 1 || conflicted != 1 {
+		t.Fatalf("concurrent outcomes = success %d, conflict %d", succeeded, conflicted)
+	}
+}
+
+func TestPublishRevocationSourceRegistryFileHonorsCancellationWhileWaitingForWriter(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	input := filepath.Join(directory, "reviewed.json")
+	target := filepath.Join(directory, "published.json")
+	if err := os.WriteFile(input, testRevocationSourceRegistry("archive-revocations.primary"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.OpenFile(target+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = PublishRevocationSourceRegistryFile(ctx, RevocationSourceRegistryFilePublication{
+		InputPath: input, Path: target, Purpose: RevocationNoticePurposeRecipientProof,
+		SourceID: "archive-revocations.primary",
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled publication error = %v", err)
 	}
 }
 
