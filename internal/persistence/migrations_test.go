@@ -394,8 +394,12 @@ func TestRevocationAcquisitionMigrationPreservesEvidence(t *testing.T) {
 		Contract:             persistence.AuditExportRevocationAcquisitionContract,
 		Purpose:              persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
 		SourceID:             "archive-revocations.primary",
-		SourceRegistrySHA256: "sha256:" + strings.Repeat("f", 64),
-		SourceGeneration:     1,
+		SourceRegistrySHA256:       "sha256:" + strings.Repeat("f", 64),
+		SourceGeneration:           1,
+		NoticeCredentialSHA256:     "sha256:" + strings.Repeat("d", 64),
+		NoticeCredentialGeneration: 1,
+		TrustCredentialSHA256:      "sha256:" + strings.Repeat("e", 64),
+		TrustCredentialGeneration:  1,
 	}
 	activateAuditExportRevocationAuthority(
 		t, ctx, repository, record.IsolationDomainID,
@@ -407,6 +411,10 @@ func TestRevocationAcquisitionMigrationPreservesEvidence(t *testing.T) {
 		t, ctx, repository, record.IsolationDomainID, record.Acquisition.Purpose,
 		record.Acquisition.SourceID, record.Acquisition.SourceRegistrySHA256,
 		1, "cor_00000000000000000022",
+	)
+	activateAuditExportRevocationCredentials(
+		t, ctx, repository, record.IsolationDomainID, record.Acquisition,
+		"cor_00000000000000000085", "cor_00000000000000000086",
 	)
 	if err := repository.RecordAuditExportRecipientProofRevocation(ctx, record); err != nil {
 		pool.Close()
