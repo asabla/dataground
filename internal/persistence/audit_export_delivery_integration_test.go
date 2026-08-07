@@ -549,8 +549,26 @@ func TestAuditExportDeliveryTransportRejectsExternalWorkloadIdentityRevocation(t
 	if err := repository.ChangeAuditExportRevocationSource(ctx, sourceWithdrawal); err != nil {
 		t.Fatalf("withdraw acquired workload revocation source: %v", err)
 	}
+	credentialRevocationReason := sha256.Sum256(
+		[]byte("record remote workload notice credential revocation"),
+	)
+	credentialRevocation := persistence.AuditExportRevocationCredentialChange{
+		Contract: persistence.AuditExportRevocationCredentialAuthorizationContract,
+		Operation: "revoke", IsolationDomainID: revocation.IsolationDomainID,
+		Purpose: revocation.Acquisition.Purpose, SourceID: revocation.Acquisition.SourceID,
+		SourceRegistrySHA256: revocation.Acquisition.SourceRegistrySHA256,
+		Endpoint: "notice", Generation: 2,
+		CredentialSHA256: revocation.Acquisition.NoticeCredentialSHA256,
+		ActorID: "operator@example.invalid", ReasonDigest: credentialRevocationReason[:],
+		CorrelationID: "cor_00000000000000000084",
+	}
+	if err := repository.ChangeAuditExportRevocationCredential(
+		ctx, credentialRevocation,
+	); err != nil {
+		t.Fatalf("revoke acquired workload notice credential: %v", err)
+	}
 	if err := repository.RecordAuditExportWorkloadIdentityRevocation(ctx, revocation); err != nil {
-		t.Fatalf("replay acquired revocation after source withdrawal: %v", err)
+		t.Fatalf("replay acquired revocation after source and credential withdrawal: %v", err)
 	}
 	changedRevocation := revocation
 	changedRevocation.ActorID = "other-operator@example.invalid"
