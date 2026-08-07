@@ -40,6 +40,37 @@ func TestParseArgumentsRequiresClosedSourceChange(t *testing.T) {
 	}
 }
 
+func TestParseArgumentsRequiresPublicationForActivation(t *testing.T) {
+	base := []string{
+		"-operation", "activate",
+		"-isolation-domain", "iso_00000000000000000001",
+		"-purpose", "recipient-proof",
+		"-source", "archive-revocations.primary",
+		"-generation", "1",
+		"-source-registry-input-file", "/run/dataground/reviewed/revocation-sources.json",
+		"-source-registry-file", "/run/dataground/audit/revocation-sources-1.json",
+		"-actor", "operator@example.invalid",
+		"-reason", "publish and activate reviewed revocation source",
+		"-correlation-id", "cor_00000000000000000001",
+	}
+	if _, err := parseArguments(base); err != nil {
+		t.Fatal(err)
+	}
+	for name, arguments := range map[string][]string{
+		"missing input": append(append([]string(nil), base[:10]...), base[12:]...),
+		"same path": append(append([]string(nil), base...),
+			"-source-registry-input-file", "/run/dataground/audit/revocation-sources-1.json"),
+		"digest": append(append([]string(nil), base...),
+			"-source-registry-sha256", "sha256:"+strings.Repeat("1", 64)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseArguments(arguments); err == nil {
+				t.Fatal("invalid activation arguments were accepted")
+			}
+		})
+	}
+}
+
 func TestExecuteRequestRecordsExactSourceEvidence(t *testing.T) {
 	request := commandRequest{
 		operation: "activate", isolationDomainID: "iso_00000000000000000001",
