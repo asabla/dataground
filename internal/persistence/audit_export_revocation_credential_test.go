@@ -12,16 +12,16 @@ func TestAuditExportRevocationCredentialChangeValidation(t *testing.T) {
 		t.Fatal("valid revocation credential change was rejected")
 	}
 	for name, mutate := range map[string]func(*AuditExportRevocationCredentialChange){
-		"contract": func(value *AuditExportRevocationCredentialChange) { value.Contract = "other" },
-		"operation": func(value *AuditExportRevocationCredentialChange) { value.Operation = "replace" },
-		"domain": func(value *AuditExportRevocationCredentialChange) { value.IsolationDomainID = "other" },
-		"purpose": func(value *AuditExportRevocationCredentialChange) { value.Purpose = "other" },
-		"source": func(value *AuditExportRevocationCredentialChange) { value.SourceID = "Other" },
-		"registry": func(value *AuditExportRevocationCredentialChange) { value.SourceRegistrySHA256 = "other" },
-		"endpoint": func(value *AuditExportRevocationCredentialChange) { value.Endpoint = "other" },
+		"contract":   func(value *AuditExportRevocationCredentialChange) { value.Contract = "other" },
+		"operation":  func(value *AuditExportRevocationCredentialChange) { value.Operation = "replace" },
+		"domain":     func(value *AuditExportRevocationCredentialChange) { value.IsolationDomainID = "other" },
+		"purpose":    func(value *AuditExportRevocationCredentialChange) { value.Purpose = "other" },
+		"source":     func(value *AuditExportRevocationCredentialChange) { value.SourceID = "Other" },
+		"registry":   func(value *AuditExportRevocationCredentialChange) { value.SourceRegistrySHA256 = "other" },
+		"endpoint":   func(value *AuditExportRevocationCredentialChange) { value.Endpoint = "other" },
 		"generation": func(value *AuditExportRevocationCredentialChange) { value.Generation = 0 },
 		"credential": func(value *AuditExportRevocationCredentialChange) { value.CredentialSHA256 = "other" },
-		"expired": func(value *AuditExportRevocationCredentialChange) { value.ExpiresAt = value.ActivatedAt },
+		"expired":    func(value *AuditExportRevocationCredentialChange) { value.ExpiresAt = value.ActivatedAt },
 		"lifetime": func(value *AuditExportRevocationCredentialChange) {
 			value.ExpiresAt = value.ActivatedAt.Add(25 * time.Hour)
 		},
@@ -71,14 +71,14 @@ func TestSameAuditExportRevocationCredentialChangeIncludesAttribution(t *testing
 func validAuditExportRevocationCredentialChange() AuditExportRevocationCredentialChange {
 	activatedAt := time.Date(2026, 8, 8, 10, 0, 0, 0, time.UTC)
 	return AuditExportRevocationCredentialChange{
-		Contract: AuditExportRevocationCredentialAuthorizationContract,
+		Contract:  AuditExportRevocationCredentialAuthorizationContract,
 		Operation: "activate", IsolationDomainID: "iso_00000000000000000001",
-		Purpose: AuditExportRevocationAuthorityPurposeRecipientProof,
-		SourceID: "archive-revocations.primary",
+		Purpose:              AuditExportRevocationAuthorityPurposeRecipientProof,
+		SourceID:             "archive-revocations.primary",
 		SourceRegistrySHA256: "sha256:" + string(bytes.Repeat([]byte{'a'}, 64)),
-		Endpoint: "notice", Generation: 1,
+		Endpoint:             "notice", Generation: 1,
 		CredentialSHA256: "sha256:" + string(bytes.Repeat([]byte{'b'}, 64)),
-		ActivatedAt: activatedAt, ExpiresAt: activatedAt.Add(time.Hour),
+		ActivatedAt:      activatedAt, ExpiresAt: activatedAt.Add(time.Hour),
 		ActorID: "operator@example.invalid", ReasonDigest: bytes.Repeat([]byte{0x11}, 32),
 		CorrelationID: "cor_00000000000000000001",
 	}
