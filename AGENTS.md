@@ -16,7 +16,7 @@ The deterministic reference runtime supports loopback-only process-local operati
 
 Complete the governed agent-service vertical slice before integrating broad notebook, lakehouse, job, or compatibility surfaces.
 
-New audit-export revocation acquisitions require one current sequential, isolation-scoped source generation for the exact notice purpose, source identifier, and canonical registry digest. Historical exact acquisition replay remains read-only after source rotation or withdrawal.
+New audit-export revocation acquisitions require one current sequential, isolation-scoped source generation for the exact notice purpose, source identifier, and canonical registry digest. Source activation first validates and immutably publishes the complete reviewed canonical registry to an owner-only generation path; exact retry is read-only and conflicting path reuse fails closed. Historical exact acquisition replay remains read-only after source rotation or withdrawal.
 
 ## Architecture boundaries
 
