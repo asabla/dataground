@@ -176,6 +176,30 @@ func TestProviderDPoPIssuanceRejectsNonCanonicalAndUnknownEvidence(t *testing.T)
 	}
 }
 
+func TestProviderDPoPIssuanceURLsMatchOIDCProfileShapes(t *testing.T) {
+	t.Parallel()
+	for _, issuer := range []string{
+		"https://identity.example.invalid/",
+		"https://identity.example.invalid:443/realms/dataground",
+	} {
+		if !validProviderDPoPIssuanceURL(issuer, true) {
+			t.Fatalf("valid OIDC issuer was rejected: %q", issuer)
+		}
+	}
+	if !validProviderDPoPIssuanceURL("https://identity.example.invalid/token", false) {
+		t.Fatal("valid token endpoint was rejected")
+	}
+	for _, endpoint := range []string{
+		"http://identity.example.invalid/token",
+		"https://identity.example.invalid",
+		"https://identity.example.invalid/token?audience=dataground-api",
+	} {
+		if validProviderDPoPIssuanceURL(endpoint, false) {
+			t.Fatalf("invalid token endpoint was accepted: %q", endpoint)
+		}
+	}
+}
+
 type providerDPoPIssuanceFixture struct {
 	now           time.Time
 	privateKey    ed25519.PrivateKey
