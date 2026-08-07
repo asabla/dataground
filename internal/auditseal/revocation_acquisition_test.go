@@ -81,12 +81,14 @@ func TestRevocationNoticeAcquirerPinsSourceCredentialsAndVerifiesNotice(t *testi
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	writeCanonicalPrivate(t, noticeCredentialPath, revocationSourceCredentialDocument{
 		Contract: revocationSourceCredentialContract, IsolationDomainID: fixture.isolationDomainID,
+		Purpose: RevocationNoticePurposeRecipientProof,
 		SourceID: "archive-revocations.primary", SourceRegistrySHA256: registrySHA256,
 		Endpoint: "notice", ActivatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
 		BearerToken: json.RawMessage(`"notice-token"`),
 	})
 	writeCanonicalPrivate(t, trustCredentialPath, revocationSourceCredentialDocument{
 		Contract: revocationSourceCredentialContract, IsolationDomainID: fixture.isolationDomainID,
+		Purpose: RevocationNoticePurposeRecipientProof,
 		SourceID: "archive-revocations.primary", SourceRegistrySHA256: registrySHA256,
 		Endpoint: "trust", ActivatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
 		BearerToken: json.RawMessage(`"trust-token"`),
