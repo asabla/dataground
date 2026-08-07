@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -240,6 +241,8 @@ func newProviderDPoPIssuanceFixture(t *testing.T) providerDPoPIssuanceFixture {
 		RunID:                    "provider_run_one",
 		ProviderID:               "primary",
 		ProviderRegistrySHA256:   hex.EncodeToString(make([]byte, sha256.Size)),
+		OAuthClientProfileID:     "primary_web",
+		OAuthClientProfileSHA256: strings.Repeat("1", 64),
 		Issuer:                   "https://identity.example.invalid/realms/dataground",
 		TokenEndpoint:            "https://identity.example.invalid/realms/dataground/token",
 		Audience:                 "dataground-api",
@@ -272,6 +275,8 @@ func newProviderDPoPIssuanceFixture(t *testing.T) providerDPoPIssuanceFixture {
 		CertificationID:          "provider_certification_one",
 		ProviderID:               report.ProviderID,
 		ProviderRegistrySHA256:   report.ProviderRegistrySHA256,
+		OAuthClientProfileID:     report.OAuthClientProfileID,
+		OAuthClientProfileSHA256: report.OAuthClientProfileSHA256,
 		Issuer:                   report.Issuer,
 		TokenEndpoint:            report.TokenEndpoint,
 		Audience:                 report.Audience,
