@@ -34,17 +34,26 @@ type ProviderDPoPIssuanceChecks struct {
 	MissingTokenEndpointProofRejected  bool `json:"missingTokenEndpointProofRejected"`
 	MismatchedTokenEndpointKeyRejected bool `json:"mismatchedTokenEndpointKeyRejected"`
 	TokenEndpointProofReplayRejected   bool `json:"tokenEndpointProofReplayRejected"`
+	WrongTokenEndpointMethodRejected   bool `json:"wrongTokenEndpointMethodRejected"`
+	WrongTokenEndpointURIRejected      bool `json:"wrongTokenEndpointUriRejected"`
+	StaleTokenEndpointProofRejected    bool `json:"staleTokenEndpointProofRejected"`
 	ResourceProofAccepted              bool `json:"resourceProofAccepted"`
 	MismatchedResourceKeyRejected      bool `json:"mismatchedResourceKeyRejected"`
 	ResourceProofReplayRejected        bool `json:"resourceProofReplayRejected"`
+	WrongResourceMethodRejected        bool `json:"wrongResourceMethodRejected"`
+	WrongResourceURIRejected           bool `json:"wrongResourceUriRejected"`
+	WrongAccessTokenHashRejected       bool `json:"wrongAccessTokenHashRejected"`
 }
 
 func (checks ProviderDPoPIssuanceChecks) Valid() bool {
 	return checks.TokenEndpointProofAccepted && checks.TokenTypeDPoP &&
 		checks.ConfirmationJKTMatched && checks.MissingTokenEndpointProofRejected &&
 		checks.MismatchedTokenEndpointKeyRejected && checks.TokenEndpointProofReplayRejected &&
+		checks.WrongTokenEndpointMethodRejected && checks.WrongTokenEndpointURIRejected &&
+		checks.StaleTokenEndpointProofRejected &&
 		checks.ResourceProofAccepted && checks.MismatchedResourceKeyRejected &&
-		checks.ResourceProofReplayRejected
+		checks.ResourceProofReplayRejected && checks.WrongResourceMethodRejected &&
+		checks.WrongResourceURIRejected && checks.WrongAccessTokenHashRejected
 }
 
 // ProviderDPoPIssuanceReport is the closed, non-secret result produced by a
@@ -478,7 +487,7 @@ func validProviderDPoPIssuanceURL(value string, issuer bool) bool {
 
 func validProviderDPoPIssuanceGrantTypes(values []string) bool {
 	return validSortedProviderDPoPValues(values, map[string]struct{}{
-		"authorization_code": {}, "client_credentials": {},
+		"authorization_code": {}, "client_credentials": {}, "refresh_token": {},
 	})
 }
 
