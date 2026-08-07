@@ -223,6 +223,11 @@ func NewRevocationNoticeAcquirer(
 		clear(noticeCredential.BearerToken)
 		return nil, err
 	}
+	if bytes.Equal(noticeCredential.BearerToken, trustCredential.BearerToken) {
+		clear(noticeCredential.BearerToken)
+		clear(trustCredential.BearerToken)
+		return nil, ErrRevocationNoticeAcquisitionInvalid
+	}
 	transport := config.Transport
 	if transport == nil {
 		defaultTransport, ok := http.DefaultTransport.(*http.Transport)
@@ -483,6 +488,7 @@ func loadRevocationSourceCredential(
 	if err := decodeCanonicalJSON(encoded, &document, maximumRevocationSourceCredentialBytes); err != nil {
 		return revocationSourceCredential{}, RevocationSourceCredentialEvidence{}, ErrRevocationNoticeAcquisitionInvalid
 	}
+	defer clear(document.BearerToken)
 	canonical, err := canonicalJSON(document)
 	if err != nil || !bytes.Equal(canonical, encoded) {
 		clear(canonical)
