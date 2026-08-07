@@ -1326,19 +1326,26 @@ func TestExternalRecipientProofRevocationBlocksActivationAndAcknowledgement(t *t
 		t.Fatal("recipient proof revocation deletion was accepted")
 	}
 
-	exported, err := repository.ExportOperatorAuditRecords(ctx, delivery.IsolationDomainID, "", 10)
-	if err != nil {
-		t.Fatalf("export recipient proof revocation audit: %v", err)
-	}
+	cursor := ""
 	foundRevocation := false
-	for _, record := range exported.Records {
-		if record.Action == "audit-export-recipient-proof-revocation.record" {
-			foundRevocation = true
+	for {
+		exported, err := repository.ExportOperatorAuditRecords(ctx, delivery.IsolationDomainID, cursor, 10)
+		if err != nil {
+			t.Fatalf("export recipient proof revocation audit: %v", err)
+		}
+		for _, record := range exported.Records {
+			if record.Action == "audit-export-recipient-proof-revocation.record" {
+				foundRevocation = true
+				break
+			}
+		}
+		if foundRevocation || exported.Complete {
 			break
 		}
+		cursor = exported.NextCursor
 	}
 	if !foundRevocation {
-		t.Fatalf("recipient proof revocation audit export = %#v", exported)
+		t.Fatal("recipient proof revocation audit record was not exported")
 	}
 }
 
