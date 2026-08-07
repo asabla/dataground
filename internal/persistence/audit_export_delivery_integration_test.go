@@ -1183,7 +1183,13 @@ func TestExternalRecipientProofRevocationBlocksActivationAndAcknowledgement(t *t
 			}
 			foundAcquisition = metadata["revocationSourceId"] == "archive-revocations.primary" &&
 				metadata["revocationSourceRegistrySha256"] == revocation.Acquisition.SourceRegistrySHA256 &&
-				metadata["revocationSourceGeneration"] == float64(1)
+				metadata["revocationSourceGeneration"] == float64(1) &&
+				metadata["revocationSourceNoticeCredentialSha256"] ==
+					revocation.Acquisition.NoticeCredentialSHA256 &&
+				metadata["revocationSourceNoticeCredentialGeneration"] == float64(1) &&
+				metadata["revocationSourceTrustCredentialSha256"] ==
+					revocation.Acquisition.TrustCredentialSHA256 &&
+				metadata["revocationSourceTrustCredentialGeneration"] == float64(1)
 		}
 	}
 	if !foundAcquisition {
