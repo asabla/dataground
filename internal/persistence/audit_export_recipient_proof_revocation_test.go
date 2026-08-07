@@ -37,6 +37,19 @@ func TestAuditExportRecipientProofRevocationRecordValidation(t *testing.T) {
 	if !record.Valid() {
 		t.Fatal("valid key-scoped audit export recipient proof revocation was rejected")
 	}
+	record.Acquisition = &AuditExportRevocationAcquisition{
+		Contract:             AuditExportRevocationAcquisitionContract,
+		Purpose:              AuditExportRevocationAuthorityPurposeRecipientProof,
+		SourceID:             "archive-revocations.primary",
+		SourceRegistrySHA256: "sha256:" + strings.Repeat("6", 64),
+	}
+	if !record.Valid() {
+		t.Fatal("valid recipient revocation acquisition was rejected")
+	}
+	record.Acquisition.Purpose = AuditExportRevocationAuthorityPurposeWorkloadIdentity
+	if record.Valid() {
+		t.Fatal("cross-purpose recipient revocation acquisition was accepted")
+	}
 }
 
 func validAuditExportRecipientProofRevocationRecord() AuditExportRecipientProofRevocationRecord {

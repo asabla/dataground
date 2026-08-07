@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dataground:schema:audit-export-revocation-source-registry:v1",
+  "title": "DataGround audit export revocation source registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "sources"],
+  "properties": {
+    "contract": {
+      "const": "dataground.audit-export-revocation-source-registry/v1"
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/source" }
+    }
+  },
+  "$defs": {
+    "authentication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "credentialFile"],
+      "properties": {
+        "kind": { "const": "bearer-credential-file" },
+        "credentialFile": { "type": "string", "pattern": "^/[^\\u0000]+$" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "purpose",
+        "noticeUrl",
+        "trustUrl",
+        "noticeAuthentication",
+        "trustAuthentication"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,127}$" },
+        "purpose": { "enum": ["recipient-proof", "workload-identity"] },
+        "noticeUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "trustUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "noticeAuthentication": { "$ref": "#/$defs/authentication" },
+        "trustAuthentication": { "$ref": "#/$defs/authentication" }
+      }
+    }
+  }
+}

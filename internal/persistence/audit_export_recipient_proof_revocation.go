@@ -41,6 +41,7 @@ type AuditExportRecipientProofRevocationRecord struct {
 	ActorID                      string
 	ReasonDigest                 []byte
 	CorrelationID                string
+	Acquisition                  *AuditExportRevocationAcquisition
 }
 
 func (record AuditExportRecipientProofRevocationRecord) Valid() bool {
@@ -59,7 +60,8 @@ func (record AuditExportRecipientProofRevocationRecord) Valid() bool {
 		canonicalAuditExportRecipientTrustTime(record.IssuedAt) &&
 		canonicalAuditExportRecipientTrustTime(record.EffectiveAt) &&
 		validOperatorAuditText(record.ActorID, 256) && len(record.ReasonDigest) == sha256.Size &&
-		operatorAuditExportCorrelation.MatchString(record.CorrelationID)
+		operatorAuditExportCorrelation.MatchString(record.CorrelationID) &&
+		(record.Acquisition == nil || record.Acquisition.validFor(AuditExportRevocationAuthorityPurposeRecipientProof))
 }
 
 func (repository *Repository) RecordAuditExportRecipientProofRevocation(
@@ -73,6 +75,7 @@ func (repository *Repository) RecordAuditExportRecipientProofRevocation(
 		return err
 	}
 	record.ReasonDigest = append([]byte(nil), record.ReasonDigest...)
+	record.Acquisition = cloneAuditExportRevocationAcquisition(record.Acquisition)
 	tx, err := repository.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin audit export recipient proof revocation: %w", err)
@@ -130,6 +133,13 @@ func (repository *Repository) RecordAuditExportRecipientProofRevocation(
 		record.CorrelationID); err != nil {
 		return mapAuditExportRecipientProofRevocationWriteError(err)
 	}
+	if err := insertAuditExportRevocationAcquisition(
+		ctx, tx, record.Acquisition, record.RevocationSHA256, record.IsolationDomainID,
+		record.RevocationTrustProfileSHA256, record.CorrelationID,
+	); err != nil {
+		return mapAuditExportRecipientProofRevocationWriteError(err)
+	}
+	sourceID, sourceRegistrySHA256 := auditExportRevocationAcquisitionMetadata(record.Acquisition)
 	resourceID := identity.Derived(
 		"arv", record.IsolationDomainID+"\n"+record.RevocationSHA256,
 	)
@@ -148,7 +158,9 @@ func (repository *Repository) RecordAuditExportRecipientProofRevocation(
 				'recipientProofingTrustProfileSha256', $10::text,
 				'recipientProofingSigningKeyId', NULLIF($11::text, ''),
 				'recipientRevocationAuthorityId', $12::text,
-				'recipientProofRevocationEffectiveAt', $13::text
+				'recipientProofRevocationEffectiveAt', $13::text,
+				'revocationSourceId', NULLIF($14::text, ''),
+				'revocationSourceRegistrySha256', NULLIF($15::text, '')
 			)),
 			clock_timestamp()
 		)
@@ -156,7 +168,8 @@ func (repository *Repository) RecordAuditExportRecipientProofRevocation(
 		record.CorrelationID, digestBytes(record.ReasonDigest), record.RevocationSHA256,
 		record.Scope, record.ProofingAuthorityID, record.ProofingTrustProfileSHA256,
 		record.ProofingSigningKeyID, record.RevocationAuthorityID,
-		formatAuditExportRecipientTrustTime(record.EffectiveAt)); err != nil {
+		formatAuditExportRecipientTrustTime(record.EffectiveAt), sourceID,
+		sourceRegistrySHA256); err != nil {
 		return fmt.Errorf("audit export recipient proof revocation: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -197,6 +210,12 @@ func readAuditExportRecipientProofRevocation(
 	}
 	if signingKeyID != nil {
 		record.ProofingSigningKeyID = *signingKeyID
+	}
+	record.Acquisition, err = readAuditExportRevocationAcquisition(
+		ctx, querier, AuditExportRevocationAuthorityPurposeRecipientProof, revocationSHA256,
+	)
+	if err != nil {
+		return AuditExportRecipientProofRevocationRecord{}, false, err
 	}
 	if !record.Valid() {
 		return AuditExportRecipientProofRevocationRecord{}, false,
@@ -260,7 +279,8 @@ func sameAuditExportRecipientProofRevocation(
 		left.RevocationSigningKeyID == right.RevocationSigningKeyID &&
 		left.IssuedAt.Equal(right.IssuedAt) && left.EffectiveAt.Equal(right.EffectiveAt) &&
 		left.ActorID == right.ActorID && bytes.Equal(left.ReasonDigest, right.ReasonDigest) &&
-		left.CorrelationID == right.CorrelationID
+		left.CorrelationID == right.CorrelationID &&
+		sameAuditExportRevocationAcquisition(left.Acquisition, right.Acquisition)
 }
 
 func validAuditExportRecipientProofRevocationScope(scope, signingKeyID string) bool {

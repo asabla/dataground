@@ -101,6 +101,11 @@
         "recipientTrustKeyCount": { "type": "integer", "minimum": 0, "maximum": 8 },
         "recipientTrustProfileSha256": { "$ref": "#/$defs/digest" },
         "reasonDigest": { "$ref": "#/$defs/digest" },
+        "revocationSourceId": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{0,127}$"
+        },
+        "revocationSourceRegistrySha256": { "$ref": "#/$defs/digest" },
         "signingKeyId": { "$ref": "#/$defs/resourceId" },
         "sensitive": { "type": "boolean" },
         "sizeBytes": { "type": "integer", "minimum": 0 },

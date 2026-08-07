@@ -1,0 +1,19 @@
+{
+  "contract": "dataground.audit-export-revocation-source-registry/v1",
+  "sources": [
+    {
+      "id": "archive-revocations.primary",
+      "purpose": "recipient-proof",
+      "noticeUrl": "https://revocations.example.invalid/recipient-proof/notice.json",
+      "trustUrl": "https://revocations.example.invalid/recipient-proof/trust.json",
+      "noticeAuthentication": {
+        "kind": "bearer-credential-file",
+        "credentialFile": "/run/dataground/audit/recipient-proof-notice-credential.json"
+      },
+      "trustAuthentication": {
+        "kind": "bearer-credential-file",
+        "credentialFile": "/run/dataground/audit/recipient-proof-trust-credential.json"
+      }
+    }
+  ]
+}
