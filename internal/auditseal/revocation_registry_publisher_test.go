@@ -15,10 +15,7 @@ func TestPublishRevocationSourceRegistryFileInstallsImmutablePublication(t *test
 	directory := t.TempDir()
 	input := filepath.Join(directory, "reviewed.json")
 	target := filepath.Join(directory, "published.json")
-	registry := testRevocationSourceRegistry("archive-revocations.primary")
-	if err := os.WriteFile(input, registry, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeTestRevocationSourceRegistry(t, input, "archive-revocations.primary")
 	publication := RevocationSourceRegistryFilePublication{
 		InputPath: input, Path: target, Purpose: RevocationNoticePurposeRecipientProof,
 		SourceID: "archive-revocations.primary",
@@ -53,12 +50,8 @@ func TestPublishRevocationSourceRegistryFileRejectsConflictingInstalledContent(t
 	directory := t.TempDir()
 	input := filepath.Join(directory, "reviewed.json")
 	target := filepath.Join(directory, "published.json")
-	if err := os.WriteFile(input, testRevocationSourceRegistry("archive-revocations.primary"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(target, testRevocationSourceRegistry("archive-revocations.secondary"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeTestRevocationSourceRegistry(t, input, "archive-revocations.primary")
+	writeTestRevocationSourceRegistry(t, target, "archive-revocations.secondary")
 	_, err := PublishRevocationSourceRegistryFile(context.Background(), RevocationSourceRegistryFilePublication{
 		InputPath: input, Path: target, Purpose: RevocationNoticePurposeRecipientProof,
 		SourceID: "archive-revocations.primary",
@@ -72,9 +65,7 @@ func TestPublishRevocationSourceRegistryFileRejectsUnselectedSource(t *testing.T
 	t.Parallel()
 	directory := t.TempDir()
 	input := filepath.Join(directory, "reviewed.json")
-	if err := os.WriteFile(input, testRevocationSourceRegistry("archive-revocations.primary"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeTestRevocationSourceRegistry(t, input, "archive-revocations.primary")
 	_, err := PublishRevocationSourceRegistryFile(context.Background(), RevocationSourceRegistryFilePublication{
 		InputPath: input, Path: filepath.Join(directory, "published.json"),
 		Purpose: RevocationNoticePurposeWorkloadIdentity, SourceID: "archive-revocations.primary",
@@ -93,9 +84,7 @@ func TestPublishRevocationSourceRegistryFileSerializesConcurrentWriters(t *testi
 	var wait sync.WaitGroup
 	for index, sourceID := range sourceIDs {
 		input := filepath.Join(directory, sourceID+".json")
-		if err := os.WriteFile(input, testRevocationSourceRegistry(sourceID), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		writeTestRevocationSourceRegistry(t, input, sourceID)
 		wait.Add(1)
 		go func(index int, sourceID, input string) {
 			defer wait.Done()
@@ -130,9 +119,7 @@ func TestPublishRevocationSourceRegistryFileHonorsCancellationWhileWaitingForWri
 	directory := t.TempDir()
 	input := filepath.Join(directory, "reviewed.json")
 	target := filepath.Join(directory, "published.json")
-	if err := os.WriteFile(input, testRevocationSourceRegistry("archive-revocations.primary"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeTestRevocationSourceRegistry(t, input, "archive-revocations.primary")
 	lock, err := os.OpenFile(target+".lock", os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		t.Fatal(err)
@@ -153,6 +140,24 @@ func TestPublishRevocationSourceRegistryFileHonorsCancellationWhileWaitingForWri
 	}
 }
 
-func testRevocationSourceRegistry(sourceID string) []byte {
-	return []byte(`{"contract":"dataground.audit-export-revocation-source-registry/v1","sources":[{"id":"` + sourceID + `","purpose":"recipient-proof","noticeUrl":"https://revocations.example.invalid/notice","trustUrl":"https://revocations.example.invalid/trust","noticeAuthentication":{"kind":"bearer-credential-file","credentialFile":"/run/dataground/audit/notice-credential.json"},"trustAuthentication":{"kind":"bearer-credential-file","credentialFile":"/run/dataground/audit/trust-credential.json"}}]}`)
+func writeTestRevocationSourceRegistry(t *testing.T, path, sourceID string) {
+	t.Helper()
+	directory := filepath.Dir(path)
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeCanonicalPrivate(t, path, revocationSourceRegistry{
+		Contract: revocationSourceRegistryContract,
+		Sources: []revocationSourceProfile{{
+			ID: sourceID, Purpose: RevocationNoticePurposeRecipientProof,
+			NoticeURL: "https://revocations.example.test/notice",
+			TrustURL:  "https://revocations.example.test/trust",
+			NoticeAuthentication: revocationSourceAuthentication{
+				Kind: "bearer-credential-file", CredentialFile: filepath.Join(directory, "notice-credential.json"),
+			},
+			TrustAuthentication: revocationSourceAuthentication{
+				Kind: "bearer-credential-file", CredentialFile: filepath.Join(directory, "trust-credential.json"),
+			},
+		}},
+	})
 }
