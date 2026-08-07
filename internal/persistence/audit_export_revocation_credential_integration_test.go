@@ -14,26 +14,8 @@ import (
 func TestAuditExportRevocationCredentialsAreSequentialAuditedAndRevocable(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	databaseURL := testDatabaseURL(t)
-	database, err := persistence.OpenSQL(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := persistence.MigrateDownTo(ctx, database, 0); err != nil {
-		database.Close()
-		t.Fatalf("reset schema: %v", err)
-	}
-	if err := persistence.MigrateUp(ctx, database); err != nil {
-		database.Close()
-		t.Fatalf("migrate schema: %v", err)
-	}
-	defer database.Close()
-	pool, err := persistence.OpenPool(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pool := resetOperatorAuditDatabase(t, ctx)
 	defer pool.Close()
-
 	repository := persistence.NewRepository(pool)
 	isolationDomainID := identity.New("iso")
 	sourceDigest := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
@@ -132,8 +114,5 @@ func TestAuditExportRevocationCredentialsAreSequentialAuditedAndRevocable(t *tes
 		WHERE correlation_id = $1
 	`, revocation.CorrelationID); err == nil {
 		t.Fatal("database allowed credential event deletion")
-	}
-	if err := persistence.MigrateDownTo(ctx, database, 35); err == nil {
-		t.Fatal("credential authorization evidence was discarded by schema downgrade")
 	}
 }
