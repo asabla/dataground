@@ -402,6 +402,12 @@ func TestAuditExportDeliveryTransportRejectsExternalWorkloadIdentityRevocation(t
 	revocation := auditExportWorkloadIdentityRevocationRecord(
 		delivery.IsolationDomainID, now, "cor_00000000000000000032",
 	)
+	activateAuditExportRevocationAuthority(
+		t, ctx, repository, delivery.IsolationDomainID,
+		persistence.AuditExportRevocationAuthorityPurposeWorkloadIdentity,
+		revocation.RevocationAuthorityID, revocation.RevocationTrustProfileSHA256,
+		revocation.RevocationSigningKeyID, "cor_00000000000000000038",
+	)
 	if err := repository.RecordAuditExportWorkloadIdentityRevocation(ctx, revocation); err != nil {
 		t.Fatal(err)
 	}
@@ -508,6 +514,12 @@ func TestFutureExternalWorkloadIdentityRevocationDoesNotBlockEarly(t *testing.T)
 	revocation := auditExportWorkloadIdentityRevocationRecord(
 		delivery.IsolationDomainID, now, "cor_00000000000000000036",
 	)
+	activateAuditExportRevocationAuthority(
+		t, ctx, repository, delivery.IsolationDomainID,
+		persistence.AuditExportRevocationAuthorityPurposeWorkloadIdentity,
+		revocation.RevocationAuthorityID, revocation.RevocationTrustProfileSHA256,
+		revocation.RevocationSigningKeyID, "cor_00000000000000000038",
+	)
 	revocation.EffectiveAt = now.Add(time.Hour)
 	if err := repository.RecordAuditExportWorkloadIdentityRevocation(ctx, revocation); err != nil {
 		t.Fatal(err)
@@ -524,6 +536,158 @@ func TestFutureExternalWorkloadIdentityRevocationDoesNotBlockEarly(t *testing.T)
 		SET effective_at = clock_timestamp() - interval '1 second'
 	`); err == nil {
 		t.Fatal("future workload identity revocation was mutable")
+	}
+}
+
+func TestAuditExportRevocationAuthorityGovernsNoticeIntakeAndReplay(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := resetOperatorAuditDatabase(t, ctx)
+	defer pool.Close()
+	repository := persistence.NewRepository(pool)
+	domainID := "iso_00000000000000000001"
+	revocation := auditExportWorkloadIdentityRevocationRecord(
+		domainID, time.Now().UTC().Truncate(time.Microsecond),
+		"cor_00000000000000000032",
+	)
+	if err := repository.RecordAuditExportWorkloadIdentityRevocation(
+		ctx, revocation,
+	); !errors.Is(err, persistence.ErrAuditExportRevocationAuthorityUnauthorized) {
+		t.Fatalf("ungoverned workload revocation error = %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO audit_export_workload_identity_revocations (
+			record_contract, revocation_contract, revocation_sha256, isolation_domain_id,
+			scope, workload_identity_authority_id, workload_identity_trust_profile_sha256,
+			workload_identity_signing_key_id, external_reason_sha256, revocation_authority_id,
+			revocation_trust_profile_sha256, revocation_signing_key_id,
+			issued_at, effective_at, actor_id, reason_digest, correlation_id
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+	`, revocation.Contract, revocation.RevocationContract, revocation.RevocationSHA256,
+		revocation.IsolationDomainID, revocation.Scope, revocation.WorkloadIdentityAuthorityID,
+		revocation.WorkloadIdentityTrustProfileSHA256, revocation.WorkloadIdentitySigningKeyID,
+		revocation.ExternalReasonSHA256, revocation.RevocationAuthorityID,
+		revocation.RevocationTrustProfileSHA256, revocation.RevocationSigningKeyID,
+		revocation.IssuedAt, revocation.EffectiveAt, revocation.ActorID,
+		revocation.ReasonDigest, revocation.CorrelationID); err == nil {
+		t.Fatal("direct SQL installed a revocation under an ungoverned authority")
+	}
+	activateAuditExportRevocationAuthority(
+		t, ctx, repository, domainID,
+		persistence.AuditExportRevocationAuthorityPurposeWorkloadIdentity,
+		revocation.RevocationAuthorityID, revocation.RevocationTrustProfileSHA256,
+		revocation.RevocationSigningKeyID, "cor_00000000000000000038",
+	)
+	if err := repository.RecordAuditExportWorkloadIdentityRevocation(ctx, revocation); err != nil {
+		t.Fatalf("record governed workload revocation: %v", err)
+	}
+	reasonDigest := sha256.Sum256([]byte("rotate workload revocation authority"))
+	rotation := persistence.AuditExportRevocationAuthorityChange{
+		Contract:  persistence.AuditExportRevocationAuthorityAuthorizationContract,
+		Operation: "activate", IsolationDomainID: domainID,
+		Purpose:     persistence.AuditExportRevocationAuthorityPurposeWorkloadIdentity,
+		AuthorityID: revocation.RevocationAuthorityID, Generation: 2,
+		TrustContract:      "dataground.audit-export-workload-identity-revocation-trust/ed25519/v1",
+		TrustProfileSHA256: "sha256:" + strings.Repeat("f", 64),
+		KeyIDs:             []string{"revocation_key_02"},
+		ActorID:            "operator@example.invalid", ReasonDigest: reasonDigest[:],
+		CorrelationID: "cor_00000000000000000039",
+	}
+	if err := repository.ChangeAuditExportRevocationAuthority(ctx, rotation); err != nil {
+		t.Fatalf("rotate revocation authority: %v", err)
+	}
+	if err := repository.ChangeAuditExportRevocationAuthority(ctx, rotation); err != nil {
+		t.Fatalf("replay revocation authority rotation: %v", err)
+	}
+	competingAuthority := rotation
+	competingAuthority.AuthorityID = "competing-revocation.primary"
+	competingAuthority.Generation = 1
+	competingAuthority.CorrelationID = "cor_00000000000000000045"
+	if err := repository.ChangeAuditExportRevocationAuthority(
+		ctx, competingAuthority,
+	); !errors.Is(err, persistence.ErrAuditExportRevocationAuthorityConflict) {
+		t.Fatalf("competing revocation authority error = %v", err)
+	}
+	if err := repository.RecordAuditExportWorkloadIdentityRevocation(ctx, revocation); err != nil {
+		t.Fatalf("replay historical notice after authority rotation: %v", err)
+	}
+	oldProfileRevocation := revocation
+	oldProfileRevocation.RevocationSHA256 = "sha256:" + strings.Repeat("d", 64)
+	oldProfileRevocation.CorrelationID = "cor_00000000000000000040"
+	if err := repository.RecordAuditExportWorkloadIdentityRevocation(
+		ctx, oldProfileRevocation,
+	); !errors.Is(err, persistence.ErrAuditExportRevocationAuthorityUnauthorized) {
+		t.Fatalf("new notice under rotated profile error = %v", err)
+	}
+	newProfileRevocation := oldProfileRevocation
+	newProfileRevocation.RevocationSHA256 = "sha256:" + strings.Repeat("e", 64)
+	newProfileRevocation.RevocationTrustProfileSHA256 = rotation.TrustProfileSHA256
+	newProfileRevocation.RevocationSigningKeyID = rotation.KeyIDs[0]
+	newProfileRevocation.CorrelationID = "cor_00000000000000000041"
+	if err := repository.RecordAuditExportWorkloadIdentityRevocation(
+		ctx, newProfileRevocation,
+	); err != nil {
+		t.Fatalf("record notice under rotated authority: %v", err)
+	}
+	withdrawalReason := sha256.Sum256([]byte("withdraw workload revocation authority"))
+	withdrawal := rotation
+	withdrawal.Operation = "revoke"
+	withdrawal.Generation = 3
+	withdrawal.KeyIDs = nil
+	withdrawal.ReasonDigest = withdrawalReason[:]
+	withdrawal.CorrelationID = "cor_00000000000000000042"
+	if err := repository.ChangeAuditExportRevocationAuthority(ctx, withdrawal); err != nil {
+		t.Fatalf("withdraw revocation authority: %v", err)
+	}
+	afterWithdrawal := newProfileRevocation
+	afterWithdrawal.RevocationSHA256 = "sha256:" + strings.Repeat("0", 64)
+	afterWithdrawal.CorrelationID = "cor_00000000000000000043"
+	if err := repository.RecordAuditExportWorkloadIdentityRevocation(
+		ctx, afterWithdrawal,
+	); !errors.Is(err, persistence.ErrAuditExportRevocationAuthorityUnauthorized) {
+		t.Fatalf("new notice after authority withdrawal error = %v", err)
+	}
+	crossDomain := newProfileRevocation
+	crossDomain.IsolationDomainID = "iso_00000000000000000002"
+	crossDomain.RevocationSHA256 = "sha256:" + strings.Repeat("1", 64)
+	crossDomain.CorrelationID = "cor_00000000000000000044"
+	if err := repository.RecordAuditExportWorkloadIdentityRevocation(
+		ctx, crossDomain,
+	); !errors.Is(err, persistence.ErrAuditExportRevocationAuthorityUnauthorized) {
+		t.Fatalf("cross-domain revocation authority error = %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE audit_export_revocation_authority_events SET actor_id = 'other'
+	`); err == nil {
+		t.Fatal("revocation authority event mutation was accepted")
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM audit_export_revocation_authority_keys`); err == nil {
+		t.Fatal("revocation authority key deletion was accepted")
+	}
+	exported, err := repository.ExportOperatorAuditRecords(ctx, domainID, "", 20)
+	if err != nil {
+		t.Fatalf("export revocation authority audit: %v", err)
+	}
+	authorityActions := make(map[string]int)
+	for _, record := range exported.Records {
+		if record.ResourceType == "audit-export-revocation-authority" {
+			authorityActions[record.Action]++
+		}
+	}
+	if authorityActions["audit-export-revocation-authority.activate"] != 2 ||
+		authorityActions["audit-export-revocation-authority.revoke"] != 1 {
+		t.Fatalf("revocation authority audit actions = %#v", authorityActions)
+	}
+	database, err := persistence.OpenSQL(ctx, os.Getenv("DATAGROUND_TEST_DATABASE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := persistence.MigrateDownTo(ctx, database, 31); err == nil {
+		t.Fatal("revocation authority evidence was discarded by schema downgrade")
+	}
+	if err := persistence.RequireCurrentSchema(ctx, database); err != nil {
+		t.Fatalf("failed downgrade changed current schema: %v", err)
 	}
 }
 
@@ -803,6 +967,12 @@ func TestExternalRecipientProofRevocationBlocksActivationAndAcknowledgement(t *t
 	revocation := auditExportRecipientProofRevocationRecord(
 		delivery.IsolationDomainID, "key", "cor_00000000000000000020",
 	)
+	activateAuditExportRevocationAuthority(
+		t, ctx, repository, delivery.IsolationDomainID,
+		persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
+		revocation.RevocationAuthorityID, revocation.RevocationTrustProfileSHA256,
+		revocation.RevocationSigningKeyID, "cor_00000000000000000022",
+	)
 	if err := repository.RecordAuditExportRecipientProofRevocation(ctx, revocation); err != nil {
 		t.Fatalf("record external recipient proof revocation: %v", err)
 	}
@@ -928,6 +1098,12 @@ func TestCompletedAcknowledgementSurvivesExternalRecipientProofRevocation(t *tes
 	revocation := auditExportRecipientProofRevocationRecord(
 		delivery.IsolationDomainID, "profile", "cor_00000000000000000020",
 	)
+	activateAuditExportRevocationAuthority(
+		t, ctx, repository, delivery.IsolationDomainID,
+		persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
+		revocation.RevocationAuthorityID, revocation.RevocationTrustProfileSHA256,
+		revocation.RevocationSigningKeyID, "cor_00000000000000000022",
+	)
 	if err := repository.RecordAuditExportRecipientProofRevocation(ctx, revocation); err != nil {
 		t.Fatal(err)
 	}
@@ -954,6 +1130,12 @@ func TestFutureRecipientProofRevocationActivatesOnDatabaseClock(t *testing.T) {
 	delivery := auditExportDeliveryFixture("adl_00000000000000000001")
 	revocation := auditExportRecipientProofRevocationRecord(
 		delivery.IsolationDomainID, "profile", "cor_00000000000000000020",
+	)
+	activateAuditExportRevocationAuthority(
+		t, ctx, repository, delivery.IsolationDomainID,
+		persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
+		revocation.RevocationAuthorityID, revocation.RevocationTrustProfileSHA256,
+		revocation.RevocationSigningKeyID, "cor_00000000000000000022",
 	)
 	revocation.EffectiveAt = time.Now().UTC().Truncate(time.Microsecond).Add(time.Hour)
 	if err := repository.RecordAuditExportRecipientProofRevocation(ctx, revocation); err != nil {
@@ -1021,6 +1203,12 @@ func TestExternalRecipientProofRevocationSerializesWithAcknowledgement(t *testin
 	}
 	revocation := auditExportRecipientProofRevocationRecord(
 		delivery.IsolationDomainID, "profile", "cor_00000000000000000020",
+	)
+	activateAuditExportRevocationAuthority(
+		t, ctx, repository, delivery.IsolationDomainID,
+		persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
+		revocation.RevocationAuthorityID, revocation.RevocationTrustProfileSHA256,
+		revocation.RevocationSigningKeyID, "cor_00000000000000000022",
 	)
 	type outcome struct {
 		operation string
@@ -1232,6 +1420,36 @@ func auditExportWorkloadIdentityAuthorization() persistence.AuditExportWorkloadI
 		GrantSHA256:             "sha256:" + strings.Repeat("8", 64),
 		ClientCertificateSHA256: "sha256:" + strings.Repeat("6", 64),
 		Generation:              1,
+	}
+}
+
+func activateAuditExportRevocationAuthority(
+	t *testing.T,
+	ctx context.Context,
+	repository *persistence.Repository,
+	isolationDomainID string,
+	purpose string,
+	authorityID string,
+	profileDigest string,
+	keyID string,
+	correlationID string,
+) {
+	t.Helper()
+	trustContract := "dataground.audit-export-recipient-revocation-trust/ed25519/v1"
+	if purpose == persistence.AuditExportRevocationAuthorityPurposeWorkloadIdentity {
+		trustContract = "dataground.audit-export-workload-identity-revocation-trust/ed25519/v1"
+	}
+	reasonDigest := sha256.Sum256([]byte("authorize audit export revocation authority"))
+	change := persistence.AuditExportRevocationAuthorityChange{
+		Contract:  persistence.AuditExportRevocationAuthorityAuthorizationContract,
+		Operation: "activate", IsolationDomainID: isolationDomainID,
+		Purpose: purpose, AuthorityID: authorityID, Generation: 1,
+		TrustContract: trustContract, TrustProfileSHA256: profileDigest,
+		KeyIDs: []string{keyID}, ActorID: "operator@example.invalid",
+		ReasonDigest: reasonDigest[:], CorrelationID: correlationID,
+	}
+	if err := repository.ChangeAuditExportRevocationAuthority(ctx, change); err != nil {
+		t.Fatalf("activate audit export revocation authority: %v", err)
 	}
 }
 
