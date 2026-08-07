@@ -211,12 +211,12 @@ func newRecipientProofRecord(
 		Acquisition: &persistence.AuditExportRevocationAcquisition{
 			Contract: persistence.AuditExportRevocationAcquisitionContract,
 			Purpose:  acquired.Purpose, SourceID: acquired.SourceID,
-			SourceRegistrySHA256: acquired.SourceRegistrySHA256,
-			SourceGeneration:     sourceGeneration,
-			NoticeCredentialSHA256: acquired.NoticeCredential.CredentialSHA256,
+			SourceRegistrySHA256:       acquired.SourceRegistrySHA256,
+			SourceGeneration:           sourceGeneration,
+			NoticeCredentialSHA256:     acquired.NoticeCredential.CredentialSHA256,
 			NoticeCredentialGeneration: credentialGenerations.Notice,
-			TrustCredentialSHA256: acquired.TrustCredential.CredentialSHA256,
-			TrustCredentialGeneration: credentialGenerations.Trust,
+			TrustCredentialSHA256:      acquired.TrustCredential.CredentialSHA256,
+			TrustCredentialGeneration:  credentialGenerations.Trust,
 		},
 	}
 }
@@ -249,12 +249,12 @@ func newWorkloadIdentityRecord(
 		Acquisition: &persistence.AuditExportRevocationAcquisition{
 			Contract: persistence.AuditExportRevocationAcquisitionContract,
 			Purpose:  acquired.Purpose, SourceID: acquired.SourceID,
-			SourceRegistrySHA256: acquired.SourceRegistrySHA256,
-			SourceGeneration:     sourceGeneration,
-			NoticeCredentialSHA256: acquired.NoticeCredential.CredentialSHA256,
+			SourceRegistrySHA256:       acquired.SourceRegistrySHA256,
+			SourceGeneration:           sourceGeneration,
+			NoticeCredentialSHA256:     acquired.NoticeCredential.CredentialSHA256,
 			NoticeCredentialGeneration: credentialGenerations.Notice,
-			TrustCredentialSHA256: acquired.TrustCredential.CredentialSHA256,
-			TrustCredentialGeneration: credentialGenerations.Trust,
+			TrustCredentialSHA256:      acquired.TrustCredential.CredentialSHA256,
+			TrustCredentialGeneration:  credentialGenerations.Trust,
 		},
 	}
 }
