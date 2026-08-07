@@ -134,7 +134,8 @@ func TestRevocationNoticeAcquirerRejectsRegistryAndCredentialSubstitution(t *tes
 		t.Fatal(err)
 	}
 	registryPath := filepath.Join(directory, "sources.json")
-	credentialPath := filepath.Join(directory, "credential.json")
+	noticeCredentialPath := filepath.Join(directory, "notice-credential.json")
+	trustCredentialPath := filepath.Join(directory, "trust-credential.json")
 	registry := revocationSourceRegistry{
 		Contract: revocationSourceRegistryContract,
 		Sources: []revocationSourceProfile{{
@@ -142,10 +143,10 @@ func TestRevocationNoticeAcquirerRejectsRegistryAndCredentialSubstitution(t *tes
 			NoticeURL: "https://revocations.example.test/notice",
 			TrustURL:  "https://revocations.example.test/trust",
 			NoticeAuthentication: revocationSourceAuthentication{
-				Kind: "bearer-credential-file", CredentialFile: credentialPath,
+				Kind: "bearer-credential-file", CredentialFile: noticeCredentialPath,
 			},
 			TrustAuthentication: revocationSourceAuthentication{
-				Kind: "bearer-credential-file", CredentialFile: credentialPath,
+				Kind: "bearer-credential-file", CredentialFile: trustCredentialPath,
 			},
 		}},
 	}
@@ -155,11 +156,27 @@ func TestRevocationNoticeAcquirerRejectsRegistryAndCredentialSubstitution(t *tes
 		t.Fatal(err)
 	}
 	digest := sha256.Sum256(encoded)
+	registrySHA256 := digestString(digest)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	for endpoint, credentialPath := range map[string]string{
+		"notice": noticeCredentialPath,
+		"trust": trustCredentialPath,
+	} {
+		writeCanonicalPrivate(t, credentialPath, revocationSourceCredentialDocument{
+			Contract: revocationSourceCredentialContract,
+			IsolationDomainID: "iso_00000000000000000001",
+			Purpose: RevocationNoticePurposeRecipientProof,
+			SourceID: "archive-revocations.primary",
+			SourceRegistrySHA256: registrySHA256, Endpoint: endpoint,
+			ActivatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
+			BearerToken: json.RawMessage(`"shared-token"`),
+		})
+	}
 	if _, err := NewRevocationNoticeAcquirer(RevocationNoticeAcquisitionConfig{
 		IsolationDomainID: "iso_00000000000000000001",
 		Purpose:           RevocationNoticePurposeRecipientProof, SourceID: "archive-revocations.primary",
-		SourceRegistryFile: registryPath, SourceRegistrySHA256: digestString(digest),
+		SourceRegistryFile: registryPath, SourceRegistrySHA256: registrySHA256,
 	}); err == nil {
-		t.Fatal("substituted registry or shared endpoint credential was accepted")
+		t.Fatal("shared endpoint bearer token was accepted")
 	}
 }
