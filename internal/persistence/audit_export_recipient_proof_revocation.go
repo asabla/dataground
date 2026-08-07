@@ -139,7 +139,7 @@ func (repository *Repository) RecordAuditExportRecipientProofRevocation(
 	); err != nil {
 		return mapAuditExportRecipientProofRevocationWriteError(err)
 	}
-	sourceID, sourceRegistrySHA256 := auditExportRevocationAcquisitionMetadata(record.Acquisition)
+	sourceID, sourceRegistrySHA256, sourceGeneration := auditExportRevocationAcquisitionMetadata(record.Acquisition)
 	resourceID := identity.Derived(
 		"arv", record.IsolationDomainID+"\n"+record.RevocationSHA256,
 	)
@@ -160,7 +160,8 @@ func (repository *Repository) RecordAuditExportRecipientProofRevocation(
 				'recipientRevocationAuthorityId', $12::text,
 				'recipientProofRevocationEffectiveAt', $13::text,
 				'revocationSourceId', NULLIF($14::text, ''),
-				'revocationSourceRegistrySha256', NULLIF($15::text, '')
+				'revocationSourceRegistrySha256', NULLIF($15::text, ''),
+				'revocationSourceGeneration', NULLIF($16::bigint, 0)
 			)),
 			clock_timestamp()
 		)
@@ -169,7 +170,7 @@ func (repository *Repository) RecordAuditExportRecipientProofRevocation(
 		record.Scope, record.ProofingAuthorityID, record.ProofingTrustProfileSHA256,
 		record.ProofingSigningKeyID, record.RevocationAuthorityID,
 		formatAuditExportRecipientTrustTime(record.EffectiveAt), sourceID,
-		sourceRegistrySHA256); err != nil {
+		sourceRegistrySHA256, sourceGeneration); err != nil {
 		return fmt.Errorf("audit export recipient proof revocation: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

@@ -510,6 +510,7 @@ func TestAuditExportDeliveryTransportRejectsExternalWorkloadIdentityRevocation(t
 		Purpose:              persistence.AuditExportRevocationAuthorityPurposeWorkloadIdentity,
 		SourceID:             "archive-revocations.primary",
 		SourceRegistrySHA256: "sha256:" + strings.Repeat("f", 64),
+		SourceGeneration:     1,
 	}
 	activateAuditExportRevocationAuthority(
 		t, ctx, repository, delivery.IsolationDomainID,
@@ -517,11 +518,31 @@ func TestAuditExportDeliveryTransportRejectsExternalWorkloadIdentityRevocation(t
 		revocation.RevocationAuthorityID, revocation.RevocationTrustProfileSHA256,
 		revocation.RevocationSigningKeyID, "cor_00000000000000000038",
 	)
+	activateAuditExportRevocationSource(
+		t, ctx, repository, revocation.IsolationDomainID, revocation.Acquisition.Purpose,
+		revocation.Acquisition.SourceID, revocation.Acquisition.SourceRegistrySHA256,
+		1, "cor_00000000000000000039",
+	)
 	if err := repository.RecordAuditExportWorkloadIdentityRevocation(ctx, revocation); err != nil {
 		t.Fatal(err)
 	}
 	if err := repository.RecordAuditExportWorkloadIdentityRevocation(ctx, revocation); err != nil {
 		t.Fatalf("replay external workload identity revocation: %v", err)
+	}
+	sourceWithdrawalReason := sha256.Sum256([]byte("withdraw acquired workload revocation source"))
+	sourceWithdrawal := persistence.AuditExportRevocationSourceChange{
+		Contract:  persistence.AuditExportRevocationSourceAuthorizationContract,
+		Operation: "revoke", IsolationDomainID: revocation.IsolationDomainID,
+		Purpose: revocation.Acquisition.Purpose, SourceID: revocation.Acquisition.SourceID,
+		Generation: 2, SourceRegistrySHA256: revocation.Acquisition.SourceRegistrySHA256,
+		ActorID: "operator@example.invalid", ReasonDigest: sourceWithdrawalReason[:],
+		CorrelationID: "cor_00000000000000000040",
+	}
+	if err := repository.ChangeAuditExportRevocationSource(ctx, sourceWithdrawal); err != nil {
+		t.Fatalf("withdraw acquired workload revocation source: %v", err)
+	}
+	if err := repository.RecordAuditExportWorkloadIdentityRevocation(ctx, revocation); err != nil {
+		t.Fatalf("replay acquired revocation after source withdrawal: %v", err)
 	}
 	changedRevocation := revocation
 	changedRevocation.ActorID = "other-operator@example.invalid"
@@ -536,6 +557,7 @@ func TestAuditExportDeliveryTransportRejectsExternalWorkloadIdentityRevocation(t
 		Purpose:              persistence.AuditExportRevocationAuthorityPurposeWorkloadIdentity,
 		SourceID:             "archive-revocations.mirror",
 		SourceRegistrySHA256: revocation.Acquisition.SourceRegistrySHA256,
+		SourceGeneration:     revocation.Acquisition.SourceGeneration,
 	}
 	if err := repository.RecordAuditExportWorkloadIdentityRevocation(
 		ctx, changedSource,
@@ -1100,12 +1122,23 @@ func TestExternalRecipientProofRevocationBlocksActivationAndAcknowledgement(t *t
 		Purpose:              persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
 		SourceID:             "archive-revocations.primary",
 		SourceRegistrySHA256: "sha256:" + strings.Repeat("f", 64),
+		SourceGeneration:     1,
 	}
 	activateAuditExportRevocationAuthority(
 		t, ctx, repository, delivery.IsolationDomainID,
 		persistence.AuditExportRevocationAuthorityPurposeRecipientProof,
 		revocation.RevocationAuthorityID, revocation.RevocationTrustProfileSHA256,
 		revocation.RevocationSigningKeyID, "cor_00000000000000000022",
+	)
+	if err := repository.RecordAuditExportRecipientProofRevocation(
+		ctx, revocation,
+	); !errors.Is(err, persistence.ErrAuditExportRevocationSourceUnauthorized) {
+		t.Fatalf("ungoverned recipient revocation source error = %v", err)
+	}
+	activateAuditExportRevocationSource(
+		t, ctx, repository, revocation.IsolationDomainID, revocation.Acquisition.Purpose,
+		revocation.Acquisition.SourceID, revocation.Acquisition.SourceRegistrySHA256,
+		1, "cor_00000000000000000023",
 	)
 	if err := repository.RecordAuditExportRecipientProofRevocation(ctx, revocation); err != nil {
 		t.Fatalf("record external recipient proof revocation: %v", err)
@@ -1124,7 +1157,8 @@ func TestExternalRecipientProofRevocationBlocksActivationAndAcknowledgement(t *t
 				t.Fatalf("decode acquired revocation audit metadata: %v", err)
 			}
 			foundAcquisition = metadata["revocationSourceId"] == "archive-revocations.primary" &&
-				metadata["revocationSourceRegistrySha256"] == revocation.Acquisition.SourceRegistrySHA256
+				metadata["revocationSourceRegistrySha256"] == revocation.Acquisition.SourceRegistrySHA256 &&
+				metadata["revocationSourceGeneration"] == float64(1)
 		}
 	}
 	if !foundAcquisition {
@@ -1513,6 +1547,120 @@ func TestAuditExportRecipientTrustRevocationSerializesWithAcknowledgement(t *tes
 	}
 }
 
+func TestAuditExportRevocationSourceGovernanceSerializesRotationAndWithdrawal(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := resetOperatorAuditDatabase(t, ctx)
+	defer pool.Close()
+	repository := persistence.NewRepository(pool)
+	domainID := "iso_00000000000000000001"
+	purpose := persistence.AuditExportRevocationAuthorityPurposeRecipientProof
+	reasonDigest := sha256.Sum256([]byte("govern audit export revocation source"))
+	activation := persistence.AuditExportRevocationSourceChange{
+		Contract:  persistence.AuditExportRevocationSourceAuthorizationContract,
+		Operation: "activate", IsolationDomainID: domainID, Purpose: purpose,
+		SourceID: "archive-revocations.primary", Generation: 1,
+		SourceRegistrySHA256: "sha256:" + strings.Repeat("1", 64),
+		ActorID:              "operator@example.invalid", ReasonDigest: reasonDigest[:],
+		CorrelationID: "cor_00000000000000000051",
+	}
+	if err := repository.ChangeAuditExportRevocationSource(ctx, activation); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.ChangeAuditExportRevocationSource(ctx, activation); err != nil {
+		t.Fatalf("exact source activation replay: %v", err)
+	}
+	generation, err := repository.AuthorizeAuditExportRevocationSource(
+		ctx, domainID, purpose, activation.SourceID, activation.SourceRegistrySHA256,
+	)
+	if err != nil || generation != 1 {
+		t.Fatalf("active source = %d, %v", generation, err)
+	}
+	if _, err := repository.AuthorizeAuditExportRevocationSource(
+		ctx, "iso_00000000000000000002", purpose,
+		activation.SourceID, activation.SourceRegistrySHA256,
+	); !errors.Is(err, persistence.ErrAuditExportRevocationSourceUnauthorized) {
+		t.Fatalf("cross-domain source authorization error = %v", err)
+	}
+	if _, err := repository.AuthorizeAuditExportRevocationSource(
+		ctx, domainID, persistence.AuditExportRevocationAuthorityPurposeWorkloadIdentity,
+		activation.SourceID, activation.SourceRegistrySHA256,
+	); !errors.Is(err, persistence.ErrAuditExportRevocationSourceUnauthorized) {
+		t.Fatalf("cross-purpose source authorization error = %v", err)
+	}
+	changedReplay := activation
+	changedReplay.ActorID = "other-operator@example.invalid"
+	if err := repository.ChangeAuditExportRevocationSource(
+		ctx, changedReplay,
+	); !errors.Is(err, persistence.ErrAuditExportRevocationSourceConflict) {
+		t.Fatalf("changed source replay error = %v", err)
+	}
+	rotation := activation
+	rotation.Generation = 2
+	rotation.SourceRegistrySHA256 = "sha256:" + strings.Repeat("2", 64)
+	rotation.CorrelationID = "cor_00000000000000000052"
+	if err := repository.ChangeAuditExportRevocationSource(ctx, rotation); err != nil {
+		t.Fatalf("rotate revocation source: %v", err)
+	}
+	if _, err := repository.AuthorizeAuditExportRevocationSource(
+		ctx, domainID, purpose, activation.SourceID, activation.SourceRegistrySHA256,
+	); !errors.Is(err, persistence.ErrAuditExportRevocationSourceUnauthorized) {
+		t.Fatalf("stale source authorization error = %v", err)
+	}
+	generation, err = repository.AuthorizeAuditExportRevocationSource(
+		ctx, domainID, purpose, rotation.SourceID, rotation.SourceRegistrySHA256,
+	)
+	if err != nil || generation != 2 {
+		t.Fatalf("rotated source = %d, %v", generation, err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO audit_export_revocation_source_events (
+			authorization_contract, isolation_domain_id, purpose, source_id,
+			generation, operation, source_registry_sha256, actor_id,
+			reason_digest, correlation_id
+		) VALUES ($1, $2, $3, $4, 3, 'activate', $5, $6, $7, $8)
+	`, persistence.AuditExportRevocationSourceAuthorizationContract, domainID, purpose,
+		rotation.SourceID, rotation.SourceRegistrySHA256, rotation.ActorID,
+		rotation.ReasonDigest, "cor_00000000000000000053"); err == nil {
+		t.Fatal("direct SQL reused the active revocation source")
+	}
+	withdrawal := rotation
+	withdrawal.Operation = "revoke"
+	withdrawal.Generation = 3
+	withdrawal.CorrelationID = "cor_00000000000000000054"
+	if err := repository.ChangeAuditExportRevocationSource(ctx, withdrawal); err != nil {
+		t.Fatalf("withdraw revocation source: %v", err)
+	}
+	if _, err := repository.AuthorizeAuditExportRevocationSource(
+		ctx, domainID, purpose, rotation.SourceID, rotation.SourceRegistrySHA256,
+	); !errors.Is(err, persistence.ErrAuditExportRevocationSourceUnauthorized) {
+		t.Fatalf("withdrawn source authorization error = %v", err)
+	}
+	if err := repository.ChangeAuditExportRevocationSource(ctx, activation); err != nil {
+		t.Fatalf("historical source replay after withdrawal: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE audit_export_revocation_source_events SET actor_id = 'other'`); err == nil {
+		t.Fatal("revocation source mutation was accepted")
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM audit_export_revocation_source_events`); err == nil {
+		t.Fatal("revocation source deletion was accepted")
+	}
+	exported, err := repository.ExportOperatorAuditRecords(ctx, domainID, "", 20)
+	if err != nil {
+		t.Fatalf("export revocation source audit: %v", err)
+	}
+	actions := make(map[string]int)
+	for _, record := range exported.Records {
+		if record.ResourceType == "audit-export-revocation-source" {
+			actions[record.Action]++
+		}
+	}
+	if actions["audit-export-revocation-source.activate"] != 2 ||
+		actions["audit-export-revocation-source.revoke"] != 1 {
+		t.Fatalf("revocation source audit actions = %#v", actions)
+	}
+}
+
 func auditExportDeliveryFixture(deliveryID string) persistence.AuditExportDelivery {
 	envelopeDigest := sha256.Sum256([]byte("sealed envelope"))
 	destinationDigest := sha256.Sum256([]byte("archive.primary\nobject-prefix"))
@@ -1683,6 +1831,31 @@ func activateAuditExportRevocationAuthority(
 	}
 	if err := repository.ChangeAuditExportRevocationAuthority(ctx, change); err != nil {
 		t.Fatalf("activate audit export revocation authority: %v", err)
+	}
+}
+
+func activateAuditExportRevocationSource(
+	t *testing.T,
+	ctx context.Context,
+	repository *persistence.Repository,
+	isolationDomainID string,
+	purpose string,
+	sourceID string,
+	registryDigest string,
+	generation int64,
+	correlationID string,
+) {
+	t.Helper()
+	reasonDigest := sha256.Sum256([]byte("authorize audit export revocation source"))
+	change := persistence.AuditExportRevocationSourceChange{
+		Contract:  persistence.AuditExportRevocationSourceAuthorizationContract,
+		Operation: "activate", IsolationDomainID: isolationDomainID,
+		Purpose: purpose, SourceID: sourceID, Generation: generation,
+		SourceRegistrySHA256: registryDigest, ActorID: "operator@example.invalid",
+		ReasonDigest: reasonDigest[:], CorrelationID: correlationID,
+	}
+	if err := repository.ChangeAuditExportRevocationSource(ctx, change); err != nil {
+		t.Fatalf("activate audit export revocation source: %v", err)
 	}
 }
 

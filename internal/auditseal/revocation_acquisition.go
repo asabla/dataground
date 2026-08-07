@@ -58,6 +58,41 @@ type AcquiredRevocationNotice struct {
 	WorkloadIdentity     *VerifiedWorkloadIdentityRevocation
 }
 
+// RevocationSourceEvidence identifies one validated profile in a canonical
+// source registry without loading either endpoint credential.
+type RevocationSourceEvidence struct {
+	Purpose              string
+	SourceID             string
+	SourceRegistrySHA256 string
+}
+
+// InspectRevocationSourceRegistryFile validates the complete canonical
+// registry and returns the exact digest of the selected source profile's
+// containing registry. Endpoint credentials are intentionally not read.
+func InspectRevocationSourceRegistryFile(
+	registryFile string,
+	purpose string,
+	sourceID string,
+) (RevocationSourceEvidence, error) {
+	var evidence RevocationSourceEvidence
+	if !validRevocationNoticePurpose(purpose) ||
+		!auditExportDeliveryRecipientPattern.MatchString(sourceID) {
+		return evidence, ErrRevocationNoticeAcquisitionInvalid
+	}
+	encoded, err := readStablePrivateFile(registryFile, maximumRevocationSourceRegistryBytes)
+	if err != nil {
+		return evidence, ErrRevocationNoticeAcquisitionInvalid
+	}
+	defer clear(encoded)
+	if _, err := selectRevocationSourceProfile(encoded, purpose, sourceID); err != nil {
+		return evidence, err
+	}
+	digest := sha256.Sum256(encoded)
+	return RevocationSourceEvidence{
+		Purpose: purpose, SourceID: sourceID, SourceRegistrySHA256: digestString(digest),
+	}, nil
+}
+
 type revocationSourceRegistry struct {
 	Contract string                    `json:"contract"`
 	Sources  []revocationSourceProfile `json:"sources"`

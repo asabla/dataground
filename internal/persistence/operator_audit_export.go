@@ -217,7 +217,7 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 		_, ok := value.(bool)
 		return ok
 	case "generation", "proofingAuthorityGeneration", "recipientTrustGeneration", "revocationAuthorityGeneration",
-		"workloadIdentityGeneration":
+		"revocationSourceGeneration", "workloadIdentityGeneration":
 		return validOperatorAuditInteger(value, 1)
 	case "recipientTrustKeyCount", "recipientEncryptionKeyCount":
 		return validOperatorAuditIntegerRange(value, 0, 8)
@@ -263,6 +263,9 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 	case "recipientProofRevocationScope", "workloadIdentityRevocationScope":
 		return text == "profile" || text == "key"
 	case "revocationAuthorityPurpose":
+		return text == AuditExportRevocationAuthorityPurposeRecipientProof ||
+			text == AuditExportRevocationAuthorityPurposeWorkloadIdentity
+	case "revocationSourcePurpose":
 		return text == AuditExportRevocationAuthorityPurposeRecipientProof ||
 			text == AuditExportRevocationAuthorityPurposeWorkloadIdentity
 	case "endpoint":

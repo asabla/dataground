@@ -61,12 +61,13 @@ func TestExecuteRequestRecordsPurposeSpecificAcquisition(t *testing.T) {
 	err := executeRequest(context.Background(), repository, request, auditseal.AcquiredRevocationNotice{
 		Purpose: request.purpose, SourceID: request.sourceID,
 		SourceRegistrySHA256: request.sourceRegistrySHA256, RecipientProof: &verified,
-	})
+	}, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if repository.recipient.Acquisition == nil ||
 		repository.recipient.Acquisition.SourceID != request.sourceID ||
+		repository.recipient.Acquisition.SourceGeneration != 3 ||
 		repository.recipient.RevocationSHA256 != verified.SHA256 {
 		t.Fatalf("recorded recipient revocation = %#v", repository.recipient)
 	}
@@ -97,12 +98,13 @@ func TestExecuteRequestRecordsWorkloadIdentityAcquisition(t *testing.T) {
 	err := executeRequest(context.Background(), repository, request, auditseal.AcquiredRevocationNotice{
 		Purpose: request.purpose, SourceID: request.sourceID,
 		SourceRegistrySHA256: request.sourceRegistrySHA256, WorkloadIdentity: &verified,
-	})
+	}, 4)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if repository.workload.Acquisition == nil ||
 		repository.workload.Acquisition.SourceID != request.sourceID ||
+		repository.workload.Acquisition.SourceGeneration != 4 ||
 		repository.workload.RevocationSHA256 != verified.SHA256 {
 		t.Fatalf("recorded workload revocation = %#v", repository.workload)
 	}
@@ -119,6 +121,16 @@ func (repository *recordingRepository) ReplayAuditExportRevocationAcquisition(
 	_ persistence.AuditExportRevocationAcquisitionReplay,
 ) (bool, error) {
 	return repository.replayed, nil
+}
+
+func (repository *recordingRepository) AuthorizeAuditExportRevocationSource(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ string,
+) (int64, error) {
+	return 1, nil
 }
 
 func (repository *recordingRepository) RecordAuditExportRecipientProofRevocation(
@@ -139,7 +151,7 @@ func (repository *recordingRepository) RecordAuditExportWorkloadIdentityRevocati
 
 func TestExecuteRequestRejectsMismatchedAcquisition(t *testing.T) {
 	request := commandRequest{purpose: auditseal.RevocationNoticePurposeRecipientProof}
-	err := executeRequest(context.Background(), &recordingRepository{}, request, auditseal.AcquiredRevocationNotice{})
+	err := executeRequest(context.Background(), &recordingRepository{}, request, auditseal.AcquiredRevocationNotice{}, 1)
 	if err == nil || errors.Is(err, context.Canceled) {
 		t.Fatalf("mismatched acquisition error = %v", err)
 	}

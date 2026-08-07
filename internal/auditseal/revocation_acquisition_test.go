@@ -68,6 +68,16 @@ func TestRevocationNoticeAcquirerPinsSourceCredentialsAndVerifiesNotice(t *testi
 	}
 	digest := sha256.Sum256(registryBytes)
 	registrySHA256 := digestString(digest)
+	evidence, err := InspectRevocationSourceRegistryFile(
+		registryPath, RevocationNoticePurposeRecipientProof, "archive-revocations.primary",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evidence.SourceRegistrySHA256 != registrySHA256 ||
+		evidence.Purpose != RevocationNoticePurposeRecipientProof {
+		t.Fatalf("revocation source evidence = %#v", evidence)
+	}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	writeCanonicalPrivate(t, noticeCredentialPath, revocationSourceCredentialDocument{
 		Contract: revocationSourceCredentialContract, IsolationDomainID: fixture.isolationDomainID,

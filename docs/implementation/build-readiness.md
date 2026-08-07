@@ -30,6 +30,8 @@ These items materially affect repository boundaries or contracts:
 
 Do not ask Codex to generate a full platform before the remaining items are known. Prompt `00` records the bootstrap contract; prompt `01` starts product contracts only after its required decisions are resolved.
 
+Revocation-notice acquisition now requires one sequential, isolation-scoped active source generation for the exact purpose, source identifier, and registry digest before network access and again at durable intake. Source choice, external registry publication, acquisition-credential issuance and remote revocation, and monitoring completeness remain deployment-owned.
+
 ## P0: resolve before a real sandbox is allowed to perform work
 
 - Pin the OpenShell release and gateway/supervisor images by digest.

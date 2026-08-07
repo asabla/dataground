@@ -105,6 +105,8 @@
           "type": "string",
           "pattern": "^[a-z][a-z0-9._-]{0,127}$"
         },
+        "revocationSourceGeneration": { "type": "integer", "minimum": 1 },
+        "revocationSourcePurpose": { "enum": ["recipient-proof", "workload-identity"] },
         "revocationSourceRegistrySha256": { "$ref": "#/$defs/digest" },
         "signingKeyId": { "$ref": "#/$defs/resourceId" },
         "sensitive": { "type": "boolean" },
