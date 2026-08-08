@@ -62,6 +62,34 @@ type governedExecutionPlanStore struct {
 	execution.ExecutionPlanStore
 }
 
+type durableProviderCredentialAuthorizer struct {
+	repository *persistence.Repository
+}
+
+func (authorizer durableProviderCredentialAuthorizer) AuthorizeProviderCredentialUse(
+	ctx context.Context,
+	use execution.ProviderCredentialUse,
+) error {
+	if authorizer.repository == nil {
+		return execution.ErrProviderCredentialUseDenied
+	}
+	err := authorizer.repository.AuthorizeProviderCredentialUse(ctx, persistence.ProviderCredentialUse{
+		Contract:          persistence.ProviderCredentialAuthorizationContract,
+		IsolationDomainID: use.IsolationDomainID,
+		RevisionID:        use.RevisionID,
+		OperationID:       use.OperationID,
+		ProviderProfile:   use.ProviderProfile,
+		Purpose:           use.Purpose,
+		Phase:             use.Phase,
+		ActorID:           use.ActorID,
+		CorrelationID:     use.CorrelationID,
+	})
+	if errors.Is(err, persistence.ErrProviderCredentialUnauthorized) {
+		return errors.Join(execution.ErrProviderCredentialUseDenied, err)
+	}
+	return err
+}
+
 func (store governedExecutionPlanStore) GetExecutionPlan(
 	ctx context.Context,
 	isolationDomainID string,
@@ -339,10 +367,11 @@ func composeWorkerDriver(
 	if err != nil {
 		return fail(err)
 	}
-	admission, err := execution.NewAdmission(
+	admission, err := execution.NewCredentialMediatedAdmission(
 		governedExecutionPlanStore{ExecutionPlanStore: executionStore},
 		bundles,
 		provider,
+		durableProviderCredentialAuthorizer{repository: repository},
 	)
 	if err != nil {
 		return fail(err)

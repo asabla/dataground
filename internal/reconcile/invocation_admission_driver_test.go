@@ -38,6 +38,8 @@ func TestInvocationAdmissionDriverReauthorizesAndAdmitsDurableTarget(t *testing.
 		IsolationDomainID: target.IsolationDomainID,
 		RevisionID:        target.RevisionID,
 		OperationID:       target.OperationID,
+		ActorID:           target.ActorID,
+		CorrelationID:     target.CorrelationID,
 	}
 	if admitter.request != wantRequest {
 		t.Fatalf("admission request = %#v, want %#v", admitter.request, wantRequest)
@@ -170,6 +172,23 @@ func TestInvocationAdmissionDriverFailsClosedBeforeProviderAdmission(t *testing.
 				t.Fatalf("provider admission called %d times", admitter.calls)
 			}
 		})
+	}
+}
+
+func TestInvocationAdmissionDriverClassifiesProviderCredentialDenial(t *testing.T) {
+	target := admissionTarget()
+	driver, err := NewInvocationAdmissionDriver(
+		&admissionTargetStub{target: target},
+		&admissionAuthorizerStub{},
+		&admitterStub{err: execution.ErrProviderCredentialUseDenied},
+		&executionByOperationStub{err: execution.ErrExecutionMissing},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = driver.Apply(context.Background(), admissionEffect(target))
+	if !errors.Is(err, execution.ErrProviderCredentialUseDenied) || !errors.Is(err, ErrEffectDenied) {
+		t.Fatalf("provider credential denial = %v", err)
 	}
 }
 
