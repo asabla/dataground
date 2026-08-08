@@ -51,15 +51,19 @@ type workerConfig struct {
 	s3Bucket             string
 	s3RequestTimeout     time.Duration
 	maximumArtifactBytes int64
+	certification        runtimeCertificationConfig
 }
 
 type workerResources struct {
 	policyWorkspace *openshell.PolicyWorkspace
 	exportWorkspace *openshell.ExportWorkspace
+	readiness       runtimeCertificationReadiness
 }
 
 type governedExecutionPlanStore struct {
 	execution.ExecutionPlanStore
+	readiness runtimeCertificationReadiness
+	target    runtimeCertificationTarget
 }
 
 type durableProviderCredentialAuthorizer struct {
@@ -95,6 +99,12 @@ func (store governedExecutionPlanStore) GetExecutionPlan(
 	isolationDomainID string,
 	revisionID string,
 ) (execution.ExecutionPlan, error) {
+	if isolationDomainID != store.target.isolationDomainID || revisionID != store.target.revisionID {
+		return execution.ExecutionPlan{}, execution.ErrExecutionPlanRevisionMismatch
+	}
+	if err := store.readiness.Check(ctx); err != nil {
+		return execution.ExecutionPlan{}, err
+	}
 	plan, err := store.ExecutionPlanStore.GetExecutionPlan(ctx, isolationDomainID, revisionID)
 	if err != nil {
 		return execution.ExecutionPlan{}, err
@@ -114,8 +124,10 @@ func validGovernedDevelopmentPlan(plan execution.ExecutionPlan) bool {
 
 type scopedReconcileStore interface {
 	reconcile.Store
-	ClaimNextInIsolationDomain(
+	ClaimNextForServiceRevision(
 		context.Context,
+		string,
+		string,
 		string,
 		string,
 		string,
@@ -125,7 +137,7 @@ type scopedReconcileStore interface {
 
 type isolationScopedReconcileStore struct {
 	scopedReconcileStore
-	isolationDomainID string
+	target runtimeCertificationTarget
 }
 
 func (store *isolationScopedReconcileStore) ClaimNext(
@@ -134,10 +146,12 @@ func (store *isolationScopedReconcileStore) ClaimNext(
 	workerID string,
 	leaseDuration time.Duration,
 ) (*persistence.OperationClaim, error) {
-	return store.ClaimNextInIsolationDomain(
+	return store.ClaimNextForServiceRevision(
 		ctx,
 		kind,
-		store.isolationDomainID,
+		store.target.isolationDomainID,
+		store.target.serviceID,
+		store.target.revisionID,
 		workerID,
 		leaseDuration,
 	)
@@ -150,10 +164,17 @@ func workerReconcileStore(
 	if config.mode == workerModeGovernedDevelopment {
 		return &isolationScopedReconcileStore{
 			scopedReconcileStore: repository,
-			isolationDomainID:    config.isolationDomainID,
+			target:               config.certification.target,
 		}
 	}
 	return repository
+}
+
+func (resources *workerResources) Ready(ctx context.Context) error {
+	if resources == nil || resources.readiness == nil {
+		return nil
+	}
+	return resources.readiness.Check(ctx)
 }
 
 func (resources *workerResources) Close() error {
@@ -186,6 +207,13 @@ func loadWorkerConfig(lookup environmentLookup) (workerConfig, error) {
 	var err error
 	if config.isolationDomainID, err = requiredEnvironment(lookup, "DATAGROUND_DEVELOPMENT_ISOLATION_DOMAIN_ID"); err != nil {
 		return workerConfig{}, err
+	}
+	config.certification, err = loadRuntimeCertificationConfig(lookup)
+	if err != nil {
+		return workerConfig{}, err
+	}
+	if config.certification.target.isolationDomainID != config.isolationDomainID {
+		return workerConfig{}, ErrRuntimeCertificationScopeMismatch
 	}
 	if config.gatewayID, err = requiredEnvironment(lookup, "DATAGROUND_OPENSHELL_GATEWAY_ID"); err != nil {
 		return workerConfig{}, err
@@ -302,7 +330,30 @@ func composeWorkerDriver(
 		return nil, nil, errors.New("governed worker configuration and durable dependencies are required")
 	}
 
-	resources := &workerResources{}
+	checker, err := newRuntimeCertificationChecker(
+		config.certification,
+		nodeRuntimeCertificationVerifier{},
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := checker.Check(ctx); err != nil {
+		return nil, nil, err
+	}
+	var runtimeProfile string
+	if err := pool.QueryRow(ctx, `
+		SELECT runtime_profile
+		FROM service_revisions
+		WHERE isolation_domain_id = $1
+		  AND service_id = $2
+		  AND id = $3
+		  AND state = 'published'
+	`, config.certification.target.isolationDomainID, config.certification.target.serviceID,
+		config.certification.target.revisionID).Scan(&runtimeProfile); err != nil ||
+		runtimeProfile != reconcile.CodexAppServerRuntimeProfileV1 {
+		return nil, nil, ErrRuntimeCertificationScopeMismatch
+	}
+	resources := &workerResources{readiness: checker}
 	fail := func(cause error) (reconcile.EffectDriver, *workerResources, error) {
 		return nil, nil, errors.Join(cause, resources.Close())
 	}
@@ -351,7 +402,7 @@ func composeWorkerDriver(
 	if err != nil {
 		return fail(err)
 	}
-	provider := openshell.New(openshell.Config{
+	openShellProvider := openshell.New(openshell.Config{
 		Binary:           config.openShellBinary,
 		ExpectedVersion:  governedOpenShellVersion,
 		PolicyWorkspace:  policyWorkspace,
@@ -359,8 +410,13 @@ func composeWorkerDriver(
 		StateStore:       executionStore,
 		ProviderProfiles: providerProfiles,
 	}, openshell.ExecRunner{})
-	if err := provider.Check(ctx); err != nil {
+	if err := openShellProvider.Check(ctx); err != nil {
 		return fail(err)
+	}
+	provider := &certifiedExecutionProvider{
+		ExecutionProvider: openShellProvider,
+		readiness:         checker,
+		target:            config.certification.target,
 	}
 
 	bundles, err := execution.NewObjectEnforcementBundleSource(executionStore, objectStore)
@@ -368,7 +424,11 @@ func composeWorkerDriver(
 		return fail(err)
 	}
 	admission, err := execution.NewCredentialMediatedAdmission(
-		governedExecutionPlanStore{ExecutionPlanStore: executionStore},
+		governedExecutionPlanStore{
+			ExecutionPlanStore: executionStore,
+			readiness:          checker,
+			target:             config.certification.target,
+		},
 		bundles,
 		provider,
 		durableProviderCredentialAuthorizer{repository: repository},
@@ -380,9 +440,12 @@ func composeWorkerDriver(
 	if err != nil {
 		return fail(err)
 	}
-	authorizer, err := reconcile.NewAuditedCedarInvocationAuthorizer(policySource, repository)
+	baseAuthorizer, err := reconcile.NewAuditedCedarInvocationAuthorizer(policySource, repository)
 	if err != nil {
 		return fail(err)
+	}
+	authorizer := &certifiedInvocationAuthorizer{
+		delegate: baseAuthorizer, readiness: checker, target: config.certification.target,
 	}
 	admissionDriver, err := reconcile.NewInvocationAdmissionDriver(
 		repository,
@@ -404,6 +467,7 @@ func composeWorkerDriver(
 		reconcile.InvocationRuntimeDriverConfig{
 			LeaseDuration: governedRuntimeLeaseDuration,
 			RenewInterval: governedRuntimeRenewInterval,
+			Readiness:     checker.Check,
 		},
 	)
 	if err != nil {
@@ -418,7 +482,7 @@ func composeWorkerDriver(
 	if err != nil {
 		return fail(err)
 	}
-	driver, err := reconcile.NewGovernedInvocationDriver(
+	routed, err := reconcile.NewGovernedInvocationDriver(
 		reconcile.NewReferenceDriver(pool),
 		admissionDriver,
 		runtimeDriver,
@@ -427,7 +491,13 @@ func composeWorkerDriver(
 	if err != nil {
 		return fail(err)
 	}
-	if _, err := provider.RegisterGateway(ctx, execution.GatewayRegistration{
+	driver := &certificationBoundDriver{
+		delegate: routed, readiness: checker, target: config.certification.target,
+	}
+	if err := checker.Check(ctx); err != nil {
+		return fail(err)
+	}
+	if _, err := openShellProvider.RegisterGateway(ctx, execution.GatewayRegistration{
 		IsolationDomainID: config.isolationDomainID,
 		ID:                config.gatewayID,
 		Endpoint:          config.gatewayEndpoint,

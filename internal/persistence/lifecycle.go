@@ -69,7 +69,7 @@ func (repository *Repository) ClaimNext(
 	workerID string,
 	leaseDuration time.Duration,
 ) (*OperationClaim, error) {
-	return repository.claimNext(ctx, kind, "", workerID, leaseDuration)
+	return repository.claimNext(ctx, kind, "", "", "", workerID, leaseDuration)
 }
 
 // ClaimNextInIsolationDomain leases only work owned by one exact isolation
@@ -85,13 +85,35 @@ func (repository *Repository) ClaimNextInIsolationDomain(
 	if isolationDomainID == "" {
 		return nil, errors.New("isolation-scoped claim requires a domain")
 	}
-	return repository.claimNext(ctx, kind, isolationDomainID, workerID, leaseDuration)
+	return repository.claimNext(ctx, kind, isolationDomainID, "", "", workerID, leaseDuration)
+}
+
+// ClaimNextForServiceRevision leases work only for one exact service revision.
+// It prevents a certified development worker from claiming unrelated operations
+// merely because they share an isolation domain.
+func (repository *Repository) ClaimNextForServiceRevision(
+	ctx context.Context,
+	kind string,
+	isolationDomainID string,
+	serviceID string,
+	revisionID string,
+	workerID string,
+	leaseDuration time.Duration,
+) (*OperationClaim, error) {
+	if isolationDomainID == "" || serviceID == "" || revisionID == "" {
+		return nil, errors.New("service-revision-scoped claim requires complete scope")
+	}
+	return repository.claimNext(
+		ctx, kind, isolationDomainID, serviceID, revisionID, workerID, leaseDuration,
+	)
 }
 
 func (repository *Repository) claimNext(
 	ctx context.Context,
 	kind string,
 	isolationDomainID string,
+	serviceID string,
+	revisionID string,
 	workerID string,
 	leaseDuration time.Duration,
 ) (*OperationClaim, error) {
@@ -99,18 +121,35 @@ func (repository *Repository) claimNext(
 	if err != nil {
 		return nil, err
 	}
+	var resourceJoin, resourceScope string
+	switch kind {
+	case OperationKindPublication:
+		resourceJoin = `
+		JOIN service_revisions AS resource
+		  ON resource.isolation_domain_id = operation.isolation_domain_id
+		 AND resource.id = operation.revision_id`
+		resourceScope = "AND ($6 = '' OR (resource.service_id = $6 AND resource.id = $7))"
+	case OperationKindInvocation:
+		resourceJoin = `
+		JOIN invocations AS resource
+		  ON resource.isolation_domain_id = operation.isolation_domain_id
+		 AND resource.id = operation.invocation_id`
+		resourceScope = "AND ($6 = '' OR (resource.service_id = $6 AND resource.revision_id = $7))"
+	}
 	now := repository.now()
 	query := fmt.Sprintf(`
 		WITH per_domain AS (
-			SELECT DISTINCT ON (isolation_domain_id)
-			       isolation_domain_id, id, due_at, updated_at
-			FROM %s
-			WHERE observed_state <> ALL($1)
-			  AND ($5 = '' OR isolation_domain_id = $5)
-			  AND (command <> 'repair' OR (effect_actor_id IS NOT NULL AND effect_correlation_id IS NOT NULL))
-			  AND due_at <= $2
-			  AND (lease_expires_at IS NULL OR lease_expires_at <= $2)
-			ORDER BY isolation_domain_id, due_at, updated_at, id
+			SELECT DISTINCT ON (operation.isolation_domain_id)
+			       operation.isolation_domain_id, operation.id, operation.due_at, operation.updated_at
+			FROM %s AS operation
+			%s
+			WHERE operation.observed_state <> ALL($1)
+			  AND ($5 = '' OR operation.isolation_domain_id = $5)
+			  %s
+			  AND (operation.command <> 'repair' OR (operation.effect_actor_id IS NOT NULL AND operation.effect_correlation_id IS NOT NULL))
+			  AND operation.due_at <= $2
+			  AND (operation.lease_expires_at IS NULL OR operation.lease_expires_at <= $2)
+			ORDER BY operation.isolation_domain_id, operation.due_at, operation.updated_at, operation.id
 		), candidate AS (
 			SELECT isolation_domain_id, id
 			FROM per_domain
@@ -138,7 +177,7 @@ func (repository *Repository) claimNext(
 			          COALESCE(operation.effect_actor_id, operation.actor_id)
 		)
 		SELECT * FROM claimed
-	`, table, table, resourceColumn)
+	`, table, resourceJoin, resourceScope, table, resourceColumn)
 	var claim OperationClaim
 	claim.Kind = kind
 	claim.LeaseOwner = workerID
@@ -150,6 +189,8 @@ func (repository *Repository) claimNext(
 		workerID,
 		now.Add(leaseDuration),
 		isolationDomainID,
+		serviceID,
+		revisionID,
 	).Scan(
 		&claim.IsolationDomainID,
 		&claim.ID,
