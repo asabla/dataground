@@ -1,20 +1,28 @@
 package reconcile
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"regexp"
+
+	"github.com/asabla/dataground/internal/authz"
 )
 
-const InvocationAuthorizationPolicyContract = "dataground.invocation-authorization-policy/v1"
+const (
+	InvocationAuthorizationPolicyContract       = "dataground.invocation-authorization-policy/v1"
+	InvocationAuthorizationPolicyEntityContract = "dataground.invocation-authorization-policy/v2"
+)
 
 const maxInvocationAuthorizationPolicyIDBytes = 128
 
 const maxInvocationAuthorizationSchemaBytes = 1 << 20
 
 const maxInvocationAuthorizationPolicyBytes = 1 << 20
+
+const maxInvocationAuthorizationEntityBytes = authz.MaximumInvocationCedarEntitySnapshotBytes
 
 var (
 	ErrInvocationAuthorizationPolicyInvalid     = errors.New("invocation authorization policy is invalid")
@@ -37,6 +45,7 @@ type InvocationAuthorizationPolicy struct {
 	Digest            [sha256.Size]byte
 	Schema            []byte `json:"-"`
 	Policies          []byte `json:"-"`
+	Entities          []byte `json:"-"`
 }
 
 func NewInvocationAuthorizationPolicy(
@@ -45,6 +54,40 @@ func NewInvocationAuthorizationPolicy(
 	schema []byte,
 	policies []byte,
 ) (InvocationAuthorizationPolicy, error) {
+	return newInvocationAuthorizationPolicy(
+		InvocationAuthorizationPolicyContract, scope, policySetID, schema, policies, nil,
+	)
+}
+
+func NewInvocationAuthorizationPolicyWithEntities(
+	scope InvocationAuthorizationPolicyScope,
+	policySetID string,
+	schema []byte,
+	policies []byte,
+	entities []byte,
+) (InvocationAuthorizationPolicy, error) {
+	canonicalEntities, _, err := canonicalInvocationCedarEntities(entities)
+	if err != nil || !bytes.Equal(canonicalEntities, entities) {
+		return InvocationAuthorizationPolicy{}, ErrInvocationAuthorizationPolicyInvalid
+	}
+	return newInvocationAuthorizationPolicy(
+		InvocationAuthorizationPolicyEntityContract,
+		scope,
+		policySetID,
+		schema,
+		policies,
+		canonicalEntities,
+	)
+}
+
+func newInvocationAuthorizationPolicy(
+	contract string,
+	scope InvocationAuthorizationPolicyScope,
+	policySetID string,
+	schema []byte,
+	policies []byte,
+	entities []byte,
+) (InvocationAuthorizationPolicy, error) {
 	if !validInvocationAuthorizationPolicyScope(scope) ||
 		len(policySetID) == 0 ||
 		len(policySetID) > maxInvocationAuthorizationPolicyIDBytes ||
@@ -52,19 +95,25 @@ func NewInvocationAuthorizationPolicy(
 		len(schema) == 0 ||
 		len(schema) > maxInvocationAuthorizationSchemaBytes ||
 		len(policies) == 0 ||
-		len(policies) > maxInvocationAuthorizationPolicyBytes {
+		len(policies) > maxInvocationAuthorizationPolicyBytes ||
+		(contract == InvocationAuthorizationPolicyContract && len(entities) != 0) ||
+		(contract == InvocationAuthorizationPolicyEntityContract &&
+			(len(entities) == 0 || len(entities) > maxInvocationAuthorizationEntityBytes)) {
 		return InvocationAuthorizationPolicy{}, ErrInvocationAuthorizationPolicyInvalid
 	}
 	policy := InvocationAuthorizationPolicy{
-		Contract:          InvocationAuthorizationPolicyContract,
+		Contract:          contract,
 		IsolationDomainID: scope.IsolationDomainID,
 		ServiceID:         scope.ServiceID,
 		RevisionID:        scope.RevisionID,
 		PolicySetID:       policySetID,
 		Schema:            append([]byte(nil), schema...),
 		Policies:          append([]byte(nil), policies...),
+		Entities:          append([]byte(nil), entities...),
 	}
-	policy.Digest = invocationAuthorizationPolicyDigest(policy.Schema, policy.Policies)
+	policy.Digest = invocationAuthorizationPolicyDigestForContract(
+		policy.Contract, policy.Schema, policy.Policies, policy.Entities,
+	)
 	return policy, nil
 }
 
@@ -202,7 +251,6 @@ func validInvocationAuthorizationPolicy(
 	scope InvocationAuthorizationPolicyScope,
 ) bool {
 	if !validInvocationAuthorizationPolicyScope(scope) ||
-		policy.Contract != InvocationAuthorizationPolicyContract ||
 		policy.IsolationDomainID != scope.IsolationDomainID ||
 		policy.ServiceID != scope.ServiceID ||
 		policy.RevisionID != scope.RevisionID ||
@@ -215,28 +263,56 @@ func validInvocationAuthorizationPolicy(
 		len(policy.Policies) > maxInvocationAuthorizationPolicyBytes {
 		return false
 	}
-	return policy.Digest == invocationAuthorizationPolicyDigest(policy.Schema, policy.Policies)
+	switch policy.Contract {
+	case InvocationAuthorizationPolicyContract:
+		return len(policy.Entities) == 0 &&
+			policy.Digest == invocationAuthorizationPolicyDigest(policy.Schema, policy.Policies)
+	case InvocationAuthorizationPolicyEntityContract:
+		if len(policy.Entities) == 0 || len(policy.Entities) > maxInvocationAuthorizationEntityBytes {
+			return false
+		}
+		canonicalEntities, _, err := canonicalInvocationCedarEntities(policy.Entities)
+		return err == nil &&
+			bytes.Equal(canonicalEntities, policy.Entities) &&
+			policy.Digest == invocationAuthorizationPolicyDigestForContract(
+				policy.Contract, policy.Schema, policy.Policies, policy.Entities,
+			)
+	default:
+		return false
+	}
+}
+func invocationAuthorizationPolicyDigest(schema []byte, policies []byte) [sha256.Size]byte {
+	return invocationAuthorizationPolicyDigestForContract(
+		InvocationAuthorizationPolicyContract, schema, policies, nil,
+	)
 }
 
-func invocationAuthorizationPolicyDigest(schema []byte, policies []byte) [sha256.Size]byte {
+func invocationAuthorizationPolicyDigestForContract(
+	contract string,
+	schema []byte,
+	policies []byte,
+	entities []byte,
+) [sha256.Size]byte {
 	digest := sha256.New()
+	if contract == InvocationAuthorizationPolicyEntityContract {
+		return authz.InvocationAuthorizationPolicyV2Digest(schema, policies, entities)
+	}
 	var size [8]byte
-	binary.BigEndian.PutUint64(size[:], uint64(len(schema)))
-	_, _ = digest.Write(size[:])
-	_, _ = digest.Write(schema)
-	binary.BigEndian.PutUint64(size[:], uint64(len(policies)))
-	_, _ = digest.Write(size[:])
-	_, _ = digest.Write(policies)
+	for _, content := range [][]byte{schema, policies} {
+		binary.BigEndian.PutUint64(size[:], uint64(len(content)))
+		_, _ = digest.Write(size[:])
+		_, _ = digest.Write(content)
+	}
 	var result [sha256.Size]byte
 	copy(result[:], digest.Sum(nil))
 	return result
 }
-
 func cloneInvocationAuthorizationPolicy(
 	policy InvocationAuthorizationPolicy,
 ) InvocationAuthorizationPolicy {
 	policy.Schema = append([]byte(nil), policy.Schema...)
 	policy.Policies = append([]byte(nil), policy.Policies...)
+	policy.Entities = append([]byte(nil), policy.Entities...)
 	return policy
 }
 

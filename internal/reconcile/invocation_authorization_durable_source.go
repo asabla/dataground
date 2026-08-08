@@ -49,7 +49,8 @@ func (source *DurableInvocationAuthorizationPolicySource) ResolveInvocationAutho
 	if err != nil {
 		return InvocationAuthorizationPolicy{}, stableInvocationAuthorizationDependencyError(ctx, err)
 	}
-	if record.Contract != InvocationAuthorizationPolicyContract ||
+	if (record.Contract != InvocationAuthorizationPolicyContract &&
+		record.Contract != InvocationAuthorizationPolicyEntityContract) ||
 		record.IsolationDomainID != scope.IsolationDomainID ||
 		record.ServiceID != scope.ServiceID ||
 		record.RevisionID != scope.RevisionID {
@@ -63,6 +64,7 @@ func (source *DurableInvocationAuthorizationPolicySource) ResolveInvocationAutho
 		PolicySetID:       record.PolicySetID,
 		Schema:            append([]byte(nil), record.Schema...),
 		Policies:          append([]byte(nil), record.Policies...),
+		Entities:          append([]byte(nil), record.Entities...),
 	}
 	if len(record.PolicyDigest) != len(policy.Digest) {
 		return InvocationAuthorizationPolicy{}, ErrInvocationAuthorizationPolicyInvalid

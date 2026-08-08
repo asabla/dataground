@@ -8,12 +8,17 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 
+	"github.com/asabla/dataground/internal/authz"
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/jackc/pgx/v5"
 )
 
-const maximumInvocationAuthorizationPolicyBytes = 1 << 20
+const (
+	maximumInvocationAuthorizationPolicyBytes = 1 << 20
+	maximumInvocationAuthorizationEntityBytes = authz.MaximumInvocationCedarEntitySnapshotBytes
+)
 
 var (
 	ErrInvocationAuthorizationPolicyRecordInvalid  = errors.New("invocation authorization policy record is invalid")
@@ -30,29 +35,45 @@ type InvocationAuthorizationPolicyRecord struct {
 	PolicyDigest              []byte
 	Schema                    []byte
 	Policies                  []byte
+	Entities                  []byte
 	InstalledBy               string
 	InstallationCorrelationID string
 	ReasonDigest              []byte
 }
 
 func (record InvocationAuthorizationPolicyRecord) Valid() bool {
-	digest := invocationAuthorizationPolicyRecordDigest(record.Schema, record.Policies)
-	return record.Contract == "dataground.invocation-authorization-policy/v1" &&
-		record.IsolationDomainID != "" &&
-		record.ServiceID != "" &&
-		record.RevisionID != "" &&
-		record.PolicySetID != "" &&
-		len(record.PolicyDigest) == sha256.Size &&
-		len(record.Schema) > 0 &&
-		len(record.Schema) <= maximumInvocationAuthorizationPolicyBytes &&
-		len(record.Policies) > 0 &&
-		len(record.Policies) <= maximumInvocationAuthorizationPolicyBytes &&
-		bytes.Equal(record.PolicyDigest, digest[:]) &&
-		record.InstalledBy != "" &&
-		record.InstallationCorrelationID != "" &&
-		len(record.ReasonDigest) == sha256.Size
+	if record.IsolationDomainID == "" ||
+		record.ServiceID == "" ||
+		record.RevisionID == "" ||
+		record.PolicySetID == "" ||
+		len(record.PolicyDigest) != sha256.Size ||
+		len(record.Schema) == 0 ||
+		len(record.Schema) > maximumInvocationAuthorizationPolicyBytes ||
+		len(record.Policies) == 0 ||
+		len(record.Policies) > maximumInvocationAuthorizationPolicyBytes ||
+		record.InstalledBy == "" ||
+		record.InstallationCorrelationID == "" ||
+		len(record.ReasonDigest) != sha256.Size {
+		return false
+	}
+	switch record.Contract {
+	case "dataground.invocation-authorization-policy/v1":
+		digest := invocationAuthorizationPolicyRecordDigest(record.Schema, record.Policies)
+		return len(record.Entities) == 0 && bytes.Equal(record.PolicyDigest, digest[:])
+	case "dataground.invocation-authorization-policy/v2":
+		if !validInvocationAuthorizationEntityBytes(record.Entities) {
+			return false
+		}
+		digest := authz.InvocationAuthorizationPolicyV2Digest(
+			record.Schema,
+			record.Policies,
+			record.Entities,
+		)
+		return bytes.Equal(record.PolicyDigest, digest[:])
+	default:
+		return false
+	}
 }
-
 func (repository *Repository) InstallInvocationAuthorizationPolicy(
 	ctx context.Context,
 	record InvocationAuthorizationPolicyRecord,
@@ -77,10 +98,11 @@ func (repository *Repository) InstallInvocationAuthorizationPolicy(
 			policy_digest,
 			cedar_schema,
 			cedar_policies,
+			cedar_entities,
 			installed_by,
 			installation_correlation_id,
 			reason_digest
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		ON CONFLICT (isolation_domain_id, service_id, revision_id) DO NOTHING
 	`,
 		record.IsolationDomainID,
@@ -91,6 +113,7 @@ func (repository *Repository) InstallInvocationAuthorizationPolicy(
 		record.PolicyDigest,
 		record.Schema,
 		record.Policies,
+		nullableInvocationAuthorizationEntities(record.Entities),
 		record.InstalledBy,
 		record.InstallationCorrelationID,
 		record.ReasonDigest,
@@ -206,6 +229,7 @@ func getInvocationAuthorizationPolicyRecord(
 			policy_digest,
 			cedar_schema,
 			cedar_policies,
+			cedar_entities,
 			installed_by,
 			installation_correlation_id,
 			reason_digest
@@ -222,6 +246,7 @@ func getInvocationAuthorizationPolicyRecord(
 		&record.PolicyDigest,
 		&record.Schema,
 		&record.Policies,
+		&record.Entities,
 		&record.InstalledBy,
 		&record.InstallationCorrelationID,
 		&record.ReasonDigest,
@@ -235,26 +260,39 @@ func getInvocationAuthorizationPolicyRecord(
 	return cloneInvocationAuthorizationPolicyRecord(record), nil
 }
 
+func validInvocationAuthorizationEntityBytes(encoded []byte) bool {
+	_, err := authz.ParseInvocationCedarEntitySnapshot(encoded)
+	return err == nil
+}
 func invocationAuthorizationPolicyRecordDigest(schema []byte, policies []byte) [sha256.Size]byte {
 	digest := sha256.New()
-	var size [8]byte
-	binary.BigEndian.PutUint64(size[:], uint64(len(schema)))
-	_, _ = digest.Write(size[:])
-	_, _ = digest.Write(schema)
-	binary.BigEndian.PutUint64(size[:], uint64(len(policies)))
-	_, _ = digest.Write(size[:])
-	_, _ = digest.Write(policies)
+	writeInvocationAuthorizationDigestContent(digest, schema)
+	writeInvocationAuthorizationDigestContent(digest, policies)
 	var result [sha256.Size]byte
 	copy(result[:], digest.Sum(nil))
 	return result
 }
 
+func writeInvocationAuthorizationDigestContent(digest hash.Hash, content []byte) {
+	var size [8]byte
+	binary.BigEndian.PutUint64(size[:], uint64(len(content)))
+	_, _ = digest.Write(size[:])
+	_, _ = digest.Write(content)
+}
+
+func nullableInvocationAuthorizationEntities(entities []byte) any {
+	if len(entities) == 0 {
+		return nil
+	}
+	return entities
+}
 func cloneInvocationAuthorizationPolicyRecord(
 	record InvocationAuthorizationPolicyRecord,
 ) InvocationAuthorizationPolicyRecord {
 	record.PolicyDigest = append([]byte(nil), record.PolicyDigest...)
 	record.Schema = append([]byte(nil), record.Schema...)
 	record.Policies = append([]byte(nil), record.Policies...)
+	record.Entities = append([]byte(nil), record.Entities...)
 	record.ReasonDigest = append([]byte(nil), record.ReasonDigest...)
 	return record
 }
@@ -271,6 +309,7 @@ func sameInvocationAuthorizationPolicyRecord(
 		bytes.Equal(left.PolicyDigest, right.PolicyDigest) &&
 		bytes.Equal(left.Schema, right.Schema) &&
 		bytes.Equal(left.Policies, right.Policies) &&
+		bytes.Equal(left.Entities, right.Entities) &&
 		left.InstalledBy == right.InstalledBy &&
 		left.InstallationCorrelationID == right.InstallationCorrelationID &&
 		bytes.Equal(left.ReasonDigest, right.ReasonDigest)

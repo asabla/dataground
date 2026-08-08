@@ -5,10 +5,13 @@ import (
 	"context"
 	"errors"
 
+	"github.com/asabla/dataground/internal/authz"
 	cedar "github.com/cedar-policy/cedar-go"
 )
 
 const invocationCedarSchemaV1 = `{"DataGround":{"entityTypes":{"Actor":{"memberOfTypes":[],"shape":{"type":"Record","attributes":{},"additionalAttributes":false},"tags":{"type":"String"}},"Invocation":{"memberOfTypes":[],"shape":{"type":"Record","attributes":{},"additionalAttributes":false},"tags":{"type":"String"}}},"actions":{"admit":{"appliesTo":{"principalTypes":["Actor"],"resourceTypes":["Invocation"],"context":{"type":"Record","attributes":{"isolationDomainID":{"type":"String","required":true},"operationID":{"type":"String","required":true},"serviceID":{"type":"String","required":true},"revisionID":{"type":"String","required":true},"correlationID":{"type":"String","required":true}},"additionalAttributes":false}}},"run":{"appliesTo":{"principalTypes":["Actor"],"resourceTypes":["Invocation"],"context":{"type":"Record","attributes":{"isolationDomainID":{"type":"String","required":true},"operationID":{"type":"String","required":true},"serviceID":{"type":"String","required":true},"revisionID":{"type":"String","required":true},"correlationID":{"type":"String","required":true},"runtime":{"type":"Record","required":true,"attributes":{"approvalMode":{"type":"String","required":true},"sandboxMode":{"type":"String","required":true},"hasOutputSchema":{"type":"Boolean","required":true},"artifactCount":{"type":"Long","required":true},"artifactKinds":{"type":"Set","element":{"type":"String"},"required":true}},"additionalAttributes":false}},"additionalAttributes":false}}},"cancel":{"appliesTo":{"principalTypes":["Actor"],"resourceTypes":["Invocation"],"context":{"type":"Record","attributes":{"isolationDomainID":{"type":"String","required":true},"operationID":{"type":"String","required":true},"serviceID":{"type":"String","required":true},"revisionID":{"type":"String","required":true},"correlationID":{"type":"String","required":true}},"additionalAttributes":false}}}}}}`
+
+const invocationCedarSchemaV2 = `{"DataGround":{"entityTypes":{"Role":{"memberOfTypes":[],"shape":{"type":"Record","attributes":{},"additionalAttributes":false},"tags":{"type":"String"}},"Actor":{"memberOfTypes":["Role"],"shape":{"type":"Record","attributes":{},"additionalAttributes":false},"tags":{"type":"String"}},"Invocation":{"memberOfTypes":[],"shape":{"type":"Record","attributes":{},"additionalAttributes":false},"tags":{"type":"String"}}},"actions":{"admit":{"appliesTo":{"principalTypes":["Actor"],"resourceTypes":["Invocation"],"context":{"type":"Record","attributes":{"isolationDomainID":{"type":"String","required":true},"operationID":{"type":"String","required":true},"serviceID":{"type":"String","required":true},"revisionID":{"type":"String","required":true},"correlationID":{"type":"String","required":true}},"additionalAttributes":false}}},"run":{"appliesTo":{"principalTypes":["Actor"],"resourceTypes":["Invocation"],"context":{"type":"Record","attributes":{"isolationDomainID":{"type":"String","required":true},"operationID":{"type":"String","required":true},"serviceID":{"type":"String","required":true},"revisionID":{"type":"String","required":true},"correlationID":{"type":"String","required":true},"runtime":{"type":"Record","required":true,"attributes":{"approvalMode":{"type":"String","required":true},"sandboxMode":{"type":"String","required":true},"hasOutputSchema":{"type":"Boolean","required":true},"artifactCount":{"type":"Long","required":true},"artifactKinds":{"type":"Set","element":{"type":"String"},"required":true}},"additionalAttributes":false}},"additionalAttributes":false}}},"cancel":{"appliesTo":{"principalTypes":["Actor"],"resourceTypes":["Invocation"],"context":{"type":"Record","attributes":{"isolationDomainID":{"type":"String","required":true},"operationID":{"type":"String","required":true},"serviceID":{"type":"String","required":true},"revisionID":{"type":"String","required":true},"correlationID":{"type":"String","required":true}},"additionalAttributes":false}}}}}}`
 
 var errInvocationCedarEvaluation = errors.New("invocation Cedar evaluation failed")
 
@@ -20,6 +23,10 @@ func NewCedarInvocationAuthorizationEvaluator() *CedarInvocationAuthorizationEva
 
 func CanonicalInvocationCedarSchema() []byte {
 	return []byte(invocationCedarSchemaV1)
+}
+
+func CanonicalInvocationCedarEntitySchema() []byte {
+	return []byte(invocationCedarSchemaV2)
 }
 
 func (*CedarInvocationAuthorizationEvaluator) EvaluateInvocationAuthorization(
@@ -43,11 +50,15 @@ func (*CedarInvocationAuthorizationEvaluator) EvaluateInvocationAuthorization(
 	if err != nil {
 		return errInvocationCedarEvaluation
 	}
+	entities, err := validatedInvocationCedarEntities(policy, scope)
+	if err != nil {
+		return errInvocationCedarEvaluation
+	}
 	request, err := invocationCedarRequest(input)
 	if err != nil {
 		return errInvocationCedarEvaluation
 	}
-	decision, diagnostic := cedar.Authorize(policies, nil, request)
+	decision, diagnostic := cedar.Authorize(policies, entities, request)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -64,8 +75,19 @@ func validatedInvocationCedarPolicySet(
 	policy InvocationAuthorizationPolicy,
 	scope InvocationAuthorizationPolicyScope,
 ) (*cedar.PolicySet, error) {
-	if !validInvocationAuthorizationPolicy(policy, scope) ||
-		!bytes.Equal(policy.Schema, []byte(invocationCedarSchemaV1)) {
+	if !validInvocationAuthorizationPolicy(policy, scope) {
+		return nil, errInvocationCedarEvaluation
+	}
+	switch policy.Contract {
+	case InvocationAuthorizationPolicyContract:
+		if !bytes.Equal(policy.Schema, []byte(invocationCedarSchemaV1)) {
+			return nil, errInvocationCedarEvaluation
+		}
+	case InvocationAuthorizationPolicyEntityContract:
+		if !bytes.Equal(policy.Schema, []byte(invocationCedarSchemaV2)) {
+			return nil, errInvocationCedarEvaluation
+		}
+	default:
 		return nil, errInvocationCedarEvaluation
 	}
 	policies, err := cedar.NewPolicySetFromBytes(policy.PolicySetID+".cedar", policy.Policies)
@@ -76,6 +98,32 @@ func validatedInvocationCedarPolicySet(
 		return policies, nil
 	}
 	return nil, errInvocationCedarEvaluation
+}
+
+func canonicalInvocationCedarEntities(
+	encoded []byte,
+) ([]byte, cedar.EntityMap, error) {
+	entities, err := authz.ParseInvocationCedarEntitySnapshot(encoded)
+	if err != nil {
+		return nil, nil, errInvocationCedarEvaluation
+	}
+	return append([]byte(nil), encoded...), entities, nil
+}
+func validatedInvocationCedarEntities(
+	policy InvocationAuthorizationPolicy,
+	scope InvocationAuthorizationPolicyScope,
+) (cedar.EntityMap, error) {
+	if !validInvocationAuthorizationPolicy(policy, scope) {
+		return nil, errInvocationCedarEvaluation
+	}
+	if policy.Contract == InvocationAuthorizationPolicyContract {
+		return nil, nil
+	}
+	canonical, entities, err := canonicalInvocationCedarEntities(policy.Entities)
+	if err != nil || !bytes.Equal(canonical, policy.Entities) {
+		return nil, errInvocationCedarEvaluation
+	}
+	return entities, nil
 }
 
 func invocationCedarRequest(input InvocationCedarInput) (cedar.Request, error) {
