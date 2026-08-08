@@ -60,7 +60,9 @@ func TestLoadOIDCSecurityConfigurationOwnsStrictDeploymentInputs(t *testing.T) {
 		configuration.Admission.CredentialBurst != 10 ||
 		!configuration.DPoP.Nonce.set ||
 		configuration.DPoP.Nonce.value.Lifetime.value != time.Minute ||
-		configuration.DPoP.Nonce.value.MaximumActivePerKey != 4 {
+		configuration.DPoP.Nonce.value.MaximumActivePerKey != 4 ||
+		configuration.releaseCertification == nil ||
+		!configuration.releaseCertification.expiresAt.Equal(now.Add(30*time.Minute)) {
 		t.Fatalf("loaded configuration = %#v", configuration)
 	}
 	if string(policyBytes) != `permit(principal, action, resource);` {
@@ -443,6 +445,127 @@ func writeStartupCapacityEvidenceWithNonce(t *testing.T, directory string, nonce
 	return path, hex.EncodeToString(digest[:])
 }
 
+func writeStartupProviderDPoPIssuanceCertification(
+	t *testing.T,
+	directory string,
+	now time.Time,
+) (string, string) {
+	t.Helper()
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate provider DPoP issuance key: %v", err)
+	}
+	trustPath := writeStartupCanonicalFile(
+		t,
+		directory,
+		"provider-dpop-issuance-trust.json",
+		releasecert.ProviderDPoPIssuanceTrustProfile{
+			Contract: releasecert.ProviderDPoPIssuanceTrustContract,
+			Keys: []releasecert.TrustedKey{{
+				KeyID:     "provider_test_key",
+				PublicKey: base64.RawURLEncoding.EncodeToString(publicKey),
+			}},
+		},
+	)
+	report := releasecert.ProviderDPoPIssuanceReport{
+		Contract:                 releasecert.ProviderDPoPIssuanceReportContract,
+		RunID:                    "provider_test_run",
+		ProviderID:               "primary",
+		ProviderRegistrySHA256:   strings.Repeat("1", sha256.Size*2),
+		OAuthClientProfileID:     "primary_web",
+		OAuthClientProfileSHA256: strings.Repeat("2", sha256.Size*2),
+		Issuer:                   "https://identity.example.invalid",
+		TokenEndpoint:            "https://identity.example.invalid/token",
+		Audience:                 "dataground-api",
+		GrantTypes:               []string{"authorization_code", "client_credentials"},
+		DPoPAlgorithms:           []string{"ES256", "EdDSA"},
+		AuthorizationServerNonce: "challenge-retry",
+		ObservedAt:               now.Add(-2 * time.Minute).Format(time.RFC3339Nano),
+		Checks: releasecert.ProviderDPoPIssuanceChecks{
+			TokenEndpointProofAccepted:         true,
+			TokenTypeDPoP:                      true,
+			ConfirmationJKTMatched:             true,
+			MissingTokenEndpointProofRejected:  true,
+			MismatchedTokenEndpointKeyRejected: true,
+			TokenEndpointProofReplayRejected:   true,
+			WrongTokenEndpointMethodRejected:   true,
+			WrongTokenEndpointURIRejected:      true,
+			StaleTokenEndpointProofRejected:    true,
+			ResourceProofAccepted:              true,
+			MismatchedResourceKeyRejected:      true,
+			ResourceProofReplayRejected:        true,
+			WrongResourceMethodRejected:        true,
+			WrongResourceURIRejected:           true,
+			WrongAccessTokenHashRejected:       true,
+		},
+	}
+	reportPath := writeStartupCanonicalFile(t, directory, "provider-dpop-issuance-report.json", report)
+	statementPath := writeStartupCanonicalFile(
+		t,
+		directory,
+		"provider-dpop-issuance-statement.json",
+		releasecert.ProviderDPoPIssuanceStatement{
+			Contract:                 releasecert.ProviderDPoPIssuanceStatementContract,
+			CertificationID:          "provider_test_certification",
+			ProviderID:               report.ProviderID,
+			ProviderRegistrySHA256:   report.ProviderRegistrySHA256,
+			OAuthClientProfileID:     report.OAuthClientProfileID,
+			OAuthClientProfileSHA256: report.OAuthClientProfileSHA256,
+			Issuer:                   report.Issuer,
+			TokenEndpoint:            report.TokenEndpoint,
+			Audience:                 report.Audience,
+			GrantTypes:               append([]string(nil), report.GrantTypes...),
+			DPoPAlgorithms:           append([]string(nil), report.DPoPAlgorithms...),
+			AuthorizationServerNonce: report.AuthorizationServerNonce,
+			ConformanceReportFile:    reportPath,
+			ConformanceReportSHA256:  startupFileDigest(t, reportPath),
+			TrustProfileSHA256:       startupFileDigest(t, trustPath),
+			IssuedAt:                 now.Format(time.RFC3339Nano),
+			ExpiresAt:                now.Add(30 * time.Minute).Format(time.RFC3339Nano),
+			ReviewerID:               "provider_reviewer",
+			Reason:                   "reviewed provider DPoP issuance behavior",
+		},
+	)
+	messagePath := filepath.Join(directory, "provider-dpop-issuance-signing-message")
+	if err := releasecert.PrepareProviderDPoPIssuanceSigningMessage(
+		releasecert.ProviderDPoPIssuancePrepareRequest{
+			StatementFile:      statementPath,
+			TrustProfileFile:   trustPath,
+			SigningMessageFile: messagePath,
+			Now:                now,
+		},
+	); err != nil {
+		t.Fatalf("prepare provider DPoP issuance signing message: %v", err)
+	}
+	message, err := os.ReadFile(messagePath)
+	if err != nil {
+		t.Fatalf("read provider DPoP issuance signing message: %v", err)
+	}
+	signaturePath := writeStartupCanonicalFile(
+		t,
+		directory,
+		"provider-dpop-issuance-signature.json",
+		releasecert.ProviderDPoPIssuanceSignature{
+			Contract:  releasecert.ProviderDPoPIssuanceSignatureContract,
+			KeyID:     "provider_test_key",
+			Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, message)),
+		},
+	)
+	envelopePath := filepath.Join(directory, "provider-dpop-issuance-certification.json")
+	if err := releasecert.InstallProviderDPoPIssuance(
+		releasecert.ProviderDPoPIssuanceInstallRequest{
+			StatementFile:    statementPath,
+			SignatureFile:    signaturePath,
+			TrustProfileFile: trustPath,
+			OutputFile:       envelopePath,
+			Now:              now,
+		},
+	); err != nil {
+		t.Fatalf("install provider DPoP issuance evidence: %v", err)
+	}
+	return envelopePath, trustPath
+}
+
 func writeStartupReleaseCertification(
 	t *testing.T,
 	directory string,
@@ -467,6 +590,11 @@ func writeStartupReleaseCertification(
 	}
 	trustPath := writeStartupCanonicalFile(t, directory, "release-trust.json", trust)
 	trustDigest := startupFileDigest(t, trustPath)
+	providerCertificationPath, providerTrustPath := writeStartupProviderDPoPIssuanceCertification(
+		t,
+		directory,
+		now,
+	)
 	statement := releasecert.Statement{
 		Contract:           releasecert.StatementContract,
 		ReleaseID:          "release_test_01",
@@ -482,6 +610,8 @@ func writeStartupReleaseCertification(
 			{Kind: "admission-capacity-evidence", File: evidencePath, SHA256: startupFileDigest(t, evidencePath)},
 			{Kind: "api-authorization-policy", File: policyPath, SHA256: startupFileDigest(t, policyPath)},
 			{Kind: "oidc-security-configuration", File: configurationPath, SHA256: startupFileDigest(t, configurationPath)},
+			{Kind: "provider-dpop-issuance-certification", File: providerCertificationPath, SHA256: startupFileDigest(t, providerCertificationPath)},
+			{Kind: "provider-dpop-issuance-trust-profile", File: providerTrustPath, SHA256: startupFileDigest(t, providerTrustPath)},
 		},
 	}
 	statementPath := writeStartupCanonicalFile(t, directory, "release-statement.json", statement)

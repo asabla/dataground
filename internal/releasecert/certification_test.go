@@ -1,6 +1,7 @@
 package releasecert
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -37,7 +38,7 @@ func TestInstallAndVerifyCertification(t *testing.T) {
 	if err := Install(request); err != nil {
 		t.Fatalf("install certification: %v", err)
 	}
-	verified, err := VerifyFile(
+	verification, err := VerifyOIDCLoopbackFile(
 		fixture.outputFile,
 		fixture.trustFile,
 		testRevision,
@@ -47,9 +48,10 @@ func TestInstallAndVerifyCertification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify certification: %v", err)
 	}
-	if verified.Statement.ReleaseID != fixture.statement.ReleaseID ||
-		verified.Signature.KeyID != fixture.signature.KeyID {
-		t.Fatalf("verified certification = %#v", verified)
+	if verification.Envelope.Statement.ReleaseID != fixture.statement.ReleaseID ||
+		verification.Envelope.Signature.KeyID != fixture.signature.KeyID ||
+		verification.ProviderDPoPIssuance.Statement.ProviderID != "primary" {
+		t.Fatalf("verified certification = %#v", verification)
 	}
 	if err := Install(request); err != nil {
 		t.Fatalf("replay certification: %v", err)
@@ -141,7 +143,7 @@ func TestCertificationRejectsSignatureAndArtifactSubstitution(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		message := append([]byte("DataGround release certification oidc-loopback v2\n"), statementBytes...)
+		message := append([]byte("DataGround release certification oidc-loopback v3\n"), statementBytes...)
 		fixture.signature.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(fixture.privateKey, message))
 		writeCanonicalPrivate(t, fixture.signatureFile, fixture.signature)
 		if err := Install(fixture.installRequest()); err == nil || !strings.Contains(err.Error(), "does not verify") {
@@ -157,6 +159,50 @@ func TestCertificationRejectsSignatureAndArtifactSubstitution(t *testing.T) {
 		}
 	})
 
+	t.Run("provider-registry-binding", func(t *testing.T) {
+		fixture := newCertificationFixture(t)
+		configurationPath := fixture.statement.Artifacts[2].File
+		configuration, err := os.ReadFile(configurationPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		configuration = bytes.Replace(
+			configuration,
+			[]byte(strings.Repeat("0", sha256.Size*2)),
+			[]byte(strings.Repeat("2", sha256.Size*2)),
+			1,
+		)
+		writePrivate(t, configurationPath, configuration)
+		fixture.statement.Artifacts[2].SHA256 = certificationArtifactDigest(t, configurationPath)
+		fixture.resign(t)
+		if err := Install(fixture.installRequest()); err == nil ||
+			!strings.Contains(err.Error(), "provider DPoP issuance binding") {
+			t.Fatalf("provider registry binding error = %v", err)
+		}
+	})
+
+	t.Run("provider-trust-profile", func(t *testing.T) {
+		fixture := newCertificationFixture(t)
+		publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		providerTrustPath := fixture.statement.Artifacts[4].File
+		writeCanonicalPrivate(t, providerTrustPath, ProviderDPoPIssuanceTrustProfile{
+			Contract: ProviderDPoPIssuanceTrustContract,
+			Keys: []TrustedKey{{
+				KeyID:     "provider_reviewer_one",
+				PublicKey: base64.RawURLEncoding.EncodeToString(publicKey),
+			}},
+		})
+		fixture.statement.Artifacts[4].SHA256 = certificationArtifactDigest(t, providerTrustPath)
+		fixture.resign(t)
+		if err := Install(fixture.installRequest()); err == nil ||
+			!strings.Contains(err.Error(), "provider DPoP issuance evidence") {
+			t.Fatalf("provider trust binding error = %v", err)
+		}
+	})
+
 	t.Run("trust-profile", func(t *testing.T) {
 		fixture := newCertificationFixture(t)
 		publicKey, _, err := ed25519.GenerateKey(rand.Reader)
@@ -169,6 +215,29 @@ func TestCertificationRejectsSignatureAndArtifactSubstitution(t *testing.T) {
 			t.Fatalf("trust substitution error = %v", err)
 		}
 	})
+}
+
+func TestCertificationRejectsNonCanonicalEnvelope(t *testing.T) {
+	t.Parallel()
+	fixture := newCertificationFixture(t)
+	if err := Install(fixture.installRequest()); err != nil {
+		t.Fatalf("install certification: %v", err)
+	}
+	encoded, err := os.ReadFile(fixture.outputFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded = append([]byte(" "), encoded...)
+	writePrivate(t, fixture.outputFile, encoded)
+	if _, err := VerifyFile(
+		fixture.outputFile,
+		fixture.trustFile,
+		testRevision,
+		testGoVersion,
+		fixture.now,
+	); err == nil || !strings.Contains(err.Error(), "not canonical") {
+		t.Fatalf("non-canonical envelope error = %v", err)
+	}
 }
 
 func TestCertificationRejectsInvalidStatementSemantics(t *testing.T) {
@@ -251,6 +320,23 @@ func TestCertificationRejectsInvalidStatementSemantics(t *testing.T) {
 	}
 }
 
+func TestCertificationRejectsExpiredProviderDPoPIssuance(t *testing.T) {
+	t.Parallel()
+	fixture := newCertificationFixture(t)
+	if err := Install(fixture.installRequest()); err != nil {
+		t.Fatalf("install certification: %v", err)
+	}
+	if _, err := VerifyFile(
+		fixture.outputFile,
+		fixture.trustFile,
+		testRevision,
+		testGoVersion,
+		fixture.now.Add(2*time.Hour),
+	); err == nil || !strings.Contains(err.Error(), "provider DPoP issuance evidence") {
+		t.Fatalf("expired provider issuance error = %v", err)
+	}
+}
+
 func TestCertificationRequiresCanonicalUniquePrivateFiles(t *testing.T) {
 	t.Parallel()
 
@@ -328,7 +414,28 @@ func newCertificationFixture(t *testing.T) *certificationFixture {
 	trustBytes := writeCanonicalPrivate(t, trustFile, trust)
 	trustDigest := sha256.Sum256(trustBytes)
 
-	now := time.Date(2026, time.August, 2, 12, 0, 0, 0, time.UTC)
+	provider := newProviderDPoPIssuanceFixture(t)
+	now := provider.now
+	if err := PrepareProviderDPoPIssuanceSigningMessage(ProviderDPoPIssuancePrepareRequest{
+		StatementFile: provider.statementFile, TrustProfileFile: provider.trustFile,
+		SigningMessageFile: provider.messageFile, Now: now,
+	}); err != nil {
+		t.Fatalf("prepare provider DPoP issuance evidence: %v", err)
+	}
+	providerMessage, err := os.ReadFile(provider.messageFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeProviderDPoPIssuanceJSON(t, provider.signatureFile, ProviderDPoPIssuanceSignature{
+		Contract: ProviderDPoPIssuanceSignatureContract, KeyID: "provider_reviewer_one",
+		Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(provider.privateKey, providerMessage)),
+	})
+	if err := InstallProviderDPoPIssuance(ProviderDPoPIssuanceInstallRequest{
+		StatementFile: provider.statementFile, SignatureFile: provider.signatureFile,
+		TrustProfileFile: provider.trustFile, OutputFile: provider.envelopeFile, Now: now,
+	}); err != nil {
+		t.Fatalf("install provider DPoP issuance evidence: %v", err)
+	}
 	capacityFile := filepath.Join(directory, "admission-capacity-evidence.json")
 	capacityBytes := writeCanonicalPrivate(t, capacityFile, struct {
 		Contract          string `json:"contract"`
@@ -357,6 +464,7 @@ func newCertificationFixture(t *testing.T) *certificationFixture {
 	configurationFile := filepath.Join(directory, "oidc-security-configuration.json")
 	configurationBytes := writeCanonicalPrivate(t, configurationFile, struct {
 		Contract string `json:"contract"`
+		Issuer   string `json:"issuer"`
 		Provider struct {
 			ID             string `json:"id"`
 			RegistrySHA256 string `json:"registrySha256"`
@@ -371,10 +479,11 @@ func newCertificationFixture(t *testing.T) *certificationFixture {
 		} `json:"authorization"`
 	}{
 		Contract: "dataground.api-security/oidc-dpop/v5",
+		Issuer:   provider.statement.Issuer,
 		Provider: struct {
 			ID             string `json:"id"`
 			RegistrySHA256 string `json:"registrySha256"`
-		}{ID: "primary", RegistrySHA256: strings.Repeat("1", sha256.Size*2)},
+		}{ID: provider.statement.ProviderID, RegistrySHA256: provider.statement.ProviderRegistrySHA256},
 		Admission: struct {
 			DeploymentProfile    string `json:"deploymentProfile"`
 			CapacityEvidenceFile string `json:"capacityEvidenceFile"`
@@ -393,6 +502,8 @@ func newCertificationFixture(t *testing.T) *certificationFixture {
 		{Kind: "admission-capacity-evidence", File: capacityFile, SHA256: capacityDigestHex},
 		{Kind: "api-authorization-policy", File: policyFile, SHA256: hex.EncodeToString(policyDigest[:])},
 		{Kind: "oidc-security-configuration", File: configurationFile, SHA256: hex.EncodeToString(configurationDigest[:])},
+		{Kind: "provider-dpop-issuance-certification", File: provider.envelopeFile, SHA256: certificationArtifactDigest(t, provider.envelopeFile)},
+		{Kind: "provider-dpop-issuance-trust-profile", File: provider.trustFile, SHA256: certificationArtifactDigest(t, provider.trustFile)},
 	}
 	fixture := &certificationFixture{
 		directory:     directory,
@@ -442,6 +553,16 @@ func (fixture *certificationFixture) installRequest() InstallRequest {
 		GoVersion:        testGoVersion,
 		Now:              fixture.now,
 	}
+}
+
+func certificationArtifactDigest(t *testing.T, path string) string {
+	t.Helper()
+	encoded, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:])
 }
 
 func writeCanonicalPrivate(t *testing.T, path string, value any) []byte {

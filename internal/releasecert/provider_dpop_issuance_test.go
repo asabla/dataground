@@ -63,6 +63,44 @@ func TestProviderDPoPIssuanceEvidenceLifecycle(t *testing.T) {
 	}
 }
 
+func TestProviderDPoPIssuanceRejectsNonCanonicalEnvelope(t *testing.T) {
+	t.Parallel()
+	fixture := newProviderDPoPIssuanceFixture(t)
+	if err := PrepareProviderDPoPIssuanceSigningMessage(ProviderDPoPIssuancePrepareRequest{
+		StatementFile: fixture.statementFile, TrustProfileFile: fixture.trustFile,
+		SigningMessageFile: fixture.messageFile, Now: fixture.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	message, err := os.ReadFile(fixture.messageFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeProviderDPoPIssuanceJSON(t, fixture.signatureFile, ProviderDPoPIssuanceSignature{
+		Contract: ProviderDPoPIssuanceSignatureContract, KeyID: "provider_reviewer_one",
+		Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(fixture.privateKey, message)),
+	})
+	if err := InstallProviderDPoPIssuance(ProviderDPoPIssuanceInstallRequest{
+		StatementFile: fixture.statementFile, SignatureFile: fixture.signatureFile,
+		TrustProfileFile: fixture.trustFile, OutputFile: fixture.envelopeFile, Now: fixture.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := os.ReadFile(fixture.envelopeFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded = append([]byte(" "), encoded...)
+	if err := os.WriteFile(fixture.envelopeFile, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyProviderDPoPIssuanceFile(
+		fixture.envelopeFile, fixture.trustFile, fixture.now,
+	); err == nil || !strings.Contains(err.Error(), "not canonical") {
+		t.Fatalf("non-canonical envelope error = %v", err)
+	}
+}
+
 func TestProviderDPoPIssuanceRejectsSignatureSubstitution(t *testing.T) {
 	t.Parallel()
 	fixture := newProviderDPoPIssuanceFixture(t)
