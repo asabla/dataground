@@ -41,15 +41,18 @@ type AdmissionRequest struct {
 	IsolationDomainID string
 	RevisionID        string
 	OperationID       string
+	ActorID           string
+	CorrelationID     string
 }
 
 // Admission resolves the immutable inputs required before provider placement.
 // It does not authorize, publish, or start a runtime; callers must complete
 // those platform-owned state-machine steps around this internal boundary.
 type Admission struct {
-	plans    ExecutionPlanStore
-	bundles  EnforcementBundleSource
-	provider admissionProvider
+	plans       ExecutionPlanStore
+	bundles     EnforcementBundleSource
+	provider    admissionProvider
+	credentials ProviderCredentialUseAuthorizer
 }
 
 type admissionProvider interface {
@@ -68,9 +71,29 @@ func NewAdmission(
 	return &Admission{plans: plans, bundles: bundles, provider: provider}, nil
 }
 
+func NewCredentialMediatedAdmission(
+	plans ExecutionPlanStore,
+	bundles EnforcementBundleSource,
+	provider admissionProvider,
+	credentials ProviderCredentialUseAuthorizer,
+) (*Admission, error) {
+	if credentials == nil {
+		return nil, errors.New("provider credential authorizer is required")
+	}
+	admission, err := NewAdmission(plans, bundles, provider)
+	if err != nil {
+		return nil, err
+	}
+	admission.credentials = credentials
+	return admission, nil
+}
+
 func (admission *Admission) Admit(ctx context.Context, request AdmissionRequest) (Execution, error) {
 	if !operationPattern.MatchString(request.OperationID) {
 		return Execution{}, errors.New("execution admission operation is invalid")
+	}
+	if admission.credentials != nil && (request.ActorID == "" || request.CorrelationID == "") {
+		return Execution{}, ErrProviderCredentialUseDenied
 	}
 	plan, err := admission.plans.GetExecutionPlan(ctx, request.IsolationDomainID, request.RevisionID)
 	if err != nil {
@@ -79,6 +102,9 @@ func (admission *Admission) Admit(ctx context.Context, request AdmissionRequest)
 	plan, err = NormalizeExecutionPlan(plan)
 	if err != nil || plan.IsolationDomainID != request.IsolationDomainID || plan.RevisionID != request.RevisionID {
 		return Execution{}, ErrExecutionPlanRevisionMismatch
+	}
+	if err := admission.authorizeProviderProfiles(ctx, request, plan, ProviderCredentialPhaseAdmission); err != nil {
+		return Execution{}, err
 	}
 	bundle, err := admission.bundles.GetEnforcementBundle(ctx, request.IsolationDomainID, plan.EnforcementBundleID)
 	if err != nil {
@@ -101,6 +127,9 @@ func (admission *Admission) Admit(ctx context.Context, request AdmissionRequest)
 	if err != nil {
 		return Execution{}, err
 	}
+	if err := admission.authorizeProviderProfiles(ctx, request, plan, ProviderCredentialPhaseEffect); err != nil {
+		return Execution{}, err
+	}
 	return admission.provider.Create(ctx, CreateRequest{
 		Placement: placement, IsolationDomainID: request.IsolationDomainID, OperationID: request.OperationID,
 		Image: plan.ImageReference, Policy: policy, PolicyDigest: bundle.Digest,
@@ -115,6 +144,32 @@ func VerifyEnforcementPolicy(content []byte, digest string) error {
 	actual := sha256.Sum256(content)
 	if "sha256:"+hex.EncodeToString(actual[:]) != digest {
 		return ErrPolicyInvalid
+	}
+	return nil
+}
+
+func (admission *Admission) authorizeProviderProfiles(
+	ctx context.Context,
+	request AdmissionRequest,
+	plan ExecutionPlan,
+	phase string,
+) error {
+	if admission.credentials == nil || len(plan.ProviderProfiles) == 0 {
+		return nil
+	}
+	for _, profile := range plan.ProviderProfiles {
+		if err := admission.credentials.AuthorizeProviderCredentialUse(ctx, ProviderCredentialUse{
+			IsolationDomainID: request.IsolationDomainID,
+			RevisionID:        request.RevisionID,
+			OperationID:       request.OperationID,
+			ProviderProfile:   profile,
+			Purpose:           ProviderCredentialPurposeAgentInference,
+			Phase:             phase,
+			ActorID:           request.ActorID,
+			CorrelationID:     request.CorrelationID,
+		}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

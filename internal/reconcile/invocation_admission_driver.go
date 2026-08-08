@@ -96,8 +96,13 @@ func (driver *InvocationAdmissionDriver) Apply(
 		IsolationDomainID: target.IsolationDomainID,
 		RevisionID:        target.RevisionID,
 		OperationID:       target.OperationID,
+		ActorID:           target.ActorID,
+		CorrelationID:     target.CorrelationID,
 	})
 	if err != nil {
+		if errors.Is(err, execution.ErrProviderCredentialUseDenied) {
+			return nil, errors.Join(ErrEffectDenied, err)
+		}
 		if invalidInvocationAdmission(err) {
 			return nil, errors.Join(ErrEffectInvalid, err)
 		}

@@ -19,6 +19,7 @@ PostgreSQL 18 is required for durable integration tests and durable control-plan
 | `cmd/dataground-auth-rate-limit-policy` | Audited authentication admission-policy activator |
 | `cmd/dataground-auth-rate-limit-capacity` | Disposable PostgreSQL admission-capacity evidence runner |
 | `cmd/dataground-oidc-provider-credential` | Audited isolation-scoped provider credential publisher |
+| `cmd/dataground-provider-credential-grant` | Audited governed-execution provider-profile grant activator and revoker |
 | `cmd/dataground-provider-dpop-issuance` | External-key provider DPoP issuance evidence verifier |
 | `cmd/dataground-audit-export` | Isolation-scoped authorization-decision exporter |
 | `cmd/dataground-audit-export-seal` | External-key authorization/operator audit export sealer |
@@ -107,7 +108,7 @@ After an exact service revision exists, an authorized operator can install its r
 
 Revocation imports require the current sequential, isolation-scoped source generation, current independently scoped notice and trust credential generations, and current revocation authority. Source activation validates and immutably publishes a reviewed canonical registry before recording the selected source; each exact endpoint credential is then authorized by digest and validity window. Source or credential rotation, withdrawal, revocation, or credential expiry blocks new acquisition receipts while exact historical replay remains read-only. The procedures and deployment-owned remote limitations are documented in [revocation notice acquisition](audit-export-revocation-acquisition.md).
 
-The worker remains deterministic by default. [Governed development worker guidance](governed-worker.md) documents the explicit single-domain mode that composes exact policy resolution and audit with OpenShell admission, Codex runtime execution, cancellation, and artifact finalization without claiming production certification.
+The worker remains deterministic by default. [Governed development worker guidance](governed-worker.md) documents the explicit single-domain mode that composes exact policy resolution and audit with OpenShell admission, Codex runtime execution, cancellation, and artifact finalization without claiming production certification. That mode also requires a current sequential provider-profile grant for the exact isolation domain and service revision. It evaluates and append-only audits the secret-free profile selection before provider placement and immediately before sandbox creation; missing, expired, revoked, substituted, or cross-domain grants fail closed. OpenShell retains the actual provider credential and routing configuration.
 
 See [design-system guidance](design-system.md) before changing token source, component APIs, themes, density behavior, or Storybook configuration.
 

@@ -213,3 +213,76 @@ func preparedAdmission(
 		OperationID:       "op_" + strings.Repeat("f", 20),
 	}, plan, policy
 }
+
+type recordingProviderCredentialAuthorizer struct {
+	uses      []ProviderCredentialUse
+	denyPhase string
+}
+
+func (authorizer *recordingProviderCredentialAuthorizer) AuthorizeProviderCredentialUse(
+	_ context.Context,
+	use ProviderCredentialUse,
+) error {
+	authorizer.uses = append(authorizer.uses, use)
+	if use.Phase == authorizer.denyPhase {
+		return ErrProviderCredentialUseDenied
+	}
+	return nil
+}
+
+func TestCredentialMediatedAdmissionAuthorizesEntryAndEffect(t *testing.T) {
+	base, source, provider, request, plan, _ := preparedAdmission(t)
+	authorizer := &recordingProviderCredentialAuthorizer{}
+	admission, err := NewCredentialMediatedAdmission(base.plans, source, provider, authorizer)
+	if err != nil {
+		t.Fatalf("new mediated admission: %v", err)
+	}
+	request.ActorID = "usr_" + strings.Repeat("a", 20)
+	request.CorrelationID = "cor_" + strings.Repeat("b", 20)
+	if _, err := admission.Admit(context.Background(), request); err != nil {
+		t.Fatalf("mediated admission: %v", err)
+	}
+	if len(authorizer.uses) != 2 ||
+		authorizer.uses[0].Phase != ProviderCredentialPhaseAdmission ||
+		authorizer.uses[1].Phase != ProviderCredentialPhaseEffect {
+		t.Fatalf("credential decisions = %#v", authorizer.uses)
+	}
+	for _, use := range authorizer.uses {
+		if use.IsolationDomainID != request.IsolationDomainID ||
+			use.RevisionID != request.RevisionID ||
+			use.OperationID != request.OperationID ||
+			use.ProviderProfile != plan.ProviderProfiles[0] ||
+			use.Purpose != ProviderCredentialPurposeAgentInference ||
+			use.ActorID != request.ActorID ||
+			use.CorrelationID != request.CorrelationID {
+			t.Fatalf("credential scope = %#v", use)
+		}
+	}
+}
+
+func TestCredentialMediatedAdmissionDeniesBeforeConsequentialEffect(t *testing.T) {
+	for _, phase := range []string{ProviderCredentialPhaseAdmission, ProviderCredentialPhaseEffect} {
+		t.Run(phase, func(t *testing.T) {
+			base, source, provider, request, _, _ := preparedAdmission(t)
+			authorizer := &recordingProviderCredentialAuthorizer{denyPhase: phase}
+			admission, err := NewCredentialMediatedAdmission(base.plans, source, provider, authorizer)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.ActorID = "usr_" + strings.Repeat("a", 20)
+			request.CorrelationID = "cor_" + strings.Repeat("b", 20)
+			if _, err := admission.Admit(context.Background(), request); !errors.Is(err, ErrProviderCredentialUseDenied) {
+				t.Fatalf("denial error = %v", err)
+			}
+			if len(provider.creates) != 0 {
+				t.Fatal("denied credential use reached sandbox creation")
+			}
+			if phase == ProviderCredentialPhaseAdmission && len(provider.placements) != 0 {
+				t.Fatal("entry denial reached provider placement")
+			}
+			if phase == ProviderCredentialPhaseEffect && len(provider.placements) != 1 {
+				t.Fatalf("effect denial placement count = %d", len(provider.placements))
+			}
+		})
+	}
+}
