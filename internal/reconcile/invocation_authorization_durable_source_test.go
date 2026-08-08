@@ -164,7 +164,7 @@ type durablePolicyStoreStub struct {
 	err    error
 }
 
-func (store *durablePolicyStoreStub) GetInvocationAuthorizationPolicy(
+func (store *durablePolicyStoreStub) GetActiveInvocationAuthorizationPolicy(
 	context.Context,
 	string,
 	string,

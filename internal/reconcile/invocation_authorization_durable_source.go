@@ -8,7 +8,7 @@ import (
 )
 
 type DurableInvocationAuthorizationPolicyStore interface {
-	GetInvocationAuthorizationPolicy(
+	GetActiveInvocationAuthorizationPolicy(
 		context.Context,
 		string,
 		string,
@@ -40,7 +40,7 @@ func (source *DurableInvocationAuthorizationPolicySource) ResolveInvocationAutho
 		!validInvocationAuthorizationPolicyScope(scope) {
 		return InvocationAuthorizationPolicy{}, ErrInvocationAuthorizationPolicyUnavailable
 	}
-	record, err := source.store.GetInvocationAuthorizationPolicy(
+	record, err := source.store.GetActiveInvocationAuthorizationPolicy(
 		ctx,
 		scope.IsolationDomainID,
 		scope.ServiceID,
