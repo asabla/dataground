@@ -60,14 +60,23 @@ func TestExecuteRequestRecordsPurposeSpecificAcquisition(t *testing.T) {
 	repository := &recordingRepository{}
 	err := executeRequest(context.Background(), repository, request, auditseal.AcquiredRevocationNotice{
 		Purpose: request.purpose, SourceID: request.sourceID,
-		SourceRegistrySHA256: request.sourceRegistrySHA256, RecipientProof: &verified,
-	}, 3)
+		SourceRegistrySHA256: request.sourceRegistrySHA256,
+		NoticeCredential: auditseal.RevocationSourceCredentialEvidence{
+			Endpoint: "notice", CredentialSHA256: "sha256:" + strings.Repeat("6", 64),
+		},
+		TrustCredential: auditseal.RevocationSourceCredentialEvidence{
+			Endpoint: "trust", CredentialSHA256: "sha256:" + strings.Repeat("7", 64),
+		},
+		RecipientProof: &verified,
+	}, 3, persistence.AuditExportRevocationCredentialGenerations{Notice: 5, Trust: 6})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if repository.recipient.Acquisition == nil ||
 		repository.recipient.Acquisition.SourceID != request.sourceID ||
 		repository.recipient.Acquisition.SourceGeneration != 3 ||
+		repository.recipient.Acquisition.NoticeCredentialGeneration != 5 ||
+		repository.recipient.Acquisition.TrustCredentialGeneration != 6 ||
 		repository.recipient.RevocationSHA256 != verified.SHA256 {
 		t.Fatalf("recorded recipient revocation = %#v", repository.recipient)
 	}
@@ -97,14 +106,23 @@ func TestExecuteRequestRecordsWorkloadIdentityAcquisition(t *testing.T) {
 	repository := &recordingRepository{}
 	err := executeRequest(context.Background(), repository, request, auditseal.AcquiredRevocationNotice{
 		Purpose: request.purpose, SourceID: request.sourceID,
-		SourceRegistrySHA256: request.sourceRegistrySHA256, WorkloadIdentity: &verified,
-	}, 4)
+		SourceRegistrySHA256: request.sourceRegistrySHA256,
+		NoticeCredential: auditseal.RevocationSourceCredentialEvidence{
+			Endpoint: "notice", CredentialSHA256: "sha256:" + strings.Repeat("6", 64),
+		},
+		TrustCredential: auditseal.RevocationSourceCredentialEvidence{
+			Endpoint: "trust", CredentialSHA256: "sha256:" + strings.Repeat("7", 64),
+		},
+		WorkloadIdentity: &verified,
+	}, 4, persistence.AuditExportRevocationCredentialGenerations{Notice: 7, Trust: 8})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if repository.workload.Acquisition == nil ||
 		repository.workload.Acquisition.SourceID != request.sourceID ||
 		repository.workload.Acquisition.SourceGeneration != 4 ||
+		repository.workload.Acquisition.NoticeCredentialGeneration != 7 ||
+		repository.workload.Acquisition.TrustCredentialGeneration != 8 ||
 		repository.workload.RevocationSHA256 != verified.SHA256 {
 		t.Fatalf("recorded workload revocation = %#v", repository.workload)
 	}
@@ -133,6 +151,18 @@ func (repository *recordingRepository) AuthorizeAuditExportRevocationSource(
 	return 1, nil
 }
 
+func (repository *recordingRepository) AuthorizeAuditExportRevocationCredentials(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ string,
+	_ persistence.AuditExportRevocationCredentialEvidence,
+	_ persistence.AuditExportRevocationCredentialEvidence,
+) (persistence.AuditExportRevocationCredentialGenerations, error) {
+	return persistence.AuditExportRevocationCredentialGenerations{Notice: 1, Trust: 1}, nil
+}
+
 func (repository *recordingRepository) RecordAuditExportRecipientProofRevocation(
 	_ context.Context,
 	record persistence.AuditExportRecipientProofRevocationRecord,
@@ -151,7 +181,11 @@ func (repository *recordingRepository) RecordAuditExportWorkloadIdentityRevocati
 
 func TestExecuteRequestRejectsMismatchedAcquisition(t *testing.T) {
 	request := commandRequest{purpose: auditseal.RevocationNoticePurposeRecipientProof}
-	err := executeRequest(context.Background(), &recordingRepository{}, request, auditseal.AcquiredRevocationNotice{}, 1)
+	err := executeRequest(
+		context.Background(), &recordingRepository{}, request,
+		auditseal.AcquiredRevocationNotice{}, 1,
+		persistence.AuditExportRevocationCredentialGenerations{Notice: 1, Trust: 1},
+	)
 	if err == nil || errors.Is(err, context.Canceled) {
 		t.Fatalf("mismatched acquisition error = %v", err)
 	}

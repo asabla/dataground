@@ -10,18 +10,25 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const AuditExportRevocationAcquisitionContract = "dataground.audit-export-revocation-acquisition/v2"
+const AuditExportRevocationAcquisitionContract = "dataground.audit-export-revocation-acquisition/v3"
 
-const auditExportRevocationAcquisitionLegacyContract = "dataground.audit-export-revocation-acquisition/v1"
+const (
+	auditExportRevocationAcquisitionLegacyContractV2 = "dataground.audit-export-revocation-acquisition/v2"
+	auditExportRevocationAcquisitionLegacyContractV1 = "dataground.audit-export-revocation-acquisition/v1"
+)
 
 var ErrAuditExportRevocationAcquisitionConflict = errors.New("audit export revocation acquisition conflicts with durable state")
 
 type AuditExportRevocationAcquisition struct {
-	Contract             string
-	Purpose              string
-	SourceID             string
-	SourceRegistrySHA256 string
-	SourceGeneration     int64
+	Contract                   string
+	Purpose                    string
+	SourceID                   string
+	SourceRegistrySHA256       string
+	SourceGeneration           int64
+	NoticeCredentialSHA256     string
+	NoticeCredentialGeneration int64
+	TrustCredentialSHA256      string
+	TrustCredentialGeneration  int64
 }
 
 type AuditExportRevocationAcquisitionReplay struct {
@@ -77,7 +84,8 @@ func (repository *Repository) ReplayAuditExportRevocationAcquisition(
 		return false, fmt.Errorf("read audit export revocation acquisition replay: %w", err)
 	}
 	if (contract != AuditExportRevocationAcquisitionContract &&
-		contract != auditExportRevocationAcquisitionLegacyContract) ||
+		contract != auditExportRevocationAcquisitionLegacyContractV2 &&
+		contract != auditExportRevocationAcquisitionLegacyContractV1) ||
 		stored.Purpose != replay.Purpose || stored.IsolationDomainID != replay.IsolationDomainID ||
 		stored.SourceID != replay.SourceID || stored.SourceRegistrySHA256 != replay.SourceRegistrySHA256 ||
 		stored.CorrelationID != replay.CorrelationID {
@@ -115,9 +123,23 @@ func (acquisition AuditExportRevocationAcquisition) validFor(purpose string) boo
 		auditExportDeliveryRecipient.MatchString(acquisition.SourceID) &&
 		auditExportDeliveryDigest.MatchString(acquisition.SourceRegistrySHA256) &&
 		((acquisition.Contract == AuditExportRevocationAcquisitionContract &&
-			acquisition.SourceGeneration > 0) ||
-			(acquisition.Contract == auditExportRevocationAcquisitionLegacyContract &&
-				acquisition.SourceGeneration == 0))
+			acquisition.SourceGeneration > 0 &&
+			auditExportDeliveryDigest.MatchString(acquisition.NoticeCredentialSHA256) &&
+			acquisition.NoticeCredentialGeneration > 0 &&
+			auditExportDeliveryDigest.MatchString(acquisition.TrustCredentialSHA256) &&
+			acquisition.TrustCredentialGeneration > 0) ||
+			(acquisition.Contract == auditExportRevocationAcquisitionLegacyContractV2 &&
+				acquisition.SourceGeneration > 0 &&
+				acquisition.NoticeCredentialSHA256 == "" &&
+				acquisition.NoticeCredentialGeneration == 0 &&
+				acquisition.TrustCredentialSHA256 == "" &&
+				acquisition.TrustCredentialGeneration == 0) ||
+			(acquisition.Contract == auditExportRevocationAcquisitionLegacyContractV1 &&
+				acquisition.SourceGeneration == 0 &&
+				acquisition.NoticeCredentialSHA256 == "" &&
+				acquisition.NoticeCredentialGeneration == 0 &&
+				acquisition.TrustCredentialSHA256 == "" &&
+				acquisition.TrustCredentialGeneration == 0))
 }
 
 func insertAuditExportRevocationAcquisition(
@@ -138,14 +160,32 @@ func insertAuditExportRevocationAcquisition(
 	); err != nil {
 		return err
 	}
+	if _, err := requireAuditExportRevocationCredentialBinding(
+		ctx, tx, isolationDomainID, acquisition.Purpose, acquisition.SourceID,
+		acquisition.SourceRegistrySHA256, "notice", acquisition.NoticeCredentialSHA256,
+		acquisition.NoticeCredentialGeneration,
+	); err != nil {
+		return err
+	}
+	if _, err := requireAuditExportRevocationCredentialBinding(
+		ctx, tx, isolationDomainID, acquisition.Purpose, acquisition.SourceID,
+		acquisition.SourceRegistrySHA256, "trust", acquisition.TrustCredentialSHA256,
+		acquisition.TrustCredentialGeneration,
+	); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO audit_export_revocation_acquisitions (
 			contract, purpose, revocation_sha256, isolation_domain_id,
 			source_id, source_registry_sha256, source_generation,
+			notice_credential_sha256, notice_credential_generation,
+			trust_credential_sha256, trust_credential_generation,
 			trust_profile_sha256, correlation_id
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`, acquisition.Contract, acquisition.Purpose, revocationSHA256, isolationDomainID,
 		acquisition.SourceID, acquisition.SourceRegistrySHA256, acquisition.SourceGeneration,
+		acquisition.NoticeCredentialSHA256, acquisition.NoticeCredentialGeneration,
+		acquisition.TrustCredentialSHA256, acquisition.TrustCredentialGeneration,
 		trustProfileSHA256, correlationID); err != nil {
 		return fmt.Errorf("record audit export revocation acquisition: %w", err)
 	}
@@ -161,13 +201,19 @@ func readAuditExportRevocationAcquisition(
 	var acquisition AuditExportRevocationAcquisition
 	err := querier.QueryRow(ctx, `
 		SELECT contract, purpose, source_id, source_registry_sha256,
-		       COALESCE(source_generation, 0)
+		       COALESCE(source_generation, 0),
+		       COALESCE(notice_credential_sha256, ''),
+		       COALESCE(notice_credential_generation, 0),
+		       COALESCE(trust_credential_sha256, ''),
+		       COALESCE(trust_credential_generation, 0)
 		FROM audit_export_revocation_acquisitions
 		WHERE purpose = $1 AND revocation_sha256 = $2
 	`, purpose, revocationSHA256).Scan(
 		&acquisition.Contract, &acquisition.Purpose,
 		&acquisition.SourceID, &acquisition.SourceRegistrySHA256,
-		&acquisition.SourceGeneration,
+		&acquisition.SourceGeneration, &acquisition.NoticeCredentialSHA256,
+		&acquisition.NoticeCredentialGeneration, &acquisition.TrustCredentialSHA256,
+		&acquisition.TrustCredentialGeneration,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -190,16 +236,22 @@ func sameAuditExportRevocationAcquisition(
 	}
 	return left.Contract == right.Contract && left.Purpose == right.Purpose &&
 		left.SourceID == right.SourceID && left.SourceRegistrySHA256 == right.SourceRegistrySHA256 &&
-		left.SourceGeneration == right.SourceGeneration
+		left.SourceGeneration == right.SourceGeneration &&
+		left.NoticeCredentialSHA256 == right.NoticeCredentialSHA256 &&
+		left.NoticeCredentialGeneration == right.NoticeCredentialGeneration &&
+		left.TrustCredentialSHA256 == right.TrustCredentialSHA256 &&
+		left.TrustCredentialGeneration == right.TrustCredentialGeneration
 }
 
 func auditExportRevocationAcquisitionMetadata(
 	acquisition *AuditExportRevocationAcquisition,
-) (string, string, int64) {
+) (string, string, int64, string, int64, string, int64) {
 	if acquisition == nil {
-		return "", "", 0
+		return "", "", 0, "", 0, "", 0
 	}
-	return acquisition.SourceID, acquisition.SourceRegistrySHA256, acquisition.SourceGeneration
+	return acquisition.SourceID, acquisition.SourceRegistrySHA256, acquisition.SourceGeneration,
+		acquisition.NoticeCredentialSHA256, acquisition.NoticeCredentialGeneration,
+		acquisition.TrustCredentialSHA256, acquisition.TrustCredentialGeneration
 }
 
 func cloneAuditExportRevocationAcquisition(

@@ -217,7 +217,9 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 		_, ok := value.(bool)
 		return ok
 	case "generation", "proofingAuthorityGeneration", "recipientTrustGeneration", "revocationAuthorityGeneration",
-		"revocationSourceGeneration", "workloadIdentityGeneration":
+		"revocationSourceGeneration", "revocationSourceCredentialGeneration",
+		"revocationSourceNoticeCredentialGeneration", "revocationSourceTrustCredentialGeneration",
+		"workloadIdentityGeneration":
 		return validOperatorAuditInteger(value, 1)
 	case "recipientTrustKeyCount", "recipientEncryptionKeyCount":
 		return validOperatorAuditIntegerRange(value, 0, 8)
@@ -232,7 +234,8 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 	case "acknowledgementDigest", "artifactDigest", "bindingDigest", "clientCertificateSha256", "destinationDigest",
 		"encryptedPackageDigest", "envelopeDigest", "identityDigest", "planDigest", "policyDigest",
 		"providerRegistrySha256", "publicationPathDigest", "reasonDigest",
-		"revocationSourceRegistrySha256",
+		"revocationSourceRegistrySha256", "revocationSourceCredentialSha256",
+		"revocationSourceNoticeCredentialSha256", "revocationSourceTrustCredentialSha256",
 		"recipientIdentityProofSha256", "recipientProofRevocationSha256",
 		"proofingAuthorityTrustProfileSha256", "recipientProofingTrustProfileSha256",
 		"recipientTrustProfileSha256", "trustProfileSha256",
@@ -254,6 +257,7 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 		"workloadIdentityAuthorityId", "workloadIdentityRevocationAuthorityId":
 		return operatorAuditProviderID.MatchString(text)
 	case "recipientIdentityProofExpiresAt", "recipientProofRevocationEffectiveAt",
+		"revocationSourceCredentialActivatedAt", "revocationSourceCredentialExpiresAt",
 		"workloadIdentityExpiresAt", "workloadIdentityRevocationEffectiveAt":
 		parsed, err := time.Parse(time.RFC3339Nano, text)
 		return err == nil && parsed.Equal(parsed.UTC())
@@ -270,6 +274,8 @@ func validOperatorAuditMetadataField(key string, value any) bool {
 			text == AuditExportRevocationAuthorityPurposeWorkloadIdentity
 	case "endpoint":
 		return text == "discovery" || text == "jwks"
+	case "revocationSourceCredentialEndpoint":
+		return text == "notice" || text == "trust"
 	case "exportKind":
 		return text == "authorization" || text == "operator"
 	case "recipientId", "workloadId":

@@ -139,7 +139,10 @@ func (repository *Repository) RecordAuditExportWorkloadIdentityRevocation(
 	); err != nil {
 		return mapAuditExportWorkloadIdentityRevocationWriteError(err)
 	}
-	sourceID, sourceRegistrySHA256, sourceGeneration := auditExportRevocationAcquisitionMetadata(record.Acquisition)
+	sourceID, sourceRegistrySHA256, sourceGeneration,
+		noticeCredentialSHA256, noticeCredentialGeneration,
+		trustCredentialSHA256, trustCredentialGeneration :=
+		auditExportRevocationAcquisitionMetadata(record.Acquisition)
 	resourceID := identity.Derived(
 		"awr", record.IsolationDomainID+"\n"+record.RevocationSHA256,
 	)
@@ -161,7 +164,11 @@ func (repository *Repository) RecordAuditExportWorkloadIdentityRevocation(
 				'workloadIdentityRevocationEffectiveAt', $13::text,
 				'revocationSourceId', NULLIF($14::text, ''),
 				'revocationSourceRegistrySha256', NULLIF($15::text, ''),
-				'revocationSourceGeneration', NULLIF($16::bigint, 0)
+				'revocationSourceGeneration', NULLIF($16::bigint, 0),
+				'revocationSourceNoticeCredentialSha256', NULLIF($17::text, ''),
+				'revocationSourceNoticeCredentialGeneration', NULLIF($18::bigint, 0),
+				'revocationSourceTrustCredentialSha256', NULLIF($19::text, ''),
+				'revocationSourceTrustCredentialGeneration', NULLIF($20::bigint, 0)
 			)),
 			clock_timestamp()
 		)
@@ -170,7 +177,9 @@ func (repository *Repository) RecordAuditExportWorkloadIdentityRevocation(
 		record.Scope, record.WorkloadIdentityAuthorityID, record.WorkloadIdentityTrustProfileSHA256,
 		record.WorkloadIdentitySigningKeyID, record.RevocationAuthorityID,
 		formatAuditExportRecipientTrustTime(record.EffectiveAt), sourceID,
-		sourceRegistrySHA256, sourceGeneration); err != nil {
+		sourceRegistrySHA256, sourceGeneration,
+		noticeCredentialSHA256, noticeCredentialGeneration,
+		trustCredentialSHA256, trustCredentialGeneration); err != nil {
 		return fmt.Errorf("audit export workload identity revocation: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

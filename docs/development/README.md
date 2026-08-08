@@ -27,6 +27,7 @@ PostgreSQL 18 is required for durable integration tests and durable control-plan
 | `cmd/dataground-audit-export-workload-identity-revocation` | Audited external issuer-revocation notice intake |
 | `cmd/dataground-audit-export-revocation-import` | Authenticated digest-pinned external revocation notice acquisition |
 | `cmd/dataground-audit-export-revocation-source` | Audited immutable registry publication and isolation-scoped source governance |
+| `cmd/dataground-audit-export-revocation-credential` | Audited endpoint credential authorization, rotation, and local revocation |
 | `cmd/dataground-audit-export-revocation-authority` | Audited recipient-proof and workload revocation-authority governance |
 | `cmd/dataground-audit-export-proofing-authority` | Audited recipient proofing-authority governance |
 | `cmd/dataground-audit-export-recipient-trust` | Audited recipient trust activation, rotation, and revocation |
@@ -103,7 +104,7 @@ Durable mode persists resources, idempotency results, explicit publication and i
 
 After an exact service revision exists, an authorized operator can install its reviewed Cedar invocation policy with `go run ./cmd/dataground-policy-install` and the required `-isolation-domain`, `-service`, `-revision`, `-policy-set`, `-policy-file`, `-actor`, `-reason`, and `-correlation-id` flags. The command requires the current PostgreSQL schema, accepts one bounded regular policy file, validates it against the canonical invocation schema, and atomically records immutable policy bytes plus safe installation audit evidence. Its database credential is the administrative authorization boundary. Identical replay is read-only; changed policy or attribution for the same revision is rejected. This is an internal operator boundary, not public policy authoring, approval workflow, signing, distribution, or reload.
 
-Revocation imports require the current sequential, isolation-scoped source generation in addition to the current revocation authority. Source activation validates and immutably publishes a reviewed canonical registry before recording the selected source; rotation uses a new publication path, while exact retry is read-only. The publication, activation, rotation, and withdrawal procedure is documented in [revocation notice acquisition](audit-export-revocation-acquisition.md).
+Revocation imports require the current sequential, isolation-scoped source generation, current independently scoped notice and trust credential generations, and current revocation authority. Source activation validates and immutably publishes a reviewed canonical registry before recording the selected source; each exact endpoint credential is then authorized by digest and validity window. Source or credential rotation, withdrawal, revocation, or credential expiry blocks new acquisition receipts while exact historical replay remains read-only. The procedures and deployment-owned remote limitations are documented in [revocation notice acquisition](audit-export-revocation-acquisition.md).
 
 The worker remains deterministic by default. [Governed development worker guidance](governed-worker.md) documents the explicit single-domain mode that composes exact policy resolution and audit with OpenShell admission, Codex runtime execution, cancellation, and artifact finalization without claiming production certification.
 
