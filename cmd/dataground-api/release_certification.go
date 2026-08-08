@@ -30,7 +30,7 @@ func loadOIDCReleaseCertification(
 	if len(configurationBytes) == 0 || now.IsZero() {
 		return nil, errors.New("OIDC release certification request is invalid")
 	}
-	envelope, err := releasecert.VerifyFile(
+	verification, err := releasecert.VerifyOIDCLoopbackFile(
 		certificationPath,
 		trustProfilePath,
 		sourceRevision,
@@ -40,6 +40,7 @@ func loadOIDCReleaseCertification(
 	if err != nil {
 		return nil, errors.New("OIDC release certification is invalid")
 	}
+	envelope := verification.Envelope
 	var configurationArtifact releasecert.Artifact
 	for _, artifact := range envelope.Statement.Artifacts {
 		if artifact.Kind == "oidc-security-configuration" {
@@ -54,9 +55,18 @@ func loadOIDCReleaseCertification(
 		subtle.ConstantTimeCompare(digest[:], expectedDigest) != 1 {
 		return nil, errors.New("OIDC release certification does not bind this configuration")
 	}
-	expiresAt, err := time.Parse(time.RFC3339Nano, envelope.Statement.ExpiresAt)
-	if err != nil || !expiresAt.After(now) {
+	releaseExpiresAt, releaseErr := time.Parse(time.RFC3339Nano, envelope.Statement.ExpiresAt)
+	providerExpiresAt, providerErr := time.Parse(
+		time.RFC3339Nano,
+		verification.ProviderDPoPIssuance.Statement.ExpiresAt,
+	)
+	if releaseErr != nil || providerErr != nil ||
+		!releaseExpiresAt.After(now) || !providerExpiresAt.After(now) {
 		return nil, errors.New("OIDC release certification validity is invalid")
+	}
+	expiresAt := releaseExpiresAt
+	if providerExpiresAt.Before(expiresAt) {
+		expiresAt = providerExpiresAt
 	}
 	return &oidcReleaseCertification{expiresAt: expiresAt, now: time.Now}, nil
 }

@@ -221,10 +221,33 @@ func VerifyProviderDPoPIssuanceFile(
 		return envelope, err
 	}
 	defer clear(encoded)
+	trustBytes, err := readStablePrivateFile(trustProfileFile, maximumInputBytes)
+	if err != nil {
+		return envelope, err
+	}
+	defer clear(trustBytes)
+	return verifyProviderDPoPIssuanceEnvelope(encoded, trustBytes, now)
+}
+
+func verifyProviderDPoPIssuanceEnvelope(
+	encoded []byte,
+	trustBytes []byte,
+	now time.Time,
+) (ProviderDPoPIssuanceEnvelope, error) {
+	var envelope ProviderDPoPIssuanceEnvelope
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
 	if err := decodeCanonicalJSON(encoded, &envelope); err != nil ||
 		envelope.Contract != ProviderDPoPIssuanceEnvelopeContract {
 		return envelope, errors.New("provider DPoP issuance envelope is invalid")
 	}
+	canonicalEnvelope, err := canonicalJSON(envelope)
+	if err != nil || !bytes.Equal(encoded, canonicalEnvelope) {
+		clear(canonicalEnvelope)
+		return envelope, errors.New("provider DPoP issuance envelope is not canonical")
+	}
+	clear(canonicalEnvelope)
 	statementBytes, err := canonicalJSON(envelope.Statement)
 	if err != nil {
 		return envelope, errors.New("provider DPoP issuance statement is invalid")
@@ -239,11 +262,6 @@ func VerifyProviderDPoPIssuanceFile(
 	if !equalDigest(envelope.StatementSHA256, digest[:]) {
 		return envelope, errors.New("provider DPoP issuance statement digest does not match")
 	}
-	trustBytes, err := readStablePrivateFile(trustProfileFile, maximumInputBytes)
-	if err != nil {
-		return envelope, err
-	}
-	defer clear(trustBytes)
 	trust, canonicalTrust, err := parseProviderDPoPIssuanceTrustProfile(trustBytes)
 	if err != nil {
 		return envelope, err

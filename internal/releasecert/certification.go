@@ -23,17 +23,17 @@ import (
 )
 
 const (
-	StatementContract = "dataground.release-certification/oidc-loopback/v3"
+	StatementContract = "dataground.release-certification/oidc-loopback/v4"
 	SignatureContract = "dataground.release-certification-signature/ed25519/v1"
 	TrustContract     = "dataground.release-certification-trust/ed25519/v1"
-	EnvelopeContract  = "dataground.release-certification-envelope/v3"
+	EnvelopeContract  = "dataground.release-certification-envelope/v4"
 
 	maximumInputBytes    = 1 << 20
 	maximumEvidenceBytes = 4 << 20
 	maximumJSONDepth     = 16
 	maximumValidity      = 31 * 24 * time.Hour
 	maximumClockSkew     = 5 * time.Minute
-	signatureDomain      = "DataGround release certification oidc-loopback v3\n"
+	signatureDomain      = "DataGround release certification oidc-loopback v4\n"
 )
 
 var (
@@ -85,6 +85,11 @@ type Envelope struct {
 	StatementSHA256 string    `json:"statementSha256"`
 	Statement       Statement `json:"statement"`
 	Signature       Signature `json:"signature"`
+}
+
+type OIDCLoopbackVerification struct {
+	Envelope             Envelope
+	ProviderDPoPIssuance ProviderDPoPIssuanceEnvelope
 }
 
 type dpopNonceCapacityBinding struct {
@@ -179,7 +184,7 @@ func PrepareSigningMessage(request PrepareRequest) error {
 	if !equalDigest(statement.TrustProfileSHA256, trustDigest[:]) {
 		return errors.New("release certification trust profile digest does not match")
 	}
-	if err := verifyArtifacts(statement); err != nil {
+	if _, err := verifyArtifacts(statement, request.Now); err != nil {
 		return err
 	}
 	message := signatureMessage(canonicalStatement)
@@ -239,7 +244,7 @@ func Install(request InstallRequest) error {
 	if err := verifySignature(canonicalStatement, signature, trust); err != nil {
 		return err
 	}
-	if err := verifyArtifacts(statement); err != nil {
+	if _, err := verifyArtifacts(statement, request.Now); err != nil {
 		return err
 	}
 	statementDigest := sha256.Sum256(canonicalStatement)
@@ -280,59 +285,86 @@ func VerifyFile(
 	goVersion string,
 	now time.Time,
 ) (Envelope, error) {
+	verification, err := VerifyOIDCLoopbackFile(
+		envelopeFile,
+		trustProfileFile,
+		sourceRevision,
+		goVersion,
+		now,
+	)
+	return verification.Envelope, err
+}
+
+func VerifyOIDCLoopbackFile(
+	envelopeFile string,
+	trustProfileFile string,
+	sourceRevision string,
+	goVersion string,
+	now time.Time,
+) (OIDCLoopbackVerification, error) {
+	var verification OIDCLoopbackVerification
 	var envelope Envelope
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
 	encoded, err := readStablePrivateFile(envelopeFile, maximumInputBytes)
 	if err != nil {
-		return envelope, err
+		return verification, err
 	}
 	defer clear(encoded)
 	if err := decodeCanonicalJSON(encoded, &envelope); err != nil {
-		return envelope, errors.New("release certification envelope is invalid")
+		return verification, errors.New("release certification envelope is invalid")
 	}
 	if envelope.Contract != EnvelopeContract {
-		return envelope, errors.New("release certification envelope contract is invalid")
+		return verification, errors.New("release certification envelope contract is invalid")
 	}
+	canonicalEnvelope, err := canonicalJSON(envelope)
+	if err != nil || !bytes.Equal(encoded, canonicalEnvelope) {
+		clear(canonicalEnvelope)
+		return verification, errors.New("release certification envelope is not canonical")
+	}
+	clear(canonicalEnvelope)
 	statementBytes, err := canonicalJSON(envelope.Statement)
 	if err != nil {
-		return envelope, errors.New("release certification statement is invalid")
+		return verification, errors.New("release certification statement is invalid")
 	}
 	defer clear(statementBytes)
 	statement, _, err := parseStatement(statementBytes, sourceRevision, goVersion, now)
 	if err != nil {
-		return envelope, err
+		return verification, err
 	}
 	envelope.Statement = statement
 	digest := sha256.Sum256(statementBytes)
 	if !equalDigest(envelope.StatementSHA256, digest[:]) {
-		return envelope, errors.New("release certification statement digest does not match")
+		return verification, errors.New("release certification statement digest does not match")
 	}
 	trustBytes, err := readStablePrivateFile(trustProfileFile, maximumInputBytes)
 	if err != nil {
-		return envelope, err
+		return verification, err
 	}
 	defer clear(trustBytes)
 	trust, canonicalTrust, err := parseTrustProfile(trustBytes)
 	if err != nil {
-		return envelope, err
+		return verification, err
 	}
 	defer clear(canonicalTrust)
 	trustDigest := sha256.Sum256(canonicalTrust)
 	if !equalDigest(statement.TrustProfileSHA256, trustDigest[:]) {
-		return envelope, errors.New("release certification trust profile digest does not match")
+		return verification, errors.New("release certification trust profile digest does not match")
 	}
 	if err := validateSignature(envelope.Signature); err != nil {
-		return envelope, err
+		return verification, err
 	}
 	if err := verifySignature(statementBytes, envelope.Signature, trust); err != nil {
-		return envelope, err
+		return verification, err
 	}
-	if err := verifyArtifacts(statement); err != nil {
-		return envelope, err
+	providerDPoPIssuance, err := verifyArtifacts(statement, now)
+	if err != nil {
+		return verification, err
 	}
-	return envelope, nil
+	verification.Envelope = envelope
+	verification.ProviderDPoPIssuance = providerDPoPIssuance
+	return verification, nil
 }
 
 func parseStatement(
@@ -453,7 +485,13 @@ func signatureMessage(statement []byte) []byte {
 }
 
 func validateArtifacts(artifacts []Artifact) error {
-	required := []string{"admission-capacity-evidence", "api-authorization-policy", "oidc-security-configuration"}
+	required := []string{
+		"admission-capacity-evidence",
+		"api-authorization-policy",
+		"oidc-security-configuration",
+		"provider-dpop-issuance-certification",
+		"provider-dpop-issuance-trust-profile",
+	}
 	if len(artifacts) != len(required) {
 		return errors.New("release certification artifacts are incomplete")
 	}
@@ -471,7 +509,11 @@ func validateArtifacts(artifacts []Artifact) error {
 	return nil
 }
 
-func verifyArtifacts(statement Statement) error {
+func verifyArtifacts(
+	statement Statement,
+	now time.Time,
+) (ProviderDPoPIssuanceEnvelope, error) {
+	var providerDPoPIssuance ProviderDPoPIssuanceEnvelope
 	contents := make(map[string][]byte, len(statement.Artifacts))
 	artifacts := make(map[string]Artifact, len(statement.Artifacts))
 	defer func() {
@@ -482,12 +524,12 @@ func verifyArtifacts(statement Statement) error {
 	for _, artifact := range statement.Artifacts {
 		encoded, err := readStablePrivateFile(artifact.File, maximumEvidenceBytes)
 		if err != nil {
-			return errors.New("release certification artifact is unavailable")
+			return providerDPoPIssuance, errors.New("release certification artifact is unavailable")
 		}
 		digest := sha256.Sum256(encoded)
 		if !equalDigest(artifact.SHA256, digest[:]) {
 			clear(encoded)
-			return errors.New("release certification artifact digest does not match")
+			return providerDPoPIssuance, errors.New("release certification artifact digest does not match")
 		}
 		contents[artifact.Kind] = encoded
 		artifacts[artifact.Kind] = artifact
@@ -505,10 +547,11 @@ func verifyArtifacts(statement Statement) error {
 		evidence.SourceRevision != statement.SourceRevision ||
 		evidence.GoVersion != statement.GoVersion ||
 		evidence.DeploymentProfile != statement.DeploymentProfile || !evidence.Accepted {
-		return errors.New("release certification admission evidence is invalid")
+		return providerDPoPIssuance, errors.New("release certification admission evidence is invalid")
 	}
 	var configuration struct {
 		Contract string `json:"contract"`
+		Issuer   string `json:"issuer"`
 		Provider struct {
 			ID             string `json:"id"`
 			RegistrySHA256 string `json:"registrySha256"`
@@ -529,18 +572,33 @@ func verifyArtifacts(statement Statement) error {
 	policy := artifacts["api-authorization-policy"]
 	if err := decodeArtifactJSON(contents["oidc-security-configuration"], &configuration); err != nil ||
 		configuration.Contract != "dataground.api-security/oidc-dpop/v5" ||
+		!validProviderDPoPIssuanceURL(configuration.Issuer, true) ||
 		!providerIDPattern.MatchString(configuration.Provider.ID) ||
 		!digestPattern.MatchString(configuration.Provider.RegistrySHA256) ||
 		configuration.Admission.DeploymentProfile != statement.DeploymentProfile ||
 		configuration.Admission.CapacityEvidenceFile != capacity.File ||
 		configuration.Admission.CapacityEvidenceHash != capacity.SHA256 ||
 		configuration.Authorization.PolicyFile != policy.File {
-		return errors.New("release certification OIDC configuration binding is invalid")
+		return providerDPoPIssuance, errors.New("release certification OIDC configuration binding is invalid")
 	}
 	if err := verifyDPoPNonceCapacityBinding(evidence.DPoPNonce, configuration.DPoP.Nonce); err != nil {
-		return err
+		return providerDPoPIssuance, err
 	}
-	return nil
+	providerDPoPIssuance, err := verifyProviderDPoPIssuanceEnvelope(
+		contents["provider-dpop-issuance-certification"],
+		contents["provider-dpop-issuance-trust-profile"],
+		now,
+	)
+	if err != nil {
+		return providerDPoPIssuance, errors.New("release certification provider DPoP issuance evidence is invalid")
+	}
+	if providerDPoPIssuance.Statement.ProviderID != configuration.Provider.ID ||
+		providerDPoPIssuance.Statement.ProviderRegistrySHA256 != configuration.Provider.RegistrySHA256 ||
+		providerDPoPIssuance.Statement.Issuer != configuration.Issuer ||
+		providerDPoPIssuance.Statement.Audience != "dataground-api" {
+		return providerDPoPIssuance, errors.New("release certification provider DPoP issuance binding is invalid")
+	}
+	return providerDPoPIssuance, nil
 }
 
 func verifyDPoPNonceCapacityBinding(
