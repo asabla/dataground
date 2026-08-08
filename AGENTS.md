@@ -42,6 +42,8 @@ Write pull request descriptions as direct, concise prose for human reviewers. Ex
 
 Follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/) for commit headers: `<type>[optional scope][!]: <description>`. Use a stable scope only when it adds useful context, write concise lower-case imperative descriptions without a trailing period, and document breaking changes in a `BREAKING CHANGE:` footer.
 
+Before handing off a pull request for rebase-and-merge, clean its branch history into the smallest reviewable sequence of meaningful commits. Every retained commit must have a distinct durable purpose, use an accurate Conventional Commit header, and build and pass the relevant focused checks independently. Fold corrective and formatting follow-ups into the commit they repair, and remove failed attempts or duplicates; do not rely on squash merging to make an otherwise noisy history acceptable.
+
 Do not provide time estimates. Describe scope, dependencies, risks, decisions, and verification evidence. Prefer durable, long-term solutions when a shortcut would create another contract, migration, security exception, or maintenance burden.
 
 ## Contracts, security, and observability
