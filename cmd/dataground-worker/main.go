@@ -67,11 +67,31 @@ func main() {
 	defer ticker.Stop()
 
 	logger.Info("starting DataGround reconciler", "worker_id", workerID, "mode", config.mode)
+	ready := true
+	lastReadinessCheck := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if time.Since(lastReadinessCheck) >= 5*time.Second {
+				lastReadinessCheck = time.Now()
+				if readyErr := resources.Ready(ctx); readyErr != nil {
+					if ready {
+						logger.Error("worker readiness lost", "error", readyErr)
+					}
+					ready = false
+				} else if !ready {
+					logger.Info("worker readiness restored")
+					ready = true
+				}
+			}
+			if !ready {
+				if _, dispatchErr := dispatcher.RunOne(ctx); dispatchErr != nil {
+					logger.Error("outbox delivery failed", "error", dispatchErr)
+				}
+				continue
+			}
 			for _, kind := range []string{persistence.OperationKindPublication, persistence.OperationKindInvocation} {
 				ran, runErr := worker.RunOne(ctx, kind)
 				if runErr != nil {

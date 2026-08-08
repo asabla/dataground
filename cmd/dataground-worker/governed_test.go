@@ -32,7 +32,9 @@ func TestLoadWorkerConfigAcceptsCompleteGovernedDevelopmentMode(t *testing.T) {
 		config.isolationDomainID == "" ||
 		config.gatewayID == "" ||
 		config.s3RequestTimeout != 2*time.Minute ||
-		config.maximumArtifactBytes != 16<<20 {
+		config.maximumArtifactBytes != 16<<20 ||
+		config.certification.target.serviceID == "" ||
+		config.certification.target.revisionID == "" {
 		t.Fatalf("worker config = %#v", config)
 	}
 }
@@ -163,7 +165,7 @@ func TestWorkerResourcesCloseIsNilSafe(t *testing.T) {
 }
 
 func validGovernedEnvironment() map[string]string {
-	return map[string]string{
+	values := map[string]string{
 		"DATAGROUND_WORKER_MODE":                     workerModeGovernedDevelopment,
 		"DATAGROUND_DEVELOPMENT_ISOLATION_DOMAIN_ID": "iso_00000000000000000001",
 		"DATAGROUND_OPENSHELL_GATEWAY_ID":            "gw_00000000000000000001",
@@ -175,6 +177,22 @@ func validGovernedEnvironment() map[string]string {
 		"DATAGROUND_S3_REQUEST_TIMEOUT":              "2m",
 		"DATAGROUND_INVOCATION_ARTIFACT_MAX_BYTES":   "16777216",
 	}
+	values["DATAGROUND_CERTIFIED_SERVICE_ID"] = "svc_00000000000000000001"
+	values["DATAGROUND_CERTIFIED_REVISION_ID"] = "rev_00000000000000000001"
+	values["DATAGROUND_RUNTIME_CERTIFICATION_MANIFEST"] =
+		"deploy/openshell/evidence/runtime-certification.json"
+	values["DATAGROUND_RUNTIME_CONFORMANCE_EVIDENCE"] =
+		"deploy/openshell/evidence/openshell-runtime-conformance-v1.json"
+	values["DATAGROUND_RUNTIME_CONFORMANCE_ACCEPTANCE"] =
+		"deploy/openshell/evidence/openshell-runtime-conformance-acceptance-v1.json"
+	values["DATAGROUND_RUNTIME_CERTIFICATION_SHA256"] =
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	values["DATAGROUND_RUNTIME_CERTIFICATION_SOURCE_REVISION"] =
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	values["DATAGROUND_RUNTIME_CERTIFICATION_MINIMUM_GENERATION"] = "3"
+	values["DATAGROUND_RUNTIME_CERTIFICATION_REJECTED_IDS"] =
+		"rtcert_abcdefghij0123456789,rtcert_0123456789abcdefghij"
+	return values
 }
 
 func mapEnvironment(values map[string]string) environmentLookup {

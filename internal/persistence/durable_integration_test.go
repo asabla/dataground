@@ -854,7 +854,12 @@ func TestClaimNextInIsolationDomainSkipsUnrelatedWork(t *testing.T) {
 	defer pool.Close()
 	repository := persistence.NewRepository(pool)
 
-	createPublication := func(domainID string, suffix string) string {
+	type publicationTarget struct {
+		operationID string
+		serviceID   string
+		revisionID  string
+	}
+	createPublication := func(domainID string, suffix string) publicationTarget {
 		serviceID := identity.New("svc")
 		revisionID := identity.New("rev")
 		actorID := "scoped-claim-test"
@@ -894,13 +899,17 @@ func TestClaimNextInIsolationDomainSkipsUnrelatedWork(t *testing.T) {
 		if err := json.Unmarshal(accepted.Body, &operation); err != nil {
 			t.Fatal(err)
 		}
-		return operation.Metadata.ID
+		return publicationTarget{
+			operationID: operation.Metadata.ID,
+			serviceID:   serviceID,
+			revisionID:  revisionID,
+		}
 	}
 
 	unrelatedDomainID := identity.New("iso")
 	scopedDomainID := identity.New("iso")
-	unrelatedOperationID := createPublication(unrelatedDomainID, "unrelated")
-	scopedOperationID := createPublication(scopedDomainID, "scoped")
+	unrelatedTarget := createPublication(unrelatedDomainID, "unrelated")
+	scopedTarget := createPublication(scopedDomainID, "scoped")
 	claim, err := repository.ClaimNextInIsolationDomain(
 		ctx,
 		persistence.OperationKindPublication,
@@ -911,8 +920,8 @@ func TestClaimNextInIsolationDomainSkipsUnrelatedWork(t *testing.T) {
 	if err != nil || claim == nil {
 		t.Fatalf("claim scoped operation = (%#v, %v)", claim, err)
 	}
-	if claim.IsolationDomainID != scopedDomainID || claim.ID != scopedOperationID ||
-		claim.ID == unrelatedOperationID {
+	if claim.IsolationDomainID != scopedDomainID || claim.ID != scopedTarget.operationID ||
+		claim.ID == unrelatedTarget.operationID {
 		t.Fatalf("scoped claim = %#v", claim)
 	}
 	if _, err := repository.ClaimNextInIsolationDomain(
@@ -933,6 +942,36 @@ func TestClaimNextInIsolationDomainSkipsUnrelatedWork(t *testing.T) {
 	)
 	if err != nil || missing != nil {
 		t.Fatalf("claim absent scope = (%#v, %v)", missing, err)
+	}
+
+	otherTarget := createPublication(scopedDomainID, "other-revision")
+	certifiedTarget := createPublication(scopedDomainID, "certified-revision")
+	certifiedClaim, err := repository.ClaimNextForServiceRevision(
+		ctx,
+		persistence.OperationKindPublication,
+		scopedDomainID,
+		certifiedTarget.serviceID,
+		certifiedTarget.revisionID,
+		"certified-worker",
+		time.Minute,
+	)
+	if err != nil || certifiedClaim == nil {
+		t.Fatalf("claim certified revision = (%#v, %v)", certifiedClaim, err)
+	}
+	if certifiedClaim.ID != certifiedTarget.operationID ||
+		certifiedClaim.ID == otherTarget.operationID {
+		t.Fatalf("certified claim = %#v", certifiedClaim)
+	}
+	if _, err := repository.ClaimNextForServiceRevision(
+		ctx,
+		persistence.OperationKindPublication,
+		scopedDomainID,
+		"",
+		certifiedTarget.revisionID,
+		"certified-worker",
+		time.Minute,
+	); err == nil {
+		t.Fatal("incomplete service-revision scope was accepted")
 	}
 }
 

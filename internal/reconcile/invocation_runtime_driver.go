@@ -92,6 +92,7 @@ func (CodexInvocationRuntimeAdapterFactory) New(
 type InvocationRuntimeDriverConfig struct {
 	LeaseDuration time.Duration
 	RenewInterval time.Duration
+	Readiness     func(context.Context) error
 }
 
 // InvocationRuntimeDriver is the claim-bound bridge from one durable runtime
@@ -107,6 +108,7 @@ type InvocationRuntimeDriver struct {
 	artifacts     InvocationRuntimeArtifactFinalizer
 	leaseDuration time.Duration
 	renewInterval time.Duration
+	readiness     func(context.Context) error
 }
 
 func NewInvocationRuntimeDriver(
@@ -136,7 +138,7 @@ func NewInvocationRuntimeDriver(
 	return &InvocationRuntimeDriver{
 		store: store, authorizer: authorizer, requests: requests, executions: executions,
 		provider: provider, adapters: adapters, artifacts: artifacts, leaseDuration: config.LeaseDuration,
-		renewInterval: config.RenewInterval,
+		renewInterval: config.RenewInterval, readiness: config.Readiness,
 	}, nil
 }
 
@@ -161,6 +163,9 @@ func (driver *InvocationRuntimeDriver) ObserveClaimed(
 ) (map[string]any, bool, error) {
 	if !invocationRuntimeEffectMatchesClaim(claim, effect) {
 		return nil, false, errors.Join(ErrEffectInvalid, ErrInvocationRuntimeTargetMismatch)
+	}
+	if err := driver.ready(ctx); err != nil {
+		return nil, false, err
 	}
 	attempt, err := driver.store.GetInvocationRuntimeAttempt(
 		ctx,
@@ -201,6 +206,9 @@ func (driver *InvocationRuntimeDriver) ApplyClaimed(
 ) (map[string]any, error) {
 	if !invocationRuntimeEffectMatchesClaim(claim, effect) {
 		return nil, errors.Join(ErrEffectInvalid, ErrInvocationRuntimeTargetMismatch)
+	}
+	if err := driver.ready(ctx); err != nil {
+		return nil, err
 	}
 	runCtx, cancel := context.WithDeadline(ctx, claim.DeadlineAt)
 	defer cancel()
@@ -266,6 +274,9 @@ func (driver *InvocationRuntimeDriver) ApplyClaimed(
 		}
 		return nil, err
 	}
+	if err := driver.ready(runCtx); err != nil {
+		return nil, err
+	}
 	session, err := driver.provider.StartRuntime(runCtx, ref)
 	if err != nil {
 		return nil, err
@@ -326,6 +337,9 @@ func (driver *InvocationRuntimeDriver) runTurn(
 			}
 			output.Observe(event)
 		case waitErr := <-waited:
+			if err := driver.ready(runCtx); err != nil {
+				return nil, errors.Join(ErrAmbiguousEffect, err)
+			}
 			if err := driver.drainRuntimeEvents(runCtx, claim, events, output); err != nil {
 				return nil, errors.Join(ErrAmbiguousEffect, err)
 			}
@@ -369,6 +383,9 @@ func (driver *InvocationRuntimeDriver) runTurn(
 				return nil, errors.Join(ErrAmbiguousEffect, publishErr)
 			}
 			claim = renewedClaim
+			if err := driver.ready(runCtx); err != nil {
+				return nil, errors.Join(ErrAmbiguousEffect, err)
+			}
 			if _, err := driver.store.CompleteInvocationRuntimeAttempt(
 				runCtx,
 				claim,
@@ -379,6 +396,10 @@ func (driver *InvocationRuntimeDriver) runTurn(
 			}
 			return result, nil
 		case <-ticker.C:
+			if err := driver.ready(runCtx); err != nil {
+				_ = turn.Interrupt(context.Background())
+				return nil, errors.Join(ErrAmbiguousEffect, err)
+			}
 			renewed, err := driver.store.RenewLease(runCtx, claim, driver.leaseDuration)
 			if err != nil {
 				_ = turn.Interrupt(context.Background())
@@ -401,6 +422,9 @@ func (driver *InvocationRuntimeDriver) publishInvocationArtifacts(
 	declarations []dgruntime.ArtifactDeclaration,
 ) (persistence.OperationClaim, error) {
 	for _, declaration := range declarations {
+		if err := driver.ready(ctx); err != nil {
+			return claim, err
+		}
 		renewed, err := driver.store.RenewLease(ctx, claim, driver.leaseDuration)
 		if err != nil {
 			return claim, err
@@ -452,6 +476,13 @@ func (driver *InvocationRuntimeDriver) publishInvocationArtifacts(
 		}
 	}
 	return claim, nil
+}
+
+func (driver *InvocationRuntimeDriver) ready(ctx context.Context) error {
+	if driver.readiness == nil {
+		return nil
+	}
+	return driver.readiness(ctx)
 }
 
 func (driver *InvocationRuntimeDriver) drainRuntimeEvents(
