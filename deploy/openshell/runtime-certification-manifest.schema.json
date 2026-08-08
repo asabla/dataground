@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dataground.dev/schemas/openshell-runtime-certification-manifest-v1.json",
+  "title": "DataGround OpenShell runtime certification manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "certificationId",
+    "generation",
+    "scope",
+    "runtime",
+    "artifacts",
+    "validity",
+    "limitations"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "dataground.dev.openshell-runtime-certification-manifest/v1"
+    },
+    "certificationId": {
+      "type": "string",
+      "pattern": "^rtcert_[0-9a-z]{20,32}$"
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["isolationDomainId", "serviceId", "revisionId"],
+      "properties": {
+        "isolationDomainId": {
+          "type": "string",
+          "pattern": "^iso_[0-9a-z]{20,32}$"
+        },
+        "serviceId": {
+          "type": "string",
+          "pattern": "^svc_[0-9a-z]{20,32}$"
+        },
+        "revisionId": {
+          "type": "string",
+          "pattern": "^rev_[0-9a-z]{20,32}$"
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "family",
+        "version",
+        "protocol",
+        "capabilityContract",
+        "capabilities"
+      ],
+      "properties": {
+        "profileId": {
+          "const": "openshell-codex-development/v1"
+        },
+        "family": {
+          "const": "codex"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "protocol": {
+          "const": "codex.app-server/v1"
+        },
+        "capabilityContract": {
+          "const": "dataground.runtime-capabilities/v1"
+        },
+        "capabilities": {
+          "type": "array",
+          "minItems": 15,
+          "maxItems": 15,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "classification", "evidence"],
+            "properties": {
+              "name": {
+                "enum": [
+                  "artifact-export",
+                  "cancellation",
+                  "command-approval",
+                  "failure",
+                  "file-change-approval",
+                  "interrupt",
+                  "item-activity",
+                  "permission-escalation",
+                  "question",
+                  "resume",
+                  "rich-item-delta",
+                  "runtime-artifact-events",
+                  "steer",
+                  "text",
+                  "usage"
+                ]
+              },
+              "classification": {
+                "enum": ["supported", "unsupported", "blocked"]
+              },
+              "evidence": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "gateway-ready",
+                    "sandbox-ready",
+                    "initialize",
+                    "turn-success",
+                    "turn-failure",
+                    "event-normalization",
+                    "interrupt",
+                    "cancellation",
+                    "command-approval",
+                    "file-change-approval",
+                    "artifact-export",
+                    "sandbox-teardown"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceRevision", "profile", "evidence", "acceptance"],
+      "properties": {
+        "sourceRevision": {
+          "$ref": "#/$defs/commit"
+        },
+        "profile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file", "sha256", "schemaVersion"],
+          "properties": {
+            "file": {
+              "const": "deploy/openshell/development-profile.json"
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "schemaVersion": {
+              "const": "dataground.dev.openshell-profile/v1"
+            }
+          }
+        },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file", "sha256", "runId"],
+          "properties": {
+            "file": {
+              "type": "string",
+              "pattern": "^deploy/openshell/evidence/openshell-runtime-conformance-v[0-9]+\\.json$"
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "runId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            }
+          }
+        },
+        "acceptance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file", "sha256"],
+          "properties": {
+            "file": {
+              "type": "string",
+              "pattern": "^deploy/openshell/evidence/openshell-runtime-conformance-acceptance-v[0-9]+\\.json$"
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        }
+      }
+    },
+    "validity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["issuedAt", "expiresAt", "reviewerId", "reason"],
+      "properties": {
+        "issuedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "reviewerId": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{2,63}$"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 512,
+          "pattern": "^(?!\\s)(?:[^\\u0000-\\u001f\\u007f])*(?<!\\s)$"
+        }
+      }
+    },
+    "limitations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deploymentScope",
+        "productionCertified",
+        "referenceRuntimeDefault",
+        "enforcement"
+      ],
+      "properties": {
+        "deploymentScope": {
+          "const": "loopback-development-only"
+        },
+        "productionCertified": {
+          "const": false
+        },
+        "referenceRuntimeDefault": {
+          "const": true
+        },
+        "enforcement": {
+          "const": "deny-all-fixture-only"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "commit": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+    }
+  }
+}
