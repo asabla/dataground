@@ -14,7 +14,10 @@ import (
 	"github.com/asabla/dataground/internal/reconcile"
 )
 
-const maximumPolicyFileBytes = 1 << 20
+const (
+	maximumPolicyFileBytes = 1 << 20
+	maximumEntityFileBytes = 1 << 20
+)
 
 func main() {
 	if err := run(context.Background(), os.Args[1:]); err != nil {
@@ -26,12 +29,13 @@ func main() {
 func run(ctx context.Context, arguments []string) error {
 	flags := flag.NewFlagSet("dataground-policy-install", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var domainID, serviceID, revisionID, policySetID, policyFile, actorID, reason, correlationID string
+	var domainID, serviceID, revisionID, policySetID, policyFile, entityFile, actorID, reason, correlationID string
 	flags.StringVar(&domainID, "isolation-domain", "", "isolation domain identifier")
 	flags.StringVar(&serviceID, "service", "", "agent service identifier")
 	flags.StringVar(&revisionID, "revision", "", "service revision identifier")
 	flags.StringVar(&policySetID, "policy-set", "", "portable policy-set identifier")
 	flags.StringVar(&policyFile, "policy-file", "", "Cedar policy file")
+	flags.StringVar(&entityFile, "entity-file", "", "Cedar entity snapshot file")
 	flags.StringVar(&actorID, "actor", "", "authorized operator identifier")
 	flags.StringVar(&reason, "reason", "", "operator-visible installation reason")
 	flags.StringVar(&correlationID, "correlation-id", "", "stable installation correlation identifier")
@@ -44,6 +48,7 @@ func run(ctx context.Context, arguments []string) error {
 		revisionID == "" ||
 		policySetID == "" ||
 		policyFile == "" ||
+		entityFile == "" ||
 		actorID == "" ||
 		reason == "" ||
 		correlationID == "" {
@@ -53,15 +58,20 @@ func run(ctx context.Context, arguments []string) error {
 	if err != nil {
 		return err
 	}
-	policy, err := reconcile.NewInvocationAuthorizationPolicy(
+	entityBytes, err := readEntityFile(entityFile)
+	if err != nil {
+		return err
+	}
+	policy, err := reconcile.NewInvocationAuthorizationPolicyWithEntities(
 		reconcile.InvocationAuthorizationPolicyScope{
 			IsolationDomainID: domainID,
 			ServiceID:         serviceID,
 			RevisionID:        revisionID,
 		},
 		policySetID,
-		reconcile.CanonicalInvocationCedarSchema(),
+		reconcile.CanonicalInvocationCedarEntitySchema(),
 		policyBytes,
+		entityBytes,
 	)
 	if err != nil {
 		return err
@@ -105,6 +115,7 @@ func run(ctx context.Context, arguments []string) error {
 			PolicyDigest:              append([]byte(nil), policy.Digest[:]...),
 			Schema:                    append([]byte(nil), policy.Schema...),
 			Policies:                  append([]byte(nil), policy.Policies...),
+			Entities:                  append([]byte(nil), policy.Entities...),
 			InstalledBy:               actorID,
 			InstallationCorrelationID: correlationID,
 			ReasonDigest:              append([]byte(nil), reasonDigest[:]...),
@@ -113,24 +124,52 @@ func run(ctx context.Context, arguments []string) error {
 }
 
 func readPolicyFile(path string) ([]byte, error) {
+	return readBoundedRegularFile(path, "policy", maximumPolicyFileBytes, false)
+}
+
+func readEntityFile(path string) ([]byte, error) {
+	return readBoundedRegularFile(path, "entity", maximumEntityFileBytes, true)
+}
+
+func readBoundedRegularFile(
+	path string,
+	kind string,
+	maximumBytes int64,
+	requireOwnerOnly bool,
+) ([]byte, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("open policy file: %w", err)
+		return nil, fmt.Errorf("open %s file: %w", kind, err)
 	}
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("inspect policy file: %w", err)
+		return nil, fmt.Errorf("inspect %s file: %w", kind, err)
 	}
-	if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > maximumPolicyFileBytes {
-		return nil, errors.New("policy file must be a non-empty regular file no larger than 1 MiB")
-	}
-	content, err := io.ReadAll(io.LimitReader(file, maximumPolicyFileBytes+1))
+	pathInfo, err := os.Lstat(path)
 	if err != nil {
-		return nil, fmt.Errorf("read policy file: %w", err)
+		return nil, fmt.Errorf("inspect %s path: %w", kind, err)
 	}
-	if len(content) == 0 || len(content) > maximumPolicyFileBytes {
-		return nil, errors.New("policy file must be a non-empty regular file no larger than 1 MiB")
+	if !pathInfo.Mode().IsRegular() ||
+		!os.SameFile(pathInfo, info) ||
+		!info.Mode().IsRegular() ||
+		info.Size() <= 0 ||
+		info.Size() > maximumBytes ||
+		requireOwnerOnly && info.Mode().Perm()&0o077 != 0 {
+		return nil, fmt.Errorf(
+			"%s file must be a non-empty owner-only regular file no larger than 1 MiB",
+			kind,
+		)
+	}
+	content, err := io.ReadAll(io.LimitReader(file, maximumBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read %s file: %w", kind, err)
+	}
+	if len(content) == 0 || int64(len(content)) > maximumBytes {
+		return nil, fmt.Errorf(
+			"%s file must be a non-empty owner-only regular file no larger than 1 MiB",
+			kind,
+		)
 	}
 	return content, nil
 }
