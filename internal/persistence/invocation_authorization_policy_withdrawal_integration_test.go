@@ -209,7 +209,12 @@ func TestInvocationAuthorizationPolicyWithdrawalIsExactAndAppendOnly(t *testing.
 	if err := persistence.RequireCurrentSchema(ctx, downgradeDatabase); err != nil {
 		t.Fatalf("failed downgrade changed current schema: %v", err)
 	}
-	if _, err := pool.Exec(ctx, "TRUNCATE invocation_authorization_policy_withdrawals, invocation_authorization_policies"); err != nil {
+	if _, err := pool.Exec(ctx, `
+		TRUNCATE invocation_authorization_entity_activations,
+		         invocation_authorization_entity_generations,
+		         invocation_authorization_policy_withdrawals,
+		         invocation_authorization_policies
+	`); err != nil {
 		t.Fatalf("remove withdrawal migration fixture: %v", err)
 	}
 	if err := persistence.MigrateDownTo(ctx, downgradeDatabase, 37); err != nil {
