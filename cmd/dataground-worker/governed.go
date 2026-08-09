@@ -27,6 +27,7 @@ import (
 const (
 	workerModeReference           = "reference"
 	workerModeGovernedDevelopment = "governed-development"
+	referenceRuntimeProfile       = "reference/v1"
 
 	governedOpenShellVersion       = "0.0.86"
 	governedGatewayDriver          = "docker"
@@ -140,6 +141,13 @@ func validGovernedDevelopmentPlan(plan execution.ExecutionPlan) bool {
 
 type scopedReconcileStore interface {
 	reconcile.Store
+	ClaimNextForRuntimeProfile(
+		context.Context,
+		string,
+		string,
+		string,
+		time.Duration,
+	) (*persistence.OperationClaim, error)
 	ClaimNextForServiceRevision(
 		context.Context,
 		string,
@@ -149,6 +157,25 @@ type scopedReconcileStore interface {
 		string,
 		time.Duration,
 	) (*persistence.OperationClaim, error)
+}
+
+type referenceScopedReconcileStore struct {
+	scopedReconcileStore
+}
+
+func (store *referenceScopedReconcileStore) ClaimNext(
+	ctx context.Context,
+	kind string,
+	workerID string,
+	leaseDuration time.Duration,
+) (*persistence.OperationClaim, error) {
+	return store.ClaimNextForRuntimeProfile(
+		ctx,
+		kind,
+		referenceRuntimeProfile,
+		workerID,
+		leaseDuration,
+	)
 }
 
 type isolationScopedReconcileStore struct {
@@ -183,7 +210,7 @@ func workerReconcileStore(
 			target:               config.certification.target,
 		}
 	}
-	return repository
+	return &referenceScopedReconcileStore{scopedReconcileStore: repository}
 }
 
 func (resources *workerResources) Ready(ctx context.Context) error {

@@ -69,7 +69,7 @@ func (repository *Repository) ClaimNext(
 	workerID string,
 	leaseDuration time.Duration,
 ) (*OperationClaim, error) {
-	return repository.claimNext(ctx, kind, "", "", "", workerID, leaseDuration)
+	return repository.claimNext(ctx, kind, "", "", "", "", workerID, leaseDuration)
 }
 
 // ClaimNextInIsolationDomain leases only work owned by one exact isolation
@@ -85,7 +85,7 @@ func (repository *Repository) ClaimNextInIsolationDomain(
 	if isolationDomainID == "" {
 		return nil, errors.New("isolation-scoped claim requires a domain")
 	}
-	return repository.claimNext(ctx, kind, isolationDomainID, "", "", workerID, leaseDuration)
+	return repository.claimNext(ctx, kind, isolationDomainID, "", "", "", workerID, leaseDuration)
 }
 
 // ClaimNextForServiceRevision leases work only for one exact service revision.
@@ -104,8 +104,24 @@ func (repository *Repository) ClaimNextForServiceRevision(
 		return nil, errors.New("service-revision-scoped claim requires complete scope")
 	}
 	return repository.claimNext(
-		ctx, kind, isolationDomainID, serviceID, revisionID, workerID, leaseDuration,
+		ctx, kind, isolationDomainID, serviceID, revisionID, "", workerID, leaseDuration,
 	)
+}
+
+// ClaimNextForRuntimeProfile leases only work resolved to one exact runtime
+// profile. Reference workers use this boundary so they cannot consume an
+// operation intended for a governed runtime.
+func (repository *Repository) ClaimNextForRuntimeProfile(
+	ctx context.Context,
+	kind string,
+	runtimeProfile string,
+	workerID string,
+	leaseDuration time.Duration,
+) (*OperationClaim, error) {
+	if runtimeProfile == "" {
+		return nil, errors.New("runtime-profile-scoped claim requires a profile")
+	}
+	return repository.claimNext(ctx, kind, "", "", "", runtimeProfile, workerID, leaseDuration)
 }
 
 func (repository *Repository) claimNext(
@@ -114,6 +130,7 @@ func (repository *Repository) claimNext(
 	isolationDomainID string,
 	serviceID string,
 	revisionID string,
+	runtimeProfile string,
 	workerID string,
 	leaseDuration time.Duration,
 ) (*OperationClaim, error) {
@@ -121,7 +138,7 @@ func (repository *Repository) claimNext(
 	if err != nil {
 		return nil, err
 	}
-	var resourceJoin, resourceScope string
+	var resourceJoin, resourceScope, runtimeProfileScope string
 	switch kind {
 	case OperationKindPublication:
 		resourceJoin = `
@@ -129,12 +146,18 @@ func (repository *Repository) claimNext(
 		  ON resource.isolation_domain_id = operation.isolation_domain_id
 		 AND resource.id = operation.revision_id`
 		resourceScope = "AND ($6 = '' OR (resource.service_id = $6 AND resource.id = $7))"
+		runtimeProfileScope = "AND ($8 = '' OR resource.runtime_profile = $8)"
 	case OperationKindInvocation:
 		resourceJoin = `
 		JOIN invocations AS resource
 		  ON resource.isolation_domain_id = operation.isolation_domain_id
-		 AND resource.id = operation.invocation_id`
+		 AND resource.id = operation.invocation_id
+		JOIN service_revisions AS target_revision
+		  ON target_revision.isolation_domain_id = resource.isolation_domain_id
+		 AND target_revision.service_id = resource.service_id
+		 AND target_revision.id = resource.revision_id`
 		resourceScope = "AND ($6 = '' OR (resource.service_id = $6 AND resource.revision_id = $7))"
+		runtimeProfileScope = "AND ($8 = '' OR target_revision.runtime_profile = $8)"
 	}
 	now := repository.now()
 	query := fmt.Sprintf(`
@@ -145,6 +168,7 @@ func (repository *Repository) claimNext(
 			%s
 			WHERE operation.observed_state <> ALL($1)
 			  AND ($5 = '' OR operation.isolation_domain_id = $5)
+			  %s
 			  %s
 			  AND (operation.command <> 'repair' OR (operation.effect_actor_id IS NOT NULL AND operation.effect_correlation_id IS NOT NULL))
 			  AND operation.due_at <= $2
@@ -177,7 +201,7 @@ func (repository *Repository) claimNext(
 			          COALESCE(operation.effect_actor_id, operation.actor_id)
 		)
 		SELECT * FROM claimed
-	`, table, resourceJoin, resourceScope, table, resourceColumn)
+	`, table, resourceJoin, resourceScope, runtimeProfileScope, table, resourceColumn)
 	var claim OperationClaim
 	claim.Kind = kind
 	claim.LeaseOwner = workerID
@@ -191,6 +215,7 @@ func (repository *Repository) claimNext(
 		isolationDomainID,
 		serviceID,
 		revisionID,
+		runtimeProfile,
 	).Scan(
 		&claim.IsolationDomainID,
 		&claim.ID,

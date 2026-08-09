@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,7 +23,8 @@ import (
 const durableOperationDeadline = 15 * time.Minute
 
 type DurableServer struct {
-	repository *persistence.Repository
+	repository     *persistence.Repository
+	dispatchTarget *persistence.InvocationDispatchTarget
 }
 
 func NewDurableHandler(
@@ -29,7 +32,23 @@ func NewDurableHandler(
 	authenticator authn.Authenticator,
 	authorizer authz.Authorizer,
 ) (http.Handler, error) {
-	return newDurableHandler(repository, authenticator, authorizer, nil, nil)
+	return newDurableHandler(repository, authenticator, authorizer, nil, nil, nil)
+}
+
+func NewGovernedDurableHandler(
+	ctx context.Context,
+	repository *persistence.Repository,
+	authenticator authn.Authenticator,
+	authorizer authz.Authorizer,
+	dispatchTarget persistence.InvocationDispatchTarget,
+) (http.Handler, error) {
+	if !dispatchTarget.Valid() {
+		return nil, errors.New("governed invocation dispatch target is invalid")
+	}
+	if err := repository.RequireInvocationDispatchTarget(ctx, dispatchTarget); err != nil {
+		return nil, err
+	}
+	return newDurableHandler(repository, authenticator, authorizer, nil, nil, &dispatchTarget)
 }
 
 func NewDurableDPoPBoundHandler(
@@ -41,7 +60,7 @@ func NewDurableDPoPBoundHandler(
 	if binder == nil {
 		return nil, errors.New("DPoP request binder is required")
 	}
-	return newDurableHandler(repository, authenticator, authorizer, binder, nil)
+	return newDurableHandler(repository, authenticator, authorizer, binder, nil, nil)
 }
 
 func NewDurableRateLimitedDPoPHandler(
@@ -57,7 +76,7 @@ func NewDurableRateLimitedDPoPHandler(
 	if rateLimiter == nil || isNilInterface(rateLimiter) {
 		return nil, errors.New("authentication rate limiter is required")
 	}
-	return newDurableHandler(repository, authenticator, authorizer, binder, rateLimiter)
+	return newDurableHandler(repository, authenticator, authorizer, binder, rateLimiter, nil)
 }
 
 func newDurableHandler(
@@ -66,12 +85,20 @@ func newDurableHandler(
 	authorizer authz.Authorizer,
 	binder *DPoPRequestBinder,
 	rateLimiter AuthenticationRateLimiter,
+	dispatchTarget *persistence.InvocationDispatchTarget,
 ) (http.Handler, error) {
 	protected, err := newProtectedRoute(authenticator, authorizer, binder, rateLimiter)
 	if err != nil {
 		return nil, err
 	}
-	server := &DurableServer{repository: repository}
+	if dispatchTarget != nil && !dispatchTarget.Valid() {
+		return nil, errors.New("governed invocation dispatch target is invalid")
+	}
+	if dispatchTarget != nil {
+		clonedTarget := *dispatchTarget
+		dispatchTarget = &clonedTarget
+	}
+	server := &DurableServer{repository: repository, dispatchTarget: dispatchTarget}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", healthHandler)
 	mux.HandleFunc("GET /readyz", server.ready)
@@ -191,10 +218,13 @@ func (server *DurableServer) invokeAgentService(response http.ResponseWriter, re
 		if !aliasPattern.MatchString(input.Alias) || input.Input == nil {
 			return encodedResult(invalidField("alias", "Alias and input are required."))
 		}
-		return server.repository.AcceptInvocation(request.Context(), commandIdempotency(request, domainID, actorID, body), persistence.AcceptInvocationInput{
+		return server.repository.AcceptInvocation(request.Context(), invocationCommandIdempotency(
+			request, domainID, actorID, body, server.dispatchTarget,
+		), persistence.AcceptInvocationInput{
 			ID: identity.New("inv"), ServiceID: request.PathValue("serviceId"), Alias: input.Alias,
 			Input: input.Input, ActorID: actorID, CorrelationID: correlationID,
-			Deadline: time.Now().UTC().Add(durableOperationDeadline),
+			Deadline:       time.Now().UTC().Add(durableOperationDeadline),
+			DispatchTarget: server.dispatchTarget,
 		})
 	})
 }
@@ -341,6 +371,32 @@ func commandIdempotency(request *http.Request, domainID, actorID string, body []
 		IsolationDomainID: domainID, Method: request.Method, Path: request.URL.EscapedPath(),
 		Key: request.Header.Get("Idempotency-Key"), RequestDigest: authenticatedRequestDigest(actorID, body),
 	}
+}
+
+func invocationCommandIdempotency(
+	request *http.Request,
+	domainID string,
+	actorID string,
+	body []byte,
+	dispatchTarget *persistence.InvocationDispatchTarget,
+) persistence.Idempotency {
+	idempotency := commandIdempotency(request, domainID, actorID, body)
+	if dispatchTarget == nil {
+		return idempotency
+	}
+	digest := sha256.New()
+	_, _ = digest.Write(idempotency.RequestDigest[:])
+	for _, value := range []string{
+		dispatchTarget.IsolationDomainID,
+		dispatchTarget.ServiceID,
+		dispatchTarget.RevisionID,
+		dispatchTarget.RuntimeProfile,
+	} {
+		_, _ = digest.Write([]byte{0})
+		_, _ = digest.Write([]byte(value))
+	}
+	copy(idempotency.RequestDigest[:], digest.Sum(nil))
+	return idempotency
 }
 
 func (server *DurableServer) writeCommandError(response http.ResponseWriter, err error, correlationID string) {

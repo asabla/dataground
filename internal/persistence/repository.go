@@ -88,13 +88,14 @@ type AcceptPublicationInput struct {
 }
 
 type AcceptInvocationInput struct {
-	ID            string
-	ServiceID     string
-	Alias         string
-	Input         map[string]any
-	ActorID       string
-	CorrelationID string
-	Deadline      time.Time
+	ID             string
+	ServiceID      string
+	Alias          string
+	Input          map[string]any
+	ActorID        string
+	CorrelationID  string
+	Deadline       time.Time
+	DispatchTarget *InvocationDispatchTarget
 }
 
 type AcceptCancellationInput struct {
@@ -376,23 +377,42 @@ func (repository *Repository) AcceptInvocation(
 	idempotency Idempotency,
 	input AcceptInvocationInput,
 ) (CommandResult, error) {
+	if input.DispatchTarget != nil && !input.DispatchTarget.Valid() {
+		return CommandResult{}, errors.New("invocation dispatch target is invalid")
+	}
+	if input.DispatchTarget != nil {
+		clonedTarget := *input.DispatchTarget
+		input.DispatchTarget = &clonedTarget
+	}
 	return repository.execute(ctx, idempotency, func(tx pgx.Tx, now time.Time) (int, any, error) {
-		var revisionID string
+		if input.DispatchTarget != nil &&
+			(idempotency.IsolationDomainID != input.DispatchTarget.IsolationDomainID ||
+				input.ServiceID != input.DispatchTarget.ServiceID) {
+			return 0, nil, invocationDispatchMismatch()
+		}
+		var revisionID, runtimeProfile string
 		if err := tx.QueryRow(ctx, `
-			SELECT alias.revision_id
+			SELECT alias.revision_id, revision.runtime_profile
 			FROM service_aliases AS alias
 			JOIN service_revisions AS revision
 			  ON revision.isolation_domain_id = alias.isolation_domain_id
 			 AND revision.id = alias.revision_id
+			 AND revision.service_id = alias.service_id
 			WHERE alias.isolation_domain_id = $1
 			  AND alias.service_id = $2
 			  AND alias.name = $3
 			  AND revision.state = 'published'
-		`, idempotency.IsolationDomainID, input.ServiceID, input.Alias).Scan(&revisionID); err != nil {
+			FOR SHARE OF alias, revision
+		`, idempotency.IsolationDomainID, input.ServiceID, input.Alias).Scan(&revisionID, &runtimeProfile); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return 0, nil, &DomainError{Code: "RESOURCE_NOT_FOUND", Message: "Published service alias was not found."}
 			}
 			return 0, nil, fmt.Errorf("resolve service alias: %w", err)
+		}
+		if input.DispatchTarget != nil &&
+			(revisionID != input.DispatchTarget.RevisionID ||
+				runtimeProfile != input.DispatchTarget.RuntimeProfile) {
+			return 0, nil, invocationDispatchMismatch()
 		}
 		encodedInput, err := json.Marshal(input.Input)
 		if err != nil {

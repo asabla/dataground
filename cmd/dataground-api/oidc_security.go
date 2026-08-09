@@ -253,6 +253,7 @@ func composeOIDCSecurity(
 	repository *persistence.Repository,
 	configuration oidcSecurityConfiguration,
 	policy []byte,
+	dispatchTarget *persistence.InvocationDispatchTarget,
 ) (*api.DurableOIDCDPoPAssembly, error) {
 	if ctx == nil || repository == nil || !repository.Configured() {
 		return nil, errors.New("durable OIDC security repository is required")
@@ -294,10 +295,11 @@ func composeOIDCSecurity(
 			MaximumLifetime:        configuration.JWT.MaximumLifetime.value,
 			Source:                 source,
 		},
-		KeysetRefresh:   configuration.keysetRefreshPolicy(),
-		DPoPClockSkew:   configuration.DPoP.ClockSkew.value,
-		MaximumProofAge: configuration.DPoP.MaximumProofAge.value,
-		DPoPNonce:       configuration.dpopNoncePolicy(repository),
+		KeysetRefresh:            configuration.keysetRefreshPolicy(),
+		DPoPClockSkew:            configuration.DPoP.ClockSkew.value,
+		MaximumProofAge:          configuration.DPoP.MaximumProofAge.value,
+		DPoPNonce:                configuration.dpopNoncePolicy(repository),
+		InvocationDispatchTarget: dispatchTarget,
 	})
 }
 

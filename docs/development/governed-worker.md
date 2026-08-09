@@ -6,6 +6,24 @@ This mode is intentionally limited to one development isolation domain, the pinn
 
 The PostgreSQL schema must be current. The exact service revision must already have an immutable execution plan, enforcement-bundle catalog record and object, installed approval-capable version 3 invocation Cedar policy, and a current `agent-inference` grant for every provider profile in that plan. The configured OpenShell gateway and `codex` provider must already exist. The repository does not yet expose a supported public workflow for provisioning those execution inputs; missing or unavailable inputs fail closed through the durable retry or terminal-failure contracts.
 
+## API dispatch
+
+The durable API can explicitly opt into this worker target without changing the public invocation route. Set `DATAGROUND_GOVERNED_DISPATCH_CONFIG_FILE` to an absolute path containing an owner-controlled regular file such as:
+
+```json
+{
+  "contract": "dataground.api-governed-dispatch/v1",
+  "isolationDomainId": "iso_00000000000000000001",
+  "serviceId": "svc_00000000000000000001",
+  "revisionId": "rev_00000000000000000001",
+  "runtimeProfile": "codex.app-server/v1"
+}
+```
+
+The configured API must use the same database as the worker. Invocation acceptance resolves the requested alias and verifies its published revision, service, isolation domain, and runtime profile against this complete immutable target in the command transaction. Any mismatch returns `INVOCATION_DISPATCH_TARGET_MISMATCH` without committing an invocation, execution operation, outbox event, command audit, or idempotency result. Omitting the file retains the existing reference behavior, and process-local API mode rejects the option.
+
+This API constraint only determines which durable operation the governed worker may claim. Reference workers lease only `reference/v1` operations, while the governed worker leases only its certified service revision, so the two modes cannot race to execute this target. API action authorization still runs before command admission, and the governed worker remains authoritative for exact-revision Cedar authorization, provider-profile grants, runtime certification, OpenShell admission, claim fencing, cancellation, and artifact finalization. The configuration does not publish or provision the target revision, expose OpenShell details, enable non-loopback traffic, or establish production certification.
+
 Select the mode with the complete environment below:
 
 ```sh
