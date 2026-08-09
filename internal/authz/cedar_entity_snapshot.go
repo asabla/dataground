@@ -17,7 +17,10 @@ const MaximumInvocationCedarEntitySnapshotBytes = 1 << 20
 
 const maximumInvocationCedarEntities = 4096
 
-const invocationAuthorizationPolicyV2DigestDomain = "dataground.invocation-authorization-policy/v2\x00"
+const (
+	invocationAuthorizationPolicyV2DigestDomain = "dataground.invocation-authorization-policy/v2\x00"
+	invocationAuthorizationPolicyV3DigestDomain = "dataground.invocation-authorization-policy/v3\x00"
+)
 
 const maximumInvocationCedarEntityIDBytes = 256
 
@@ -105,8 +108,29 @@ func InvocationAuthorizationPolicyV2Digest(
 	policies []byte,
 	entities []byte,
 ) [sha256.Size]byte {
+	return invocationAuthorizationPolicyEntityDigest(
+		invocationAuthorizationPolicyV2DigestDomain, schema, policies, entities,
+	)
+}
+
+func InvocationAuthorizationPolicyV3Digest(
+	schema []byte,
+	policies []byte,
+	entities []byte,
+) [sha256.Size]byte {
+	return invocationAuthorizationPolicyEntityDigest(
+		invocationAuthorizationPolicyV3DigestDomain, schema, policies, entities,
+	)
+}
+
+func invocationAuthorizationPolicyEntityDigest(
+	domain string,
+	schema []byte,
+	policies []byte,
+	entities []byte,
+) [sha256.Size]byte {
 	digest := sha256.New()
-	_, _ = digest.Write([]byte(invocationAuthorizationPolicyV2DigestDomain))
+	_, _ = digest.Write([]byte(domain))
 	var size [8]byte
 	for _, content := range [][]byte{schema, policies, entities} {
 		binary.BigEndian.PutUint64(size[:], uint64(len(content)))

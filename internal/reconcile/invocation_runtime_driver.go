@@ -42,6 +42,34 @@ type InvocationRuntimeStore interface {
 	RenewLease(context.Context, persistence.OperationClaim, time.Duration) (persistence.OperationClaim, error)
 }
 
+type InvocationRuntimeApprovalStore interface {
+	RecordInvocationRuntimeApprovalRequest(
+		context.Context,
+		persistence.OperationClaim,
+		persistence.EffectRecord,
+		persistence.InvocationRuntimeTarget,
+		persistence.InvocationRuntimeApprovalRequest,
+	) (persistence.InvocationRuntimeApproval, error)
+	GetInvocationRuntimeApproval(
+		context.Context,
+		string,
+		string,
+	) (persistence.InvocationRuntimeApproval, error)
+	BeginInvocationRuntimeApprovalDelivery(
+		context.Context,
+		persistence.OperationClaim,
+		persistence.EffectRecord,
+		string,
+		string,
+	) (persistence.InvocationRuntimeApproval, error)
+	CompleteInvocationRuntimeApprovalDelivery(
+		context.Context,
+		persistence.OperationClaim,
+		persistence.EffectRecord,
+		string,
+	) (persistence.InvocationRuntimeApproval, error)
+}
+
 type InvocationRuntimeAuthorizer interface {
 	AuthorizeInvocationRuntime(
 		context.Context,
@@ -90,25 +118,29 @@ func (CodexInvocationRuntimeAdapterFactory) New(
 }
 
 type InvocationRuntimeDriverConfig struct {
-	LeaseDuration time.Duration
-	RenewInterval time.Duration
-	Readiness     func(context.Context) error
+	LeaseDuration      time.Duration
+	RenewInterval      time.Duration
+	Readiness          func(context.Context) error
+	ApprovalStore      InvocationRuntimeApprovalStore
+	ApprovalAuthorizer InvocationApprovalAuthorizer
 }
 
 // InvocationRuntimeDriver is the claim-bound bridge from one durable runtime
 // effect to one native agent turn. It is deliberately opt-in and does not
 // change the default worker composition.
 type InvocationRuntimeDriver struct {
-	store         InvocationRuntimeStore
-	authorizer    InvocationRuntimeAuthorizer
-	requests      InvocationRuntimeRequestBuilder
-	executions    executionByOperationSource
-	provider      invocationRuntimeProvider
-	adapters      InvocationRuntimeAdapterFactory
-	artifacts     InvocationRuntimeArtifactFinalizer
-	leaseDuration time.Duration
-	renewInterval time.Duration
-	readiness     func(context.Context) error
+	store              InvocationRuntimeStore
+	authorizer         InvocationRuntimeAuthorizer
+	requests           InvocationRuntimeRequestBuilder
+	executions         executionByOperationSource
+	provider           invocationRuntimeProvider
+	adapters           InvocationRuntimeAdapterFactory
+	artifacts          InvocationRuntimeArtifactFinalizer
+	leaseDuration      time.Duration
+	renewInterval      time.Duration
+	readiness          func(context.Context) error
+	approvalStore      InvocationRuntimeApprovalStore
+	approvalAuthorizer InvocationApprovalAuthorizer
 }
 
 func NewInvocationRuntimeDriver(
@@ -130,6 +162,10 @@ func NewInvocationRuntimeDriver(
 		governedInvocationDependencyMissing(artifacts) {
 		return nil, errors.New("invocation runtime driver dependencies are required")
 	}
+	if governedInvocationDependencyMissing(config.ApprovalStore) !=
+		governedInvocationDependencyMissing(config.ApprovalAuthorizer) {
+		return nil, errors.New("runtime approval store and authorizer must be configured together")
+	}
 	if config.LeaseDuration <= 0 ||
 		config.RenewInterval <= 0 ||
 		config.RenewInterval >= config.LeaseDuration {
@@ -139,6 +175,7 @@ func NewInvocationRuntimeDriver(
 		store: store, authorizer: authorizer, requests: requests, executions: executions,
 		provider: provider, adapters: adapters, artifacts: artifacts, leaseDuration: config.LeaseDuration,
 		renewInterval: config.RenewInterval, readiness: config.Readiness,
+		approvalStore: config.ApprovalStore, approvalAuthorizer: config.ApprovalAuthorizer,
 	}, nil
 }
 
@@ -257,7 +294,7 @@ func (driver *InvocationRuntimeDriver) ApplyClaimed(
 	if err != nil {
 		return nil, errors.Join(ErrEffectInvalid, err)
 	}
-	if err := validateInvocationRuntimeRequest(request); err != nil {
+	if err := driver.validateInvocationRuntimeRequest(request); err != nil {
 		return nil, errors.Join(ErrEffectInvalid, err)
 	}
 	output, err := newInvocationRuntimeOutput(request.OutputSchema)
@@ -331,18 +368,26 @@ func (driver *InvocationRuntimeDriver) runTurn(
 				events = nil
 				continue
 			}
-			if err := driver.recordRuntimeEvent(runCtx, claim, event); err != nil {
+			renewed, err := driver.recordRuntimeEvent(
+				runCtx, claim, effect, target, turn, event,
+			)
+			if err != nil {
 				_ = turn.Interrupt(context.Background())
 				return nil, errors.Join(ErrAmbiguousEffect, err)
 			}
+			claim = renewed
 			output.Observe(event)
 		case waitErr := <-waited:
 			if err := driver.ready(runCtx); err != nil {
 				return nil, errors.Join(ErrAmbiguousEffect, err)
 			}
-			if err := driver.drainRuntimeEvents(runCtx, claim, events, output); err != nil {
+			renewed, err := driver.drainRuntimeEvents(
+				runCtx, claim, effect, target, turn, events, output,
+			)
+			if err != nil {
 				return nil, errors.Join(ErrAmbiguousEffect, err)
 			}
+			claim = renewed
 			if waitErr != nil {
 				if errors.Is(waitErr, dgruntime.ErrTurnFailed) {
 					result := map[string]any{"code": "RUNTIME_TURN_FAILED", "status": "failed"}
@@ -488,37 +533,126 @@ func (driver *InvocationRuntimeDriver) ready(ctx context.Context) error {
 func (driver *InvocationRuntimeDriver) drainRuntimeEvents(
 	ctx context.Context,
 	claim persistence.OperationClaim,
+	effect persistence.EffectRecord,
+	target persistence.InvocationRuntimeTarget,
+	turn dgruntime.Turn,
 	events <-chan dgruntime.Event,
 	output *invocationRuntimeOutput,
-) error {
+) (persistence.OperationClaim, error) {
 	for events != nil {
 		select {
 		case event, open := <-events:
 			if !open {
-				return nil
+				return claim, nil
 			}
-			if err := driver.recordRuntimeEvent(ctx, claim, event); err != nil {
-				return err
+			renewed, err := driver.recordRuntimeEvent(
+				ctx, claim, effect, target, turn, event,
+			)
+			if err != nil {
+				return claim, err
 			}
+			claim = renewed
 			output.Observe(event)
 		default:
-			return nil
+			return claim, nil
 		}
 	}
-	return nil
+	return claim, nil
 }
 
 func (driver *InvocationRuntimeDriver) recordRuntimeEvent(
 	ctx context.Context,
 	claim persistence.OperationClaim,
+	effect persistence.EffectRecord,
+	target persistence.InvocationRuntimeTarget,
+	turn dgruntime.Turn,
 	event dgruntime.Event,
-) error {
-	_, err := driver.store.RecordInvocationRuntimeEvent(ctx, claim, persistence.InvocationRuntimeEvent{
-		SourceSequence: event.Sequence,
-		Type:           event.Type,
-		Payload:        event.Payload,
-	})
-	return err
+) (persistence.OperationClaim, error) {
+	if event.Type != "interaction.approval.requested" {
+		_, err := driver.store.RecordInvocationRuntimeEvent(ctx, claim, persistence.InvocationRuntimeEvent{
+			SourceSequence: event.Sequence,
+			Type:           event.Type,
+			Payload:        event.Payload,
+		})
+		return claim, err
+	}
+	if governedInvocationDependencyMissing(driver.approvalStore) ||
+		governedInvocationDependencyMissing(driver.approvalAuthorizer) {
+		return claim, ErrInvocationApprovalUnavailable
+	}
+	adapterApprovalID, idOK := event.Payload["approvalId"].(string)
+	requestedAction, actionOK := event.Payload["action"].(string)
+	if !idOK || adapterApprovalID == "" || !actionOK || len(event.Payload) != 2 {
+		return claim, ErrInvocationApprovalInvalid
+	}
+	approval, err := driver.approvalStore.RecordInvocationRuntimeApprovalRequest(
+		ctx, claim, effect, target, persistence.InvocationRuntimeApprovalRequest{
+			SourceSequence: event.Sequence, RequestedAction: requestedAction,
+		},
+	)
+	if err != nil {
+		return claim, err
+	}
+	// The durable approval store atomically publishes the sanitized platform
+	// event with the pending record. The adapter-local identifier stays only
+	// in this stack frame for the eventual single-use delivery.
+	ticker := time.NewTicker(driver.renewInterval)
+	defer ticker.Stop()
+	for {
+		approval, err = driver.approvalStore.GetInvocationRuntimeApproval(
+			ctx, approval.IsolationDomainID, approval.ID,
+		)
+		if err != nil {
+			return claim, err
+		}
+		switch approval.State {
+		case "pending":
+		case "resolved":
+			effectiveDecision := approval.Decision
+			authorizationErr := driver.approvalAuthorizer.AuthorizeInvocationApproval(
+				ctx, approval, InvocationApprovalPhaseEffect,
+			)
+			if errors.Is(authorizationErr, ErrInvocationApprovalDenied) {
+				effectiveDecision = string(dgruntime.ApprovalDeny)
+			} else if authorizationErr != nil {
+				return claim, authorizationErr
+			}
+			if _, err := driver.approvalStore.BeginInvocationRuntimeApprovalDelivery(
+				ctx, claim, effect, approval.ID, effectiveDecision,
+			); err != nil {
+				return claim, err
+			}
+			if err := turn.ResolveApproval(
+				ctx,
+				adapterApprovalID,
+				dgruntime.ApprovalDecision(effectiveDecision),
+			); err != nil {
+				return claim, err
+			}
+			if _, err := driver.approvalStore.CompleteInvocationRuntimeApprovalDelivery(
+				ctx, claim, effect, approval.ID,
+			); err != nil {
+				return claim, err
+			}
+			return claim, nil
+		case "delivering":
+			return claim, persistence.ErrInvocationRuntimeApprovalDeliveryAmbiguous
+		case "delivered":
+			return claim, persistence.ErrInvocationRuntimeApprovalConflict
+		default:
+			return claim, ErrInvocationApprovalInvalid
+		}
+		select {
+		case <-ctx.Done():
+			return claim, ctx.Err()
+		case <-ticker.C:
+			renewed, err := driver.store.RenewLease(ctx, claim, driver.leaseDuration)
+			if err != nil {
+				return claim, err
+			}
+			claim = renewed
+		}
+	}
 }
 
 func invocationRuntimeEffectMatchesClaim(
@@ -547,12 +681,30 @@ func invocationRuntimeTargetMatchesClaim(
 		target.StateMachineVersion == claim.StateMachineVersion
 }
 
-func validateInvocationRuntimeRequest(request dgruntime.StartRequest) error {
+func (driver *InvocationRuntimeDriver) validateInvocationRuntimeRequest(
+	request dgruntime.StartRequest,
+) error {
+	if err := validateInvocationRuntimeRequest(request); err != nil {
+		return err
+	}
+	if request.ApprovalMode == dgruntime.ApprovalInteractive &&
+		(governedInvocationDependencyMissing(driver.approvalStore) ||
+			governedInvocationDependencyMissing(driver.approvalAuthorizer)) {
+		return errors.New("interactive invocation runtime approvals require durable mediation")
+	}
+	return nil
+}
+
+func validateInvocationRuntimeRequest(
+	request dgruntime.StartRequest,
+) error {
 	if request.Prompt == "" {
 		return errors.New("invocation runtime prompt is required")
 	}
-	if request.ApprovalMode != "" && request.ApprovalMode != dgruntime.ApprovalLocked {
-		return errors.New("invocation runtime approvals must remain locked")
+	if request.ApprovalMode != "" &&
+		request.ApprovalMode != dgruntime.ApprovalLocked &&
+		request.ApprovalMode != dgruntime.ApprovalInteractive {
+		return errors.New("invocation runtime approval mode is invalid")
 	}
 	if request.SandboxMode != "" &&
 		request.SandboxMode != dgruntime.SandboxReadOnly &&

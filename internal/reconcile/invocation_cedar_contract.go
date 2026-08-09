@@ -2,8 +2,11 @@ package reconcile
 
 import (
 	"errors"
+	"regexp"
 	"slices"
 )
+
+var approvalIDPattern = regexp.MustCompile(`^apr_[0-9a-z]{20,32}$`)
 
 const InvocationCedarContract = "dataground.invocation-authorization-cedar/v1"
 
@@ -16,6 +19,20 @@ const (
 type InvocationCedarEntityUID struct {
 	Type string
 	ID   string
+}
+
+type InvocationApprovalAuthorizationContext struct {
+	ID              string
+	RequestedAction string
+	Decision        string
+	Phase           string
+}
+
+func (value InvocationApprovalAuthorizationContext) Valid() bool {
+	return approvalIDPattern.MatchString(value.ID) &&
+		(value.RequestedAction == "process.execute" || value.RequestedAction == "workspace.change") &&
+		(value.Decision == "approve" || value.Decision == "deny") &&
+		(value.Phase == InvocationApprovalPhaseEntry || value.Phase == InvocationApprovalPhaseEffect)
 }
 
 type InvocationCedarRuntimeContext struct {
@@ -37,6 +54,7 @@ type InvocationCedarInput struct {
 	RevisionID        string
 	CorrelationID     string
 	Runtime           *InvocationCedarRuntimeContext
+	Approval          *InvocationApprovalAuthorizationContext
 }
 
 func mapInvocationCedarInput(request InvocationAuthorizationRequest) (InvocationCedarInput, error) {
@@ -62,6 +80,11 @@ func mapInvocationCedarInput(request InvocationAuthorizationRequest) (Invocation
 		ServiceID:         request.ServiceID,
 		RevisionID:        request.RevisionID,
 		CorrelationID:     request.CorrelationID,
+	}
+	if request.Approval != nil {
+		approval := *request.Approval
+		input.Approval = &approval
+		return input, nil
 	}
 	if request.Runtime == nil {
 		return input, nil
@@ -92,6 +115,10 @@ func cloneInvocationCedarInput(input InvocationCedarInput) (InvocationCedarInput
 		runtimeContext.ArtifactKinds = append([]string(nil), input.Runtime.ArtifactKinds...)
 		cloned.Runtime = &runtimeContext
 	}
+	if input.Approval != nil {
+		approval := *input.Approval
+		cloned.Approval = &approval
+	}
 	return cloned, nil
 }
 
@@ -111,9 +138,9 @@ func validInvocationCedarInput(input InvocationCedarInput) bool {
 	}
 	switch input.Action.ID {
 	case string(InvocationAuthorizationAdmit), string(InvocationAuthorizationCancel):
-		return input.Runtime == nil
+		return input.Runtime == nil && input.Approval == nil
 	case string(InvocationAuthorizationRun):
-		if input.Runtime == nil ||
+		if input.Runtime == nil || input.Approval != nil ||
 			input.Runtime.ApprovalMode == "" ||
 			input.Runtime.SandboxMode == "" ||
 			input.Runtime.ArtifactCount < 0 ||
@@ -126,6 +153,8 @@ func validInvocationCedarInput(input InvocationCedarInput) bool {
 			}
 		}
 		return true
+	case string(InvocationAuthorizationApprove):
+		return input.Runtime == nil && input.Approval != nil && input.Approval.Valid()
 	default:
 		return false
 	}

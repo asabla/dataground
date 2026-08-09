@@ -1,0 +1,271 @@
+package persistence_test
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"testing"
+	"time"
+
+	"github.com/asabla/dataground/internal/domain"
+	"github.com/asabla/dataground/internal/identity"
+	"github.com/asabla/dataground/internal/persistence"
+	"github.com/asabla/dataground/internal/reconcile"
+	"github.com/asabla/dataground/internal/reference"
+)
+
+func TestInvocationRuntimeApprovalLifecycleIsDurableAndSingleUse(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	databaseURL := testDatabaseURL(t)
+	database, err := persistence.OpenSQL(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := persistence.MigrateDownTo(ctx, database, 0); err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	if err := persistence.MigrateUp(ctx, database); err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	database.Close()
+	pool, err := persistence.OpenPool(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	repository := persistence.NewRepository(pool)
+	domainID, serviceID, revisionID := identity.New("iso"), identity.New("svc"), identity.New("rev")
+	if result, err := repository.CreateService(
+		ctx,
+		testIdempotency(domainID, "approval-service"),
+		persistence.CreateServiceInput{
+			ID: serviceID, Name: "approval-service", ActorID: "creator",
+			CorrelationID: identity.New("cor"),
+		},
+	); err != nil || result.Status != http.StatusCreated {
+		t.Fatalf("create service = (%d, %v)", result.Status, err)
+	}
+	if _, err := repository.CreateRevision(
+		ctx,
+		testIdempotency(domainID, "approval-revision"),
+		persistence.CreateRevisionInput{
+			ID: revisionID, ServiceID: serviceID, RuntimeProfile: "reference/v1",
+			RequiredCapabilities: []string{"tool"}, ActorID: "creator",
+			CorrelationID: identity.New("cor"),
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	published, err := repository.AcceptPublication(
+		ctx,
+		testIdempotency(domainID, "approval-publish"),
+		persistence.AcceptPublicationInput{
+			RevisionID: revisionID, ExpectedVersion: 1, ActorID: "publisher",
+			CorrelationID: identity.New("cor"), Deadline: time.Now().Add(time.Minute),
+		},
+		reference.Capabilities(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var publication domain.Operation
+	if err := json.Unmarshal(published.Body, &publication); err != nil {
+		t.Fatal(err)
+	}
+	worker := reconcile.New(repository, reconcile.NewReferenceDriver(pool), "approval-setup")
+	runToTerminal(t, ctx, worker, repository, domainID, publication.Metadata.ID, "published")
+	if _, err := repository.AssignAlias(
+		ctx,
+		testIdempotency(domainID, "approval-alias"),
+		persistence.AssignAliasInput{
+			ID: identity.New("als"), ServiceID: serviceID, Name: "stable",
+			RevisionID: revisionID, ActorID: "publisher",
+			CorrelationID: identity.New("cor"),
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	invocationID := identity.New("inv")
+	accepted, err := repository.AcceptInvocation(
+		ctx,
+		testIdempotency(domainID, "approval-invocation"),
+		persistence.AcceptInvocationInput{
+			ID: invocationID, ServiceID: serviceID, Alias: "stable",
+			Input: map[string]any{"prompt": "change a file"}, ActorID: "requester",
+			CorrelationID: identity.New("cor"), Deadline: time.Now().Add(time.Minute),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var invocation domain.Invocation
+	if err := json.Unmarshal(accepted.Body, &invocation); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 2; index++ {
+		if ran, err := worker.RunOne(ctx, persistence.OperationKindInvocation); err != nil || !ran {
+			t.Fatalf("advance invocation = (%t, %v)", ran, err)
+		}
+	}
+	claim, err := repository.ClaimNext(
+		ctx, persistence.OperationKindInvocation, "approval-runtime", time.Minute,
+	)
+	if err != nil || claim == nil {
+		t.Fatalf("claim runtime = (%#v, %v)", claim, err)
+	}
+	target, err := repository.GetClaimedInvocationRuntimeTarget(ctx, *claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	effect, err := repository.PrepareEffect(
+		ctx,
+		*claim,
+		"run-invocation",
+		sha256.Sum256([]byte(domainID+":"+invocation.OperationID+":approval-runtime")),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.BeginInvocationRuntimeAttempt(ctx, *claim, effect); err != nil {
+		t.Fatal(err)
+	}
+	request := persistence.InvocationRuntimeApprovalRequest{
+		SourceSequence: 7, RequestedAction: "workspace.change",
+	}
+	approval, err := repository.RecordInvocationRuntimeApprovalRequest(
+		ctx, *claim, effect, target, request,
+	)
+	if err != nil || approval.State != "pending" || approval.Version != 1 ||
+		approval.ResolvedBy != "" || approval.Decision != "" {
+		t.Fatalf("record approval = (%#v, %v)", approval, err)
+	}
+	replayed, err := repository.RecordInvocationRuntimeApprovalRequest(
+		ctx, *claim, effect, target, request,
+	)
+	if err != nil || replayed.ID != approval.ID || replayed.Version != 1 {
+		t.Fatalf("replay approval = (%#v, %v)", replayed, err)
+	}
+	var encodedApprovalEvent []byte
+	if err := pool.QueryRow(ctx, `
+		SELECT payload
+		FROM invocation_events
+		WHERE isolation_domain_id = $1
+		  AND invocation_id = $2
+		  AND source_kind = 'runtime'
+		  AND source_sequence = $3
+	`, domainID, invocationID, request.SourceSequence).Scan(&encodedApprovalEvent); err != nil {
+		t.Fatal(err)
+	}
+	var approvalEvent map[string]any
+	if err := json.Unmarshal(encodedApprovalEvent, &approvalEvent); err != nil {
+		t.Fatal(err)
+	}
+	if approvalEvent["approvalId"] != approval.ID ||
+		approvalEvent["approvalId"] == "approval-1" ||
+		approvalEvent["action"] != request.RequestedAction {
+		t.Fatalf("sanitized approval event = %#v", approvalEvent)
+	}
+	var approvalEventCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM invocation_events
+		WHERE isolation_domain_id = $1
+		  AND invocation_id = $2
+		  AND source_kind = 'runtime'
+		  AND source_sequence = $3
+	`, domainID, invocationID, request.SourceSequence).Scan(&approvalEventCount); err != nil {
+		t.Fatal(err)
+	}
+	if approvalEventCount != 1 {
+		t.Fatalf("approval event replay count = %d", approvalEventCount)
+	}
+	conflict := request
+	conflict.RequestedAction = "process.execute"
+	if _, err := repository.RecordInvocationRuntimeApprovalRequest(
+		ctx, *claim, effect, target, conflict,
+	); !errors.Is(err, persistence.ErrInvocationRuntimeApprovalConflict) {
+		t.Fatalf("conflicting request = %v", err)
+	}
+	resolution := persistence.InvocationRuntimeApprovalResolution{
+		IsolationDomainID: domainID, ApprovalID: approval.ID, ExpectedVersion: 1,
+		Decision: "approve", ActorID: "actual-approver",
+		CorrelationID: identity.New("cor"),
+	}
+	resolved, err := repository.ResolveInvocationRuntimeApproval(ctx, resolution)
+	if err != nil || resolved.State != "resolved" || resolved.Version != 2 ||
+		resolved.ResolvedBy != resolution.ActorID ||
+		resolved.ResolutionCorrelationID != resolution.CorrelationID {
+		t.Fatalf("resolve approval = (%#v, %v)", resolved, err)
+	}
+	restarted := persistence.NewRepository(pool)
+	restored, err := restarted.GetInvocationRuntimeApproval(ctx, domainID, approval.ID)
+	if err != nil || restored.State != "resolved" || restored.Decision != "approve" {
+		t.Fatalf("restore resolved approval = (%#v, %v)", restored, err)
+	}
+	if replayed, err := restarted.ResolveInvocationRuntimeApproval(
+		ctx, resolution,
+	); err != nil || replayed.Version != 2 {
+		t.Fatalf("replay resolution = (%#v, %v)", replayed, err)
+	}
+	different := resolution
+	different.CorrelationID = identity.New("cor")
+	if _, err := restarted.ResolveInvocationRuntimeApproval(
+		ctx, different,
+	); !errors.Is(err, persistence.ErrInvocationRuntimeApprovalConflict) {
+		t.Fatalf("conflicting resolution = %v", err)
+	}
+	delivering, err := restarted.BeginInvocationRuntimeApprovalDelivery(
+		ctx, *claim, effect, approval.ID, "approve",
+	)
+	if err != nil || delivering.State != "delivering" || delivering.Version != 3 {
+		t.Fatalf("begin delivery = (%#v, %v)", delivering, err)
+	}
+	if _, err := restarted.BeginInvocationRuntimeApprovalDelivery(
+		ctx, *claim, effect, approval.ID, "approve",
+	); !errors.Is(err, persistence.ErrInvocationRuntimeApprovalDeliveryAmbiguous) {
+		t.Fatalf("duplicate delivery = %v", err)
+	}
+	delivered, err := restarted.CompleteInvocationRuntimeApprovalDelivery(
+		ctx, *claim, effect, approval.ID,
+	)
+	if err != nil || delivered.State != "delivered" || delivered.Version != 4 ||
+		delivered.EffectiveDecision != "approve" || delivered.DeliveredAt.IsZero() {
+		t.Fatalf("complete delivery = (%#v, %v)", delivered, err)
+	}
+	replayedDelivery, err := restarted.CompleteInvocationRuntimeApprovalDelivery(
+		ctx, *claim, effect, approval.ID,
+	)
+	if err != nil || replayedDelivery.Version != 4 {
+		t.Fatalf("replay delivery completion = (%#v, %v)", replayedDelivery, err)
+	}
+	if _, err := restarted.GetInvocationRuntimeApproval(
+		ctx, identity.New("iso"), approval.ID,
+	); !errors.Is(err, persistence.ErrInvocationRuntimeApprovalMissing) {
+		t.Fatalf("cross-domain approval = %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		DELETE FROM invocation_runtime_approvals
+		WHERE isolation_domain_id = $1 AND id = $2
+	`, domainID, approval.ID); err == nil {
+		t.Fatal("append-only approval accepted deletion")
+	}
+	var auditActor string
+	if err := pool.QueryRow(ctx, `
+		SELECT actor_id
+		FROM audit_records
+		WHERE isolation_domain_id = $1
+		  AND resource_type = 'invocation-approval'
+		  AND resource_id = $2
+		  AND action = 'invocation-approval.resolve'
+	`, domainID, approval.ID).Scan(&auditActor); err != nil {
+		t.Fatal(err)
+	}
+	if auditActor != "actual-approver" {
+		t.Fatalf("approval audit actor = %q", auditActor)
+	}
+}

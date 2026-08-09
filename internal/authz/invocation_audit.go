@@ -17,9 +17,10 @@ var (
 type InvocationAction string
 
 const (
-	InvocationAdmit  InvocationAction = "admit"
-	InvocationRun    InvocationAction = "run"
-	InvocationCancel InvocationAction = "cancel"
+	InvocationAdmit   InvocationAction = "admit"
+	InvocationRun     InvocationAction = "run"
+	InvocationCancel  InvocationAction = "cancel"
+	InvocationApprove InvocationAction = "approve"
 )
 
 type InvocationDecisionRecord struct {
@@ -58,7 +59,7 @@ type InvocationDecisionRecorder interface {
 
 func validInvocationAction(action InvocationAction) bool {
 	switch action {
-	case InvocationAdmit, InvocationRun, InvocationCancel:
+	case InvocationAdmit, InvocationRun, InvocationCancel, InvocationApprove:
 		return true
 	default:
 		return false

@@ -222,6 +222,7 @@ func (checker *runtimeCertificationChecker) Check(ctx context.Context) error {
 type governedInvocationAuthorizer interface {
 	reconcile.InvocationAdmissionAuthorizer
 	reconcile.InvocationRuntimeAuthorizer
+	reconcile.InvocationApprovalAuthorizer
 	reconcile.InvocationCancellationAuthorizer
 }
 
@@ -265,6 +266,22 @@ func (authorizer *certifiedInvocationAuthorizer) AuthorizeInvocationRuntime(
 		return err
 	}
 	return authorizer.delegate.AuthorizeInvocationRuntime(ctx, target, request)
+}
+
+func (authorizer *certifiedInvocationAuthorizer) AuthorizeInvocationApproval(
+	ctx context.Context,
+	approval persistence.InvocationRuntimeApproval,
+	phase string,
+) error {
+	if err := authorizer.check(
+		ctx,
+		approval.IsolationDomainID,
+		approval.ServiceID,
+		approval.RevisionID,
+	); err != nil {
+		return err
+	}
+	return authorizer.delegate.AuthorizeInvocationApproval(ctx, approval, phase)
 }
 
 func (authorizer *certifiedInvocationAuthorizer) AuthorizeInvocationCancellation(
@@ -406,6 +423,7 @@ func (driver *certificationBoundDriver) ApplyClaimed(
 var (
 	_ reconcile.InvocationAdmissionAuthorizer    = (*certifiedInvocationAuthorizer)(nil)
 	_ reconcile.InvocationRuntimeAuthorizer      = (*certifiedInvocationAuthorizer)(nil)
+	_ reconcile.InvocationApprovalAuthorizer     = (*certifiedInvocationAuthorizer)(nil)
 	_ reconcile.InvocationCancellationAuthorizer = (*certifiedInvocationAuthorizer)(nil)
 	_ execution.ExecutionProvider                = (*certifiedExecutionProvider)(nil)
 	_ reconcile.EffectDriver                     = (*certificationBoundDriver)(nil)

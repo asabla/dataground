@@ -20,6 +20,7 @@ import (
 	"github.com/asabla/dataground/internal/execution/s3store"
 	"github.com/asabla/dataground/internal/persistence"
 	"github.com/asabla/dataground/internal/reconcile"
+	dgruntime "github.com/asabla/dataground/internal/runtime"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -64,6 +65,21 @@ type governedExecutionPlanStore struct {
 	execution.ExecutionPlanStore
 	readiness runtimeCertificationReadiness
 	target    runtimeCertificationTarget
+}
+
+type governedCodexRuntimeRequestBuilder struct {
+	delegate reconcile.CodexInvocationRuntimeRequestBuilder
+}
+
+func (builder governedCodexRuntimeRequestBuilder) BuildInvocationRuntimeRequest(
+	target persistence.InvocationRuntimeTarget,
+) (dgruntime.StartRequest, error) {
+	request, err := builder.delegate.BuildInvocationRuntimeRequest(target)
+	if err != nil {
+		return dgruntime.StartRequest{}, err
+	}
+	request.ApprovalMode = dgruntime.ApprovalInteractive
+	return request, nil
 }
 
 type durableProviderCredentialAuthorizer struct {
@@ -440,6 +456,20 @@ func composeWorkerDriver(
 	if err != nil {
 		return fail(err)
 	}
+	activePolicy, err := policySource.ResolveInvocationAuthorizationPolicy(
+		ctx,
+		reconcile.InvocationAuthorizationPolicyScope{
+			IsolationDomainID: config.certification.target.isolationDomainID,
+			ServiceID:         config.certification.target.serviceID,
+			RevisionID:        config.certification.target.revisionID,
+		},
+	)
+	if err != nil {
+		return fail(err)
+	}
+	if activePolicy.Contract != reconcile.InvocationAuthorizationPolicyApprovalContract {
+		return fail(errors.New("approval-capable invocation authorization policy is required"))
+	}
 	baseAuthorizer, err := reconcile.NewAuditedCedarInvocationAuthorizer(policySource, repository)
 	if err != nil {
 		return fail(err)
@@ -459,15 +489,17 @@ func composeWorkerDriver(
 	runtimeDriver, err := reconcile.NewInvocationRuntimeDriver(
 		repository,
 		authorizer,
-		reconcile.CodexInvocationRuntimeRequestBuilder{},
+		governedCodexRuntimeRequestBuilder{},
 		executionStore,
 		provider,
 		reconcile.CodexInvocationRuntimeAdapterFactory{},
 		artifactFinalizer,
 		reconcile.InvocationRuntimeDriverConfig{
-			LeaseDuration: governedRuntimeLeaseDuration,
-			RenewInterval: governedRuntimeRenewInterval,
-			Readiness:     checker.Check,
+			LeaseDuration:      governedRuntimeLeaseDuration,
+			RenewInterval:      governedRuntimeRenewInterval,
+			Readiness:          checker.Check,
+			ApprovalStore:      repository,
+			ApprovalAuthorizer: authorizer,
 		},
 	)
 	if err != nil {
