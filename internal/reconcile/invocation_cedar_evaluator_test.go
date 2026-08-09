@@ -2,10 +2,12 @@ package reconcile
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
 	dgruntime "github.com/asabla/dataground/internal/runtime"
+	cedar "github.com/cedar-policy/cedar-go"
 )
 
 func TestCedarInvocationAuthorizationEvaluatorPermitsClosedInput(t *testing.T) {
@@ -124,6 +126,79 @@ func TestCedarInvocationAuthorizationEvaluatorMapsRuntimeFacts(t *testing.T) {
 		input,
 	); err != nil {
 		t.Fatalf("evaluate runtime facts: %v", err)
+	}
+}
+
+func TestCedarInvocationAuthorizationEvaluatorBindsApprovalPrincipalAndPhase(t *testing.T) {
+	t.Parallel()
+
+	scope := InvocationAuthorizationPolicyScope{
+		IsolationDomainID: "iso_1",
+		ServiceID:         "svc_1",
+		RevisionID:        "rev_1",
+	}
+	var entities cedar.EntityMap
+	if err := json.Unmarshal(
+		[]byte(`[{"uid":{"type":"DataGround::Actor","id":"actual-controller"},"attrs":{},"parents":[]}]`),
+		&entities,
+	); err != nil {
+		t.Fatal(err)
+	}
+	canonicalEntities, err := json.Marshal(entities)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := NewInvocationAuthorizationPolicyWithApprovalEntities(
+		scope,
+		"approval-policy",
+		CanonicalInvocationCedarApprovalSchema(),
+		[]byte(`permit(
+			principal == DataGround::Actor::"actual-controller",
+			action == DataGround::Action::"approve",
+			resource == DataGround::Invocation::"inv_1"
+		) when {
+			context.isolationDomainID == "iso_1" &&
+			context.operationID == "op_1" &&
+			context.serviceID == "svc_1" &&
+			context.revisionID == "rev_1" &&
+			context.correlationID == "corr_1" &&
+			context.approval.approvalID == "apr_00000000000000000001" &&
+			context.approval.requestedAction == "workspace.change" &&
+			context.approval.decision == "approve" &&
+			context.approval.phase == "entry"
+		};`),
+		canonicalEntities,
+	)
+	if err != nil {
+		t.Fatalf("construct approval policy: %v", err)
+	}
+	request := InvocationAuthorizationRequest{
+		Action:            InvocationAuthorizationApprove,
+		IsolationDomainID: "iso_1",
+		OperationID:       "op_1",
+		InvocationID:      "inv_1",
+		ServiceID:         "svc_1",
+		RevisionID:        "rev_1",
+		ActorID:           "actual-controller",
+		CorrelationID:     "corr_1",
+		Approval: &InvocationApprovalAuthorizationContext{
+			ID:              "apr_00000000000000000001",
+			RequestedAction: "workspace.change",
+			Decision:        "approve",
+			Phase:           InvocationApprovalPhaseEntry,
+		},
+	}
+	evaluator := NewCedarInvocationAuthorizationEvaluator()
+	if err := evaluator.EvaluateInvocationAuthorization(
+		context.Background(), policy, testInvocationCedarInput(t, request),
+	); err != nil {
+		t.Fatalf("evaluate approval entry: %v", err)
+	}
+	request.Approval.Phase = InvocationApprovalPhaseEffect
+	if err := evaluator.EvaluateInvocationAuthorization(
+		context.Background(), policy, testInvocationCedarInput(t, request),
+	); !errors.Is(err, ErrInvocationAuthorizationDenied) {
+		t.Fatalf("effect phase was not bound: %v", err)
 	}
 }
 

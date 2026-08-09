@@ -12,9 +12,10 @@ import (
 type InvocationAuthorizationAction string
 
 const (
-	InvocationAuthorizationAdmit  InvocationAuthorizationAction = "admit"
-	InvocationAuthorizationRun    InvocationAuthorizationAction = "run"
-	InvocationAuthorizationCancel InvocationAuthorizationAction = "cancel"
+	InvocationAuthorizationAdmit   InvocationAuthorizationAction = "admit"
+	InvocationAuthorizationRun     InvocationAuthorizationAction = "run"
+	InvocationAuthorizationCancel  InvocationAuthorizationAction = "cancel"
+	InvocationAuthorizationApprove InvocationAuthorizationAction = "approve"
 )
 
 var (
@@ -32,6 +33,7 @@ type InvocationAuthorizationRequest struct {
 	ActorID           string
 	CorrelationID     string
 	Runtime           *dgruntime.StartRequest
+	Approval          *InvocationApprovalAuthorizationContext
 }
 
 type InvocationAuthorizationDecision interface {
@@ -90,6 +92,28 @@ func (authorizer *InvocationAuthorizer) AuthorizeInvocationRuntime(
 	}
 	request.Runtime = &cloned
 	return authorizer.authorize(ctx, request, ErrInvocationRuntimeDenied)
+}
+
+func (authorizer *InvocationAuthorizer) AuthorizeInvocationApproval(
+	ctx context.Context,
+	approval persistence.InvocationRuntimeApproval,
+	phase string,
+) error {
+	request := invocationAuthorizationRequest(
+		InvocationAuthorizationApprove,
+		approval.IsolationDomainID,
+		approval.OperationID,
+		approval.InvocationID,
+		approval.ServiceID,
+		approval.RevisionID,
+		approval.ResolvedBy,
+		approval.ResolutionCorrelationID,
+	)
+	request.Approval = &InvocationApprovalAuthorizationContext{
+		ID: approval.ID, RequestedAction: approval.RequestedAction,
+		Decision: approval.Decision, Phase: phase,
+	}
+	return authorizer.authorize(ctx, request, ErrInvocationApprovalDenied)
 }
 
 func (authorizer *InvocationAuthorizer) AuthorizeInvocationCancellation(
@@ -151,11 +175,16 @@ func (authorizer *InvocationAuthorizer) authorize(
 func validInvocationAuthorizationRequest(request InvocationAuthorizationRequest) bool {
 	switch request.Action {
 	case InvocationAuthorizationAdmit, InvocationAuthorizationCancel:
-		if request.Runtime != nil {
+		if request.Runtime != nil || request.Approval != nil {
 			return false
 		}
 	case InvocationAuthorizationRun:
-		if request.Runtime == nil {
+		if request.Runtime == nil || request.Approval != nil {
+			return false
+		}
+	case InvocationAuthorizationApprove:
+		if request.Runtime != nil || request.Approval == nil ||
+			!request.Approval.Valid() {
 			return false
 		}
 	default:

@@ -30,7 +30,7 @@ func (*nilInvocationAuthorizationDecision) AuthorizeInvocationEffect(
 func TestInvocationAuthorizerMapsGovernedPhases(t *testing.T) {
 	t.Parallel()
 
-	requests := make([]InvocationAuthorizationRequest, 0, 3)
+	requests := make([]InvocationAuthorizationRequest, 0, 4)
 	authorizer, err := NewInvocationAuthorizer(invocationAuthorizationDecisionFunc(func(
 		_ context.Context,
 		request InvocationAuthorizationRequest,
@@ -68,6 +68,23 @@ func TestInvocationAuthorizerMapsGovernedPhases(t *testing.T) {
 	if err := authorizer.AuthorizeInvocationRuntime(context.Background(), runtimeTarget, runtimeRequest); err != nil {
 		t.Fatalf("authorize runtime: %v", err)
 	}
+	approval := persistence.InvocationRuntimeApproval{
+		IsolationDomainID:       "iso_1",
+		ID:                      "apr_00000000000000000001",
+		OperationID:             "op_1",
+		InvocationID:            "inv_1",
+		ServiceID:               "svc_1",
+		RevisionID:              "rev_1",
+		RequestedAction:         "workspace.change",
+		Decision:                "approve",
+		ResolvedBy:              "actual-controller",
+		ResolutionCorrelationID: "corr_approval",
+	}
+	if err := authorizer.AuthorizeInvocationApproval(
+		context.Background(), approval, InvocationApprovalPhaseEntry,
+	); err != nil {
+		t.Fatalf("authorize approval: %v", err)
+	}
 	cancellation := persistence.InvocationCancellationTarget{
 		IsolationDomainID: "iso_1", OperationID: "op_1", InvocationID: "inv_1",
 		ServiceID: "svc_1", RevisionID: "rev_1", ActorID: "actor_2", CorrelationID: "corr_2",
@@ -75,8 +92,8 @@ func TestInvocationAuthorizerMapsGovernedPhases(t *testing.T) {
 	if err := authorizer.AuthorizeInvocationCancellation(context.Background(), cancellation); err != nil {
 		t.Fatalf("authorize cancellation: %v", err)
 	}
-	if len(requests) != 3 {
-		t.Fatalf("authorization requests = %d, want 3", len(requests))
+	if len(requests) != 4 {
+		t.Fatalf("authorization requests = %d, want 4", len(requests))
 	}
 	if requests[0].Action != InvocationAuthorizationAdmit || requests[0].Runtime != nil {
 		t.Fatalf("admission authorization = %#v", requests[0])
@@ -84,9 +101,17 @@ func TestInvocationAuthorizerMapsGovernedPhases(t *testing.T) {
 	if requests[1].Action != InvocationAuthorizationRun || requests[1].Runtime == nil {
 		t.Fatalf("runtime authorization = %#v", requests[1])
 	}
-	if requests[2].Action != InvocationAuthorizationCancel || requests[2].Runtime != nil ||
-		requests[2].ActorID != "actor_2" || requests[2].CorrelationID != "corr_2" {
-		t.Fatalf("cancellation authorization = %#v", requests[2])
+	if requests[2].Action != InvocationAuthorizationApprove ||
+		requests[2].Approval == nil ||
+		requests[2].ActorID != "actual-controller" ||
+		requests[2].CorrelationID != "corr_approval" ||
+		requests[2].Approval.ID != approval.ID ||
+		requests[2].Approval.Phase != InvocationApprovalPhaseEntry {
+		t.Fatalf("approval authorization = %#v", requests[2])
+	}
+	if requests[3].Action != InvocationAuthorizationCancel || requests[3].Runtime != nil ||
+		requests[3].ActorID != "actor_2" || requests[3].CorrelationID != "corr_2" {
+		t.Fatalf("cancellation authorization = %#v", requests[3])
 	}
 	if requests[1].Runtime == &runtimeRequest {
 		t.Fatal("runtime authorization retained the caller request address")

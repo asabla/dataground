@@ -50,7 +50,8 @@ func (source *DurableInvocationAuthorizationPolicySource) ResolveInvocationAutho
 		return InvocationAuthorizationPolicy{}, stableInvocationAuthorizationDependencyError(ctx, err)
 	}
 	if (record.Contract != InvocationAuthorizationPolicyContract &&
-		record.Contract != InvocationAuthorizationPolicyEntityContract) ||
+		record.Contract != InvocationAuthorizationPolicyEntityContract &&
+		record.Contract != InvocationAuthorizationPolicyApprovalContract) ||
 		record.IsolationDomainID != scope.IsolationDomainID ||
 		record.ServiceID != scope.ServiceID ||
 		record.RevisionID != scope.RevisionID {

@@ -196,6 +196,15 @@ func (authorizer *recordingInvocationAuthorizer) AuthorizeInvocationRuntime(
 	return nil
 }
 
+func (authorizer *recordingInvocationAuthorizer) AuthorizeInvocationApproval(
+	context.Context,
+	persistence.InvocationRuntimeApproval,
+	string,
+) error {
+	authorizer.calls++
+	return nil
+}
+
 func (authorizer *recordingInvocationAuthorizer) AuthorizeInvocationCancellation(
 	context.Context,
 	persistence.InvocationCancellationTarget,
