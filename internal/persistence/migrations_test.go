@@ -167,6 +167,8 @@ func TestMigrationsRoundTrip(t *testing.T) {
 		      'api_authorization_decisions',
 		      'invocation_authorization_policies',
 		      'invocation_authorization_policy_withdrawals',
+		      'invocation_authorization_entity_generations',
+		      'invocation_authorization_entity_activations',
 		      'invocation_authorization_decisions',
 		      'authorization_audit_exports',
 		      'oidc_identity_bindings',
@@ -197,8 +199,8 @@ func TestMigrationsRoundTrip(t *testing.T) {
 	`).Scan(&tables); err != nil {
 		t.Fatalf("inspect migrated tables: %v", err)
 	}
-	if tables != 40 {
-		t.Fatalf("expected 40 representative tables, got %d", tables)
+	if tables != 42 {
+		t.Fatalf("expected 42 representative tables, got %d", tables)
 	}
 
 	var rateLimitBucketPrimaryKey string

@@ -81,11 +81,10 @@ func (repository *Repository) WithdrawInvocationAuthorizationPolicy(
 		return fmt.Errorf("begin invocation authorization policy withdrawal: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `
-		SELECT pg_advisory_xact_lock(hashtextextended($1, 0))
-	`, "invocation-authorization-policy-withdrawal\n"+
-		withdrawal.IsolationDomainID+"\n"+withdrawal.ServiceID+"\n"+withdrawal.RevisionID); err != nil {
-		return fmt.Errorf("lock invocation authorization policy withdrawal: %w", err)
+	if err := lockInvocationAuthorizationPolicyScope(
+		ctx, tx, withdrawal.IsolationDomainID, withdrawal.ServiceID, withdrawal.RevisionID,
+	); err != nil {
+		return err
 	}
 	existing, exists, err := readInvocationAuthorizationPolicyWithdrawal(
 		ctx,
@@ -196,7 +195,13 @@ func (repository *Repository) GetActiveInvocationAuthorizationPolicy(
 		isolationDomainID == "" || serviceID == "" || revisionID == "" {
 		return InvocationAuthorizationPolicyRecord{}, ErrInvocationAuthorizationPolicyRecordInvalid
 	}
-	var record InvocationAuthorizationPolicyRecord
+	var (
+		record                    InvocationAuthorizationPolicyRecord
+		installedPolicyDigest     []byte
+		activatedInstalledDigest  []byte
+		activatedEffectiveDigest  []byte
+		activatedEntityGeneration int64
+	)
 	err := repository.pool.QueryRow(ctx, `
 		SELECT
 			policy.contract,
@@ -207,11 +212,30 @@ func (repository *Repository) GetActiveInvocationAuthorizationPolicy(
 			policy.policy_digest,
 			policy.cedar_schema,
 			policy.cedar_policies,
-			policy.cedar_entities,
+			COALESCE(entity_generation.cedar_entities, policy.cedar_entities),
 			policy.installed_by,
 			policy.installation_correlation_id,
-			policy.reason_digest
+			policy.reason_digest,
+			COALESCE(entity_activation.generation, 0),
+			entity_activation.installed_policy_digest,
+			entity_activation.effective_policy_digest
 		FROM invocation_authorization_policies AS policy
+		LEFT JOIN LATERAL (
+			SELECT activation.generation,
+			       activation.installed_policy_digest,
+			       activation.effective_policy_digest
+			FROM invocation_authorization_entity_activations AS activation
+			WHERE activation.isolation_domain_id = policy.isolation_domain_id
+			  AND activation.service_id = policy.service_id
+			  AND activation.revision_id = policy.revision_id
+			ORDER BY activation.generation DESC
+			LIMIT 1
+		) AS entity_activation ON true
+		LEFT JOIN invocation_authorization_entity_generations AS entity_generation
+		  ON entity_generation.isolation_domain_id = policy.isolation_domain_id
+		 AND entity_generation.service_id = policy.service_id
+		 AND entity_generation.revision_id = policy.revision_id
+		 AND entity_generation.generation = entity_activation.generation
 		WHERE policy.isolation_domain_id = $1
 		  AND policy.service_id = $2
 		  AND policy.revision_id = $3
@@ -228,19 +252,31 @@ func (repository *Repository) GetActiveInvocationAuthorizationPolicy(
 		&record.ServiceID,
 		&record.RevisionID,
 		&record.PolicySetID,
-		&record.PolicyDigest,
+		&installedPolicyDigest,
 		&record.Schema,
 		&record.Policies,
 		&record.Entities,
 		&record.InstalledBy,
 		&record.InstallationCorrelationID,
 		&record.ReasonDigest,
+		&activatedEntityGeneration,
+		&activatedInstalledDigest,
+		&activatedEffectiveDigest,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return InvocationAuthorizationPolicyRecord{}, ErrInvocationAuthorizationPolicyRecordMissing
 	}
 	if err != nil {
 		return InvocationAuthorizationPolicyRecord{}, err
+	}
+	record.PolicyDigest = append([]byte(nil), installedPolicyDigest...)
+	if activatedEntityGeneration > 0 {
+		if record.Contract != "dataground.invocation-authorization-policy/v2" ||
+			!bytes.Equal(installedPolicyDigest, activatedInstalledDigest) ||
+			len(activatedEffectiveDigest) != sha256.Size {
+			return InvocationAuthorizationPolicyRecord{}, ErrInvocationAuthorizationPolicyRecordInvalid
+		}
+		record.PolicyDigest = append([]byte(nil), activatedEffectiveDigest...)
 	}
 	if !record.Valid() {
 		return InvocationAuthorizationPolicyRecord{}, ErrInvocationAuthorizationPolicyRecordInvalid
