@@ -136,6 +136,10 @@ func assembleAPIRuntime(ctx context.Context, address string) (*apiRuntime, error
 	if ctx == nil {
 		return nil, errors.New("API startup context is required")
 	}
+	dispatchTarget, err := loadGovernedDispatchTarget(os.LookupEnv)
+	if err != nil {
+		return nil, err
+	}
 	configurationPath, oidcMode := os.LookupEnv("DATAGROUND_API_SECURITY_CONFIG_FILE")
 	if oidcMode {
 		if configurationPath == "" {
@@ -169,16 +173,20 @@ func assembleAPIRuntime(ctx context.Context, address string) (*apiRuntime, error
 		if err != nil {
 			return nil, err
 		}
-		assembly, err := composeOIDCSecurity(ctx, repository, configuration, policy)
+		assembly, err := composeOIDCSecurity(ctx, repository, configuration, policy, dispatchTarget)
 		if err != nil {
 			pool.Close()
 			return nil, err
+		}
+		mode := "oidc-dpop"
+		if dispatchTarget != nil {
+			mode = "oidc-dpop-governed-development"
 		}
 		return &apiRuntime{
 			handler:           assembly.Handler(),
 			pool:              pool,
 			securityLifecycle: assembly.RunOIDCKeysetRefresh,
-			mode:              "oidc-dpop",
+			mode:              mode,
 		}, nil
 	}
 
@@ -193,6 +201,9 @@ func assembleAPIRuntime(ctx context.Context, address string) (*apiRuntime, error
 	runtime := &apiRuntime{handler: handler, mode: "reference"}
 	databaseURL := os.Getenv("DATAGROUND_DATABASE_URL")
 	if databaseURL == "" {
+		if dispatchTarget != nil {
+			return nil, errors.New("governed dispatch requires durable API mode")
+		}
 		if address != defaultAddress {
 			return nil, errors.New("process-local reference mode may only bind to the default loopback address")
 		}
@@ -212,14 +223,28 @@ func assembleAPIRuntime(ctx context.Context, address string) (*apiRuntime, error
 		pool.Close()
 		return nil, fmt.Errorf("durable authorization audit assembly: %w", err)
 	}
-	handler, err = api.NewDurableHandler(repository, auditedAuthenticator, auditedAuthorizer)
+	if dispatchTarget == nil {
+		handler, err = api.NewDurableHandler(repository, auditedAuthenticator, auditedAuthorizer)
+	} else {
+		handler, err = api.NewGovernedDurableHandler(
+			ctx,
+			repository,
+			auditedAuthenticator,
+			auditedAuthorizer,
+			*dispatchTarget,
+		)
+	}
 	if err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("durable API security assembly: %w", err)
 	}
 	runtime.handler = handler
 	runtime.pool = pool
-	runtime.mode = "durable-development"
+	if dispatchTarget == nil {
+		runtime.mode = "durable-development"
+	} else {
+		runtime.mode = "durable-governed-development"
+	}
 	return runtime, nil
 }
 

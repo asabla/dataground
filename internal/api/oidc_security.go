@@ -26,6 +26,7 @@ type DurableOIDCDPoPConfig struct {
 	DPoPClockSkew                 time.Duration
 	MaximumProofAge               time.Duration
 	DPoPNonce                     authn.DPoPNoncePolicy
+	InvocationDispatchTarget      *persistence.InvocationDispatchTarget
 }
 
 // ReleaseCertificationReadiness keeps serving bound to the validity window of
@@ -62,6 +63,14 @@ func NewDurableOIDCDPoPAssembly(
 	if !config.KeysetRefresh.Valid() {
 		return nil, errors.New("durable OIDC DPoP keyset refresh policy is invalid")
 	}
+	if config.InvocationDispatchTarget != nil {
+		if err := config.Repository.RequireInvocationDispatchTarget(
+			ctx,
+			*config.InvocationDispatchTarget,
+		); err != nil {
+			return nil, err
+		}
+	}
 	binder, err := NewDPoPRequestBinder(config.ExternalOrigin)
 	if err != nil {
 		return nil, err
@@ -96,12 +105,13 @@ func NewDurableOIDCDPoPAssembly(
 	if err != nil {
 		return nil, err
 	}
-	handler, err := NewDurableRateLimitedDPoPHandler(
+	handler, err := newDurableHandler(
 		config.Repository,
 		auditedAuthenticator,
 		auditedAuthorizer,
 		binder,
 		config.RateLimiter,
+		config.InvocationDispatchTarget,
 	)
 	if err != nil {
 		return nil, err
