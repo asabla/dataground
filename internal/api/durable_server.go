@@ -14,6 +14,7 @@ import (
 
 	"github.com/asabla/dataground/internal/authn"
 	"github.com/asabla/dataground/internal/authz"
+	"github.com/asabla/dataground/internal/domain"
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/persistence"
 	"github.com/asabla/dataground/internal/reconcile"
@@ -27,6 +28,7 @@ type DurableServer struct {
 	repository     *persistence.Repository
 	dispatchTarget *persistence.InvocationDispatchTarget
 	approvals      durableInvocationApprovalResolver
+	approvalReader durableInvocationApprovalReader
 }
 
 type durableInvocationApprovalResolver interface {
@@ -35,6 +37,15 @@ type durableInvocationApprovalResolver interface {
 		persistence.Idempotency,
 		persistence.InvocationRuntimeApprovalResolution,
 	) (persistence.CommandResult, error)
+}
+
+type durableInvocationApprovalReader interface {
+	GetInvocationApproval(
+		context.Context,
+		string,
+		string,
+		string,
+	) (domain.InvocationApproval, error)
 }
 
 func NewDurableHandler(
@@ -130,7 +141,8 @@ func newDurableHandler(
 		return nil, err
 	}
 	server := &DurableServer{
-		repository: repository, dispatchTarget: dispatchTarget, approvals: approvalResolver,
+		repository: repository, dispatchTarget: dispatchTarget,
+		approvals: approvalResolver, approvalReader: repository,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", healthHandler)
@@ -155,6 +167,9 @@ func newDurableHandler(
 	))
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel", protected(
 		authz.CancelInvocation, authz.Invocation, "invocationId", server.cancelInvocation,
+	))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/approvals/{approvalId}", protected(
+		authz.ReadInvocationApproval, authz.InvocationApproval, "approvalId", server.getInvocationApproval,
 	))
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/approvals/{approvalId}", protected(
 		authz.ResolveInvocationApproval, authz.InvocationApproval, "approvalId", server.resolveInvocationApproval,
@@ -368,6 +383,36 @@ func (server *DurableServer) getOperation(response http.ResponseWriter, request 
 	value, err := server.repository.GetOperation(request.Context(), domainID, request.PathValue("operationId"))
 	if err != nil {
 		server.writeReadError(response, err, "Operation was not found.")
+		return
+	}
+	writeJSON(response, http.StatusOK, value)
+}
+
+func (server *DurableServer) getInvocationApproval(response http.ResponseWriter, request *http.Request) {
+	response.Header().Set("Cache-Control", "no-store")
+	domainID, apiError := isolationDomain(request)
+	if apiError != nil {
+		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: *apiError})
+		return
+	}
+	value, err := server.approvalReader.GetInvocationApproval(
+		request.Context(), domainID, request.PathValue("invocationId"), request.PathValue("approvalId"),
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, persistence.ErrInvocationRuntimeApprovalMissing):
+			status, body := notFound("Invocation approval was not found.")
+			writeJSON(response, status, body)
+		case errors.Is(err, persistence.ErrInvocationRuntimeApprovalInvalid):
+			status, body := invalidField("path", "Invocation or approval identifier is invalid.")
+			writeJSON(response, status, body)
+		default:
+			writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
+				"INVOCATION_APPROVAL_UNAVAILABLE",
+				"Invocation approval is temporarily unavailable.",
+				true,
+			)})
+		}
 		return
 	}
 	writeJSON(response, http.StatusOK, value)

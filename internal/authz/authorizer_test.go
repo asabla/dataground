@@ -33,6 +33,7 @@ func TestDevelopmentCedarAuthorizerBindsPrincipalDomainAndClosedActions(t *testi
 		request(principal, authz.ReadInvocation, authz.Invocation, "inv_00000000000000000001"),
 		request(principal, authz.ReadOperation, authz.Operation, "op_00000000000000000001"),
 		request(principal, authz.CancelInvocation, authz.Invocation, "inv_00000000000000000001"),
+		request(principal, authz.ReadInvocationApproval, authz.InvocationApproval, "apr_00000000000000000001"),
 		request(principal, authz.ResolveInvocationApproval, authz.InvocationApproval, "apr_00000000000000000001"),
 		request(principal, authz.ReadInvocationEvents, authz.Invocation, "inv_00000000000000000001"),
 		request(principal, authz.ReadInvocationArtifact, authz.Artifact, "art_00000000000000000001"),
@@ -80,6 +81,15 @@ func TestStaticCedarAuthorizerRejectsDriftAndInvalidRequests(t *testing.T) {
 	mismatched := request(principal, authz.ReadInvocation, authz.Artifact, "art_00000000000000000001")
 	if err := authorizer.Authorize(context.Background(), mismatched); !errors.Is(err, authz.ErrInvalid) {
 		t.Fatalf("expected action/resource rejection, got %v", err)
+	}
+	mismatchedApproval := request(
+		principal,
+		authz.ReadInvocationApproval,
+		authz.Invocation,
+		"inv_00000000000000000001",
+	)
+	if err := authorizer.Authorize(context.Background(), mismatchedApproval); !errors.Is(err, authz.ErrInvalid) {
+		t.Fatalf("expected approval action/resource rejection, got %v", err)
 	}
 
 	driftedSchema := authz.CanonicalAPICedarSchema()
