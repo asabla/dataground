@@ -90,6 +90,33 @@ h2 {
   font-size: var(--dg-font-size-heading);
 }
 
+.approval-workflow-state {
+  width: min(100%, 52rem);
+  display: grid;
+  justify-items: start;
+  gap: var(--dg-space-4);
+  padding: var(--dg-density-panel-padding);
+  border: var(--dg-border-default) solid var(--dg-color-border-default);
+  border-radius: var(--dg-radius-panel);
+  background: var(--dg-color-surface-default);
+}
+
+.approval-workflow-state--error {
+  border-inline-start: var(--dg-border-strong) solid var(--dg-color-status-critical);
+}
+
+.approval-workflow-state p {
+  margin: 0;
+  color: var(--dg-color-text-secondary);
+  line-height: 1.55;
+}
+
+.approval-workflow-state code {
+  overflow-wrap: anywhere;
+  color: var(--dg-color-text-muted);
+  font-family: var(--dg-font-family-data);
+}
+
 @media (max-width: 44rem) {
   .status-panel {
     grid-template-columns: 1fr;

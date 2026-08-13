@@ -40,6 +40,7 @@ PostgreSQL 18 is required for durable integration tests and durable control-plan
 | `apps/workbench` | TypeScript/React workbench application |
 | `packages/tokens` | DTCG token sources, deterministic generator, themes and densities |
 | `packages/ui` | Accessible React primitives, component styles and Storybook contracts |
+| `packages/patterns` | Product compositions with explicit state and callback contracts |
 | `contracts/openapi` | Canonical versioned public HTTP contract |
 | `contracts/schemas` | Canonical versioned non-HTTP JSON Schemas |
 | `contracts/fixtures` | Valid and invalid contract examples |

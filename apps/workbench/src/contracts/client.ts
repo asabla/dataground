@@ -9,3 +9,5 @@ import type { paths } from "./openapi.gen";
 export function createDataGroundClient(baseUrl: string) {
   return createClient<paths>({ baseUrl });
 }
+
+export type DataGroundClient = ReturnType<typeof createDataGroundClient>;

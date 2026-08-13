@@ -29,6 +29,9 @@ importers:
 
   apps/workbench:
     dependencies:
+      '@dataground/patterns':
+        specifier: workspace:*
+        version: link:../../packages/patterns
       '@dataground/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -60,6 +63,40 @@ importers:
       vite:
         specifier: 8.1.5
         version: 8.1.5(@types/node@24.13.3)(esbuild@0.28.1)
+      vitest:
+        specifier: 4.1.10
+        version: 4.1.10(@types/node@24.13.3)(@vitest/browser-playwright@4.1.10)(vite@8.1.5(@types/node@24.13.3)(esbuild@0.28.1))
+
+  packages/patterns:
+    dependencies:
+      '@dataground/ui':
+        specifier: workspace:*
+        version: link:../ui
+    devDependencies:
+      '@storybook/react-vite':
+        specifier: 10.5.2
+        version: 10.5.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(esbuild@0.28.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(storybook@10.5.2(@types/react@19.2.17)(react@19.2.7))(supports-color@10.2.2)(typescript@7.0.2)(vite@8.1.5(@types/node@24.13.3)(esbuild@0.28.1))
+      '@types/node':
+        specifier: 24.13.3
+        version: 24.13.3
+      '@types/react':
+        specifier: 19.2.17
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: 19.2.3
+        version: 19.2.3(@types/react@19.2.17)
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
+      storybook:
+        specifier: 10.5.2
+        version: 10.5.2(@types/react@19.2.17)(react@19.2.7)
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
       vitest:
         specifier: 4.1.10
         version: 4.1.10(@types/node@24.13.3)(@vitest/browser-playwright@4.1.10)(vite@8.1.5(@types/node@24.13.3)(esbuild@0.28.1))
