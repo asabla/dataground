@@ -3,6 +3,7 @@ package persistence_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,7 +67,6 @@ func TestAPIAuthorizationDecisionsAreAttributedAndAppendOnly(t *testing.T) {
 	)); !errors.Is(err, authz.ErrDenied) {
 		t.Fatalf("record denied decision: %v", err)
 	}
-
 	rows, err := pool.Query(ctx, `
 		SELECT
 			principal_id,
@@ -139,7 +139,6 @@ func TestAPIAuthorizationDecisionsAreAttributedAndAppendOnly(t *testing.T) {
 		decisions[1].correlationID != deniedCorrelation {
 		t.Fatalf("denied decision = %#v", decisions[1])
 	}
-
 	if _, err := pool.Exec(ctx, `
 		UPDATE api_authorization_decisions
 		SET outcome = 'denied'
@@ -152,6 +151,29 @@ func TestAPIAuthorizationDecisionsAreAttributedAndAppendOnly(t *testing.T) {
 		WHERE isolation_domain_id = $1
 	`, domainID); err == nil {
 		t.Fatal("authorization decision deletion was accepted")
+	}
+
+	transaction, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transaction.Exec(ctx, `
+		INSERT INTO api_authorization_decisions (
+			isolation_domain_id, principal_id, principal_kind, action,
+			resource_type, resource_id, outcome, policy_set_id,
+			policy_digest, correlation_id
+		) VALUES (
+			$1, $2, 'human', 'resolveInvocationApproval',
+			'DataGround::InvocationApproval', $3, 'allowed',
+			'dataground-development-api', $4, $5
+		)
+	`, domainID, allowedActor, "apr_00000000000000000001",
+		"sha256:"+strings.Repeat("a", 64), identity.New("cor")); err != nil {
+		_ = transaction.Rollback(ctx)
+		t.Fatalf("record rollback-only invocation approval decision: %v", err)
+	}
+	if err := transaction.Rollback(ctx); err != nil {
+		t.Fatalf("roll back invocation approval decision fixture: %v", err)
 	}
 }
 

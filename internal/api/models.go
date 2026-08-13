@@ -11,6 +11,7 @@ type Usage = domain.Usage
 type Invocation = domain.Invocation
 type EventEnvelope = domain.EventEnvelope
 type ArtifactDescriptor = domain.ArtifactDescriptor
+type InvocationApproval = domain.InvocationApproval
 type APIError = domain.APIError
 type FieldError = domain.FieldError
 type ErrorEnvelope = domain.ErrorEnvelope
@@ -43,4 +44,9 @@ type invokeAgentServiceRequest struct {
 
 type cancelInvocationRequest struct {
 	Reason string `json:"reason,omitempty"`
+}
+
+type resolveInvocationApprovalRequest struct {
+	ExpectedVersion int64  `json:"expectedVersion"`
+	Decision        string `json:"decision"`
 }

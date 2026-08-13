@@ -151,6 +151,7 @@
             "readInvocation",
             "readOperation",
             "cancelInvocation",
+            "resolveInvocationApproval",
             "readInvocationEvents",
             "readInvocationArtifact"
           ]
@@ -161,6 +162,7 @@
             "DataGround::AgentService",
             "DataGround::ServiceRevision",
             "DataGround::Invocation",
+            "DataGround::InvocationApproval",
             "DataGround::Operation",
             "DataGround::Artifact"
           ]

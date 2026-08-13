@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -192,25 +193,168 @@ func TestInvocationRuntimeApprovalLifecycleIsDurableAndSingleUse(t *testing.T) {
 		t.Fatalf("conflicting request = %v", err)
 	}
 	resolution := persistence.InvocationRuntimeApprovalResolution{
-		IsolationDomainID: domainID, ApprovalID: approval.ID, ExpectedVersion: 1,
+		IsolationDomainID: domainID, InvocationID: invocationID,
+		ApprovalID: approval.ID, ExpectedVersion: 1,
 		Decision: "approve", ActorID: "actual-approver",
 		CorrelationID: identity.New("cor"),
 	}
-	resolved, err := repository.ResolveInvocationRuntimeApproval(ctx, resolution)
-	if err != nil || resolved.State != "resolved" || resolved.Version != 2 ||
-		resolved.ResolvedBy != resolution.ActorID ||
-		resolved.ResolutionCorrelationID != resolution.CorrelationID {
-		t.Fatalf("resolve approval = (%#v, %v)", resolved, err)
+	wrongInvocation := resolution
+	wrongInvocation.InvocationID = identity.New("inv")
+	wrongPathAuthorizations := 0
+	if _, err := repository.ResolveInvocationRuntimeApprovalCommand(
+		ctx,
+		testIdempotency(domainID, "approval-resolution-wrong-path"),
+		wrongInvocation,
+		func(context.Context, persistence.InvocationRuntimeApproval) error {
+			wrongPathAuthorizations++
+			return nil
+		},
+	); !errors.Is(err, persistence.ErrInvocationRuntimeApprovalMissing) || wrongPathAuthorizations != 0 {
+		t.Fatalf("wrong invocation path resolution = (%v), authorizations = %d", err, wrongPathAuthorizations)
+	}
+	commandIdempotency := testIdempotency(domainID, "approval-resolution-command")
+	entryDenied := errors.New("entry authorization denied")
+	if _, err := repository.ResolveInvocationRuntimeApprovalCommand(
+		ctx,
+		commandIdempotency,
+		resolution,
+		func(context.Context, persistence.InvocationRuntimeApproval) error { return entryDenied },
+	); !errors.Is(err, entryDenied) {
+		t.Fatalf("denied approval command = %v", err)
+	}
+	stillPending, err := repository.GetInvocationRuntimeApproval(ctx, domainID, approval.ID)
+	if err != nil || stillPending.State != "pending" || stillPending.Version != 1 {
+		t.Fatalf("approval after denied command = (%#v, %v)", stillPending, err)
+	}
+	var deniedResolutionEvents int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM invocation_events
+		WHERE isolation_domain_id = $1
+		  AND invocation_id = $2
+		  AND event_type = 'interaction.approval.resolved'
+	`, domainID, invocationID).Scan(&deniedResolutionEvents); err != nil {
+		t.Fatal(err)
+	}
+	if deniedResolutionEvents != 0 {
+		t.Fatalf("denied approval resolution event count = %d", deniedResolutionEvents)
+	}
+	authorizations := 0
+	command, err := repository.ResolveInvocationRuntimeApprovalCommand(
+		ctx,
+		commandIdempotency,
+		resolution,
+		func(_ context.Context, candidate persistence.InvocationRuntimeApproval) error {
+			authorizations++
+			if candidate.InvocationID != invocationID ||
+				candidate.Decision != resolution.Decision ||
+				candidate.ResolvedBy != resolution.ActorID ||
+				candidate.ResolutionCorrelationID != resolution.CorrelationID {
+				t.Fatalf("authorization candidate = %#v", candidate)
+			}
+			return nil
+		},
+	)
+	if err != nil || command.Status != http.StatusOK || command.Replayed {
+		t.Fatalf("approval command = (%#v, %v)", command, err)
+	}
+	var public domain.InvocationApproval
+	if err := json.Unmarshal(command.Body, &public); err != nil {
+		t.Fatal(err)
+	}
+	if public.ID != approval.ID || public.InvocationID != invocationID ||
+		public.State != "resolved" || public.Version != 2 ||
+		public.Decision != resolution.Decision || public.ResolvedBy != resolution.ActorID ||
+		public.ResolvedAt == nil {
+		t.Fatalf("public approval = %#v", public)
+	}
+	var publicFields map[string]any
+	if err := json.Unmarshal(command.Body, &publicFields); err != nil {
+		t.Fatal(err)
+	}
+	for _, privateField := range []string{
+		"operationId", "serviceId", "revisionId", "effectId", "sourceSequence",
+		"effectiveDecision", "resolutionCorrelationId", "nativeApprovalId",
+	} {
+		if _, exposed := publicFields[privateField]; exposed {
+			t.Fatalf("public approval exposed %q: %#v", privateField, publicFields)
+		}
 	}
 	restarted := persistence.NewRepository(pool)
 	restored, err := restarted.GetInvocationRuntimeApproval(ctx, domainID, approval.ID)
-	if err != nil || restored.State != "resolved" || restored.Decision != "approve" {
+	if err != nil || restored.State != "resolved" || restored.Decision != "approve" ||
+		restored.ResolvedBy != resolution.ActorID ||
+		restored.ResolutionCorrelationID != resolution.CorrelationID {
 		t.Fatalf("restore resolved approval = (%#v, %v)", restored, err)
 	}
 	if replayed, err := restarted.ResolveInvocationRuntimeApproval(
 		ctx, resolution,
 	); err != nil || replayed.Version != 2 {
-		t.Fatalf("replay resolution = (%#v, %v)", replayed, err)
+		t.Fatalf("resource replay resolution = (%#v, %v)", replayed, err)
+	}
+	commandReplay, err := restarted.ResolveInvocationRuntimeApprovalCommand(
+		ctx,
+		commandIdempotency,
+		resolution,
+		func(context.Context, persistence.InvocationRuntimeApproval) error {
+			authorizations++
+			return nil
+		},
+	)
+	if err != nil || !commandReplay.Replayed || authorizations != 1 ||
+		string(commandReplay.Body) != string(command.Body) {
+		t.Fatalf("approval command replay = (%#v, %v), authorizations = %d", commandReplay, err, authorizations)
+	}
+	reused := commandIdempotency
+	reused.RequestDigest = sha256.Sum256([]byte("different approval decision"))
+	if _, err := restarted.ResolveInvocationRuntimeApprovalCommand(
+		ctx,
+		reused,
+		resolution,
+		func(context.Context, persistence.InvocationRuntimeApproval) error { return nil },
+	); err == nil || !strings.Contains(err.Error(), "IDEMPOTENCY_KEY_REUSED") {
+		t.Fatalf("approval command idempotency reuse = %v", err)
+	}
+	var resolvedEventPayload []byte
+	var resolvedEventActor, resolvedEventCorrelation string
+	if err := pool.QueryRow(ctx, `
+		SELECT payload, actor_id, correlation_id
+		FROM invocation_events
+		WHERE isolation_domain_id = $1
+		  AND invocation_id = $2
+		  AND event_type = 'interaction.approval.resolved'
+	`, domainID, invocationID).Scan(
+		&resolvedEventPayload, &resolvedEventActor, &resolvedEventCorrelation,
+	); err != nil {
+		t.Fatal(err)
+	}
+	var resolvedEvent map[string]any
+	if err := json.Unmarshal(resolvedEventPayload, &resolvedEvent); err != nil {
+		t.Fatal(err)
+	}
+	if len(resolvedEvent) != 3 ||
+		resolvedEvent["approvalId"] != approval.ID ||
+		resolvedEvent["decision"] != resolution.Decision ||
+		resolvedEvent["version"] != float64(2) ||
+		resolvedEventActor != resolution.ActorID ||
+		resolvedEventCorrelation != resolution.CorrelationID {
+		t.Fatalf(
+			"approval resolution event = (%#v, actor %q, correlation %q)",
+			resolvedEvent, resolvedEventActor, resolvedEventCorrelation,
+		)
+	}
+	var resolvedEventCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM invocation_events
+		WHERE isolation_domain_id = $1
+		  AND invocation_id = $2
+		  AND event_type = 'interaction.approval.resolved'
+	`, domainID, invocationID).Scan(&resolvedEventCount); err != nil {
+		t.Fatal(err)
+	}
+	if resolvedEventCount != 1 {
+		t.Fatalf("approval resolution event count = %d", resolvedEventCount)
 	}
 	different := resolution
 	different.CorrelationID = identity.New("cor")
@@ -254,18 +398,30 @@ func TestInvocationRuntimeApprovalLifecycleIsDurableAndSingleUse(t *testing.T) {
 	`, domainID, approval.ID); err == nil {
 		t.Fatal("append-only approval accepted deletion")
 	}
-	var auditActor string
+	var auditActor, auditCorrelation string
+	var auditMetadata []byte
 	if err := pool.QueryRow(ctx, `
-		SELECT actor_id
+		SELECT actor_id, correlation_id, safe_metadata
 		FROM audit_records
 		WHERE isolation_domain_id = $1
 		  AND resource_type = 'invocation-approval'
 		  AND resource_id = $2
 		  AND action = 'invocation-approval.resolve'
-	`, domainID, approval.ID).Scan(&auditActor); err != nil {
+	`, domainID, approval.ID).Scan(&auditActor, &auditCorrelation, &auditMetadata); err != nil {
 		t.Fatal(err)
 	}
-	if auditActor != "actual-approver" {
-		t.Fatalf("approval audit actor = %q", auditActor)
+	var safeAuditMetadata map[string]any
+	if err := json.Unmarshal(auditMetadata, &safeAuditMetadata); err != nil {
+		t.Fatal(err)
+	}
+	if auditActor != resolution.ActorID ||
+		auditCorrelation != resolution.CorrelationID ||
+		len(safeAuditMetadata) != 2 ||
+		safeAuditMetadata["decision"] != resolution.Decision ||
+		safeAuditMetadata["version"] != float64(2) {
+		t.Fatalf(
+			"approval audit = (actor %q, correlation %q, metadata %#v)",
+			auditActor, auditCorrelation, safeAuditMetadata,
+		)
 	}
 }
