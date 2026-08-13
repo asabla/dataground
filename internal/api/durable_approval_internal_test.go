@@ -22,6 +22,26 @@ type durableApprovalResolverStub struct {
 	err         error
 }
 
+type durableApprovalReaderStub struct {
+	domainID     string
+	invocationID string
+	approvalID   string
+	result       InvocationApproval
+	err          error
+}
+
+func (reader *durableApprovalReaderStub) GetInvocationApproval(
+	_ context.Context,
+	domainID string,
+	invocationID string,
+	approvalID string,
+) (InvocationApproval, error) {
+	reader.domainID = domainID
+	reader.invocationID = invocationID
+	reader.approvalID = approvalID
+	return reader.result, reader.err
+}
+
 func (resolver *durableApprovalResolverStub) ResolveCommand(
 	_ context.Context,
 	idempotency persistence.Idempotency,
@@ -30,6 +50,91 @@ func (resolver *durableApprovalResolverStub) ResolveCommand(
 	resolver.idempotency = idempotency
 	resolver.resolution = resolution
 	return resolver.result, resolver.err
+}
+
+func TestDurableApprovalReadBindsPublicPath(t *testing.T) {
+	t.Parallel()
+	const (
+		domainID     = "iso_00000000000000000001"
+		invocationID = "inv_00000000000000000001"
+		approvalID   = "apr_00000000000000000001"
+	)
+	now := time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)
+	reader := &durableApprovalReaderStub{result: InvocationApproval{
+		SchemaVersion: "dataground.invocation-approval/v1",
+		ID:            approvalID, IsolationDomainID: domainID, InvocationID: invocationID,
+		RequestedAction: "workspace.change", State: "pending", Version: 1,
+		CreatedAt: now, UpdatedAt: now,
+	}}
+	server := &DurableServer{approvalReader: reader}
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/v1/isolation-domains/"+domainID+"/invocations/"+invocationID+"/approvals/"+approvalID,
+		nil,
+	)
+	request.SetPathValue("isolationDomainId", domainID)
+	request.SetPathValue("invocationId", invocationID)
+	request.SetPathValue("approvalId", approvalID)
+	response := httptest.NewRecorder()
+
+	server.getInvocationApproval(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("read status = %d: %s", response.Code, response.Body.String())
+	}
+	if response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("cache control = %q", response.Header().Get("Cache-Control"))
+	}
+	if reader.domainID != domainID || reader.invocationID != invocationID || reader.approvalID != approvalID {
+		t.Fatalf("read path = (%q, %q, %q)", reader.domainID, reader.invocationID, reader.approvalID)
+	}
+	var public InvocationApproval
+	if err := json.NewDecoder(response.Body).Decode(&public); err != nil {
+		t.Fatal(err)
+	}
+	if public.ID != approvalID || public.State != "pending" || public.Version != 1 {
+		t.Fatalf("public approval = %#v", public)
+	}
+}
+
+func TestDurableApprovalReadMapsClosedErrors(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		err    error
+		status int
+		code   string
+	}{
+		{name: "missing", err: persistence.ErrInvocationRuntimeApprovalMissing, status: http.StatusNotFound, code: "RESOURCE_NOT_FOUND"},
+		{name: "invalid", err: persistence.ErrInvocationRuntimeApprovalInvalid, status: http.StatusBadRequest, code: "INVALID_REQUEST"},
+		{name: "unavailable", err: errors.New("database unavailable"), status: http.StatusServiceUnavailable, code: "INVOCATION_APPROVAL_UNAVAILABLE"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &durableApprovalReaderStub{err: test.err}
+			server := &DurableServer{approvalReader: reader}
+			request := httptest.NewRequest(
+				http.MethodGet,
+				"/v1/isolation-domains/iso_00000000000000000001/invocations/inv_00000000000000000001/approvals/apr_00000000000000000001",
+				nil,
+			)
+			request.SetPathValue("isolationDomainId", "iso_00000000000000000001")
+			request.SetPathValue("invocationId", "inv_00000000000000000001")
+			request.SetPathValue("approvalId", "apr_00000000000000000001")
+			response := httptest.NewRecorder()
+			server.getInvocationApproval(response, request)
+			if response.Code != test.status {
+				t.Fatalf("status = %d, want %d: %s", response.Code, test.status, response.Body.String())
+			}
+			var problem ErrorEnvelope
+			if err := json.NewDecoder(response.Body).Decode(&problem); err != nil {
+				t.Fatal(err)
+			}
+			if problem.Error.Code != test.code {
+				t.Fatalf("error code = %q, want %q", problem.Error.Code, test.code)
+			}
+		})
+	}
 }
 
 func TestDurableApprovalResolutionBindsPublicPathPrincipalAndIdempotency(t *testing.T) {

@@ -185,6 +185,25 @@ func TestInvocationRuntimeApprovalLifecycleIsDurableAndSingleUse(t *testing.T) {
 	if approvalEventCount != 1 {
 		t.Fatalf("approval event replay count = %d", approvalEventCount)
 	}
+	publicPending, err := repository.GetInvocationApproval(
+		ctx, domainID, invocationID, approval.ID,
+	)
+	if err != nil || publicPending.ID != approval.ID ||
+		publicPending.InvocationID != invocationID ||
+		publicPending.State != "pending" || publicPending.Version != 1 ||
+		publicPending.Decision != "" || publicPending.ResolvedBy != "" {
+		t.Fatalf("public pending approval = (%#v, %v)", publicPending, err)
+	}
+	if _, err := repository.GetInvocationApproval(
+		ctx, domainID, identity.New("inv"), approval.ID,
+	); !errors.Is(err, persistence.ErrInvocationRuntimeApprovalMissing) {
+		t.Fatalf("public approval on wrong invocation path = %v", err)
+	}
+	if _, err := repository.GetInvocationApproval(
+		ctx, identity.New("iso"), invocationID, approval.ID,
+	); !errors.Is(err, persistence.ErrInvocationRuntimeApprovalMissing) {
+		t.Fatalf("public approval from wrong isolation domain = %v", err)
+	}
 	conflict := request
 	conflict.RequestedAction = "process.execute"
 	if _, err := repository.RecordInvocationRuntimeApprovalRequest(
@@ -287,6 +306,12 @@ func TestInvocationRuntimeApprovalLifecycleIsDurableAndSingleUse(t *testing.T) {
 		restored.ResolutionCorrelationID != resolution.CorrelationID {
 		t.Fatalf("restore resolved approval = (%#v, %v)", restored, err)
 	}
+	publicResolved, err := restarted.GetInvocationApproval(ctx, domainID, invocationID, approval.ID)
+	if err != nil || publicResolved.State != "resolved" || publicResolved.Version != 2 ||
+		publicResolved.Decision != "approve" || publicResolved.ResolvedBy != resolution.ActorID ||
+		publicResolved.ResolvedAt == nil {
+		t.Fatalf("public resolved approval = (%#v, %v)", publicResolved, err)
+	}
 	if replayed, err := restarted.ResolveInvocationRuntimeApproval(
 		ctx, resolution,
 	); err != nil || replayed.Version != 2 {
@@ -369,6 +394,11 @@ func TestInvocationRuntimeApprovalLifecycleIsDurableAndSingleUse(t *testing.T) {
 	if err != nil || delivering.State != "delivering" || delivering.Version != 3 {
 		t.Fatalf("begin delivery = (%#v, %v)", delivering, err)
 	}
+	publicDelivering, err := restarted.GetInvocationApproval(ctx, domainID, invocationID, approval.ID)
+	if err != nil || publicDelivering.State != "delivering" || publicDelivering.Version != 3 ||
+		publicDelivering.Decision != "approve" {
+		t.Fatalf("public delivering approval = (%#v, %v)", publicDelivering, err)
+	}
 	if _, err := restarted.BeginInvocationRuntimeApprovalDelivery(
 		ctx, *claim, effect, approval.ID, "approve",
 	); !errors.Is(err, persistence.ErrInvocationRuntimeApprovalDeliveryAmbiguous) {
@@ -380,6 +410,11 @@ func TestInvocationRuntimeApprovalLifecycleIsDurableAndSingleUse(t *testing.T) {
 	if err != nil || delivered.State != "delivered" || delivered.Version != 4 ||
 		delivered.EffectiveDecision != "approve" || delivered.DeliveredAt.IsZero() {
 		t.Fatalf("complete delivery = (%#v, %v)", delivered, err)
+	}
+	publicDelivered, err := restarted.GetInvocationApproval(ctx, domainID, invocationID, approval.ID)
+	if err != nil || publicDelivered.State != "delivered" || publicDelivered.Version != 4 ||
+		publicDelivered.Decision != "approve" {
+		t.Fatalf("public delivered approval = (%#v, %v)", publicDelivered, err)
 	}
 	replayedDelivery, err := restarted.CompleteInvocationRuntimeApprovalDelivery(
 		ctx, *claim, effect, approval.ID,

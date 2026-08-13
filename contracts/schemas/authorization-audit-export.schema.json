@@ -151,6 +151,7 @@
             "readInvocation",
             "readOperation",
             "cancelInvocation",
+            "readInvocationApproval",
             "resolveInvocationApproval",
             "readInvocationEvents",
             "readInvocationArtifact"

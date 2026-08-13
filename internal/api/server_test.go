@@ -657,6 +657,52 @@ func TestApprovalResolutionAuthorizesPathBeforeReadingDecision(t *testing.T) {
 	}
 }
 
+func TestApprovalReadUsesDedicatedPathAuthorization(t *testing.T) {
+	t.Parallel()
+
+	const (
+		invocationID = "inv_00000000000000000001"
+		approvalID   = "apr_00000000000000000001"
+	)
+	authenticator, err := authn.NewDevelopmentAuthenticator(authn.DevelopmentConfig{
+		BearerToken: []byte(testToken), PrincipalID: testActor, IsolationDomainID: testDomain,
+	})
+	if err != nil {
+		t.Fatalf("create development authenticator: %v", err)
+	}
+	authorized := false
+	handler, err := api.NewHandler(authenticator, authorizerFunc(func(_ context.Context, request authz.Request) error {
+		authorized = true
+		if request.Action != authz.ReadInvocationApproval ||
+			request.ResourceType != authz.InvocationApproval ||
+			request.ResourceID != approvalID ||
+			request.IsolationDomainID != testDomain ||
+			request.Principal.ID() != testActor {
+			return authz.ErrUnavailable
+		}
+		return nil
+	}))
+	if err != nil {
+		t.Fatalf("create authorized handler: %v", err)
+	}
+	request := httptest.NewRequest(
+		http.MethodGet,
+		fmt.Sprintf("/v1/isolation-domains/%s/invocations/%s/approvals/%s", testDomain, invocationID, approvalID),
+		nil,
+	)
+	request.Header.Set("Authorization", "Bearer "+testToken)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if !authorized {
+		t.Fatal("approval read was not authorized")
+	}
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("expected reference approval to remain absent, got %d: %s", response.Code, response.Body.String())
+	}
+}
+
 func TestHandlerRejectsTypedNilSecurityDependencies(t *testing.T) {
 	t.Parallel()
 

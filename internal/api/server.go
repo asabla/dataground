@@ -159,6 +159,9 @@ func (server *Server) handler(
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel", protected(
 		authz.CancelInvocation, authz.Invocation, "invocationId", server.cancelInvocation,
 	))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/approvals/{approvalId}", protected(
+		authz.ReadInvocationApproval, authz.InvocationApproval, "approvalId", server.getInvocationApproval,
+	))
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/approvals/{approvalId}", protected(
 		authz.ResolveInvocationApproval, authz.InvocationApproval, "approvalId", server.resolveInvocationApproval,
 	))
@@ -568,6 +571,12 @@ func (server *Server) resolveInvocationApproval(response http.ResponseWriter, re
 		}
 		return notFound("Invocation approval was not found.")
 	})
+}
+
+func (server *Server) getInvocationApproval(response http.ResponseWriter, _ *http.Request) {
+	response.Header().Set("Cache-Control", "no-store")
+	status, body := notFound("Invocation approval was not found.")
+	writeJSON(response, status, body)
 }
 
 func (server *Server) streamInvocationEvents(response http.ResponseWriter, request *http.Request) {

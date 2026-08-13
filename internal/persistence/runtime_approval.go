@@ -178,6 +178,32 @@ func (repository *Repository) GetInvocationRuntimeApproval(
 	return value, nil
 }
 
+// GetInvocationApproval returns the provider-neutral public representation of
+// an approval only when it belongs to the named invocation.
+func (repository *Repository) GetInvocationApproval(
+	ctx context.Context,
+	isolationDomainID string,
+	invocationID string,
+	approvalID string,
+) (domain.InvocationApproval, error) {
+	if repository == nil || repository.pool == nil || ctx == nil ||
+		isolationDomainID == "" ||
+		!approvalInvocationPattern.MatchString(invocationID) ||
+		!approvalIDPattern.MatchString(approvalID) {
+		return domain.InvocationApproval{}, ErrInvocationRuntimeApprovalInvalid
+	}
+	value, found, err := getInvocationRuntimeApproval(
+		ctx, repository.pool, isolationDomainID, approvalID, false,
+	)
+	if err != nil {
+		return domain.InvocationApproval{}, err
+	}
+	if !found || value.InvocationID != invocationID {
+		return domain.InvocationApproval{}, ErrInvocationRuntimeApprovalMissing
+	}
+	return publicInvocationApproval(value), nil
+}
+
 func (repository *Repository) ResolveInvocationRuntimeApproval(
 	ctx context.Context,
 	resolution InvocationRuntimeApprovalResolution,

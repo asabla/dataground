@@ -14,6 +14,7 @@ The request is deliberately closed and non-sensitive. It contains the validated 
 | Read invocation | `readInvocation` | `Invocation` from `invocationId` |
 | Read operation | `readOperation` | `Operation` from `operationId` |
 | Cancel invocation | `cancelInvocation` | `Invocation` from `invocationId` |
+| Read invocation approval | `readInvocationApproval` | `InvocationApproval` from `approvalId` |
 | Resolve invocation approval | `resolveInvocationApproval` | `InvocationApproval` from `approvalId` |
 | Read invocation events | `readInvocationEvents` | `Invocation` from `invocationId` |
 | Read invocation artifact | `readInvocationArtifact` | `Artifact` from `artifactId` |

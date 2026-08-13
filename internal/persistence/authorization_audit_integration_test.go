@@ -163,6 +163,10 @@ func TestAPIAuthorizationDecisionsAreAttributedAndAppendOnly(t *testing.T) {
 			resource_type, resource_id, outcome, policy_set_id,
 			policy_digest, correlation_id
 		) VALUES (
+			$1, $2, 'human', 'readInvocationApproval',
+			'DataGround::InvocationApproval', $3, 'allowed',
+			'dataground-development-api', $4, $5
+		), (
 			$1, $2, 'human', 'resolveInvocationApproval',
 			'DataGround::InvocationApproval', $3, 'allowed',
 			'dataground-development-api', $4, $5

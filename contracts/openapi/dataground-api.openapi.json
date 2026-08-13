@@ -322,6 +322,31 @@
       }
     },
     "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/approvals/{approvalId}": {
+      "get": {
+        "operationId": "getInvocationApproval",
+        "summary": "Retrieve authoritative invocation approval state",
+        "description": "Returns the provider-neutral durable state of one approval already identified by the invocation event stream. The invocation path is matched before the resource is disclosed, and adapter-native identifiers remain private.",
+        "parameters": [
+          { "$ref": "#/components/parameters/IsolationDomainId" },
+          { "$ref": "#/components/parameters/InvocationId" },
+          { "$ref": "#/components/parameters/ApprovalId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current approval state.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/InvocationApproval" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
+        }
+      },
       "post": {
         "operationId": "resolveInvocationApproval",
         "summary": "Resolve a pending invocation approval",
