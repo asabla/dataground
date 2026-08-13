@@ -4,9 +4,9 @@ DataGround owns its semantic tokens, interaction contracts, status vocabulary, a
 
 ## Package boundaries
 
-`@dataground/tokens` owns DTCG source files, deterministic generation, four themes, three density modes, CSS variables, and type-safe token names. `@dataground/ui` owns framework-level accessible primitives and their styles. Product-specific compositions will belong in `@dataground/patterns` only when a real workflow needs them. Authorization, network requests, resource commands, and product state do not belong in these packages.
+`@dataground/tokens` owns DTCG source files, deterministic generation, four themes, three density modes, CSS variables, and type-safe token names. `@dataground/ui` owns framework-level accessible primitives and their styles. `@dataground/patterns` owns product-specific compositions with explicit state and callback contracts; its first consumer is the invocation approval workflow. Authorization, network requests, resource commands, and product state do not belong in these packages.
 
-The current `Button` and `StatusBadge` are the first verified consumers of this boundary. They establish interaction and status conventions without prematurely implementing the full inventory.
+The current `Button` and `StatusBadge` primitives establish interaction and status conventions. `ApprovalRequest` composes them without loading data or deciding authorization: the Workbench supplies the provider-neutral approval, authority result, recovery state, and commands.
 
 ## Token contract
 

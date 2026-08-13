@@ -57,6 +57,7 @@ The executable bootstrap implements the smallest subset of this shape: `cmd/data
     testkit/
     tokens/
     ui/
+    patterns/
     icons/
   deploy/
     compose/
