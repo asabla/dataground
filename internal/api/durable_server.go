@@ -16,6 +16,7 @@ import (
 	"github.com/asabla/dataground/internal/authz"
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/persistence"
+	"github.com/asabla/dataground/internal/reconcile"
 	"github.com/asabla/dataground/internal/reference"
 	"github.com/jackc/pgx/v5"
 )
@@ -25,6 +26,15 @@ const durableOperationDeadline = 15 * time.Minute
 type DurableServer struct {
 	repository     *persistence.Repository
 	dispatchTarget *persistence.InvocationDispatchTarget
+	approvals      durableInvocationApprovalResolver
+}
+
+type durableInvocationApprovalResolver interface {
+	ResolveCommand(
+		context.Context,
+		persistence.Idempotency,
+		persistence.InvocationRuntimeApprovalResolution,
+	) (persistence.CommandResult, error)
 }
 
 func NewDurableHandler(
@@ -87,6 +97,9 @@ func newDurableHandler(
 	rateLimiter AuthenticationRateLimiter,
 	dispatchTarget *persistence.InvocationDispatchTarget,
 ) (http.Handler, error) {
+	if repository == nil || !repository.Configured() {
+		return nil, errors.New("durable repository is required")
+	}
 	protected, err := newProtectedRoute(authenticator, authorizer, binder, rateLimiter)
 	if err != nil {
 		return nil, err
@@ -98,7 +111,27 @@ func newDurableHandler(
 		clonedTarget := *dispatchTarget
 		dispatchTarget = &clonedTarget
 	}
-	server := &DurableServer{repository: repository, dispatchTarget: dispatchTarget}
+	policySource, err := reconcile.NewDurableInvocationAuthorizationPolicySource(repository)
+	if err != nil {
+		return nil, err
+	}
+	invocationAuthorizer, err := reconcile.NewAuditedCedarInvocationAuthorizer(
+		policySource,
+		repository,
+	)
+	if err != nil {
+		return nil, err
+	}
+	approvalResolver, err := reconcile.NewInvocationApprovalResolver(
+		repository,
+		invocationAuthorizer,
+	)
+	if err != nil {
+		return nil, err
+	}
+	server := &DurableServer{
+		repository: repository, dispatchTarget: dispatchTarget, approvals: approvalResolver,
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", healthHandler)
 	mux.HandleFunc("GET /readyz", server.ready)
@@ -122,6 +155,9 @@ func newDurableHandler(
 	))
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel", protected(
 		authz.CancelInvocation, authz.Invocation, "invocationId", server.cancelInvocation,
+	))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/approvals/{approvalId}", protected(
+		authz.ResolveInvocationApproval, authz.InvocationApproval, "approvalId", server.resolveInvocationApproval,
 	))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/events", protected(
 		authz.ReadInvocationEvents, authz.Invocation, "invocationId", server.streamInvocationEvents,
@@ -242,6 +278,71 @@ func (server *DurableServer) cancelInvocation(response http.ResponseWriter, requ
 			InvocationID: request.PathValue("invocationId"), ActorID: actorID, CorrelationID: correlationID,
 		})
 	})
+}
+
+func (server *DurableServer) resolveInvocationApproval(response http.ResponseWriter, request *http.Request) {
+	server.mutate(response, request, func(domainID, actorID, correlationID string, body []byte) (persistence.CommandResult, error) {
+		input, apiError := decodeBody[resolveInvocationApprovalRequest](body)
+		if apiError != nil {
+			return encodedError(http.StatusBadRequest, *apiError)
+		}
+		if input.ExpectedVersion != 1 || (input.Decision != "approve" && input.Decision != "deny") {
+			return encodedResult(invalidField(
+				"decision",
+				"Decision must be approve or deny and expectedVersion must be 1.",
+			))
+		}
+		result, err := server.approvals.ResolveCommand(
+			request.Context(),
+			commandIdempotency(request, domainID, actorID, body),
+			persistence.InvocationRuntimeApprovalResolution{
+				IsolationDomainID: domainID,
+				InvocationID:      request.PathValue("invocationId"),
+				ApprovalID:        request.PathValue("approvalId"),
+				ExpectedVersion:   input.ExpectedVersion,
+				Decision:          input.Decision,
+				ActorID:           actorID,
+				CorrelationID:     correlationID,
+			},
+		)
+		if err != nil {
+			return persistence.CommandResult{}, invocationApprovalCommandError(err)
+		}
+		return result, nil
+	})
+}
+
+func invocationApprovalCommandError(err error) error {
+	var problem *persistence.DomainError
+	if errors.As(err, &problem) {
+		return problem
+	}
+	switch {
+	case errors.Is(err, persistence.ErrInvocationRuntimeApprovalMissing):
+		return &persistence.DomainError{
+			Code: "RESOURCE_NOT_FOUND", Message: "Invocation approval was not found.",
+		}
+	case errors.Is(err, persistence.ErrInvocationRuntimeApprovalConflict):
+		return &persistence.DomainError{
+			Code: "INVOCATION_APPROVAL_CONFLICT", Message: "Invocation approval cannot be resolved in its current state.",
+		}
+	case errors.Is(err, persistence.ErrInvocationRuntimeApprovalInvalid),
+		errors.Is(err, reconcile.ErrInvocationApprovalInvalid),
+		errors.Is(err, reconcile.ErrInvocationAuthorizationInvalid):
+		return &persistence.DomainError{
+			Code: "INVALID_INVOCATION_APPROVAL", Message: "Invocation approval resolution is invalid.",
+		}
+	case errors.Is(err, reconcile.ErrInvocationApprovalDenied):
+		return &persistence.DomainError{
+			Code: "INVOCATION_APPROVAL_FORBIDDEN", Message: "The invocation policy denied this approval resolution.",
+		}
+	default:
+		return &persistence.DomainError{
+			Code:      "INVOCATION_APPROVAL_UNAVAILABLE",
+			Message:   "Invocation approval resolution is temporarily unavailable.",
+			Retryable: true,
+		}
+	}
 }
 
 func (server *DurableServer) getInvocation(response http.ResponseWriter, request *http.Request) {
@@ -405,8 +506,13 @@ func (server *DurableServer) writeCommandError(response http.ResponseWriter, err
 		status := http.StatusConflict
 		if problem.Code == "RESOURCE_NOT_FOUND" {
 			status = http.StatusNotFound
-		} else if problem.Code == "COMMAND_IN_PROGRESS" {
+		} else if problem.Code == "COMMAND_IN_PROGRESS" ||
+			problem.Code == "INVOCATION_APPROVAL_UNAVAILABLE" {
 			status = http.StatusServiceUnavailable
+		} else if problem.Code == "INVOCATION_APPROVAL_FORBIDDEN" {
+			status = http.StatusForbidden
+		} else if problem.Code == "INVALID_INVOCATION_APPROVAL" {
+			status = http.StatusBadRequest
 		}
 		writeJSON(response, status, ErrorEnvelope{Error: APIError{
 			Code: problem.Code, Message: problem.Message, CorrelationID: correlationID, Retryable: problem.Retryable,

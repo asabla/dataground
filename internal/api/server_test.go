@@ -206,6 +206,35 @@ func TestWaitingInvocationCanBeCancelledAndReplayed(t *testing.T) {
 	assertEventTypes(t, journal, []string{"lifecycle.cancelled"})
 }
 
+func TestReferenceModeKeepsApprovalRouteClosedWithoutDurableApproval(t *testing.T) {
+	t.Parallel()
+
+	handler := newHandler(t)
+	path := fmt.Sprintf(
+		"/v1/isolation-domains/%s/invocations/%s/approvals/%s",
+		testDomain,
+		"inv_00000000000000000001",
+		"apr_00000000000000000001",
+	)
+	response := perform(
+		t,
+		handler,
+		http.MethodPost,
+		path,
+		"resolve-reference-approval-0001",
+		map[string]any{"expectedVersion": 1, "decision": "deny"},
+		nil,
+	)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("reference approval resolution status = %d: %s", response.Code, response.Body.String())
+	}
+	var problem api.ErrorEnvelope
+	decodeResponse(t, response, &problem)
+	if problem.Error.Code != "RESOURCE_NOT_FOUND" {
+		t.Fatalf("reference approval error = %#v", problem.Error)
+	}
+}
+
 func TestAllReferenceRuntimeOutcomesReachTheAPI(t *testing.T) {
 	t.Parallel()
 
@@ -578,6 +607,53 @@ func TestProtectedRoutesAuthorizeBeforeReadingRequests(t *testing.T) {
 	}
 	if reader.reads != 0 {
 		t.Fatalf("request body was read before authorization: %d reads", reader.reads)
+	}
+}
+
+func TestApprovalResolutionAuthorizesPathBeforeReadingDecision(t *testing.T) {
+	t.Parallel()
+
+	const (
+		invocationID = "inv_00000000000000000001"
+		approvalID   = "apr_00000000000000000001"
+	)
+	authenticator, err := authn.NewDevelopmentAuthenticator(authn.DevelopmentConfig{
+		BearerToken: []byte(testToken), PrincipalID: testActor, IsolationDomainID: testDomain,
+	})
+	if err != nil {
+		t.Fatalf("create development authenticator: %v", err)
+	}
+	handler, err := api.NewHandler(authenticator, authorizerFunc(func(_ context.Context, request authz.Request) error {
+		if request.Action != authz.ResolveInvocationApproval ||
+			request.ResourceType != authz.InvocationApproval ||
+			request.ResourceID != approvalID ||
+			request.IsolationDomainID != testDomain ||
+			request.Principal.ID() != testActor {
+			return authz.ErrUnavailable
+		}
+		return authz.ErrDenied
+	}))
+	if err != nil {
+		t.Fatalf("create authorized handler: %v", err)
+	}
+	reader := &countingReader{}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf("/v1/isolation-domains/%s/invocations/%s/approvals/%s", testDomain, invocationID, approvalID),
+		reader,
+	)
+	request.Header.Set("Authorization", "Bearer "+testToken)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "approval-authorization-order-0001")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("expected forbidden status, got %d", response.Code)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("approval decision was read before path authorization: %d reads", reader.reads)
 	}
 }
 

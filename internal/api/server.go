@@ -159,6 +159,9 @@ func (server *Server) handler(
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel", protected(
 		authz.CancelInvocation, authz.Invocation, "invocationId", server.cancelInvocation,
 	))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/approvals/{approvalId}", protected(
+		authz.ResolveInvocationApproval, authz.InvocationApproval, "approvalId", server.resolveInvocationApproval,
+	))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/events", protected(
 		authz.ReadInvocationEvents, authz.Invocation, "invocationId", server.streamInvocationEvents,
 	))
@@ -548,6 +551,22 @@ func (server *Server) cancelInvocation(response http.ResponseWriter, request *ht
 			Payload:           map[string]any{"reason": "caller requested cancellation"},
 		})
 		return http.StatusOK, invocation
+	})
+}
+
+func (server *Server) resolveInvocationApproval(response http.ResponseWriter, request *http.Request) {
+	server.mutate(response, request, func(_ string, body []byte) (int, any) {
+		input, apiError := decodeBody[resolveInvocationApprovalRequest](body)
+		if apiError != nil {
+			return http.StatusBadRequest, ErrorEnvelope{Error: *apiError}
+		}
+		if input.ExpectedVersion != 1 || (input.Decision != "approve" && input.Decision != "deny") {
+			return invalidField(
+				"decision",
+				"Decision must be approve or deny and expectedVersion must be 1.",
+			)
+		}
+		return notFound("Invocation approval was not found.")
 	})
 }
 

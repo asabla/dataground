@@ -174,6 +174,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/approvals/{approvalId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve a pending invocation approval
+         * @description Resolves one provider-neutral durable approval after both API action authorization and exact revision-bound invocation authorization succeed. The route never exposes adapter-native identifiers, and an exact idempotency replay returns the originally committed response.
+         */
+        post: operations["resolveInvocationApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/events": {
         parameters: {
             query?: never;
@@ -223,6 +243,7 @@ export interface components {
         ServiceId: string;
         RevisionId: string;
         InvocationId: string;
+        ApprovalId: string;
         ArtifactId: string;
         OperationId: string;
         AliasName: string;
@@ -379,6 +400,29 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        InvocationApproval: {
+            /** @constant */
+            schemaVersion: "dataground.invocation-approval/v1";
+            id: components["schemas"]["ApprovalId"];
+            isolationDomainId: components["schemas"]["IsolationDomainId"];
+            invocationId: components["schemas"]["InvocationId"];
+            /** @enum {unknown} */
+            requestedAction: "process.execute" | "workspace.change";
+            /** @enum {unknown} */
+            state: "pending" | "resolved" | "delivering" | "delivered";
+            version: number;
+            /** @enum {unknown} */
+            decision?: "approve" | "deny";
+            resolvedBy?: string;
+            /** Format: date-time */
+            resolvedAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        } & {
+            [key: string]: unknown;
+        };
         EventEnvelope: {
             /** @constant */
             schemaVersion: "dataground.event/v1";
@@ -467,6 +511,12 @@ export interface components {
         CancelInvocationRequest: {
             reason?: string;
         };
+        ResolveInvocationApprovalRequest: {
+            /** @constant */
+            expectedVersion: 1;
+            /** @enum {unknown} */
+            decision: "approve" | "deny";
+        };
     };
     responses: {
         /** @description Safe, stable error response. */
@@ -484,6 +534,7 @@ export interface components {
         ServiceId: components["schemas"]["ServiceId"];
         RevisionId: components["schemas"]["RevisionId"];
         InvocationId: components["schemas"]["InvocationId"];
+        ApprovalId: components["schemas"]["ApprovalId"];
         OperationId: components["schemas"]["OperationId"];
         ArtifactId: components["schemas"]["ArtifactId"];
         Alias: components["schemas"]["AliasName"];
@@ -819,6 +870,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Invocation"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            415: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    resolveInvocationApproval: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque caller key scoped to the isolation domain, HTTP method, and route. Reuse with a different body fails with IDEMPOTENCY_KEY_REUSED. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                invocationId: components["parameters"]["InvocationId"];
+                approvalId: components["parameters"]["ApprovalId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveInvocationApprovalRequest"];
+            };
+        };
+        responses: {
+            /** @description Approval resolution committed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvocationApproval"];
                 };
             };
             400: components["responses"]["Error"];

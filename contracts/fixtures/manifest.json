@@ -26,6 +26,11 @@
       "valid": true
     },
     {
+      "file": "valid/invocation-approval.json",
+      "schema": "InvocationApproval",
+      "valid": true
+    },
+    {
       "file": "valid/error-envelope.json",
       "schema": "ErrorEnvelope",
       "valid": true
@@ -208,6 +213,11 @@
     {
       "file": "invalid/create-service-unknown-field.json",
       "schema": "CreateAgentServiceRequest",
+      "valid": false
+    },
+    {
+      "file": "invalid/resolve-invocation-approval-native-decision.json",
+      "schema": "ResolveInvocationApprovalRequest",
       "valid": false
     },
     {

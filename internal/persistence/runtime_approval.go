@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strconv"
 	"time"
@@ -25,6 +26,7 @@ var (
 	ErrInvocationRuntimeApprovalConflict          = errors.New("invocation runtime approval conflicts with durable state")
 	ErrInvocationRuntimeApprovalDeliveryAmbiguous = errors.New("invocation runtime approval delivery is ambiguous")
 	approvalIDPattern                             = regexp.MustCompile(`^apr_[0-9a-z]{20,32}$`)
+	approvalInvocationPattern                     = regexp.MustCompile(`^inv_[0-9a-z]{20,32}$`)
 	approvalCorrelationPattern                    = regexp.MustCompile(`^cor_[0-9a-z]{20,32}$`)
 )
 
@@ -58,12 +60,18 @@ type InvocationRuntimeApprovalRequest struct {
 
 type InvocationRuntimeApprovalResolution struct {
 	IsolationDomainID string
+	InvocationID      string
 	ApprovalID        string
 	ExpectedVersion   int64
 	Decision          string
 	ActorID           string
 	CorrelationID     string
 }
+
+type InvocationRuntimeApprovalEntryAuthorizer func(
+	context.Context,
+	InvocationRuntimeApproval,
+) error
 
 func (repository *Repository) RecordInvocationRuntimeApprovalRequest(
 	ctx context.Context,
@@ -175,12 +183,7 @@ func (repository *Repository) ResolveInvocationRuntimeApproval(
 	resolution InvocationRuntimeApprovalResolution,
 ) (InvocationRuntimeApproval, error) {
 	if repository == nil || repository.pool == nil || ctx == nil ||
-		resolution.IsolationDomainID == "" ||
-		!approvalIDPattern.MatchString(resolution.ApprovalID) ||
-		resolution.ExpectedVersion != 1 ||
-		!validInvocationRuntimeApprovalDecision(resolution.Decision) ||
-		!validInvocationRuntimeApprovalActor(resolution.ActorID) ||
-		!approvalCorrelationPattern.MatchString(resolution.CorrelationID) {
+		!validInvocationRuntimeApprovalResolution(resolution) {
 		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalInvalid
 	}
 	tx, err := repository.pool.Begin(ctx)
@@ -188,6 +191,43 @@ func (repository *Repository) ResolveInvocationRuntimeApproval(
 		return InvocationRuntimeApproval{}, fmt.Errorf("begin invocation runtime approval resolution: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	approval, err := resolveInvocationRuntimeApproval(ctx, tx, resolution, repository.now(), nil)
+	if err != nil {
+		return InvocationRuntimeApproval{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return InvocationRuntimeApproval{}, fmt.Errorf("commit invocation runtime approval resolution: %w", err)
+	}
+	return approval, nil
+}
+
+func (repository *Repository) ResolveInvocationRuntimeApprovalCommand(
+	ctx context.Context,
+	idempotency Idempotency,
+	resolution InvocationRuntimeApprovalResolution,
+	authorize InvocationRuntimeApprovalEntryAuthorizer,
+) (CommandResult, error) {
+	if repository == nil || repository.pool == nil || ctx == nil || authorize == nil ||
+		!validInvocationRuntimeApprovalResolution(resolution) ||
+		idempotency.IsolationDomainID != resolution.IsolationDomainID {
+		return CommandResult{}, ErrInvocationRuntimeApprovalInvalid
+	}
+	return repository.execute(ctx, idempotency, func(tx pgx.Tx, now time.Time) (int, any, error) {
+		approval, err := resolveInvocationRuntimeApproval(ctx, tx, resolution, now, authorize)
+		if err != nil {
+			return 0, nil, err
+		}
+		return http.StatusOK, publicInvocationApproval(approval), nil
+	})
+}
+
+func resolveInvocationRuntimeApproval(
+	ctx context.Context,
+	tx pgx.Tx,
+	resolution InvocationRuntimeApprovalResolution,
+	now time.Time,
+	authorize InvocationRuntimeApprovalEntryAuthorizer,
+) (InvocationRuntimeApproval, error) {
 	approval, found, err := getInvocationRuntimeApproval(
 		ctx, tx, resolution.IsolationDomainID, resolution.ApprovalID, true,
 	)
@@ -197,14 +237,23 @@ func (repository *Repository) ResolveInvocationRuntimeApproval(
 	if !found {
 		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalMissing
 	}
+	if approval.InvocationID != resolution.InvocationID {
+		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalMissing
+	}
+	candidate := approval
+	candidate.Decision = resolution.Decision
+	candidate.ResolvedBy = resolution.ActorID
+	candidate.ResolutionCorrelationID = resolution.CorrelationID
 	if approval.State != "pending" {
-		if sameInvocationRuntimeApprovalResolution(approval, resolution) {
-			if err := tx.Commit(ctx); err != nil {
-				return InvocationRuntimeApproval{}, fmt.Errorf("commit invocation runtime approval resolution replay: %w", err)
-			}
-			return approval, nil
+		if !sameInvocationRuntimeApprovalResolution(approval, resolution) {
+			return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalConflict
 		}
-		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalConflict
+		if authorize != nil {
+			if err := authorize(ctx, candidate); err != nil {
+				return InvocationRuntimeApproval{}, err
+			}
+		}
+		return approval, nil
 	}
 	if approval.Version != resolution.ExpectedVersion {
 		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalConflict
@@ -235,7 +284,11 @@ func (repository *Repository) ResolveInvocationRuntimeApproval(
 	if !active {
 		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalConflict
 	}
-	now := repository.now()
+	if authorize != nil {
+		if err := authorize(ctx, candidate); err != nil {
+			return InvocationRuntimeApproval{}, err
+		}
+	}
 	result, err := tx.Exec(ctx, `
 		UPDATE invocation_runtime_approvals
 		SET state = 'resolved', version = version + 1, decision = $3,
@@ -259,20 +312,23 @@ func (repository *Repository) ResolveInvocationRuntimeApproval(
 		) VALUES (
 			$1, $2, $3, 'invocation-approval.resolve',
 			'invocation-approval', $4, 'accepted', $5,
-			jsonb_build_object('decision', $6::text, 'version', 2::bigint), $7
+			jsonb_build_object('decision', $6::text, 'version', $7::bigint), $8
 		)
 	`, identity.New("aud"), approval.IsolationDomainID, resolution.ActorID,
-		approval.ID, resolution.CorrelationID, resolution.Decision, now); err != nil {
+		approval.ID, resolution.CorrelationID, resolution.Decision,
+		resolution.ExpectedVersion+1, now); err != nil {
 		return InvocationRuntimeApproval{}, fmt.Errorf("audit invocation runtime approval resolution: %w", err)
+	}
+	if err := recordInvocationRuntimeApprovalResolutionEvent(
+		ctx, tx, approval, resolution, now,
+	); err != nil {
+		return InvocationRuntimeApproval{}, err
 	}
 	approval, _, err = getInvocationRuntimeApproval(
 		ctx, tx, resolution.IsolationDomainID, resolution.ApprovalID, false,
 	)
 	if err != nil {
 		return InvocationRuntimeApproval{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return InvocationRuntimeApproval{}, fmt.Errorf("commit invocation runtime approval resolution: %w", err)
 	}
 	return approval, nil
 }
@@ -652,6 +708,82 @@ func validInvocationRuntimeApprovalActor(value string) bool {
 		}
 	}
 	return true
+}
+
+func validInvocationRuntimeApprovalResolution(
+	resolution InvocationRuntimeApprovalResolution,
+) bool {
+	return resolution.IsolationDomainID != "" &&
+		approvalInvocationPattern.MatchString(resolution.InvocationID) &&
+		approvalIDPattern.MatchString(resolution.ApprovalID) &&
+		resolution.ExpectedVersion == 1 &&
+		validInvocationRuntimeApprovalDecision(resolution.Decision) &&
+		validInvocationRuntimeApprovalActor(resolution.ActorID) &&
+		approvalCorrelationPattern.MatchString(resolution.CorrelationID)
+}
+
+func publicInvocationApproval(value InvocationRuntimeApproval) domain.InvocationApproval {
+	result := domain.InvocationApproval{
+		SchemaVersion:     domain.InvocationApprovalSchemaV1,
+		ID:                value.ID,
+		IsolationDomainID: value.IsolationDomainID,
+		InvocationID:      value.InvocationID,
+		RequestedAction:   value.RequestedAction,
+		State:             value.State,
+		Version:           value.Version,
+		Decision:          value.Decision,
+		ResolvedBy:        value.ResolvedBy,
+		CreatedAt:         value.CreatedAt,
+		UpdatedAt:         value.UpdatedAt,
+	}
+	if !value.ResolvedAt.IsZero() {
+		resolvedAt := value.ResolvedAt
+		result.ResolvedAt = &resolvedAt
+	}
+	return result
+}
+
+func recordInvocationRuntimeApprovalResolutionEvent(
+	ctx context.Context,
+	tx pgx.Tx,
+	approval InvocationRuntimeApproval,
+	resolution InvocationRuntimeApprovalResolution,
+	now time.Time,
+) error {
+	payload, err := json.Marshal(map[string]any{
+		"approvalId": approval.ID,
+		"decision":   resolution.Decision,
+		"version":    resolution.ExpectedVersion + 1,
+	})
+	if err != nil || len(payload) > maximumInvocationRuntimeEventPayloadBytes {
+		return ErrInvocationRuntimeEventInvalid
+	}
+	var sequence uint64
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(max(sequence), 0) + 1
+		FROM invocation_events
+		WHERE isolation_domain_id = $1 AND invocation_id = $2
+	`, approval.IsolationDomainID, approval.InvocationID).Scan(&sequence); err != nil {
+		return fmt.Errorf("allocate invocation approval resolution event sequence: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO invocation_events (
+			isolation_domain_id, invocation_id, id, sequence, schema_version,
+			event_type, occurred_at, recorded_at, correlation_id, actor_id,
+			service_id, revision_id, payload
+		) VALUES (
+			$1, $2, $3, $4, 'dataground.event/v1',
+			'interaction.approval.resolved', $5, $5, $6, $7,
+			$8, $9, $10
+		)
+	`, approval.IsolationDomainID, approval.InvocationID,
+		identity.Derived("evt", approval.InvocationID+":"+approval.ID+":resolved:v1"),
+		sequence, now, resolution.CorrelationID, resolution.ActorID,
+		approval.ServiceID, approval.RevisionID, payload,
+	); err != nil {
+		return fmt.Errorf("persist invocation approval resolution event: %w", err)
+	}
+	return nil
 }
 
 func sameInvocationRuntimeApprovalResolution(

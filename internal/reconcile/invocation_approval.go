@@ -32,6 +32,12 @@ type InvocationApprovalStore interface {
 		context.Context,
 		persistence.InvocationRuntimeApprovalResolution,
 	) (persistence.InvocationRuntimeApproval, error)
+	ResolveInvocationRuntimeApprovalCommand(
+		context.Context,
+		persistence.Idempotency,
+		persistence.InvocationRuntimeApprovalResolution,
+		persistence.InvocationRuntimeApprovalEntryAuthorizer,
+	) (persistence.CommandResult, error)
 }
 
 type InvocationApprovalResolver struct {
@@ -63,6 +69,9 @@ func (resolver *InvocationApprovalResolver) Resolve(
 	if err != nil {
 		return persistence.InvocationRuntimeApproval{}, err
 	}
+	if approval.InvocationID != resolution.InvocationID {
+		return persistence.InvocationRuntimeApproval{}, persistence.ErrInvocationRuntimeApprovalMissing
+	}
 	candidate := approval
 	candidate.Decision = resolution.Decision
 	candidate.ResolvedBy = resolution.ActorID
@@ -73,6 +82,31 @@ func (resolver *InvocationApprovalResolver) Resolve(
 		return persistence.InvocationRuntimeApproval{}, err
 	}
 	return resolver.store.ResolveInvocationRuntimeApproval(ctx, resolution)
+}
+
+func (resolver *InvocationApprovalResolver) ResolveCommand(
+	ctx context.Context,
+	idempotency persistence.Idempotency,
+	resolution persistence.InvocationRuntimeApprovalResolution,
+) (persistence.CommandResult, error) {
+	if resolver == nil || ctx == nil {
+		return persistence.CommandResult{}, ErrInvocationApprovalUnavailable
+	}
+	return resolver.store.ResolveInvocationRuntimeApprovalCommand(
+		ctx,
+		idempotency,
+		resolution,
+		func(
+			authorizationContext context.Context,
+			approval persistence.InvocationRuntimeApproval,
+		) error {
+			return resolver.authorizer.AuthorizeInvocationApproval(
+				authorizationContext,
+				approval,
+				InvocationApprovalPhaseEntry,
+			)
+		},
+	)
 }
 
 var _ InvocationApprovalAuthorizer = (*InvocationAuthorizer)(nil)

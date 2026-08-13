@@ -4,7 +4,7 @@
   "info": {
     "title": "DataGround API",
     "version": "0.1.0",
-    "description": "Native DataGround contract for isolation-scoped agent services, immutable revisions, invocations, event replay, cancellation, and artifacts. Additive changes are compatible within v1. Removing or renaming fields, narrowing accepted values, changing state or error semantics, or making optional fields required is breaking and requires a new major API version. Clients must ignore unknown response fields and unknown event types while preserving the event envelope. All versioned API operations require a bearer access token whose issuer, audience, and isolation-domain membership are validated before a deployment authorizer evaluates the principal, closed action, path-derived resource identity, and effective isolation domain."
+    "description": "Native DataGround contract for isolation-scoped agent services, immutable revisions, invocations, event replay, approval resolution, cancellation, and artifacts. Additive changes are compatible within v1. Removing or renaming fields, narrowing accepted values, changing state or error semantics, or making optional fields required is breaking and requires a new major API version. Clients must ignore unknown response fields and unknown event types while preserving the event envelope. All versioned API operations require a bearer access token whose issuer, audience, and isolation-domain membership are validated before a deployment authorizer evaluates the principal, closed action, path-derived resource identity, and effective isolation domain."
   },
   "security": [{ "BearerAccessToken": [] }],
   "paths": {
@@ -321,6 +321,44 @@
         }
       }
     },
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/approvals/{approvalId}": {
+      "post": {
+        "operationId": "resolveInvocationApproval",
+        "summary": "Resolve a pending invocation approval",
+        "description": "Resolves one provider-neutral durable approval after both API action authorization and exact revision-bound invocation authorization succeed. The route never exposes adapter-native identifiers, and an exact idempotency replay returns the originally committed response.",
+        "parameters": [
+          { "$ref": "#/components/parameters/IsolationDomainId" },
+          { "$ref": "#/components/parameters/InvocationId" },
+          { "$ref": "#/components/parameters/ApprovalId" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ResolveInvocationApprovalRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Approval resolution committed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/InvocationApproval" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "415": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/events": {
       "get": {
         "operationId": "streamInvocationEvents",
@@ -411,6 +449,12 @@
         "required": true,
         "schema": { "$ref": "#/components/schemas/InvocationId" }
       },
+      "ApprovalId": {
+        "name": "approvalId",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/ApprovalId" }
+      },
       "OperationId": {
         "name": "operationId",
         "in": "path",
@@ -485,6 +529,10 @@
       "InvocationId": {
         "type": "string",
         "pattern": "^inv_[0-9a-z]{20,32}$"
+      },
+      "ApprovalId": {
+        "type": "string",
+        "pattern": "^apr_[0-9a-z]{20,32}$"
       },
       "ArtifactId": {
         "type": "string",
@@ -732,6 +780,38 @@
           "completedAt": { "type": "string", "format": "date-time" }
         }
       },
+      "InvocationApproval": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "schemaVersion",
+          "id",
+          "isolationDomainId",
+          "invocationId",
+          "requestedAction",
+          "state",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "type": "string",
+            "const": "dataground.invocation-approval/v1"
+          },
+          "id": { "$ref": "#/components/schemas/ApprovalId" },
+          "isolationDomainId": { "$ref": "#/components/schemas/IsolationDomainId" },
+          "invocationId": { "$ref": "#/components/schemas/InvocationId" },
+          "requestedAction": { "enum": ["process.execute", "workspace.change"] },
+          "state": { "enum": ["pending", "resolved", "delivering", "delivered"] },
+          "version": { "type": "integer", "minimum": 1 },
+          "decision": { "enum": ["approve", "deny"] },
+          "resolvedBy": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "resolvedAt": { "type": "string", "format": "date-time" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
       "EventEnvelope": {
         "type": "object",
         "additionalProperties": true,
@@ -873,6 +953,15 @@
         "additionalProperties": false,
         "properties": {
           "reason": { "type": "string", "maxLength": 512 }
+        }
+      },
+      "ResolveInvocationApprovalRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedVersion", "decision"],
+        "properties": {
+          "expectedVersion": { "type": "integer", "const": 1 },
+          "decision": { "enum": ["approve", "deny"] }
         }
       }
     }

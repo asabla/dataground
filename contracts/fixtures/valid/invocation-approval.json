@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "dataground.invocation-approval/v1",
+  "id": "apr_00000000000000000001",
+  "isolationDomainId": "iso_00000000000000000001",
+  "invocationId": "inv_00000000000000000001",
+  "requestedAction": "workspace.change",
+  "state": "resolved",
+  "version": 2,
+  "decision": "approve",
+  "resolvedBy": "usr_00000000000000000001",
+  "resolvedAt": "2026-08-14T12:01:00Z",
+  "createdAt": "2026-08-14T12:00:00Z",
+  "updatedAt": "2026-08-14T12:01:00Z"
+}

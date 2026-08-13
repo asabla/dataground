@@ -15,9 +15,9 @@
         "recordedAt": "2026-08-01T10:00:00Z",
         "principalId": "usr_00000000000000000001",
         "principalKind": "human",
-        "action": "readInvocation",
-        "resourceType": "DataGround::Invocation",
-        "resourceId": "inv_00000000000000000001",
+        "action": "resolveInvocationApproval",
+        "resourceType": "DataGround::InvocationApproval",
+        "resourceId": "apr_00000000000000000001",
         "outcome": "allowed",
         "policySetId": "policy.api.v1",
         "policyDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
@@ -40,5 +40,5 @@
       }
     ]
   },
-  "contentSha256": "sha256:37c9034a99dee20d860b415bffff6931a4798fbf95a2305931c37e1352934678"
+  "contentSha256": "sha256:33d5c0bff7de0d537697bf706ebc2a7ab95ad9136324d198a807a66441a043a5"
 }
