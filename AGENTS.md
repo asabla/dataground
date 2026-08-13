@@ -4,7 +4,7 @@ DataGround is security-sensitive platform infrastructure for data workloads, not
 
 ## Current repository state
 
-This repository contains an executable foundation: control-plane entry points are under `cmd`, internal Go packages are under `internal`, the React workbench is under `apps/workbench`, shared design tokens and accessible primitives are under `packages/tokens` and `packages/ui`, and canonical public contracts and generated types are under `contracts` and `apps/workbench/src/contracts`.
+This repository contains an executable foundation: control-plane entry points are under `cmd`, internal Go packages are under `internal`, the React workbench is under `apps/workbench`, shared design tokens, accessible primitives, and product patterns are under `packages/tokens`, `packages/ui`, and `packages/patterns`, and canonical public contracts and generated types are under `contracts` and `apps/workbench/src/contracts`.
 
 The normative sources are `docs/architecture/decision-register.md` and `docs/architecture/system-specification.md`, in that order when they conflict. Implementation prerequisites, proposed choices, verification gates, and handoff prompts under `docs/implementation/` remain subordinate to those sources.
 
