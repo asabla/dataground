@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@dataground/patterns": "workspace:*",
     "@dataground/ui": "workspace:*",
     "openapi-fetch": "0.17.0",
     "react": "19.2.7",
