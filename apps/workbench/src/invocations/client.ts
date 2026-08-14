@@ -58,6 +58,11 @@ export interface InvocationReference {
   isolationDomainId: string;
 }
 
+export interface AgentServiceInvocationTarget {
+  isolationDomainId: string;
+  serviceId: string;
+}
+
 export interface InvocationFailure {
   code: string;
   correlationId?: string;
@@ -77,6 +82,8 @@ export type InvocationStatusResult =
   | { error: InvocationFailure; ok: false };
 
 const invocationPath = "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}";
+const invocationCreatePath =
+  "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations";
 const cancellationPath =
   "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel";
 const operationPath = "/v1/isolation-domains/{isolationDomainId}/operations/{operationId}";
@@ -331,6 +338,30 @@ function validReference(reference: InvocationReference): boolean {
   );
 }
 
+function validTarget(target: AgentServiceInvocationTarget): boolean {
+  return (
+    patterns.isolationDomainId.test(target.isolationDomainId) &&
+    patterns.serviceId.test(target.serviceId)
+  );
+}
+
+function decodeCreatedInvocation(
+  value: unknown,
+  target: AgentServiceInvocationTarget,
+  alias: string,
+): InvocationStatusResource | undefined {
+  if (!isRecord(value) || !isRecord(value.metadata) || typeof value.metadata.id !== "string") {
+    return undefined;
+  }
+  const invocation = decodeInvocation(value, {
+    invocationId: value.metadata.id,
+    isolationDomainId: target.isolationDomainId,
+  });
+  return invocation?.serviceId === target.serviceId && invocation.alias === alias
+    ? invocation
+    : undefined;
+}
+
 async function readOperation(
   client: DataGroundClient,
   invocation: InvocationStatusResource,
@@ -416,6 +447,58 @@ export async function readInvocationStatus(
     return failure(
       "WORKBENCH_NETWORK_UNAVAILABLE",
       "The Workbench could not reach DataGround to read invocation state.",
+      true,
+    );
+  }
+}
+
+export async function invokeAgentService(
+  client: DataGroundClient,
+  target: AgentServiceInvocationTarget,
+  alias: string,
+  input: Readonly<Record<string, string>>,
+  idempotencyKey: string,
+): Promise<InvocationStatusResult> {
+  if (
+    !validTarget(target) ||
+    !patterns.alias.test(alias) ||
+    alias.length > 63 ||
+    !isRecord(input) ||
+    !Object.values(input).every((value) => typeof value === "string") ||
+    !patterns.idempotencyKey.test(idempotencyKey)
+  ) {
+    return failure(
+      "WORKBENCH_INVALID_INVOCATION_REQUEST",
+      "The invocation target, alias, input, or request identifier is invalid.",
+    );
+  }
+  try {
+    const { data, error, response } = await client.POST(invocationCreatePath, {
+      body: { alias, input },
+      params: {
+        header: { "Idempotency-Key": idempotencyKey },
+        path: target,
+      },
+    });
+    if (!data) {
+      return failedResult(
+        error,
+        response.status,
+        "DataGround returned an invocation response the Workbench could not interpret.",
+      );
+    }
+    const invocation = decodeCreatedInvocation(data, target, alias);
+    return invocation
+      ? completeSnapshot(client, invocation)
+      : failure(
+          "WORKBENCH_INVOCATION_SCOPE_MISMATCH",
+          "DataGround returned invocation state outside the requested service scope.",
+        );
+  } catch {
+    return failure(
+      "WORKBENCH_INVOCATION_UNCONFIRMED",
+      "The Workbench could not confirm whether DataGround accepted the invocation.",
+      true,
       true,
     );
   }
