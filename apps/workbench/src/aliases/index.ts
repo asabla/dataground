@@ -1,6 +1,7 @@
 export {
   assignServiceAlias,
   isServiceAliasAssignmentScopeValid,
+  isServiceAliasRoutedToRevision,
   type ServiceAliasAssignResult,
   type ServiceAliasFailure,
   type ServiceAliasMetadata,

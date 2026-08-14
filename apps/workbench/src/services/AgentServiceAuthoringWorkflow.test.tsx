@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it } from "vitest";
+import type { ServiceAliasResource } from "../aliases";
 import type { DataGroundClient } from "../contracts/client";
 import type { PublishedServiceRevisionResource, ServiceRevisionResource } from "../revisions";
 import {
   AgentServiceAuthoringWorkflow,
+  isAliasSelectedForPublishedRevision,
   isPublishedRevisionSelectedForService,
   isRevisionSelectedForService,
   isServiceSelectedForScope,
@@ -25,7 +27,12 @@ const service: AgentServiceResource = {
   name: "Research agent",
 };
 const revision: ServiceRevisionResource = {
-  inputSchema: { properties: { prompt: { type: "string" } }, type: "object" },
+  inputSchema: {
+    additionalProperties: false,
+    properties: { prompt: { maxLength: 262_144, minLength: 1, type: "string" } },
+    required: ["prompt"],
+    type: "object",
+  },
   metadata: {
     createdAt: "2026-08-15T00:01:00Z",
     createdBy: "usr_00000000000000000001",
@@ -51,24 +58,42 @@ const publishedRevision: PublishedServiceRevisionResource = {
   publishedAt: "2026-08-15T00:02:00Z",
   state: "published",
 };
+const alias: ServiceAliasResource = {
+  metadata: {
+    createdAt: "2026-08-15T00:03:00Z",
+    createdBy: "usr_00000000000000000001",
+    generation: 1,
+    id: "als_00000000000000000001",
+    isolationDomainId,
+    updatedAt: "2026-08-15T00:03:00Z",
+    version: 1,
+  },
+  name: "stable",
+  revisionId: publishedRevision.metadata.id,
+  serviceId: service.metadata.id,
+};
 
 function renderWorkflow(
   selectedService?: AgentServiceResource,
   activeIsolationDomainId = isolationDomainId,
   selectedRevision?: ServiceRevisionResource,
   selectedPublishedRevision?: PublishedServiceRevisionResource,
+  selectedAlias?: ServiceAliasResource,
 ): string {
   return renderToStaticMarkup(
     <AgentServiceAuthoringWorkflow
       canAssignAlias
       canCreateRevision
       canCreateService
+      canInvokeService
       canPublishRevision
       client={{} as DataGroundClient}
       isolationDomainId={activeIsolationDomainId}
       onAssignAlias={() => undefined}
+      onComposeInvocation={() => undefined}
       onOpenRevision={() => undefined}
       onOpenService={() => undefined}
+      selectedAlias={selectedAlias}
       selectedPublishedRevision={selectedPublishedRevision}
       selectedRevision={selectedRevision}
       selectedService={selectedService}
@@ -84,6 +109,7 @@ describe("AgentServiceAuthoringWorkflow", () => {
     assert.doesNotMatch(markup, /Create revision draft/u);
     assert.doesNotMatch(markup, /Publish revision/u);
     assert.doesNotMatch(markup, /Ready to assign/u);
+    assert.doesNotMatch(markup, /Ready to invoke/u);
   });
 
   it("opens revision drafting for the exact selected service and isolation scope", () => {
@@ -122,6 +148,45 @@ describe("AgentServiceAuthoringWorkflow", () => {
     assert.match(markup, /Publish revision/u);
     assert.match(markup, /Ready to assign/u);
     assert.match(markup, /value="stable"/u);
+    assert.doesNotMatch(markup, /Ready to invoke/u);
+  });
+
+  it("opens invocation composition only for the explicitly selected route", () => {
+    const markup = renderWorkflow(service, isolationDomainId, revision, publishedRevision, alias);
+
+    assert.equal(
+      isAliasSelectedForPublishedRevision(
+        alias,
+        publishedRevision,
+        revision,
+        service,
+        isolationDomainId,
+      ),
+      true,
+    );
+    assert.match(markup, /Create invocation/u);
+    assert.match(markup, /Ready to invoke/u);
+    assert.match(markup, /name="prompt"/u);
+  });
+
+  it("keeps invocation composition unavailable for an unsupported input contract", () => {
+    const noSchemaDraft: ServiceRevisionResource = { ...revision, inputSchema: undefined };
+    const noSchemaPublication: PublishedServiceRevisionResource = {
+      ...publishedRevision,
+      inputSchema: undefined,
+    };
+    const markup = renderWorkflow(
+      service,
+      isolationDomainId,
+      noSchemaDraft,
+      noSchemaPublication,
+      alias,
+    );
+
+    assert.match(markup, /Composer unavailable/u);
+    assert.match(markup, /Input contract unavailable/u);
+    assert.doesNotMatch(markup, /Ready to invoke/u);
+    assert.doesNotMatch(markup, /Start invocation/u);
   });
 
   it("fails closed when selected service state crosses the active isolation scope", () => {
@@ -140,6 +205,7 @@ describe("AgentServiceAuthoringWorkflow", () => {
     assert.doesNotMatch(markup, /Create revision draft/u);
     assert.doesNotMatch(markup, /Publish revision/u);
     assert.doesNotMatch(markup, /Ready to assign/u);
+    assert.doesNotMatch(markup, /Ready to invoke/u);
     assert.doesNotMatch(markup, /iso_00000000000000000002/u);
     assert.doesNotMatch(markup, /svc_00000000000000000001/u);
   });
@@ -288,5 +354,131 @@ describe("AgentServiceAuthoringWorkflow", () => {
     assert.match(markup, /Alias routing unavailable/u);
     assert.doesNotMatch(markup, /Ready to assign/u);
     assert.doesNotMatch(markup, /rev_00000000000000000001/u);
+  });
+
+  it("does not disclose a selected alias from another isolation scope", () => {
+    const crossScopeAlias: ServiceAliasResource = {
+      ...alias,
+      metadata: {
+        ...alias.metadata,
+        isolationDomainId: "iso_00000000000000000002",
+      },
+    };
+    const markup = renderWorkflow(
+      service,
+      isolationDomainId,
+      revision,
+      publishedRevision,
+      crossScopeAlias,
+    );
+
+    assert.equal(
+      isAliasSelectedForPublishedRevision(
+        crossScopeAlias,
+        publishedRevision,
+        revision,
+        service,
+        isolationDomainId,
+      ),
+      false,
+    );
+    assert.match(markup, /Invocation composition unavailable/u);
+    assert.doesNotMatch(markup, /Ready to invoke/u);
+    assert.doesNotMatch(markup, /iso_00000000000000000002/u);
+  });
+
+  it("does not expose composition for an alias bound to another service", () => {
+    const crossServiceAlias: ServiceAliasResource = {
+      ...alias,
+      serviceId: "svc_00000000000000000002",
+    };
+    const markup = renderWorkflow(
+      service,
+      isolationDomainId,
+      revision,
+      publishedRevision,
+      crossServiceAlias,
+    );
+
+    assert.equal(
+      isAliasSelectedForPublishedRevision(
+        crossServiceAlias,
+        publishedRevision,
+        revision,
+        service,
+        isolationDomainId,
+      ),
+      false,
+    );
+    assert.match(markup, /Invocation composition unavailable/u);
+    assert.doesNotMatch(markup, /Ready to invoke/u);
+    assert.doesNotMatch(markup, /svc_00000000000000000002/u);
+  });
+
+  it("rejects an alias routed to another revision before exposing composition", () => {
+    const substitutedAlias: ServiceAliasResource = {
+      ...alias,
+      revisionId: "rev_00000000000000000002",
+    };
+    const markup = renderWorkflow(
+      service,
+      isolationDomainId,
+      revision,
+      publishedRevision,
+      substitutedAlias,
+    );
+
+    assert.equal(
+      isAliasSelectedForPublishedRevision(
+        substitutedAlias,
+        publishedRevision,
+        revision,
+        service,
+        isolationDomainId,
+      ),
+      false,
+    );
+    assert.match(markup, /Invocation composition unavailable/u);
+    assert.doesNotMatch(markup, /Ready to invoke/u);
+    assert.doesNotMatch(markup, /rev_00000000000000000002/u);
+  });
+
+  it("rejects alias state that predates the selected publication", () => {
+    const staleAlias: ServiceAliasResource = {
+      ...alias,
+      metadata: {
+        ...alias.metadata,
+        createdAt: "2026-08-15T00:01:30Z",
+        updatedAt: "2026-08-15T00:01:30Z",
+      },
+    };
+    const markup = renderWorkflow(
+      service,
+      isolationDomainId,
+      revision,
+      publishedRevision,
+      staleAlias,
+    );
+
+    assert.equal(
+      isAliasSelectedForPublishedRevision(
+        staleAlias,
+        publishedRevision,
+        revision,
+        service,
+        isolationDomainId,
+      ),
+      false,
+    );
+    assert.match(markup, /Invocation composition unavailable/u);
+    assert.doesNotMatch(markup, /Ready to invoke/u);
+  });
+
+  it("rejects a selected alias without its confirmed publication", () => {
+    const markup = renderWorkflow(service, isolationDomainId, revision, undefined, alias);
+
+    assert.match(markup, /Invocation composition unavailable/u);
+    assert.doesNotMatch(markup, /Ready to invoke/u);
+    assert.doesNotMatch(markup, /als_00000000000000000001/u);
   });
 });
