@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import type { DataGroundClient } from "../contracts/client";
-import { cancelInvocation, readInvocationStatus } from "./client";
+import { cancelInvocation, invokeAgentService, readInvocationStatus } from "./client";
 
 const reference = {
   invocationId: "inv_00000000000000000001",
@@ -54,6 +54,101 @@ function successClient(invocationValue: unknown = invocation, operationValue: un
 }
 
 describe("invocation status client", () => {
+  it("creates an invocation in the exact service scope and strips submitted input", async () => {
+    const calls: Array<{ options: unknown; path: string }> = [];
+    const target = {
+      isolationDomainId: reference.isolationDomainId,
+      serviceId: invocation.serviceId,
+    };
+    const client = {
+      GET: async (path: string, options: unknown) => {
+        calls.push({ options, path });
+        return { data: operation, response: new Response(null, { status: 200 }) };
+      },
+      POST: async (path: string, options: unknown) => {
+        calls.push({ options, path });
+        return {
+          data: { ...invocation, state: "accepted" },
+          response: new Response(null, { status: 202 }),
+        };
+      },
+    } as unknown as DataGroundClient;
+
+    const result = await invokeAgentService(
+      client,
+      target,
+      "stable",
+      { prompt: "governed prompt" },
+      "invoke:stable0001",
+    );
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(calls[0], {
+      options: {
+        body: { alias: "stable", input: { prompt: "governed prompt" } },
+        params: { header: { "Idempotency-Key": "invoke:stable0001" }, path: target },
+      },
+      path: "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations",
+    });
+    if (result.ok) assert.equal("input" in result.invocation, false);
+  });
+
+  it("rejects invalid create requests and cross-service responses before operation reads", async () => {
+    let calls = 0;
+    const target = {
+      isolationDomainId: reference.isolationDomainId,
+      serviceId: invocation.serviceId,
+    };
+    const client = {
+      GET: async () => {
+        calls++;
+        return { data: operation, response: new Response(null, { status: 200 }) };
+      },
+      POST: async () => {
+        calls++;
+        return {
+          data: { ...invocation, serviceId: "svc_00000000000000000002" },
+          response: new Response(null, { status: 202 }),
+        };
+      },
+    } as unknown as DataGroundClient;
+
+    const invalid = await invokeAgentService(client, target, "INVALID", { prompt: "x" }, "short");
+    const mismatched = await invokeAgentService(
+      client,
+      target,
+      "stable",
+      { prompt: "x" },
+      "invoke:stable0002",
+    );
+
+    assert.equal(invalid.ok, false);
+    assert.equal(mismatched.ok, false);
+    assert.equal(calls, 1);
+    if (!mismatched.ok) assert.equal(mismatched.error.code, "WORKBENCH_INVOCATION_SCOPE_MISMATCH");
+  });
+
+  it("classifies thrown invocation transport as an uncertain retryable outcome", async () => {
+    const result = await invokeAgentService(
+      {
+        POST: async () => {
+          throw new Error("secret upstream diagnostic");
+        },
+      } as unknown as DataGroundClient,
+      { isolationDomainId: reference.isolationDomainId, serviceId: invocation.serviceId },
+      "stable",
+      { prompt: "secret input" },
+      "invoke:stable0003",
+    );
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.code, "WORKBENCH_INVOCATION_UNCONFIRMED");
+      assert.equal(result.error.outcomeUnknown, true);
+      assert.doesNotMatch(result.error.message, /secret|upstream/u);
+    }
+  });
+
   it("binds complete scoped paths and strips content and native operation fields", async () => {
     const calls: Array<{ options: unknown; path: string }> = [];
     const client = {

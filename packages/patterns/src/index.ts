@@ -25,6 +25,14 @@ export {
   timelineArtifactReference,
 } from "./EventTimeline";
 export {
+  type AcceptedInvocation,
+  InvocationComposer,
+  type InvocationComposerError,
+  type InvocationComposerField,
+  type InvocationComposerProps,
+  type InvocationComposerSchema,
+} from "./InvocationComposer";
+export {
   InvocationStatus,
   type InvocationDomainError,
   type InvocationOperationResource,
