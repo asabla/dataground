@@ -39,9 +39,9 @@ export {
   type InvocationComposerSchema,
 } from "./InvocationComposer";
 export {
-  InvocationStatus,
   type InvocationDomainError,
   type InvocationOperationResource,
+  InvocationStatus,
   type InvocationStatusError,
   type InvocationStatusMetadata,
   type InvocationStatusProps,
@@ -49,3 +49,9 @@ export {
   type InvocationStatusResource,
   isInvocationCancellable,
 } from "./InvocationStatus";
+export {
+  type CreatedServiceRevision,
+  ServiceRevisionDraft,
+  type ServiceRevisionDraftError,
+  type ServiceRevisionDraftProps,
+} from "./ServiceRevisionDraft";
