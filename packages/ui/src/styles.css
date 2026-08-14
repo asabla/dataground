@@ -180,6 +180,10 @@
   color: var(--dg-color-status-critical);
 }
 
-.dg-text-field.is-disabled {
-  opacity: 0.6;
+.dg-text-field.is-disabled input,
+.dg-text-field.is-disabled textarea {
+  border-color: var(--dg-color-border-subtle);
+  background: var(--dg-color-surface-raised);
+  color: var(--dg-color-text-secondary);
+  cursor: not-allowed;
 }
