@@ -55,3 +55,9 @@ export {
   type ServiceRevisionDraftError,
   type ServiceRevisionDraftProps,
 } from "./ServiceRevisionDraft";
+export {
+  type PublishedServiceRevision,
+  ServiceRevisionPublish,
+  type ServiceRevisionPublishError,
+  type ServiceRevisionPublishProps,
+} from "./ServiceRevisionPublish";
