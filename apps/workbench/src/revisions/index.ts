@@ -7,6 +7,12 @@ export {
   type ServiceRevisionResource,
 } from "./client";
 export {
+  isPublishableServiceRevision,
+  type PublishedServiceRevisionResource,
+  publishServiceRevision,
+  type ServiceRevisionPublishResult,
+} from "./publicationClient";
+export {
   createRevisionIdempotencyKey,
   type ServiceRevisionDraftValidation,
   type ServiceRevisionDraftValues,
@@ -19,8 +25,3 @@ export {
   ServiceRevisionPublishWorkflow,
   type ServiceRevisionPublishWorkflowProps,
 } from "./ServiceRevisionPublishWorkflow";
-export {
-  type PublishedServiceRevisionResource,
-  publishServiceRevision,
-  type ServiceRevisionPublishResult,
-} from "./publicationClient";

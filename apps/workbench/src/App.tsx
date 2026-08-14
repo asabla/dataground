@@ -1,6 +1,7 @@
 import { Button, StatusBadge, TextField } from "@dataground/ui";
 import { useState } from "react";
 import { createDataGroundClient, type DataGroundClient } from "./contracts/client";
+import type { ServiceRevisionResource } from "./revisions";
 import { AgentServiceAuthoringWorkflow, type AgentServiceResource } from "./services";
 
 const DEFAULT_ISOLATION_DOMAIN_ID = "iso_00000000000000000001";
@@ -42,6 +43,7 @@ export function validateDevelopmentScope(
 export function App() {
   const [bearerToken, setBearerToken] = useState("");
   const [isolationDomainId, setIsolationDomainId] = useState(DEFAULT_ISOLATION_DOMAIN_ID);
+  const [openedRevision, setOpenedRevision] = useState<ServiceRevisionResource>();
   const [openedService, setOpenedService] = useState<AgentServiceResource>();
   const [session, setSession] = useState<DevelopmentSession>();
   const [validationErrors, setValidationErrors] = useState<DevelopmentScopeErrors>({});
@@ -65,6 +67,7 @@ export function App() {
                 onPress={() => {
                   setSession(undefined);
                   setBearerToken("");
+                  setOpenedRevision(undefined);
                   setOpenedService(undefined);
                 }}
                 variant="quiet"
@@ -88,9 +91,15 @@ export function App() {
             <AgentServiceAuthoringWorkflow
               canCreateRevision
               canCreateService
+              canPublishRevision
               client={session.client}
               isolationDomainId={session.isolationDomainId}
-              onOpenService={setOpenedService}
+              onOpenRevision={setOpenedRevision}
+              onOpenService={(service) => {
+                setOpenedRevision(undefined);
+                setOpenedService(service);
+              }}
+              selectedRevision={openedRevision}
               selectedService={openedService}
             />
           </section>
