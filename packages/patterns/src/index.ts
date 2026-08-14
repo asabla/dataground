@@ -61,3 +61,9 @@ export {
   type ServiceRevisionPublishError,
   type ServiceRevisionPublishProps,
 } from "./ServiceRevisionPublish";
+export {
+  type AssignedServiceAlias,
+  ServiceAliasAssign,
+  type ServiceAliasAssignError,
+  type ServiceAliasAssignProps,
+} from "./ServiceAliasAssign";
