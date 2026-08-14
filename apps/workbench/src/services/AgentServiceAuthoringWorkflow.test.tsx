@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it } from "vitest";
 import type { DataGroundClient } from "../contracts/client";
-import type { ServiceRevisionResource } from "../revisions";
+import type { PublishedServiceRevisionResource, ServiceRevisionResource } from "../revisions";
 import {
   AgentServiceAuthoringWorkflow,
+  isPublishedRevisionSelectedForService,
   isRevisionSelectedForService,
   isServiceSelectedForScope,
 } from "./AgentServiceAuthoringWorkflow";
@@ -40,21 +41,35 @@ const revision: ServiceRevisionResource = {
   serviceId: service.metadata.id,
   state: "draft",
 };
+const publishedRevision: PublishedServiceRevisionResource = {
+  ...revision,
+  metadata: {
+    ...revision.metadata,
+    updatedAt: "2026-08-15T00:02:00Z",
+    version: 2,
+  },
+  publishedAt: "2026-08-15T00:02:00Z",
+  state: "published",
+};
 
 function renderWorkflow(
   selectedService?: AgentServiceResource,
   activeIsolationDomainId = isolationDomainId,
   selectedRevision?: ServiceRevisionResource,
+  selectedPublishedRevision?: PublishedServiceRevisionResource,
 ): string {
   return renderToStaticMarkup(
     <AgentServiceAuthoringWorkflow
+      canAssignAlias
       canCreateRevision
       canCreateService
       canPublishRevision
       client={{} as DataGroundClient}
       isolationDomainId={activeIsolationDomainId}
+      onAssignAlias={() => undefined}
       onOpenRevision={() => undefined}
       onOpenService={() => undefined}
+      selectedPublishedRevision={selectedPublishedRevision}
       selectedRevision={selectedRevision}
       selectedService={selectedService}
     />,
@@ -68,6 +83,7 @@ describe("AgentServiceAuthoringWorkflow", () => {
     assert.match(markup, /Create agent service/u);
     assert.doesNotMatch(markup, /Create revision draft/u);
     assert.doesNotMatch(markup, /Publish revision/u);
+    assert.doesNotMatch(markup, /Ready to assign/u);
   });
 
   it("opens revision drafting for the exact selected service and isolation scope", () => {
@@ -88,6 +104,24 @@ describe("AgentServiceAuthoringWorkflow", () => {
     assert.match(markup, /Create revision draft/u);
     assert.match(markup, /Publish revision/u);
     assert.match(markup, /rev_00000000000000000001/u);
+    assert.doesNotMatch(markup, /Ready to assign/u);
+  });
+
+  it("opens alias routing only for the explicitly selected publication", () => {
+    const markup = renderWorkflow(service, isolationDomainId, revision, publishedRevision);
+
+    assert.equal(
+      isPublishedRevisionSelectedForService(
+        publishedRevision,
+        revision,
+        service,
+        isolationDomainId,
+      ),
+      true,
+    );
+    assert.match(markup, /Publish revision/u);
+    assert.match(markup, /Ready to assign/u);
+    assert.match(markup, /value="stable"/u);
   });
 
   it("fails closed when selected service state crosses the active isolation scope", () => {
@@ -105,6 +139,7 @@ describe("AgentServiceAuthoringWorkflow", () => {
     assert.match(markup, /Revision drafting unavailable/u);
     assert.doesNotMatch(markup, /Create revision draft/u);
     assert.doesNotMatch(markup, /Publish revision/u);
+    assert.doesNotMatch(markup, /Ready to assign/u);
     assert.doesNotMatch(markup, /iso_00000000000000000002/u);
     assert.doesNotMatch(markup, /svc_00000000000000000001/u);
   });
@@ -178,6 +213,80 @@ describe("AgentServiceAuthoringWorkflow", () => {
 
     assert.match(markup, /Revision publication unavailable/u);
     assert.doesNotMatch(markup, /Publish revision/u);
+    assert.doesNotMatch(markup, /rev_00000000000000000001/u);
+  });
+
+  it("does not disclose a selected publication from another isolation scope", () => {
+    const crossScopePublication: PublishedServiceRevisionResource = {
+      ...publishedRevision,
+      metadata: {
+        ...publishedRevision.metadata,
+        isolationDomainId: "iso_00000000000000000002",
+      },
+    };
+    const markup = renderWorkflow(service, isolationDomainId, revision, crossScopePublication);
+
+    assert.equal(
+      isPublishedRevisionSelectedForService(
+        crossScopePublication,
+        revision,
+        service,
+        isolationDomainId,
+      ),
+      false,
+    );
+    assert.match(markup, /Alias routing unavailable/u);
+    assert.doesNotMatch(markup, /Ready to assign/u);
+    assert.doesNotMatch(markup, /iso_00000000000000000002/u);
+  });
+
+  it("does not expose routing for a publication bound to another service", () => {
+    const crossServicePublication: PublishedServiceRevisionResource = {
+      ...publishedRevision,
+      serviceId: "svc_00000000000000000002",
+    };
+    const markup = renderWorkflow(service, isolationDomainId, revision, crossServicePublication);
+
+    assert.equal(
+      isPublishedRevisionSelectedForService(
+        crossServicePublication,
+        revision,
+        service,
+        isolationDomainId,
+      ),
+      false,
+    );
+    assert.match(markup, /Alias routing unavailable/u);
+    assert.doesNotMatch(markup, /Ready to assign/u);
+    assert.doesNotMatch(markup, /svc_00000000000000000002/u);
+  });
+
+  it("rejects a substituted publication definition before exposing routing", () => {
+    const substitutedPublication: PublishedServiceRevisionResource = {
+      ...publishedRevision,
+      runtimeProfile: "other/v1",
+    };
+    const markup = renderWorkflow(service, isolationDomainId, revision, substitutedPublication);
+
+    assert.equal(
+      isPublishedRevisionSelectedForService(
+        substitutedPublication,
+        revision,
+        service,
+        isolationDomainId,
+      ),
+      false,
+    );
+    assert.match(markup, /Alias routing unavailable/u);
+    assert.doesNotMatch(markup, /Ready to assign/u);
+    assert.doesNotMatch(markup, /other\/v1/u);
+  });
+
+  it("rejects a selected publication without its confirmed draft", () => {
+    const markup = renderWorkflow(service, isolationDomainId, undefined, publishedRevision);
+
+    assert.match(markup, /Alias routing unavailable/u);
+    assert.doesNotMatch(markup, /Ready to assign/u);
     assert.doesNotMatch(markup, /rev_00000000000000000001/u);
   });
 });

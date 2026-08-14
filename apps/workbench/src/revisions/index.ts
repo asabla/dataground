@@ -8,6 +8,7 @@ export {
 } from "./client";
 export {
   isPublishableServiceRevision,
+  isPublishedServiceRevisionForDraft,
   type PublishedServiceRevisionResource,
   publishServiceRevision,
   type ServiceRevisionPublishResult,

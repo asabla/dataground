@@ -198,6 +198,13 @@ function decodePublishedRevision(
   };
 }
 
+export function isPublishedServiceRevisionForDraft(
+  revision: PublishedServiceRevisionResource,
+  draft: ServiceRevisionResource,
+): boolean {
+  return decodePublishedRevision(revision, draft) !== undefined;
+}
+
 function failedResult(
   error: ErrorEnvelope | undefined,
   status: number,
