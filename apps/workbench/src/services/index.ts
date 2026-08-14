@@ -1,4 +1,15 @@
 export {
+  AgentServiceAuthoringWorkflow,
+  type AgentServiceAuthoringWorkflowProps,
+  isServiceSelectedForScope,
+} from "./AgentServiceAuthoringWorkflow";
+export {
+  AgentServiceCreateWorkflow,
+  type AgentServiceCreateWorkflowProps,
+  createServiceIdempotencyKey,
+  validateAgentServiceCreateRequest,
+} from "./AgentServiceCreateWorkflow";
+export {
   type AgentServiceCreateRequest,
   type AgentServiceCreateResult,
   type AgentServiceFailure,
@@ -6,9 +17,3 @@ export {
   type AgentServiceResource,
   createAgentService,
 } from "./client";
-export {
-  AgentServiceCreateWorkflow,
-  type AgentServiceCreateWorkflowProps,
-  createServiceIdempotencyKey,
-  validateAgentServiceCreateRequest,
-} from "./AgentServiceCreateWorkflow";
