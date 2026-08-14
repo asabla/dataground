@@ -1,7 +1,7 @@
 import { Button, StatusBadge, TextField } from "@dataground/ui";
 import { useState } from "react";
 import { createDataGroundClient, type DataGroundClient } from "./contracts/client";
-import { AgentServiceCreateWorkflow } from "./services";
+import { AgentServiceAuthoringWorkflow, type AgentServiceResource } from "./services";
 
 const DEFAULT_ISOLATION_DOMAIN_ID = "iso_00000000000000000001";
 const ISOLATION_DOMAIN_ID_PATTERN = /^iso_[0-9a-z]{20,32}$/u;
@@ -42,6 +42,7 @@ export function validateDevelopmentScope(
 export function App() {
   const [bearerToken, setBearerToken] = useState("");
   const [isolationDomainId, setIsolationDomainId] = useState(DEFAULT_ISOLATION_DOMAIN_ID);
+  const [openedService, setOpenedService] = useState<AgentServiceResource>();
   const [session, setSession] = useState<DevelopmentSession>();
   const [validationErrors, setValidationErrors] = useState<DevelopmentScopeErrors>({});
 
@@ -64,6 +65,7 @@ export function App() {
                 onPress={() => {
                   setSession(undefined);
                   setBearerToken("");
+                  setOpenedService(undefined);
                 }}
                 variant="quiet"
               >
@@ -83,10 +85,13 @@ export function App() {
           </section>
 
           <section className="product-workflow" aria-label="Agent service workflow">
-            <AgentServiceCreateWorkflow
-              canCreate
+            <AgentServiceAuthoringWorkflow
+              canCreateRevision
+              canCreateService
               client={session.client}
               isolationDomainId={session.isolationDomainId}
+              onOpenService={setOpenedService}
+              selectedService={openedService}
             />
           </section>
         </>

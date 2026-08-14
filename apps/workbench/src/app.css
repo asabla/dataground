@@ -120,7 +120,33 @@ h2 {
 }
 
 .product-workflow {
+  display: grid;
+  gap: var(--dg-density-section-gap);
   margin-top: var(--dg-density-section-gap);
+}
+
+.product-workflow__blocked {
+  display: grid;
+  justify-items: start;
+  gap: var(--dg-space-3);
+  padding: var(--dg-density-panel-padding);
+  border: var(--dg-border-default) solid var(--dg-color-status-critical);
+  border-radius: var(--dg-radius-panel);
+  background: var(--dg-color-status-critical-surface);
+}
+
+.product-workflow__blocked h2,
+.product-workflow__blocked p {
+  margin: 0;
+}
+
+.product-workflow__blocked h2 {
+  font-size: var(--dg-font-size-heading);
+}
+
+.product-workflow__blocked p {
+  color: var(--dg-color-text-secondary);
+  line-height: 1.55;
 }
 
 .approval-workflow-state {
