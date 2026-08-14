@@ -22,6 +22,10 @@ export interface TimelineReference {
   isolationDomainId: string;
 }
 
+export interface TimelineArtifactReference extends TimelineReference {
+  artifactId: string;
+}
+
 export interface TimelineError {
   correlationId?: string;
   message: string;
@@ -36,6 +40,7 @@ export interface EventTimelineProps {
   events: readonly TimelineEvent[];
   hiddenEventCount?: number;
   isReplaying?: boolean;
+  onInspectArtifact?: (reference: TimelineArtifactReference) => void;
   onReplay?: () => void;
   reference: TimelineReference;
 }
@@ -47,6 +52,7 @@ interface EventPresentation {
 }
 
 const MAX_PREVIEW_LENGTH = 480;
+const artifactIdPattern = /^art_[0-9a-z]{20,32}$/u;
 
 function replaceUnsafeControls(value: string): string {
   return Array.from(value, (character) => {
@@ -196,6 +202,21 @@ export function presentTimelineEvent(event: TimelineEvent): EventPresentation {
   }
 }
 
+export function timelineArtifactReference(
+  event: TimelineEvent,
+): TimelineArtifactReference | undefined {
+  const artifactId = event.payload.artifactId;
+  return event.type === "artifact.available" &&
+    typeof artifactId === "string" &&
+    artifactIdPattern.test(artifactId)
+    ? {
+        artifactId,
+        invocationId: event.invocationId,
+        isolationDomainId: event.isolationDomainId,
+      }
+    : undefined;
+}
+
 const connectionPresentations: Record<
   TimelineConnectionState,
   { label: string; message: string; tone: StatusTone }
@@ -223,6 +244,7 @@ export function EventTimeline({
   events,
   hiddenEventCount = 0,
   isReplaying = false,
+  onInspectArtifact,
   onReplay,
   reference,
 }: EventTimelineProps) {
@@ -292,6 +314,7 @@ export function EventTimeline({
         <ol className="dg-event-timeline__list">
           {events.map((event) => {
             const presentation = presentTimelineEvent(event);
+            const artifactReference = timelineArtifactReference(event);
             return (
               <li key={event.id}>
                 <article className="dg-event-timeline__event">
@@ -316,6 +339,13 @@ export function EventTimeline({
                       <dd>{event.actorId}</dd>
                     </div>
                   </dl>
+                  {artifactReference && onInspectArtifact && (
+                    <div className="dg-event-timeline__event-actions">
+                      <Button onPress={() => onInspectArtifact(artifactReference)} variant="quiet">
+                        Inspect artifact metadata
+                      </Button>
+                    </div>
+                  )}
                 </article>
               </li>
             );

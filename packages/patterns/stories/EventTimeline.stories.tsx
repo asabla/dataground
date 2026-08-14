@@ -42,6 +42,7 @@ const meta = {
   args: {
     connectionState: "current",
     events: successEvents,
+    onInspectArtifact: fn(),
     onReplay: fn(),
     reference,
   },
@@ -98,6 +99,27 @@ export const WaitingForApproval: Story = {
       event(2, "interaction.approval.requested", { action: "workspace.change" }),
       event(3, "lifecycle.waiting", { reason: "approval" }),
     ],
+  },
+};
+
+export const ArtifactAvailable: Story = {
+  args: {
+    events: [
+      event(1, "lifecycle.started", { message: "Runtime turn started." }),
+      event(2, "artifact.available", {
+        artifactId: "art_00000000000000000001",
+        descriptor: { name: "reference-result.json" },
+      }),
+    ],
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: "Inspect artifact metadata" }));
+    await expect(args.onInspectArtifact).toHaveBeenCalledWith({
+      artifactId: "art_00000000000000000001",
+      invocationId: reference.invocationId,
+      isolationDomainId: reference.isolationDomainId,
+    });
   },
 };
 
