@@ -1,7 +1,12 @@
 import { StatusBadge } from "@dataground/ui";
 import { useId } from "react";
-import { ServiceAliasAssignWorkflow } from "../aliases";
+import {
+  isServiceAliasRoutedToRevision,
+  ServiceAliasAssignWorkflow,
+  type ServiceAliasResource,
+} from "../aliases";
 import type { DataGroundClient } from "../contracts/client";
+import { InvocationComposerWorkflow } from "../invocations";
 import {
   isPublishableServiceRevision,
   isPublishedServiceRevisionForDraft,
@@ -21,18 +26,39 @@ export interface AgentServiceAuthoringWorkflowProps {
   canAssignAlias: boolean;
   canCreateRevision: boolean;
   canCreateService: boolean;
+  canInvokeService: boolean;
   canPublishRevision: boolean;
   client: DataGroundClient;
   isolationDomainId: string;
+  invocationDisabledReason?: string;
   onAssignAlias: (revision: PublishedServiceRevisionResource) => void;
+  onComposeInvocation: (alias: ServiceAliasResource) => void;
   onOpenRevision: (revision: ServiceRevisionResource) => void;
   onOpenService: (service: AgentServiceResource) => void;
   publicationDisabledReason?: string;
   revisionDisabledReason?: string;
+  selectedAlias?: ServiceAliasResource;
   selectedPublishedRevision?: PublishedServiceRevisionResource;
   selectedRevision?: ServiceRevisionResource;
   selectedService?: AgentServiceResource;
   serviceDisabledReason?: string;
+}
+
+export function isAliasSelectedForPublishedRevision(
+  alias: ServiceAliasResource,
+  publishedRevision: PublishedServiceRevisionResource,
+  revision: ServiceRevisionResource,
+  service: AgentServiceResource,
+  isolationDomainId: string,
+): boolean {
+  return (
+    isPublishedRevisionSelectedForService(
+      publishedRevision,
+      revision,
+      service,
+      isolationDomainId,
+    ) && isServiceAliasRoutedToRevision(alias, publishedRevision)
+  );
 }
 
 export function isPublishedRevisionSelectedForService(
@@ -76,14 +102,18 @@ export function AgentServiceAuthoringWorkflow({
   canAssignAlias,
   canCreateRevision,
   canCreateService,
+  canInvokeService,
   canPublishRevision,
   client,
   isolationDomainId,
+  invocationDisabledReason,
   onAssignAlias,
+  onComposeInvocation,
   onOpenRevision,
   onOpenService,
   publicationDisabledReason,
   revisionDisabledReason,
+  selectedAlias,
   selectedPublishedRevision,
   selectedRevision,
   selectedService,
@@ -92,6 +122,7 @@ export function AgentServiceAuthoringWorkflow({
   const aliasBlockedTitleId = useId();
   const draftingBlockedTitleId = useId();
   const publicationBlockedTitleId = useId();
+  const invocationBlockedTitleId = useId();
   const serviceInScope =
     selectedService === undefined || isServiceSelectedForScope(selectedService, isolationDomainId);
   const revisionInScope =
@@ -103,6 +134,18 @@ export function AgentServiceAuthoringWorkflow({
     selectedRevision !== undefined &&
     selectedService !== undefined &&
     isPublishedRevisionSelectedForService(
+      selectedPublishedRevision,
+      selectedRevision,
+      selectedService,
+      isolationDomainId,
+    );
+  const aliasInScope =
+    selectedAlias !== undefined &&
+    selectedPublishedRevision !== undefined &&
+    selectedRevision !== undefined &&
+    selectedService !== undefined &&
+    isAliasSelectedForPublishedRevision(
+      selectedAlias,
       selectedPublishedRevision,
       selectedRevision,
       selectedService,
@@ -177,6 +220,7 @@ export function AgentServiceAuthoringWorkflow({
             canAssign={canAssignAlias}
             client={client}
             disabledReason={aliasDisabledReason}
+            onComposeInvocation={onComposeInvocation}
             revision={selectedPublishedRevision}
           />
         ) : (
@@ -190,6 +234,34 @@ export function AgentServiceAuthoringWorkflow({
             <p>
               The selected publication is not the confirmed result of the active service draft.
               Reopen the exact service, draft, and publication before changing routing.
+            </p>
+          </section>
+        ))}
+
+      {selectedAlias &&
+        serviceInScope &&
+        (selectedRevision === undefined || revisionInScope) &&
+        (selectedPublishedRevision === undefined || publishedRevisionInScope) &&
+        (selectedService && selectedRevision && selectedPublishedRevision && aliasInScope ? (
+          <InvocationComposerWorkflow
+            canInvoke={canInvokeService}
+            client={client}
+            disabledReason={invocationDisabledReason}
+            initialAlias={selectedAlias.name}
+            inputSchema={selectedPublishedRevision.inputSchema}
+            target={{ isolationDomainId, serviceId: selectedService.metadata.id }}
+          />
+        ) : (
+          <section
+            aria-labelledby={invocationBlockedTitleId}
+            className="product-workflow__blocked"
+            role="alert"
+          >
+            <StatusBadge tone="critical">Scope mismatch</StatusBadge>
+            <h2 id={invocationBlockedTitleId}>Invocation composition unavailable</h2>
+            <p>
+              The selected alias is not the confirmed route for the active publication. Reopen the
+              exact service, draft, publication, and alias before composing an invocation.
             </p>
           </section>
         ))}

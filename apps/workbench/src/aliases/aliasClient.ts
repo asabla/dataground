@@ -138,6 +138,17 @@ export function isServiceAliasAssignmentScopeValid(
   );
 }
 
+export function isServiceAliasRoutedToRevision(
+  alias: ServiceAliasResource,
+  revision: PublishedServiceRevisionResource,
+): boolean {
+  return (
+    alias.revisionId === revision.metadata.id &&
+    isServiceAliasAssignmentScopeValid(revision, alias.name, alias) &&
+    Date.parse(alias.metadata.updatedAt) >= Date.parse(revision.publishedAt)
+  );
+}
+
 function validCurrentAlias(
   alias: ServiceAliasResource,
   revision: PublishedServiceRevisionResource,

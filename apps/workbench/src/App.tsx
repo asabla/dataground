@@ -1,5 +1,6 @@
 import { Button, StatusBadge, TextField } from "@dataground/ui";
 import { useState } from "react";
+import type { ServiceAliasResource } from "./aliases";
 import { createDataGroundClient, type DataGroundClient } from "./contracts/client";
 import type { PublishedServiceRevisionResource, ServiceRevisionResource } from "./revisions";
 import { AgentServiceAuthoringWorkflow, type AgentServiceResource } from "./services";
@@ -43,6 +44,7 @@ export function validateDevelopmentScope(
 export function App() {
   const [bearerToken, setBearerToken] = useState("");
   const [isolationDomainId, setIsolationDomainId] = useState(DEFAULT_ISOLATION_DOMAIN_ID);
+  const [openedAlias, setOpenedAlias] = useState<ServiceAliasResource>();
   const [openedPublishedRevision, setOpenedPublishedRevision] =
     useState<PublishedServiceRevisionResource>();
   const [openedRevision, setOpenedRevision] = useState<ServiceRevisionResource>();
@@ -69,6 +71,7 @@ export function App() {
                 onPress={() => {
                   setSession(undefined);
                   setBearerToken("");
+                  setOpenedAlias(undefined);
                   setOpenedPublishedRevision(undefined);
                   setOpenedRevision(undefined);
                   setOpenedService(undefined);
@@ -96,18 +99,26 @@ export function App() {
               canCreateRevision
               canCreateService
               canPublishRevision
+              canInvokeService
               client={session.client}
               isolationDomainId={session.isolationDomainId}
-              onAssignAlias={setOpenedPublishedRevision}
+              onAssignAlias={(revision) => {
+                setOpenedAlias(undefined);
+                setOpenedPublishedRevision(revision);
+              }}
+              onComposeInvocation={setOpenedAlias}
               onOpenRevision={(revision) => {
+                setOpenedAlias(undefined);
                 setOpenedPublishedRevision(undefined);
                 setOpenedRevision(revision);
               }}
               onOpenService={(service) => {
+                setOpenedAlias(undefined);
                 setOpenedPublishedRevision(undefined);
                 setOpenedRevision(undefined);
                 setOpenedService(service);
               }}
+              selectedAlias={openedAlias}
               selectedPublishedRevision={openedPublishedRevision}
               selectedRevision={openedRevision}
               selectedService={openedService}
