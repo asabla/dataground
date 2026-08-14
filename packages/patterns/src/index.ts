@@ -6,11 +6,21 @@ export {
   type ApprovalResource,
 } from "./ApprovalRequest";
 export {
+  ArtifactCard,
+  type ArtifactCardError,
+  type ArtifactCardProps,
+  type ArtifactMetadata,
+  type ArtifactReference,
+  type ArtifactResource,
+} from "./ArtifactCard";
+export {
   EventTimeline,
   type EventTimelineProps,
   presentTimelineEvent,
+  type TimelineArtifactReference,
   type TimelineConnectionState,
   type TimelineError,
   type TimelineEvent,
   type TimelineReference,
+  timelineArtifactReference,
 } from "./EventTimeline";

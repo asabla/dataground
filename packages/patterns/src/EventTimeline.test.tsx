@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it } from "vitest";
-import { EventTimeline, presentTimelineEvent, type TimelineEvent } from "./EventTimeline";
+import {
+  EventTimeline,
+  presentTimelineEvent,
+  type TimelineEvent,
+  timelineArtifactReference,
+} from "./EventTimeline";
 
 const baseEvent: TimelineEvent = {
   actorId: "reference-runtime",
@@ -121,5 +126,32 @@ describe("EventTimeline", () => {
 
     assert.equal(output.detail, "safe�[31m text");
     assert.equal(artifact.detail, "Artifact: report.json.");
+  });
+
+  it("offers artifact inspection only for a governed artifact reference", () => {
+    const artifactEvent = {
+      ...baseEvent,
+      payload: {
+        artifactId: "art_00000000000000000001",
+        descriptor: { name: "report.json" },
+      },
+      type: "artifact.available",
+    };
+    const malformedEvent = {
+      ...artifactEvent,
+      payload: { artifactId: "native-object-key" },
+    };
+    const markup = renderToStaticMarkup(
+      <EventTimeline
+        connectionState="current"
+        events={[artifactEvent]}
+        onInspectArtifact={() => undefined}
+        reference={reference}
+      />,
+    );
+
+    assert.match(markup, /Inspect artifact metadata/u);
+    assert.equal(timelineArtifactReference(artifactEvent)?.artifactId, "art_00000000000000000001");
+    assert.equal(timelineArtifactReference(malformedEvent), undefined);
   });
 });

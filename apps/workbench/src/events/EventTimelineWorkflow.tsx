@@ -1,4 +1,8 @@
-import { EventTimeline, type TimelineEvent } from "@dataground/patterns";
+import {
+  EventTimeline,
+  type TimelineArtifactReference,
+  type TimelineEvent,
+} from "@dataground/patterns";
 import "@dataground/patterns/styles.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DataGroundClient } from "../contracts/client";
@@ -27,6 +31,7 @@ type EventTimelineAction =
 
 export interface EventTimelineWorkflowProps {
   client: DataGroundClient;
+  onInspectArtifact?: (reference: TimelineArtifactReference) => void;
   reference: InvocationEventReference;
 }
 
@@ -149,7 +154,11 @@ export function eventTimelineReducer(
   }
 }
 
-export function EventTimelineWorkflow({ client, reference }: EventTimelineWorkflowProps) {
+export function EventTimelineWorkflow({
+  client,
+  onInspectArtifact,
+  reference,
+}: EventTimelineWorkflowProps) {
   const currentReferenceKey = eventReferenceKey(reference);
   const [state, setState] = useState<EventTimelineState>({
     cursor: 0,
@@ -203,6 +212,7 @@ export function EventTimelineWorkflow({ client, reference }: EventTimelineWorkfl
       events={visibleEvents as TimelineEvent[]}
       hiddenEventCount={stateMatchesReference ? state.hiddenEventCount : 0}
       isReplaying={!stateMatchesReference || state.loading}
+      onInspectArtifact={onInspectArtifact}
       onReplay={() => void loadReplay(stateMatchesReference ? state.cursor : 0)}
       reference={reference}
     />
