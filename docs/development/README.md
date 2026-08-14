@@ -89,6 +89,8 @@ pnpm --filter @dataground/ui test:stories
 
 The API listens on `127.0.0.1:8080` by default. Process-local mode refuses non-loopback binding and exposes the in-memory reference agent-service lifecycle described in [reference runtime guidance](reference-runtime.md). Every `/v1` request must use the configured development bearer token. The startup credential is removed from the API process environment and represented only by its digest after assembly. This static single-domain verifier and its exact-principal Cedar action policy are local boundaries, not production identity or policy services. Process-local mode has no durable decision audit. See [API action authorization](api-authorization.md) for the closed route mapping, audit boundary, and failure semantics. The workbench uses Vite's development server. Storybook documents shared component contracts and is not a product application.
 
+The Workbench development server proxies same-origin `/v1` requests to the default loopback API. Opening a scope requires the configured isolation-domain identifier and bearer token; the Workbench retains the token only in component memory and clears its local client on disconnect. Readiness is not treated as credential validation because `/readyz` is intentionally unauthenticated.
+
 The internal enforcement-object S3 protocol boundary and its remaining backend certification requirements are documented in [S3 enforcement-object guidance](s3-enforcement-objects.md). The narrower invocation-artifact transport evidence and exclusions are documented in [S3 invocation-artifact guidance](s3-invocation-artifacts.md).
 
 To run durable mode, migrate a PostgreSQL database and start the API and worker with the same `DATAGROUND_DATABASE_URL`:
@@ -116,3 +118,4 @@ See [design-system guidance](design-system.md) before changing token source, com
 ## Contract changes
 
 The OpenAPI and release-manifest files are compatibility surfaces even in alpha form. Change their schema identities or semantics deliberately, update examples and checks together, and do not add public infrastructure endpoints or provider-native concepts. See [`contracts/README.md`](../../contracts/README.md) for the compatibility rules and generation workflow.
+
