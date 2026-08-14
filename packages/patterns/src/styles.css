@@ -106,6 +106,168 @@
   }
 }
 
+.dg-invocation-status {
+  width: min(100%, 58rem);
+  display: grid;
+  gap: var(--dg-space-5);
+  padding: var(--dg-density-panel-padding);
+  border: var(--dg-border-default) solid var(--dg-color-border-default);
+  border-radius: var(--dg-radius-panel);
+  background: var(--dg-color-surface-default);
+  color: var(--dg-color-text-primary);
+}
+
+.dg-invocation-status__heading,
+.dg-invocation-status__operation-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dg-space-3);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.dg-invocation-status__heading h2,
+.dg-invocation-status__eyebrow,
+.dg-invocation-status__empty,
+.dg-invocation-status__notice,
+.dg-invocation-status__observer,
+.dg-invocation-status__confirmation p,
+.dg-invocation-status__error p,
+.dg-invocation-status__operation h3 {
+  margin: 0;
+}
+
+.dg-invocation-status__heading h2 {
+  margin-top: var(--dg-space-2);
+  font-size: var(--dg-font-size-heading);
+  line-height: 1.25;
+}
+
+.dg-invocation-status__eyebrow,
+.dg-invocation-status__scope dt,
+.dg-invocation-status__facts dt,
+.dg-invocation-status__usage dt,
+.dg-invocation-status__operation-facts dt {
+  color: var(--dg-color-text-secondary);
+  font-size: var(--dg-font-size-caption);
+  font-weight: var(--dg-font-weight-semibold);
+}
+
+.dg-invocation-status__eyebrow {
+  font-weight: var(--dg-font-weight-bold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dg-invocation-status__scope,
+.dg-invocation-status__facts,
+.dg-invocation-status__usage,
+.dg-invocation-status__operation-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: var(--dg-space-3);
+  margin: 0;
+}
+
+.dg-invocation-status__scope div,
+.dg-invocation-status__facts div,
+.dg-invocation-status__usage div,
+.dg-invocation-status__operation-facts div {
+  min-width: 0;
+}
+
+.dg-invocation-status__scope dd,
+.dg-invocation-status__facts dd,
+.dg-invocation-status__usage dd,
+.dg-invocation-status__operation-facts dd {
+  margin: var(--dg-space-1) 0 0;
+  overflow-wrap: anywhere;
+  color: var(--dg-color-text-secondary);
+  font-family: var(--dg-font-family-data);
+  font-size: var(--dg-font-size-caption);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+
+.dg-invocation-status__usage,
+.dg-invocation-status__operation {
+  padding: var(--dg-space-4);
+  border: var(--dg-border-default) solid var(--dg-color-border-subtle);
+  border-radius: var(--dg-radius-panel);
+  background: var(--dg-color-surface-raised);
+}
+
+.dg-invocation-status__operation {
+  display: grid;
+  gap: var(--dg-space-4);
+}
+
+.dg-invocation-status__operation h3 {
+  font-size: var(--dg-font-size-body);
+}
+
+.dg-invocation-status__empty,
+.dg-invocation-status__notice,
+.dg-invocation-status__observer,
+.dg-invocation-status__confirmation,
+.dg-invocation-status__domain-error,
+.dg-invocation-status__error {
+  padding: var(--dg-space-4);
+  border-inline-start: var(--dg-border-strong) solid var(--dg-color-border-default);
+  background: var(--dg-color-surface-raised);
+  color: var(--dg-color-text-secondary);
+  line-height: 1.55;
+}
+
+.dg-invocation-status__error {
+  border-inline-start-color: var(--dg-color-status-critical);
+  background: var(--dg-color-status-critical-surface);
+}
+
+.dg-invocation-status__domain-error {
+  border-inline-start-color: var(--dg-color-status-critical);
+  background: var(--dg-color-status-critical-surface);
+}
+
+.dg-invocation-status__error p {
+  margin-top: var(--dg-space-2);
+}
+
+.dg-invocation-status__confirmation {
+  min-inline-size: 0;
+  display: grid;
+  gap: var(--dg-space-3);
+  margin: 0;
+  border-block: 0;
+  border-inline-end: 0;
+  border-inline-start-color: var(--dg-color-status-warning);
+}
+
+.dg-invocation-status__confirmation legend {
+  padding: 0;
+  color: var(--dg-color-text-primary);
+  font-weight: var(--dg-font-weight-bold);
+}
+
+.dg-invocation-status code {
+  color: inherit;
+  font-family: var(--dg-font-family-data);
+}
+
+.dg-invocation-status__actions,
+.dg-invocation-status__confirmation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dg-space-3);
+}
+
+@media (max-width: 32rem) {
+  .dg-invocation-status__actions .dg-button,
+  .dg-invocation-status__confirmation-actions .dg-button {
+    width: 100%;
+  }
+}
+
 .dg-event-timeline {
   width: min(100%, 58rem);
   display: grid;
