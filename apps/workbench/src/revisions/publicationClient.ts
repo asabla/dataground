@@ -104,7 +104,7 @@ function normalizeSchema(value: unknown): Record<string, unknown> | undefined {
   }
 }
 
-function validDraft(revision: ServiceRevisionResource): boolean {
+export function isPublishableServiceRevision(revision: ServiceRevisionResource): boolean {
   const metadata = revision.metadata;
   return (
     patterns.revisionId.test(metadata.id) &&
@@ -246,7 +246,7 @@ export async function publishServiceRevision(
   draft: ServiceRevisionResource,
   idempotencyKey: string,
 ): Promise<ServiceRevisionPublishResult> {
-  if (!validDraft(draft) || !patterns.idempotencyKey.test(idempotencyKey)) {
+  if (!isPublishableServiceRevision(draft) || !patterns.idempotencyKey.test(idempotencyKey)) {
     return failure(
       "WORKBENCH_INVALID_PUBLICATION_REQUEST",
       "The revision draft, expected version, or request identifier is invalid.",

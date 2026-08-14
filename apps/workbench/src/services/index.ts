@@ -1,6 +1,7 @@
 export {
   AgentServiceAuthoringWorkflow,
   type AgentServiceAuthoringWorkflowProps,
+  isRevisionSelectedForService,
   isServiceSelectedForScope,
 } from "./AgentServiceAuthoringWorkflow";
 export {
