@@ -14,3 +14,13 @@ export {
   type ServiceRevisionDraftWorkflowProps,
   validateServiceRevisionDraft,
 } from "./ServiceRevisionDraftWorkflow";
+export {
+  createPublicationIdempotencyKey,
+  ServiceRevisionPublishWorkflow,
+  type ServiceRevisionPublishWorkflowProps,
+} from "./ServiceRevisionPublishWorkflow";
+export {
+  type PublishedServiceRevisionResource,
+  publishServiceRevision,
+  type ServiceRevisionPublishResult,
+} from "./publicationClient";
