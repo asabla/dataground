@@ -1,3 +1,113 @@
+.dg-agent-service-create {
+  width: min(100%, 58rem);
+  display: grid;
+  gap: var(--dg-space-5);
+  padding: var(--dg-density-panel-padding);
+  border: var(--dg-border-default) solid var(--dg-color-border-default);
+  border-radius: var(--dg-radius-panel);
+  background: var(--dg-color-surface-default);
+  color: var(--dg-color-text-primary);
+}
+
+.dg-agent-service-create__heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dg-space-3);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.dg-agent-service-create__heading h2,
+.dg-agent-service-create__eyebrow,
+.dg-agent-service-create__authority,
+.dg-agent-service-create__error p,
+.dg-agent-service-create__retained,
+.dg-agent-service-create__created strong {
+  margin: 0;
+}
+
+.dg-agent-service-create__heading h2 {
+  margin-top: var(--dg-space-2);
+  font-size: var(--dg-font-size-heading);
+  line-height: 1.25;
+}
+
+.dg-agent-service-create__eyebrow,
+.dg-agent-service-create__scope dt,
+.dg-agent-service-create__created dt {
+  color: var(--dg-color-text-secondary);
+  font-size: var(--dg-font-size-caption);
+  font-weight: var(--dg-font-weight-semibold);
+}
+
+.dg-agent-service-create__eyebrow {
+  font-weight: var(--dg-font-weight-bold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dg-agent-service-create__scope,
+.dg-agent-service-create__created dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: var(--dg-space-3);
+  margin: 0;
+}
+
+.dg-agent-service-create__scope dd,
+.dg-agent-service-create__created dd {
+  margin: var(--dg-space-1) 0 0;
+  overflow-wrap: anywhere;
+  color: var(--dg-color-text-secondary);
+  font-family: var(--dg-font-family-data);
+  font-size: var(--dg-font-size-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.dg-agent-service-create__authority,
+.dg-agent-service-create__error,
+.dg-agent-service-create__created,
+.dg-agent-service-create__retained {
+  padding: var(--dg-space-4);
+  border-inline-start: var(--dg-border-strong) solid var(--dg-color-border-default);
+  background: var(--dg-color-surface-raised);
+  color: var(--dg-color-text-secondary);
+  line-height: 1.55;
+}
+
+.dg-agent-service-create__error {
+  border-inline-start-color: var(--dg-color-status-critical);
+  background: var(--dg-color-status-critical-surface);
+}
+
+.dg-agent-service-create__created {
+  display: grid;
+  gap: var(--dg-space-4);
+  border-inline-start-color: var(--dg-color-status-success);
+}
+
+.dg-agent-service-create__form {
+  display: grid;
+  gap: var(--dg-space-4);
+}
+
+.dg-agent-service-create__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.dg-agent-service-create code {
+  color: inherit;
+  font-family: var(--dg-font-family-data);
+}
+
+@media (max-width: 32rem) {
+  .dg-agent-service-create__actions .dg-button,
+  .dg-agent-service-create__created .dg-button {
+    width: 100%;
+  }
+}
+
 .dg-approval-request {
   width: min(100%, 52rem);
   display: grid;
