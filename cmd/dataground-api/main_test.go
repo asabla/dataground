@@ -11,6 +11,19 @@ import (
 	"time"
 )
 
+func TestDefaultAddressDoesNotOverlapOpenShellDevelopmentListeners(t *testing.T) {
+	t.Parallel()
+
+	if defaultAddress != "127.0.0.1:8082" {
+		t.Fatalf("default API address = %q, want dedicated loopback port", defaultAddress)
+	}
+	for _, reserved := range []string{"127.0.0.1:8080", "127.0.0.1:8081"} {
+		if defaultAddress == reserved {
+			t.Fatalf("default API address overlaps OpenShell listener %q", reserved)
+		}
+	}
+}
+
 func TestServeAPIRuntimeStopsBoundListenerWhenSecurityLifecycleFails(t *testing.T) {
 	t.Parallel()
 
