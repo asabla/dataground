@@ -15,6 +15,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -457,8 +459,9 @@ func acquireOIDCProviderCredentialLock(ctx context.Context, targetPath string) (
 		directoryHandle.Close()
 		return nil, ErrOIDCProviderCredentialConflict
 	}
-	lockDescriptor, err := syscall.Openat(
-		int(directoryHandle.Fd()), filepath.Base(targetPath)+".lock",
+	lockDescriptor, err := unix.Openat(
+		int(directoryHandle.Fd()),
+		filepath.Base(targetPath)+".lock",
 		syscall.O_CREAT|syscall.O_RDWR|syscall.O_CLOEXEC|syscall.O_NOFOLLOW,
 		0o600,
 	)
@@ -527,7 +530,7 @@ func writeAtomicOIDCProviderCredential(
 	defer func() {
 		_ = temporary.Close()
 		if !committed {
-			_ = syscall.Unlinkat(int(lock.directory.Fd()), temporaryName)
+			_ = unix.Unlinkat(int(lock.directory.Fd()), temporaryName, 0)
 		}
 	}()
 	if err := temporary.Chmod(0o600); err != nil {
@@ -554,7 +557,7 @@ func writeAtomicOIDCProviderCredential(
 	if err := requireUnchangedOIDCProviderCredentialDirectory(path, lock.directoryInfo); err != nil {
 		return err
 	}
-	if err := syscall.Renameat(
+	if err := unix.Renameat(
 		int(lock.directory.Fd()), temporaryName,
 		int(lock.directory.Fd()), filepath.Base(path),
 	); err != nil {
@@ -571,7 +574,7 @@ func createOIDCProviderCredentialTemporary(directory *os.File) (string, *os.File
 			return "", nil, ErrOIDCProviderCredentialUnavailable
 		}
 		name := ".dataground-oidc-provider-credential-" + hex.EncodeToString(random)
-		descriptor, err := syscall.Openat(
+		descriptor, err := unix.Openat(
 			int(directory.Fd()), name,
 			syscall.O_CREAT|syscall.O_EXCL|syscall.O_RDWR|syscall.O_CLOEXEC|syscall.O_NOFOLLOW,
 			0o600,

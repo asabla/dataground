@@ -18,6 +18,7 @@ import (
 	"syscall"
 
 	"github.com/asabla/dataground/internal/persistence"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -558,7 +559,7 @@ func readStablePrivateFile(path string, maximumBytes int64) ([]byte, error) {
 	if err != nil || !safePrivateFile(pathInfo, maximumBytes) {
 		return nil, errors.New("file is invalid")
 	}
-	descriptor, err := syscall.Openat(
+	descriptor, err := unix.Openat(
 		int(directory.Fd()),
 		filepath.Base(path),
 		syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW,
@@ -569,7 +570,7 @@ func readStablePrivateFile(path string, maximumBytes int64) ([]byte, error) {
 	}
 	file := os.NewFile(uintptr(descriptor), filepath.Base(path))
 	if file == nil {
-		syscall.Close(descriptor)
+		_ = unix.Close(descriptor)
 		return nil, errors.New("file descriptor is invalid")
 	}
 	defer file.Close()
