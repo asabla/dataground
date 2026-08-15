@@ -59,6 +59,7 @@ export interface AgentServiceAuthoringWorkflowProps {
   selectedRevision?: ServiceRevisionResource;
   selectedService?: AgentServiceResource;
   serviceDisabledReason?: string;
+  focusCurrentStage?: boolean;
 }
 
 export function isInvocationSelectedForAlias(
@@ -155,6 +156,7 @@ export function AgentServiceAuthoringWorkflow({
   selectedRevision,
   selectedService,
   serviceDisabledReason,
+  focusCurrentStage = false,
 }: AgentServiceAuthoringWorkflowProps) {
   const aliasBlockedTitleId = useId();
   const draftingBlockedTitleId = useId();
@@ -189,18 +191,32 @@ export function AgentServiceAuthoringWorkflow({
       selectedService,
       isolationDomainId,
     );
+  const activeStage = selectedInvocation
+    ? "monitoring"
+    : selectedAlias
+      ? "invocation"
+      : selectedPublishedRevision
+        ? "alias"
+        : selectedRevision
+          ? "publication"
+          : selectedService
+            ? "revision"
+            : "service";
 
   return (
     <>
-      <AgentServiceCreateWorkflow
-        canCreate={canCreateService}
-        client={client}
-        disabledReason={serviceDisabledReason}
-        isolationDomainId={isolationDomainId}
-        onOpenService={onOpenService}
-      />
+      {(!focusCurrentStage || activeStage === "service") && (
+        <AgentServiceCreateWorkflow
+          canCreate={canCreateService}
+          client={client}
+          disabledReason={serviceDisabledReason}
+          isolationDomainId={isolationDomainId}
+          onOpenService={onOpenService}
+        />
+      )}
 
       {selectedService &&
+        (!focusCurrentStage || activeStage === "revision") &&
         (serviceInScope ? (
           <ServiceRevisionDraftWorkflow
             canCreateRevision={canCreateRevision}
@@ -226,7 +242,7 @@ export function AgentServiceAuthoringWorkflow({
         ))}
 
       {selectedRevision &&
-        serviceInScope &&
+        (!focusCurrentStage || activeStage === "publication") &&
         (selectedService && revisionInScope ? (
           <ServiceRevisionPublishWorkflow
             canPublish={canPublishRevision}
@@ -251,8 +267,7 @@ export function AgentServiceAuthoringWorkflow({
         ))}
 
       {selectedPublishedRevision &&
-        serviceInScope &&
-        (selectedRevision === undefined || revisionInScope) &&
+        (!focusCurrentStage || activeStage === "alias") &&
         (selectedService && selectedRevision && publishedRevisionInScope ? (
           <ServiceAliasAssignWorkflow
             canAssign={canAssignAlias}
@@ -277,9 +292,7 @@ export function AgentServiceAuthoringWorkflow({
         ))}
 
       {selectedAlias &&
-        serviceInScope &&
-        (selectedRevision === undefined || revisionInScope) &&
-        (selectedPublishedRevision === undefined || publishedRevisionInScope) &&
+        (!focusCurrentStage || activeStage === "invocation") &&
         (selectedService && selectedRevision && selectedPublishedRevision && aliasInScope ? (
           <InvocationComposerWorkflow
             canInvoke={canInvokeService}
@@ -313,9 +326,7 @@ export function AgentServiceAuthoringWorkflow({
         ))}
 
       {selectedInvocation &&
-        serviceInScope &&
-        (selectedRevision === undefined || revisionInScope) &&
-        (selectedPublishedRevision === undefined || publishedRevisionInScope) &&
+        (!focusCurrentStage || activeStage === "monitoring") &&
         (selectedService &&
         selectedRevision &&
         selectedPublishedRevision &&

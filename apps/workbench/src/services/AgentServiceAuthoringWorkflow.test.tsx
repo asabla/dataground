@@ -188,6 +188,37 @@ describe("AgentServiceAuthoringWorkflow", () => {
     assert.doesNotMatch(markup, /Event timeline/u);
   });
 
+  it("can focus the UI on only the current valid stage", () => {
+    const markup = renderToStaticMarkup(
+      <AgentServiceAuthoringWorkflow
+        canAssignAlias
+        canCancelInvocation
+        canCreateRevision
+        canCreateService
+        canInvokeService
+        canPublishRevision
+        client={{} as DataGroundClient}
+        focusCurrentStage
+        isolationDomainId={isolationDomainId}
+        onAssignAlias={() => undefined}
+        onComposeInvocation={() => undefined}
+        onOpenInvocation={() => undefined}
+        onOpenRevision={() => undefined}
+        onOpenService={() => undefined}
+        selectedAlias={alias}
+        selectedPublishedRevision={publishedRevision}
+        selectedRevision={revision}
+        selectedService={service}
+      />,
+    );
+
+    assert.match(markup, /Create invocation/u);
+    assert.doesNotMatch(markup, /Create agent service/u);
+    assert.doesNotMatch(markup, /Create revision draft/u);
+    assert.doesNotMatch(markup, /Publish revision/u);
+    assert.doesNotMatch(markup, /Ready to assign/u);
+  });
+
   it("opens invocation observability only for the invocation accepted from the exact alias state", () => {
     const markup = renderWorkflow(
       service,
@@ -314,6 +345,40 @@ describe("AgentServiceAuthoringWorkflow", () => {
     assert.doesNotMatch(markup, /Ready to invoke/u);
     assert.doesNotMatch(markup, /iso_00000000000000000002/u);
     assert.doesNotMatch(markup, /svc_00000000000000000001/u);
+  });
+
+  it("keeps the focused stage explanatory when an upstream scope check fails", () => {
+    const crossScopeService: AgentServiceResource = {
+      ...service,
+      metadata: {
+        ...service.metadata,
+        isolationDomainId: "iso_00000000000000000002",
+      },
+    };
+    const markup = renderToStaticMarkup(
+      <AgentServiceAuthoringWorkflow
+        canAssignAlias
+        canCancelInvocation
+        canCreateRevision
+        canCreateService
+        canInvokeService
+        canPublishRevision
+        client={{} as DataGroundClient}
+        focusCurrentStage
+        isolationDomainId={isolationDomainId}
+        onAssignAlias={() => undefined}
+        onComposeInvocation={() => undefined}
+        onOpenInvocation={() => undefined}
+        onOpenRevision={() => undefined}
+        onOpenService={() => undefined}
+        selectedRevision={revision}
+        selectedService={crossScopeService}
+      />,
+    );
+
+    assert.match(markup, /Revision publication unavailable/u);
+    assert.doesNotMatch(markup, /Publish revision/u);
+    assert.doesNotMatch(markup, /iso_00000000000000000002/u);
   });
 
   it("rejects matching but malformed scope before exposing revision drafting", () => {
