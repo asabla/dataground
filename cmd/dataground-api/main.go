@@ -19,7 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const defaultAddress = "127.0.0.1:8080"
+const defaultAddress = "127.0.0.1:8082"
 
 type apiRuntime struct {
 	handler           http.Handler
