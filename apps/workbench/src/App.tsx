@@ -3,7 +3,11 @@ import { useState } from "react";
 import type { ServiceAliasResource } from "./aliases";
 import { createDataGroundClient, type DataGroundClient } from "./contracts/client";
 import type { PublishedServiceRevisionResource, ServiceRevisionResource } from "./revisions";
-import { AgentServiceAuthoringWorkflow, type AgentServiceResource } from "./services";
+import {
+  AgentServiceAuthoringWorkflow,
+  type AgentServiceInvocationSelection,
+  type AgentServiceResource,
+} from "./services";
 
 const DEFAULT_ISOLATION_DOMAIN_ID = "iso_00000000000000000001";
 const ISOLATION_DOMAIN_ID_PATTERN = /^iso_[0-9a-z]{20,32}$/u;
@@ -45,6 +49,7 @@ export function App() {
   const [bearerToken, setBearerToken] = useState("");
   const [isolationDomainId, setIsolationDomainId] = useState(DEFAULT_ISOLATION_DOMAIN_ID);
   const [openedAlias, setOpenedAlias] = useState<ServiceAliasResource>();
+  const [openedInvocation, setOpenedInvocation] = useState<AgentServiceInvocationSelection>();
   const [openedPublishedRevision, setOpenedPublishedRevision] =
     useState<PublishedServiceRevisionResource>();
   const [openedRevision, setOpenedRevision] = useState<ServiceRevisionResource>();
@@ -72,6 +77,7 @@ export function App() {
                   setSession(undefined);
                   setBearerToken("");
                   setOpenedAlias(undefined);
+                  setOpenedInvocation(undefined);
                   setOpenedPublishedRevision(undefined);
                   setOpenedRevision(undefined);
                   setOpenedService(undefined);
@@ -96,6 +102,7 @@ export function App() {
           <section className="product-workflow" aria-label="Agent service workflow">
             <AgentServiceAuthoringWorkflow
               canAssignAlias
+              canCancelInvocation
               canCreateRevision
               canCreateService
               canPublishRevision
@@ -104,21 +111,29 @@ export function App() {
               isolationDomainId={session.isolationDomainId}
               onAssignAlias={(revision) => {
                 setOpenedAlias(undefined);
+                setOpenedInvocation(undefined);
                 setOpenedPublishedRevision(revision);
               }}
-              onComposeInvocation={setOpenedAlias}
+              onComposeInvocation={(alias) => {
+                setOpenedAlias(alias);
+                setOpenedInvocation(undefined);
+              }}
+              onOpenInvocation={setOpenedInvocation}
               onOpenRevision={(revision) => {
                 setOpenedAlias(undefined);
+                setOpenedInvocation(undefined);
                 setOpenedPublishedRevision(undefined);
                 setOpenedRevision(revision);
               }}
               onOpenService={(service) => {
                 setOpenedAlias(undefined);
+                setOpenedInvocation(undefined);
                 setOpenedPublishedRevision(undefined);
                 setOpenedRevision(undefined);
                 setOpenedService(service);
               }}
               selectedAlias={openedAlias}
+              selectedInvocation={openedInvocation}
               selectedPublishedRevision={openedPublishedRevision}
               selectedRevision={openedRevision}
               selectedService={openedService}

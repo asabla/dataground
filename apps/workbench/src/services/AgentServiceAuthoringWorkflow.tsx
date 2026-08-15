@@ -6,7 +6,11 @@ import {
   type ServiceAliasResource,
 } from "../aliases";
 import type { DataGroundClient } from "../contracts/client";
-import { InvocationComposerWorkflow } from "../invocations";
+import {
+  InvocationComposerWorkflow,
+  type InvocationReference,
+  InvocationWorkflow,
+} from "../invocations";
 import {
   isPublishableServiceRevision,
   isPublishedServiceRevisionForDraft,
@@ -20,28 +24,56 @@ import type { AgentServiceResource } from "./client";
 
 const serviceIdPattern = /^svc_[0-9a-z]{20,32}$/u;
 const isolationDomainIdPattern = /^iso_[0-9a-z]{20,32}$/u;
+const invocationIdPattern = /^inv_[0-9a-z]{20,32}$/u;
+
+export interface AgentServiceInvocationSelection {
+  aliasGeneration: number;
+  aliasId: string;
+  aliasVersion: number;
+  reference: InvocationReference;
+}
 
 export interface AgentServiceAuthoringWorkflowProps {
   aliasDisabledReason?: string;
   canAssignAlias: boolean;
+  canCancelInvocation: boolean;
   canCreateRevision: boolean;
   canCreateService: boolean;
   canInvokeService: boolean;
   canPublishRevision: boolean;
   client: DataGroundClient;
+  cancellationDisabledReason?: string;
   isolationDomainId: string;
   invocationDisabledReason?: string;
   onAssignAlias: (revision: PublishedServiceRevisionResource) => void;
   onComposeInvocation: (alias: ServiceAliasResource) => void;
+  onOpenInvocation: (selection: AgentServiceInvocationSelection) => void;
   onOpenRevision: (revision: ServiceRevisionResource) => void;
   onOpenService: (service: AgentServiceResource) => void;
   publicationDisabledReason?: string;
   revisionDisabledReason?: string;
   selectedAlias?: ServiceAliasResource;
+  selectedInvocation?: AgentServiceInvocationSelection;
   selectedPublishedRevision?: PublishedServiceRevisionResource;
   selectedRevision?: ServiceRevisionResource;
   selectedService?: AgentServiceResource;
   serviceDisabledReason?: string;
+}
+
+export function isInvocationSelectedForAlias(
+  selection: AgentServiceInvocationSelection,
+  alias: ServiceAliasResource,
+  isolationDomainId: string,
+): boolean {
+  return (
+    isolationDomainIdPattern.test(isolationDomainId) &&
+    invocationIdPattern.test(selection.reference.invocationId) &&
+    selection.reference.isolationDomainId === isolationDomainId &&
+    alias.metadata.isolationDomainId === isolationDomainId &&
+    selection.aliasId === alias.metadata.id &&
+    selection.aliasGeneration === alias.metadata.generation &&
+    selection.aliasVersion === alias.metadata.version
+  );
 }
 
 export function isAliasSelectedForPublishedRevision(
@@ -100,20 +132,24 @@ export function isServiceSelectedForScope(
 export function AgentServiceAuthoringWorkflow({
   aliasDisabledReason,
   canAssignAlias,
+  canCancelInvocation,
   canCreateRevision,
   canCreateService,
   canInvokeService,
   canPublishRevision,
+  cancellationDisabledReason,
   client,
   isolationDomainId,
   invocationDisabledReason,
   onAssignAlias,
   onComposeInvocation,
+  onOpenInvocation,
   onOpenRevision,
   onOpenService,
   publicationDisabledReason,
   revisionDisabledReason,
   selectedAlias,
+  selectedInvocation,
   selectedPublishedRevision,
   selectedRevision,
   selectedService,
@@ -123,6 +159,7 @@ export function AgentServiceAuthoringWorkflow({
   const draftingBlockedTitleId = useId();
   const publicationBlockedTitleId = useId();
   const invocationBlockedTitleId = useId();
+  const monitoringBlockedTitleId = useId();
   const serviceInScope =
     selectedService === undefined || isServiceSelectedForScope(selectedService, isolationDomainId);
   const revisionInScope =
@@ -249,6 +286,14 @@ export function AgentServiceAuthoringWorkflow({
             disabledReason={invocationDisabledReason}
             initialAlias={selectedAlias.name}
             inputSchema={selectedPublishedRevision.inputSchema}
+            onOpenInvocation={(reference) =>
+              onOpenInvocation({
+                aliasGeneration: selectedAlias.metadata.generation,
+                aliasId: selectedAlias.metadata.id,
+                aliasVersion: selectedAlias.metadata.version,
+                reference,
+              })
+            }
             target={{ isolationDomainId, serviceId: selectedService.metadata.id }}
           />
         ) : (
@@ -262,6 +307,37 @@ export function AgentServiceAuthoringWorkflow({
             <p>
               The selected alias is not the confirmed route for the active publication. Reopen the
               exact service, draft, publication, and alias before composing an invocation.
+            </p>
+          </section>
+        ))}
+
+      {selectedInvocation &&
+        serviceInScope &&
+        (selectedRevision === undefined || revisionInScope) &&
+        (selectedPublishedRevision === undefined || publishedRevisionInScope) &&
+        (selectedService &&
+        selectedRevision &&
+        selectedPublishedRevision &&
+        selectedAlias &&
+        aliasInScope &&
+        isInvocationSelectedForAlias(selectedInvocation, selectedAlias, isolationDomainId) ? (
+          <InvocationWorkflow
+            canCancel={canCancelInvocation}
+            client={client}
+            disabledReason={cancellationDisabledReason}
+            reference={selectedInvocation.reference}
+          />
+        ) : (
+          <section
+            aria-labelledby={monitoringBlockedTitleId}
+            className="product-workflow__blocked"
+            role="alert"
+          >
+            <StatusBadge tone="critical">Scope mismatch</StatusBadge>
+            <h2 id={monitoringBlockedTitleId}>Invocation monitoring unavailable</h2>
+            <p>
+              The selected invocation was not accepted for the active alias route. Reopen the exact
+              service, draft, publication, alias, and invocation before monitoring lifecycle state.
             </p>
           </section>
         ))}

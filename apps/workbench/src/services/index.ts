@@ -1,7 +1,9 @@
 export {
   AgentServiceAuthoringWorkflow,
   type AgentServiceAuthoringWorkflowProps,
+  type AgentServiceInvocationSelection,
   isAliasSelectedForPublishedRevision,
+  isInvocationSelectedForAlias,
   isPublishedRevisionSelectedForService,
   isRevisionSelectedForService,
   isServiceSelectedForScope,
