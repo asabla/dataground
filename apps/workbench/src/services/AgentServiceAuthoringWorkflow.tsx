@@ -6,6 +6,7 @@ import {
   type ServiceAliasResource,
 } from "../aliases";
 import type { DataGroundClient } from "../contracts/client";
+import { EventTimelineWorkflow } from "../events";
 import {
   InvocationComposerWorkflow,
   type InvocationReference,
@@ -321,12 +322,15 @@ export function AgentServiceAuthoringWorkflow({
         selectedAlias &&
         aliasInScope &&
         isInvocationSelectedForAlias(selectedInvocation, selectedAlias, isolationDomainId) ? (
-          <InvocationWorkflow
-            canCancel={canCancelInvocation}
-            client={client}
-            disabledReason={cancellationDisabledReason}
-            reference={selectedInvocation.reference}
-          />
+          <>
+            <InvocationWorkflow
+              canCancel={canCancelInvocation}
+              client={client}
+              disabledReason={cancellationDisabledReason}
+              reference={selectedInvocation.reference}
+            />
+            <EventTimelineWorkflow client={client} reference={selectedInvocation.reference} />
+          </>
         ) : (
           <section
             aria-labelledby={monitoringBlockedTitleId}
