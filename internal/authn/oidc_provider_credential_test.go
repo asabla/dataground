@@ -142,13 +142,50 @@ func TestOIDCProviderCredentialRejectsExpiredAndUnsafeFiles(t *testing.T) {
 	}
 }
 
+func TestOIDCProviderCredentialPublicationRejectsSymlinkedLock(t *testing.T) {
+	t.Parallel()
+	directory := ownerOnlyOIDCTestDirectory(t)
+	path := filepath.Join(directory, "provider-credential.json")
+	decoyPath := filepath.Join(directory, "decoy.lock")
+	decoy := []byte("must-not-be-used-as-the-publication-lock")
+	if err := os.WriteFile(decoyPath, decoy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(decoyPath, path+".lock"); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	publication := OIDCProviderCredentialPublication{
+		Path: path, IsolationDomainID: "iso_00000000000000000001", Generation: 1,
+		ProviderID: "primary", ProviderRegistrySHA256: strings.Repeat("1", 64),
+		Endpoint: "jwks", ActivatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
+		BearerToken: []byte("provider-secret"),
+	}
+	if err := PublishOIDCProviderCredential(
+		context.Background(), publication,
+	); !errors.Is(err, ErrOIDCProviderCredentialUnavailable) {
+		t.Fatalf("symlinked lock error = %v", err)
+	}
+	content, err := os.ReadFile(decoyPath)
+	if err != nil || string(content) != string(decoy) {
+		t.Fatalf("decoy lock content = %q, err = %v", content, err)
+	}
+	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("credential created through symlinked lock: %v", err)
+	}
+}
+
 func ownerOnlyOIDCTestDirectory(t *testing.T) string {
 	t.Helper()
 	directory := t.TempDir()
 	if err := os.Chmod(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return directory
+	resolved, err := filepath.EvalSymlinks(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved
 }
 
 func TestOIDCProviderCredentialPublicationCannotBeSerialized(t *testing.T) {

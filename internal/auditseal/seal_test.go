@@ -206,6 +206,28 @@ func TestPrepareRejectsInvalidCompletionAndUnsafeDirectory(t *testing.T) {
 	})
 }
 
+func TestReadStablePrivateFileRejectsSymlink(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	resolvedDirectory, err := filepath.EvalSymlinks(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(resolvedDirectory, "target.json")
+	link := filepath.Join(resolvedDirectory, "link.json")
+	if err := os.WriteFile(target, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readStablePrivateFile(link, maximumControlBytes); err == nil {
+		t.Fatal("symlinked private file was accepted")
+	}
+}
+
 func newSealFixture(t *testing.T, kind string) sealFixture {
 	t.Helper()
 	directory := t.TempDir()
