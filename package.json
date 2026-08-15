@@ -24,6 +24,7 @@
     "format:check": "biome format apps packages contracts scripts package.json tsconfig.base.json biome.json && node scripts/check-go-format.mjs",
     "lint": "biome lint apps packages contracts scripts package.json tsconfig.base.json biome.json && go vet ./...",
     "openshell:local:down": "node scripts/openshell-local.mjs down",
+    "openshell:local:codex-smoke": "node scripts/openshell-codex-smoke.mjs",
     "openshell:local:up": "node scripts/openshell-local.mjs up",
     "openshell:profile:check": "node scripts/check-openshell-profile.mjs",
     "s3:profile:check": "node scripts/check-s3-conformance-profile.mjs",

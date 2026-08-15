@@ -1,0 +1,43 @@
+# Derived from the NVIDIA OpenShell v0.0.86 Codex profile under Apache-2.0.
+# This bridge is for a billable loopback development smoke test, not evidence production.
+id: dataground-codex-chatgpt
+display_name: DataGround Codex ChatGPT bridge
+description: Loopback development profile for OpenShell-mediated Codex ChatGPT OAuth.
+category: agent
+inference_capable: true
+credentials:
+  - name: access_token
+    description: Short-lived Codex OAuth access token
+    env_vars: [OPENAI_API_KEY]
+    required: true
+  - name: account_id
+    description: Codex ChatGPT account identifier
+    env_vars: [CHATGPT_ACCOUNT_ID]
+    required: true
+discovery:
+  credentials: [access_token, account_id]
+endpoints:
+  - host: api.openai.com
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+  - host: auth.openai.com
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+  - host: chatgpt.com
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+  - host: ab.chatgpt.com
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+binaries:
+  - /usr/bin/codex
+  - /usr/local/bin/codex
+  - /usr/lib/node_modules/@openai/**
