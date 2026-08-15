@@ -25,7 +25,7 @@
     "lint": "biome lint apps packages contracts scripts package.json tsconfig.base.json biome.json && go vet ./...",
     "openshell:profile:check": "node scripts/check-openshell-profile.mjs",
     "s3:profile:check": "node scripts/check-s3-conformance-profile.mjs",
-    "test": "go test ./... && pnpm --filter @dataground/tokens test && pnpm --filter @dataground/ui test && pnpm --filter @dataground/patterns test && pnpm --filter @dataground/ui test:stories && pnpm --filter @dataground/workbench test",
+    "test": "node scripts/run-go-tests.mjs && pnpm --filter @dataground/tokens test && pnpm --filter @dataground/ui test && pnpm --filter @dataground/patterns test && pnpm --filter @dataground/ui test:stories && pnpm --filter @dataground/workbench test",
     "tokens:check": "pnpm --filter @dataground/tokens check",
     "tokens:generate": "pnpm --filter @dataground/tokens build",
     "typecheck": "pnpm --filter @dataground/ui typecheck && pnpm --filter @dataground/patterns typecheck && pnpm --filter @dataground/workbench typecheck",
