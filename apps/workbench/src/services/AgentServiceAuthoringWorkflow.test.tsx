@@ -127,6 +127,7 @@ describe("AgentServiceAuthoringWorkflow", () => {
     assert.doesNotMatch(markup, /Publish revision/u);
     assert.doesNotMatch(markup, /Ready to assign/u);
     assert.doesNotMatch(markup, /Ready to invoke/u);
+    assert.doesNotMatch(markup, /Event timeline/u);
   });
 
   it("opens revision drafting for the exact selected service and isolation scope", () => {
@@ -184,9 +185,10 @@ describe("AgentServiceAuthoringWorkflow", () => {
     assert.match(markup, /Create invocation/u);
     assert.match(markup, /Ready to invoke/u);
     assert.match(markup, /name="prompt"/u);
+    assert.doesNotMatch(markup, /Event timeline/u);
   });
 
-  it("opens lifecycle monitoring only for the invocation accepted from the exact alias state", () => {
+  it("opens invocation observability only for the invocation accepted from the exact alias state", () => {
     const markup = renderWorkflow(
       service,
       isolationDomainId,
@@ -198,6 +200,8 @@ describe("AgentServiceAuthoringWorkflow", () => {
 
     assert.equal(isInvocationSelectedForAlias(invocationSelection, alias, isolationDomainId), true);
     assert.match(markup, /Loading invocation/u);
+    assert.match(markup, /Event timeline/u);
+    assert.match(markup, /Replaying events/u);
     assert.match(markup, /inv_00000000000000000001/u);
     assert.doesNotMatch(markup, /Invocation monitoring unavailable/u);
   });
@@ -225,6 +229,7 @@ describe("AgentServiceAuthoringWorkflow", () => {
     );
     assert.match(markup, /Invocation monitoring unavailable/u);
     assert.doesNotMatch(markup, /Loading invocation/u);
+    assert.doesNotMatch(markup, /Event timeline/u);
     assert.doesNotMatch(markup, /iso_00000000000000000002/u);
     assert.doesNotMatch(markup, /inv_00000000000000000001/u);
   });
@@ -246,6 +251,7 @@ describe("AgentServiceAuthoringWorkflow", () => {
     assert.equal(isInvocationSelectedForAlias(malformedSelection, alias, isolationDomainId), false);
     assert.match(markup, /Invocation monitoring unavailable/u);
     assert.doesNotMatch(markup, /Loading invocation/u);
+    assert.doesNotMatch(markup, /Event timeline/u);
   });
 
   it("rejects an invocation accepted before the selected alias changed", () => {
@@ -265,6 +271,7 @@ describe("AgentServiceAuthoringWorkflow", () => {
     assert.equal(isInvocationSelectedForAlias(staleSelection, alias, isolationDomainId), false);
     assert.match(markup, /Invocation monitoring unavailable/u);
     assert.doesNotMatch(markup, /Loading invocation/u);
+    assert.doesNotMatch(markup, /Event timeline/u);
     assert.doesNotMatch(markup, /inv_00000000000000000001/u);
   });
 
