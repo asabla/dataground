@@ -792,6 +792,14 @@ if (
 
 const compose = await readFile(resolve(root, "deploy/openshell/docker-compose.yml"), "utf8");
 const gatewayConfig = await readFile(resolve(root, "deploy/openshell/gateway.toml"), "utf8");
+const localCompose = await readFile(
+  resolve(root, "deploy/openshell/local/docker-compose.yml"),
+  "utf8",
+);
+const localGatewayConfig = await readFile(
+  resolve(root, "deploy/openshell/local/gateway.toml"),
+  "utf8",
+);
 if (
   createHash("sha256").update(compose).digest("hex") !== profile.topology.composeSHA256 ||
   createHash("sha256").update(gatewayConfig).digest("hex") !== profile.topology.gatewayConfigSHA256
@@ -856,6 +864,58 @@ if (
   gatewayConfig.includes("enable_bind_mounts = true")
 ) {
   fail("mutable images or unsafe sandbox bind mounts are present in the local topology");
+}
+if (
+  !localCompose.includes(`image: ${profile.artifacts.gateway}`) ||
+  !localCompose.includes('user: "0"') ||
+  !localCompose.includes('- "127.0.0.1:8080:8080"') ||
+  !localCompose.includes('- "127.0.0.1:8081:8081"') ||
+  !localCompose.includes("- /var/run/docker.sock:/var/run/docker.sock") ||
+  !localCompose.includes("source: /var/lib/openshell") ||
+  !localCompose.includes("target: /var/lib/openshell") ||
+  !localCompose.includes("create_host_path: true") ||
+  !localCompose.includes(`source: "\${DATAGROUND_OPENSHELL_LOCAL_JWT_PATH:?required}"`) ||
+  !localCompose.includes("target: /run/dataground-local/gateway-jwt") ||
+  !localCompose.includes('OPENSHELL_DB_URL: "sqlite:/var/lib/openshell/gateway.db?mode=rwc"') ||
+  localCompose.includes("DATAGROUND_CREDENTIAL_EVIDENCE") ||
+  localCompose.includes("DATAGROUND_RUNTIME_CONFORMANCE") ||
+  localCompose.includes("network_mode: host") ||
+  localCompose.includes(":latest") ||
+  localCompose.includes("0.0.0.0")
+) {
+  fail("the ordinary local Compose topology is missing or unsafe");
+}
+if (
+  !localGatewayConfig.includes(profile.artifacts.supervisor) ||
+  !localGatewayConfig.includes(profile.artifacts.sandbox) ||
+  !localGatewayConfig.includes('bind_address = "127.0.0.1:8080"') ||
+  !localGatewayConfig.includes('health_bind_address = "0.0.0.0:8081"') ||
+  !localGatewayConfig.includes("[openshell.gateway.auth]") ||
+  !localGatewayConfig.includes("allow_unauthenticated_users = true") ||
+  !localGatewayConfig.includes("[openshell.gateway.gateway_jwt]") ||
+  !localGatewayConfig.includes(
+    'signing_key_path = "/run/dataground-local/gateway-jwt/signing.pem"',
+  ) ||
+  !localGatewayConfig.includes(
+    'public_key_path = "/run/dataground-local/gateway-jwt/public.pem"',
+  ) ||
+  !localGatewayConfig.includes('kid_path = "/run/dataground-local/gateway-jwt/kid"') ||
+  !localGatewayConfig.includes('gateway_id = "dataground-local"') ||
+  !localGatewayConfig.includes("ttl_secs = 0") ||
+  !localGatewayConfig.includes('sandbox_namespace = "dataground-local"') ||
+  !localGatewayConfig.includes("enable_bind_mounts = false") ||
+  localGatewayConfig.includes(":latest") ||
+  localGatewayConfig.includes('bind_address = "0.0.0.0:8080"')
+) {
+  fail("the ordinary local gateway configuration is missing or unsafe");
+}
+if (
+  packageJSON.scripts?.["openshell:local:up"] !== "node scripts/openshell-local.mjs up" ||
+  packageJSON.scripts?.["openshell:local:down"] !== "node scripts/openshell-local.mjs down" ||
+  packageJSON.scripts?.["test:tools"] !== "node --test scripts/*.test.mjs" ||
+  !packageJSON.scripts?.test?.includes("pnpm run test:tools")
+) {
+  fail("the ordinary local OpenShell lifecycle commands are missing or unsafe");
 }
 const expectedRemainingBlockers = [
   "Capture, verify, and incorporate complete Docker-hosted OpenShell and Codex runtime conformance evidence for the pinned development profile.",

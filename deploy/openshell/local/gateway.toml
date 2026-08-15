@@ -1,0 +1,32 @@
+# Derived from NVIDIA OpenShell v0.0.86 deploy/docker under Apache-2.0.
+# This loopback-only profile is for ordinary local development, not evidence production.
+[openshell]
+version = 1
+
+[openshell.gateway]
+bind_address = "127.0.0.1:8080"
+# Docker port forwarding reaches the container interface, while Compose keeps
+# the host publication restricted to 127.0.0.1:8081.
+health_bind_address = "0.0.0.0:8081"
+log_level = "info"
+compute_drivers = ["docker"]
+disable_tls = true
+
+[openshell.gateway.auth]
+allow_unauthenticated_users = true
+
+[openshell.gateway.gateway_jwt]
+signing_key_path = "/run/dataground-local/gateway-jwt/signing.pem"
+public_key_path = "/run/dataground-local/gateway-jwt/public.pem"
+kid_path = "/run/dataground-local/gateway-jwt/kid"
+gateway_id = "dataground-local"
+ttl_secs = 0
+
+[openshell.drivers.docker]
+default_image = "ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e"
+supervisor_image = "ghcr.io/nvidia/openshell/supervisor@sha256:a15222ac18c1afd0ee51b9dda785a29067c13f61a2002a29d41f691f5e817f19"
+image_pull_policy = "IfNotPresent"
+sandbox_namespace = "dataground-local"
+grpc_endpoint = "http://host.openshell.internal:8080"
+enable_bind_mounts = false
+sandbox_pids_limit = 2048
