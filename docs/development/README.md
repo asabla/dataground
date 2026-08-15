@@ -67,6 +67,8 @@ pnpm verify
 
 The verification command runs Biome formatting and lint checks, `gofmt`, `go vet`, OpenAPI and JSON Schema fixture and compatibility checks, generated contract and token drift checks, TypeScript type checking, Go and Node tests, Playwright-backed Storybook interaction and accessibility tests, the Storybook production build, and production builds for the API and workbench.
 
+The Go test wrapper resolves the operating system's temporary directory to its canonical path before running `go test ./...`. On macOS it uses the short canonical `/private/tmp` root, avoiding both the `/var` symlink alias and Darwin's Unix-socket path limit for security-sensitive fixtures; runtime path validation remains unchanged and fail closed.
+
 It also verifies that the blocked OpenShell and S3 development profiles remain immutable and internally consistent. The ordinary baseline does not start either dependency. GitHub CI separately exercises the enforcement-object transport, invocation-artifact transport, and composed invocation-artifact finalizer/catalog acknowledgement-recovery subsets against the pinned disposable S3 and PostgreSQL candidates; none is a production certification.
 
 Regenerate the typed workbench contract after an accepted OpenAPI change:
@@ -118,4 +120,3 @@ See [design-system guidance](design-system.md) before changing token source, com
 ## Contract changes
 
 The OpenAPI and release-manifest files are compatibility surfaces even in alpha form. Change their schema identities or semantics deliberately, update examples and checks together, and do not add public infrastructure endpoints or provider-native concepts. See [`contracts/README.md`](../../contracts/README.md) for the compatibility rules and generation workflow.
-
