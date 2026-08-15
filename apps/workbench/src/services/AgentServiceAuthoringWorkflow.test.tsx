@@ -3,10 +3,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it } from "vitest";
 import type { ServiceAliasResource } from "../aliases";
 import type { DataGroundClient } from "../contracts/client";
+import type { InvocationReference } from "../invocations";
 import type { PublishedServiceRevisionResource, ServiceRevisionResource } from "../revisions";
 import {
   AgentServiceAuthoringWorkflow,
+  type AgentServiceInvocationSelection,
   isAliasSelectedForPublishedRevision,
+  isInvocationSelectedForAlias,
   isPublishedRevisionSelectedForService,
   isRevisionSelectedForService,
   isServiceSelectedForScope,
@@ -72,6 +75,16 @@ const alias: ServiceAliasResource = {
   revisionId: publishedRevision.metadata.id,
   serviceId: service.metadata.id,
 };
+const invocationReference: InvocationReference = {
+  invocationId: "inv_00000000000000000001",
+  isolationDomainId,
+};
+const invocationSelection = {
+  aliasGeneration: alias.metadata.generation,
+  aliasId: alias.metadata.id,
+  aliasVersion: alias.metadata.version,
+  reference: invocationReference,
+};
 
 function renderWorkflow(
   selectedService?: AgentServiceResource,
@@ -79,10 +92,12 @@ function renderWorkflow(
   selectedRevision?: ServiceRevisionResource,
   selectedPublishedRevision?: PublishedServiceRevisionResource,
   selectedAlias?: ServiceAliasResource,
+  selectedInvocation?: AgentServiceInvocationSelection,
 ): string {
   return renderToStaticMarkup(
     <AgentServiceAuthoringWorkflow
       canAssignAlias
+      canCancelInvocation
       canCreateRevision
       canCreateService
       canInvokeService
@@ -91,9 +106,11 @@ function renderWorkflow(
       isolationDomainId={activeIsolationDomainId}
       onAssignAlias={() => undefined}
       onComposeInvocation={() => undefined}
+      onOpenInvocation={() => undefined}
       onOpenRevision={() => undefined}
       onOpenService={() => undefined}
       selectedAlias={selectedAlias}
+      selectedInvocation={selectedInvocation}
       selectedPublishedRevision={selectedPublishedRevision}
       selectedRevision={selectedRevision}
       selectedService={selectedService}
@@ -167,6 +184,88 @@ describe("AgentServiceAuthoringWorkflow", () => {
     assert.match(markup, /Create invocation/u);
     assert.match(markup, /Ready to invoke/u);
     assert.match(markup, /name="prompt"/u);
+  });
+
+  it("opens lifecycle monitoring only for the invocation accepted from the exact alias state", () => {
+    const markup = renderWorkflow(
+      service,
+      isolationDomainId,
+      revision,
+      publishedRevision,
+      alias,
+      invocationSelection,
+    );
+
+    assert.equal(isInvocationSelectedForAlias(invocationSelection, alias, isolationDomainId), true);
+    assert.match(markup, /Loading invocation/u);
+    assert.match(markup, /inv_00000000000000000001/u);
+    assert.doesNotMatch(markup, /Invocation monitoring unavailable/u);
+  });
+
+  it("fails closed when an invocation reference crosses the active isolation scope", () => {
+    const crossScopeSelection: AgentServiceInvocationSelection = {
+      ...invocationSelection,
+      reference: {
+        ...invocationReference,
+        isolationDomainId: "iso_00000000000000000002",
+      },
+    };
+    const markup = renderWorkflow(
+      service,
+      isolationDomainId,
+      revision,
+      publishedRevision,
+      alias,
+      crossScopeSelection,
+    );
+
+    assert.equal(
+      isInvocationSelectedForAlias(crossScopeSelection, alias, isolationDomainId),
+      false,
+    );
+    assert.match(markup, /Invocation monitoring unavailable/u);
+    assert.doesNotMatch(markup, /Loading invocation/u);
+    assert.doesNotMatch(markup, /iso_00000000000000000002/u);
+    assert.doesNotMatch(markup, /inv_00000000000000000001/u);
+  });
+
+  it("rejects malformed invocation references before lifecycle state is requested", () => {
+    const malformedSelection: AgentServiceInvocationSelection = {
+      ...invocationSelection,
+      reference: { ...invocationReference, invocationId: "invalid" },
+    };
+    const markup = renderWorkflow(
+      service,
+      isolationDomainId,
+      revision,
+      publishedRevision,
+      alias,
+      malformedSelection,
+    );
+
+    assert.equal(isInvocationSelectedForAlias(malformedSelection, alias, isolationDomainId), false);
+    assert.match(markup, /Invocation monitoring unavailable/u);
+    assert.doesNotMatch(markup, /Loading invocation/u);
+  });
+
+  it("rejects an invocation accepted before the selected alias changed", () => {
+    const staleSelection: AgentServiceInvocationSelection = {
+      ...invocationSelection,
+      aliasVersion: alias.metadata.version + 1,
+    };
+    const markup = renderWorkflow(
+      service,
+      isolationDomainId,
+      revision,
+      publishedRevision,
+      alias,
+      staleSelection,
+    );
+
+    assert.equal(isInvocationSelectedForAlias(staleSelection, alias, isolationDomainId), false);
+    assert.match(markup, /Invocation monitoring unavailable/u);
+    assert.doesNotMatch(markup, /Loading invocation/u);
+    assert.doesNotMatch(markup, /inv_00000000000000000001/u);
   });
 
   it("keeps invocation composition unavailable for an unsupported input contract", () => {
