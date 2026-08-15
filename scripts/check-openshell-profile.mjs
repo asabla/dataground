@@ -800,6 +800,11 @@ const localGatewayConfig = await readFile(
   resolve(root, "deploy/openshell/local/gateway.toml"),
   "utf8",
 );
+const localCodexProfile = await readFile(
+  resolve(root, "deploy/openshell/local/providers/dataground-codex-chatgpt.yaml"),
+  "utf8",
+);
+const localCodexSmoke = await readFile(resolve(root, "scripts/openshell-codex-smoke.mjs"), "utf8");
 if (
   createHash("sha256").update(compose).digest("hex") !== profile.topology.composeSHA256 ||
   createHash("sha256").update(gatewayConfig).digest("hex") !== profile.topology.gatewayConfigSHA256
@@ -910,8 +915,41 @@ if (
   fail("the ordinary local gateway configuration is missing or unsafe");
 }
 if (
+  !localCodexProfile.includes("id: dataground-codex-chatgpt") ||
+  !localCodexProfile.includes("env_vars: [OPENAI_API_KEY]") ||
+  !localCodexProfile.includes("env_vars: [CHATGPT_ACCOUNT_ID]") ||
+  !localCodexProfile.includes("host: chatgpt.com") ||
+  !localCodexProfile.includes("host: api.openai.com") ||
+  !localCodexProfile.includes("host: auth.openai.com") ||
+  !localCodexProfile.includes("host: ab.chatgpt.com") ||
+  localCodexProfile.includes("refresh_token") ||
+  localCodexProfile.includes("id_token") ||
+  localCodexProfile.includes(":latest")
+) {
+  fail("the ordinary local Codex bridge profile is missing or unsafe");
+}
+if (
+  !localCodexSmoke.includes(profile.artifacts.sandbox) ||
+  !localCodexSmoke.includes('const model = "gpt-5.4"') ||
+  !localCodexSmoke.includes('base_url="https://chatgpt.com/backend-api/codex"') ||
+  !localCodexSmoke.includes('env_key="OPENAI_API_KEY"') ||
+  !localCodexSmoke.includes('"ChatGPT-Account-Id"="CHATGPT_ACCOUNT_ID"') ||
+  !localCodexSmoke.includes("requires_openai_auth=false") ||
+  !localCodexSmoke.includes("supports_websockets=false") ||
+  !localCodexSmoke.includes('"--from-existing"') ||
+  !localCodexSmoke.includes('"--no-auto-providers"') ||
+  !localCodexSmoke.includes('"--no-keep"') ||
+  !localCodexSmoke.includes('"read-only"') ||
+  !localCodexSmoke.includes('"--ephemeral"') ||
+  localCodexSmoke.includes(":latest")
+) {
+  fail("the ordinary local Codex smoke command is missing or unsafe");
+}
+if (
   packageJSON.scripts?.["openshell:local:up"] !== "node scripts/openshell-local.mjs up" ||
   packageJSON.scripts?.["openshell:local:down"] !== "node scripts/openshell-local.mjs down" ||
+  packageJSON.scripts?.["openshell:local:codex-smoke"] !==
+    "node scripts/openshell-codex-smoke.mjs" ||
   packageJSON.scripts?.["test:tools"] !== "node --test scripts/*.test.mjs" ||
   !packageJSON.scripts?.test?.includes("pnpm run test:tools")
 ) {
