@@ -145,6 +145,16 @@ describe("invocation event replay client", () => {
     });
   });
 
+  it("accepts an empty successful replay after the confirmed cursor", async () => {
+    const client = {
+      GET: async () => ({ response: new Response(null, { status: 200 }) }),
+    } as unknown as DataGroundClient;
+
+    const result = await replayInvocationEvents(client, reference, 8);
+
+    assert.deepEqual(result, { cursor: 8, events: [], ok: true });
+  });
+
   it("fails closed before transport for an invalid resource reference", async () => {
     let requested = false;
     const client = {

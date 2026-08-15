@@ -244,9 +244,13 @@ export async function replayInvocationEvents(
         path: reference,
       },
     });
-    return typeof data === "string"
-      ? parseInvocationEventStream(data, reference, afterSequence)
-      : failedResult(error, response.status);
+    if (typeof data === "string") {
+      return parseInvocationEventStream(data, reference, afterSequence);
+    }
+    if (response.status === 200 && data === undefined && error === undefined) {
+      return parseInvocationEventStream("", reference, afterSequence);
+    }
+    return failedResult(error, response.status);
   } catch {
     return {
       error: {
