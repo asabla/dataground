@@ -56,9 +56,12 @@ On a Docker-capable development host with OpenShell CLI `0.0.86` installed:
 
 ```shell
 pnpm openshell:profile:check
-docker compose -f deploy/openshell/docker-compose.yml up -d
+pnpm openshell:local:up
+curl --fail http://127.0.0.1:8081/readyz
 openshell --gateway-endpoint http://127.0.0.1:8080 status
 ```
+
+The ordinary development command uses `deploy/openshell/local/docker-compose.yml` and the exact digest-pinned images from the checked development profile. Its wrapper requires the exact OpenShell CLI version and creates or validates one persistent Ed25519 gateway-JWT keypair under the current user's owner-only local state directory; key files are never stored in the repository. It runs the gateway as root with access to the Docker socket and retains its SQLite database and extracted supervisor under the Docker host's `/var/lib/openshell`; use it only on a trusted local development machine. This topology is not evidence-producing. The credential and runtime conformance Compose files remain launcher-owned and intentionally reject direct startup without fresh run-scoped state, identity, and JWT inputs.
 
 The checked-in profile deliberately does not create a provider or run a credential-bearing agent. A deny-all sandbox can be used for lifecycle conformance without provider access:
 
@@ -72,7 +75,7 @@ openshell --gateway-endpoint http://127.0.0.1:8080 sandbox create \
   -- true
 ```
 
-Stop the local gateway with `docker compose -f deploy/openshell/docker-compose.yml down`. This removes the gateway container but leaves OpenShell state under `/var/lib/openshell`; do not delete that directory as part of routine cleanup.
+Stop the local gateway with `pnpm openshell:local:down`. This removes the gateway container but leaves OpenShell state under `/var/lib/openshell`; do not delete that directory as part of routine cleanup.
 
 ## Adapter behavior and remaining gates
 
