@@ -1,10 +1,11 @@
-import { StatusBadge } from "@dataground/ui";
+import { Button, StatusBadge } from "@dataground/ui";
 import { useId } from "react";
 import {
   isServiceAliasRoutedToRevision,
   ServiceAliasAssignWorkflow,
   type ServiceAliasResource,
 } from "../aliases";
+import { ArtifactWorkflow, type InvocationArtifactReference } from "../artifacts";
 import type { DataGroundClient } from "../contracts/client";
 import { EventTimelineWorkflow } from "../events";
 import {
@@ -26,6 +27,7 @@ import type { AgentServiceResource } from "./client";
 const serviceIdPattern = /^svc_[0-9a-z]{20,32}$/u;
 const isolationDomainIdPattern = /^iso_[0-9a-z]{20,32}$/u;
 const invocationIdPattern = /^inv_[0-9a-z]{20,32}$/u;
+const artifactIdPattern = /^art_[0-9a-z]{20,32}$/u;
 
 export interface AgentServiceInvocationSelection {
   aliasGeneration: number;
@@ -47,13 +49,16 @@ export interface AgentServiceAuthoringWorkflowProps {
   isolationDomainId: string;
   invocationDisabledReason?: string;
   onAssignAlias: (revision: PublishedServiceRevisionResource) => void;
+  onCloseArtifact: () => void;
   onComposeInvocation: (alias: ServiceAliasResource) => void;
+  onInspectArtifact: (reference: InvocationArtifactReference) => void;
   onOpenInvocation: (selection: AgentServiceInvocationSelection) => void;
   onOpenRevision: (revision: ServiceRevisionResource) => void;
   onOpenService: (service: AgentServiceResource) => void;
   publicationDisabledReason?: string;
   revisionDisabledReason?: string;
   selectedAlias?: ServiceAliasResource;
+  selectedArtifact?: InvocationArtifactReference;
   selectedInvocation?: AgentServiceInvocationSelection;
   selectedPublishedRevision?: PublishedServiceRevisionResource;
   selectedRevision?: ServiceRevisionResource;
@@ -75,6 +80,19 @@ export function isInvocationSelectedForAlias(
     selection.aliasId === alias.metadata.id &&
     selection.aliasGeneration === alias.metadata.generation &&
     selection.aliasVersion === alias.metadata.version
+  );
+}
+
+export function isArtifactSelectedForInvocation(
+  artifact: InvocationArtifactReference,
+  invocation: InvocationReference,
+): boolean {
+  return (
+    isolationDomainIdPattern.test(invocation.isolationDomainId) &&
+    invocationIdPattern.test(invocation.invocationId) &&
+    artifactIdPattern.test(artifact.artifactId) &&
+    artifact.isolationDomainId === invocation.isolationDomainId &&
+    artifact.invocationId === invocation.invocationId
   );
 }
 
@@ -144,13 +162,16 @@ export function AgentServiceAuthoringWorkflow({
   isolationDomainId,
   invocationDisabledReason,
   onAssignAlias,
+  onCloseArtifact,
   onComposeInvocation,
+  onInspectArtifact,
   onOpenInvocation,
   onOpenRevision,
   onOpenService,
   publicationDisabledReason,
   revisionDisabledReason,
   selectedAlias,
+  selectedArtifact,
   selectedInvocation,
   selectedPublishedRevision,
   selectedRevision,
@@ -163,6 +184,8 @@ export function AgentServiceAuthoringWorkflow({
   const publicationBlockedTitleId = useId();
   const invocationBlockedTitleId = useId();
   const monitoringBlockedTitleId = useId();
+  const artifactBlockedTitleId = useId();
+  const artifactInspectionTitleId = useId();
   const serviceInScope =
     selectedService === undefined || isServiceSelectedForScope(selectedService, isolationDomainId);
   const revisionInScope =
@@ -340,7 +363,42 @@ export function AgentServiceAuthoringWorkflow({
               disabledReason={cancellationDisabledReason}
               reference={selectedInvocation.reference}
             />
-            <EventTimelineWorkflow client={client} reference={selectedInvocation.reference} />
+            <EventTimelineWorkflow
+              client={client}
+              onInspectArtifact={onInspectArtifact}
+              reference={selectedInvocation.reference}
+            />
+            {selectedArtifact &&
+              (isArtifactSelectedForInvocation(selectedArtifact, selectedInvocation.reference) ? (
+                <section
+                  aria-labelledby={artifactInspectionTitleId}
+                  className="product-workflow__artifact-inspection"
+                >
+                  <div className="product-workflow__artifact-heading">
+                    <div>
+                      <p className="workbench-kicker">Governed output</p>
+                      <h2 id={artifactInspectionTitleId}>Artifact inspection</h2>
+                    </div>
+                    <Button onPress={onCloseArtifact} variant="quiet">
+                      Close metadata
+                    </Button>
+                  </div>
+                  <ArtifactWorkflow client={client} reference={selectedArtifact} />
+                </section>
+              ) : (
+                <section
+                  aria-labelledby={artifactBlockedTitleId}
+                  className="product-workflow__blocked"
+                  role="alert"
+                >
+                  <StatusBadge tone="critical">Scope mismatch</StatusBadge>
+                  <h2 id={artifactBlockedTitleId}>Artifact inspection unavailable</h2>
+                  <p>
+                    The selected artifact does not belong to the active invocation. Reopen it from
+                    the confirmed event timeline before inspecting metadata.
+                  </p>
+                </section>
+              ))}
           </>
         ) : (
           <section

@@ -1,6 +1,7 @@
 import { Button, StatusBadge, TextField } from "@dataground/ui";
 import { useState } from "react";
 import type { ServiceAliasResource } from "./aliases";
+import type { InvocationArtifactReference } from "./artifacts";
 import { createDataGroundClient, type DataGroundClient } from "./contracts/client";
 import type { PublishedServiceRevisionResource, ServiceRevisionResource } from "./revisions";
 import {
@@ -97,6 +98,7 @@ export function DevelopmentWorkbench({
   onDisconnect,
 }: DevelopmentWorkbenchProps) {
   const [openedAlias, setOpenedAlias] = useState<ServiceAliasResource>();
+  const [openedArtifact, setOpenedArtifact] = useState<InvocationArtifactReference>();
   const [openedInvocation, setOpenedInvocation] = useState<AgentServiceInvocationSelection>();
   const [openedPublishedRevision, setOpenedPublishedRevision] =
     useState<PublishedServiceRevisionResource>();
@@ -121,6 +123,7 @@ export function DevelopmentWorkbench({
 
   const clearWorkflow = () => {
     setOpenedAlias(undefined);
+    setOpenedArtifact(undefined);
     setOpenedInvocation(undefined);
     setOpenedPublishedRevision(undefined);
     setOpenedRevision(undefined);
@@ -129,6 +132,7 @@ export function DevelopmentWorkbench({
 
   const selectSessionService = (service: AgentServiceResource) => {
     setOpenedAlias(undefined);
+    setOpenedArtifact(undefined);
     setOpenedInvocation(undefined);
     setOpenedPublishedRevision(undefined);
     setOpenedRevision(undefined);
@@ -149,25 +153,32 @@ export function DevelopmentWorkbench({
       isolationDomainId={isolationDomainId}
       onAssignAlias={(revision) => {
         setOpenedAlias(undefined);
+        setOpenedArtifact(undefined);
         setOpenedInvocation(undefined);
         setOpenedPublishedRevision(revision);
       }}
       onComposeInvocation={(alias) => {
         setOpenedAlias(alias);
+        setOpenedArtifact(undefined);
         setOpenedInvocation(undefined);
       }}
+      onCloseArtifact={() => setOpenedArtifact(undefined)}
+      onInspectArtifact={setOpenedArtifact}
       onOpenInvocation={(selection) => {
+        setOpenedArtifact(undefined);
         setOpenedInvocation(selection);
         setView("interactions");
       }}
       onOpenRevision={(revision) => {
         setOpenedAlias(undefined);
+        setOpenedArtifact(undefined);
         setOpenedInvocation(undefined);
         setOpenedPublishedRevision(undefined);
         setOpenedRevision(revision);
       }}
       onOpenService={(service) => {
         setOpenedAlias(undefined);
+        setOpenedArtifact(undefined);
         setOpenedInvocation(undefined);
         setOpenedPublishedRevision(undefined);
         setOpenedRevision(undefined);
@@ -181,6 +192,7 @@ export function DevelopmentWorkbench({
         });
       }}
       selectedAlias={openedAlias}
+      selectedArtifact={openedArtifact}
       selectedInvocation={openedInvocation}
       selectedPublishedRevision={openedPublishedRevision}
       selectedRevision={openedRevision}
