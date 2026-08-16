@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it } from "vitest";
 import type { ServiceAliasResource } from "../aliases";
+import type { InvocationArtifactReference } from "../artifacts";
 import type { DataGroundClient } from "../contracts/client";
 import type { InvocationReference } from "../invocations";
 import type { PublishedServiceRevisionResource, ServiceRevisionResource } from "../revisions";
@@ -9,6 +10,7 @@ import {
   AgentServiceAuthoringWorkflow,
   type AgentServiceInvocationSelection,
   isAliasSelectedForPublishedRevision,
+  isArtifactSelectedForInvocation,
   isInvocationSelectedForAlias,
   isPublishedRevisionSelectedForService,
   isRevisionSelectedForService,
@@ -85,6 +87,10 @@ const invocationSelection = {
   aliasVersion: alias.metadata.version,
   reference: invocationReference,
 };
+const artifactReference: InvocationArtifactReference = {
+  artifactId: "art_00000000000000000001",
+  ...invocationReference,
+};
 
 function renderWorkflow(
   selectedService?: AgentServiceResource,
@@ -93,6 +99,7 @@ function renderWorkflow(
   selectedPublishedRevision?: PublishedServiceRevisionResource,
   selectedAlias?: ServiceAliasResource,
   selectedInvocation?: AgentServiceInvocationSelection,
+  selectedArtifact?: InvocationArtifactReference,
 ): string {
   return renderToStaticMarkup(
     <AgentServiceAuthoringWorkflow
@@ -105,11 +112,14 @@ function renderWorkflow(
       client={{} as DataGroundClient}
       isolationDomainId={activeIsolationDomainId}
       onAssignAlias={() => undefined}
+      onCloseArtifact={() => undefined}
       onComposeInvocation={() => undefined}
+      onInspectArtifact={() => undefined}
       onOpenInvocation={() => undefined}
       onOpenRevision={() => undefined}
       onOpenService={() => undefined}
       selectedAlias={selectedAlias}
+      selectedArtifact={selectedArtifact}
       selectedInvocation={selectedInvocation}
       selectedPublishedRevision={selectedPublishedRevision}
       selectedRevision={selectedRevision}
@@ -201,7 +211,9 @@ describe("AgentServiceAuthoringWorkflow", () => {
         focusCurrentStage
         isolationDomainId={isolationDomainId}
         onAssignAlias={() => undefined}
+        onCloseArtifact={() => undefined}
         onComposeInvocation={() => undefined}
+        onInspectArtifact={() => undefined}
         onOpenInvocation={() => undefined}
         onOpenRevision={() => undefined}
         onOpenService={() => undefined}
@@ -235,6 +247,49 @@ describe("AgentServiceAuthoringWorkflow", () => {
     assert.match(markup, /Replaying events/u);
     assert.match(markup, /inv_00000000000000000001/u);
     assert.doesNotMatch(markup, /Invocation monitoring unavailable/u);
+  });
+
+  it("opens governed artifact metadata only for the active invocation", () => {
+    const markup = renderWorkflow(
+      service,
+      isolationDomainId,
+      revision,
+      publishedRevision,
+      alias,
+      invocationSelection,
+      artifactReference,
+    );
+
+    assert.equal(isArtifactSelectedForInvocation(artifactReference, invocationReference), true);
+    assert.match(markup, /Artifact inspection/u);
+    assert.match(markup, /Loading metadata/u);
+    assert.match(markup, /art_00000000000000000001/u);
+    assert.match(markup, /Close metadata/u);
+  });
+
+  it("fails closed without disclosing an artifact selected from another invocation", () => {
+    const crossInvocationArtifact: InvocationArtifactReference = {
+      ...artifactReference,
+      invocationId: "inv_00000000000000000002",
+    };
+    const markup = renderWorkflow(
+      service,
+      isolationDomainId,
+      revision,
+      publishedRevision,
+      alias,
+      invocationSelection,
+      crossInvocationArtifact,
+    );
+
+    assert.equal(
+      isArtifactSelectedForInvocation(crossInvocationArtifact, invocationReference),
+      false,
+    );
+    assert.match(markup, /Artifact inspection unavailable/u);
+    assert.doesNotMatch(markup, /Loading metadata/u);
+    assert.doesNotMatch(markup, /inv_00000000000000000002/u);
+    assert.doesNotMatch(markup, /art_00000000000000000001/u);
   });
 
   it("fails closed when an invocation reference crosses the active isolation scope", () => {
@@ -367,7 +422,9 @@ describe("AgentServiceAuthoringWorkflow", () => {
         focusCurrentStage
         isolationDomainId={isolationDomainId}
         onAssignAlias={() => undefined}
+        onCloseArtifact={() => undefined}
         onComposeInvocation={() => undefined}
+        onInspectArtifact={() => undefined}
         onOpenInvocation={() => undefined}
         onOpenRevision={() => undefined}
         onOpenService={() => undefined}
