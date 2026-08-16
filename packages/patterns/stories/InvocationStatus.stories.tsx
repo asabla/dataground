@@ -45,6 +45,7 @@ const meta = {
     invocation,
     onConfirmCancellation: fn(),
     onDismissCancellation: fn(),
+    onInspectArtifact: fn(),
     onRefresh: fn(),
     onRequestCancellation: fn(),
     operation,
@@ -107,6 +108,15 @@ export const Succeeded: Story = {
       state: "succeeded",
     },
     operation: { ...operation, observedState: "succeeded" },
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      canvas.getByRole("button", {
+        name: `Inspect metadata for ${invocation.artifactIds[0]}`,
+      }),
+    );
+    await expect(args.onInspectArtifact).toHaveBeenCalledWith(invocation.artifactIds[0]);
   },
 };
 

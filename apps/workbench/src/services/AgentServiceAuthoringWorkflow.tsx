@@ -386,6 +386,7 @@ export function AgentServiceAuthoringWorkflow({
               canCancel={canCancelInvocation}
               client={client}
               disabledReason={cancellationDisabledReason}
+              onInspectArtifact={onInspectArtifact}
               reference={selectedInvocation.reference}
             />
             <EventTimelineWorkflow

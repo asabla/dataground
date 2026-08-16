@@ -73,6 +73,7 @@ export interface InvocationStatusProps {
   isLoading?: boolean;
   onConfirmCancellation?: () => void;
   onDismissCancellation?: () => void;
+  onInspectArtifact?: (artifactId: string) => void;
   onRefresh?: () => void;
   onRequestCancellation?: () => void;
   operation?: InvocationOperationResource;
@@ -96,6 +97,7 @@ const statePresentations: Record<string, StatePresentation> = {
 };
 
 const cancellableStates = new Set(["accepted", "running", "waiting"]);
+const maximumVisibleArtifacts = 64;
 
 function displayText(value: string, maximum = 255): string {
   const normalized = Array.from(value, (character) => {
@@ -160,6 +162,7 @@ export function InvocationStatus({
   isLoading = false,
   onConfirmCancellation,
   onDismissCancellation,
+  onInspectArtifact,
   onRefresh,
   onRequestCancellation,
   operation,
@@ -189,6 +192,7 @@ export function InvocationStatus({
     onConfirmCancellation !== undefined &&
     onDismissCancellation !== undefined;
   const operationStatus = operation ? operationPresentation(operation) : undefined;
+  const visibleArtifactIds = invocation?.artifactIds.slice(0, maximumVisibleArtifacts) ?? [];
 
   return (
     <section
@@ -309,6 +313,47 @@ export function InvocationStatus({
                 <dd>{formatInteger(invocation.usage.totalTokens)}</dd>
               </div>
             </dl>
+          )}
+
+          {visibleArtifactIds.length > 0 && (
+            <section
+              aria-labelledby={`${titleId}-artifacts`}
+              className="dg-invocation-status__artifacts"
+            >
+              <div className="dg-invocation-status__artifacts-heading">
+                <div>
+                  <h3 id={`${titleId}-artifacts`}>Governed artifacts</h3>
+                  <p>
+                    Inspect platform metadata without exposing artifact content or runtime storage.
+                  </p>
+                </div>
+                <StatusBadge tone="neutral">
+                  {formatInteger(invocation.artifactIds.length)} recorded
+                </StatusBadge>
+              </div>
+              <ul>
+                {visibleArtifactIds.map((artifactId) => (
+                  <li key={artifactId}>
+                    <code>{displayText(artifactId, 64)}</code>
+                    {onInspectArtifact && (
+                      <Button
+                        aria-label={`Inspect metadata for ${displayText(artifactId, 64)}`}
+                        onPress={() => onInspectArtifact(artifactId)}
+                        variant="quiet"
+                      >
+                        Inspect metadata
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {invocation.artifactIds.length > visibleArtifactIds.length && (
+                <p className="dg-invocation-status__notice">
+                  Only the first {formatInteger(maximumVisibleArtifacts)} artifact references are
+                  shown. Use an authorized API client to inspect the remaining metadata.
+                </p>
+              )}
+            </section>
           )}
 
           {invocation.error && (

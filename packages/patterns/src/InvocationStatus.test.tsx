@@ -64,6 +64,41 @@ describe("InvocationStatus", () => {
     assert.match(markup, /has not been granted cancellation authority/u);
   });
 
+  it("offers governed metadata inspection for authoritative artifact references", () => {
+    const markup = renderToStaticMarkup(
+      <InvocationStatus
+        canCancel={false}
+        invocation={invocation}
+        onInspectArtifact={() => undefined}
+        reference={reference}
+      />,
+    );
+
+    assert.match(markup, /Governed artifacts/u);
+    assert.match(markup, new RegExp(invocation.artifactIds[0] ?? "missing", "u"));
+    assert.match(markup, /Inspect metadata/u);
+    assert.match(markup, /without exposing artifact content or runtime storage/u);
+  });
+
+  it("bounds large artifact collections without hiding their authoritative count", () => {
+    const artifactIds = Array.from(
+      { length: 65 },
+      (_, index) => `art_${index.toString(36).padStart(20, "0")}`,
+    );
+    const markup = renderToStaticMarkup(
+      <InvocationStatus
+        canCancel={false}
+        invocation={{ ...invocation, artifactIds }}
+        onInspectArtifact={() => undefined}
+        reference={reference}
+      />,
+    );
+
+    assert.match(markup, /65 recorded/u);
+    assert.match(markup, /Only the first 64 artifact references are shown/u);
+    assert.doesNotMatch(markup, new RegExp(artifactIds[64] ?? "missing", "u"));
+  });
+
   it("requires explicit confirmation before presenting the consequential command", () => {
     const initial = renderToStaticMarkup(
       <InvocationStatus

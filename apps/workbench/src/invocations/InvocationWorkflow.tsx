@@ -1,6 +1,7 @@
 import { InvocationStatus, isInvocationCancellable } from "@dataground/patterns";
 import "@dataground/patterns/styles.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { InvocationArtifactReference } from "../artifacts";
 import type { DataGroundClient } from "../contracts/client";
 import {
   cancelInvocation,
@@ -47,6 +48,7 @@ export interface InvocationWorkflowProps {
   client: DataGroundClient;
   createIdempotencyKey?: () => string;
   disabledReason?: string;
+  onInspectArtifact?: (reference: InvocationArtifactReference) => void;
   reference: InvocationReference;
 }
 
@@ -185,6 +187,7 @@ export function InvocationWorkflow({
   client,
   createIdempotencyKey = defaultIdempotencyKey,
   disabledReason,
+  onInspectArtifact,
   reference,
 }: InvocationWorkflowProps) {
   const currentReferenceKey = invocationReferenceKey(reference);
@@ -328,6 +331,11 @@ export function InvocationWorkflow({
       onConfirmCancellation={() => void submitCancellation()}
       onDismissCancellation={() =>
         dispatch({ referenceKey: currentReferenceKey, type: "cancellation-dismissed" })
+      }
+      onInspectArtifact={
+        onInspectArtifact
+          ? (artifactId) => onInspectArtifact({ ...stableReference, artifactId })
+          : undefined
       }
       onRefresh={() => void refresh()}
       onRequestCancellation={() =>
