@@ -1,6 +1,7 @@
 import { Button, StatusBadge, TextField } from "@dataground/ui";
 import { useState } from "react";
 import type { ServiceAliasResource } from "./aliases";
+import type { InvocationApprovalReference } from "./approvals";
 import type { InvocationArtifactReference } from "./artifacts";
 import { createDataGroundClient, type DataGroundClient } from "./contracts/client";
 import type { PublishedServiceRevisionResource, ServiceRevisionResource } from "./revisions";
@@ -98,6 +99,7 @@ export function DevelopmentWorkbench({
   onDisconnect,
 }: DevelopmentWorkbenchProps) {
   const [openedAlias, setOpenedAlias] = useState<ServiceAliasResource>();
+  const [openedApproval, setOpenedApproval] = useState<InvocationApprovalReference>();
   const [openedArtifact, setOpenedArtifact] = useState<InvocationArtifactReference>();
   const [openedInvocation, setOpenedInvocation] = useState<AgentServiceInvocationSelection>();
   const [openedPublishedRevision, setOpenedPublishedRevision] =
@@ -123,6 +125,7 @@ export function DevelopmentWorkbench({
 
   const clearWorkflow = () => {
     setOpenedAlias(undefined);
+    setOpenedApproval(undefined);
     setOpenedArtifact(undefined);
     setOpenedInvocation(undefined);
     setOpenedPublishedRevision(undefined);
@@ -132,6 +135,7 @@ export function DevelopmentWorkbench({
 
   const selectSessionService = (service: AgentServiceResource) => {
     setOpenedAlias(undefined);
+    setOpenedApproval(undefined);
     setOpenedArtifact(undefined);
     setOpenedInvocation(undefined);
     setOpenedPublishedRevision(undefined);
@@ -147,30 +151,43 @@ export function DevelopmentWorkbench({
       canCreateRevision
       canCreateService
       canPublishRevision
+      canResolveApproval
       canInvokeService
       client={client}
       focusCurrentStage
       isolationDomainId={isolationDomainId}
       onAssignAlias={(revision) => {
         setOpenedAlias(undefined);
+        setOpenedApproval(undefined);
         setOpenedArtifact(undefined);
         setOpenedInvocation(undefined);
         setOpenedPublishedRevision(revision);
       }}
       onComposeInvocation={(alias) => {
         setOpenedAlias(alias);
+        setOpenedApproval(undefined);
         setOpenedArtifact(undefined);
         setOpenedInvocation(undefined);
       }}
+      onCloseApproval={() => setOpenedApproval(undefined)}
       onCloseArtifact={() => setOpenedArtifact(undefined)}
-      onInspectArtifact={setOpenedArtifact}
+      onInspectApproval={(reference) => {
+        setOpenedArtifact(undefined);
+        setOpenedApproval(reference);
+      }}
+      onInspectArtifact={(reference) => {
+        setOpenedApproval(undefined);
+        setOpenedArtifact(reference);
+      }}
       onOpenInvocation={(selection) => {
+        setOpenedApproval(undefined);
         setOpenedArtifact(undefined);
         setOpenedInvocation(selection);
         setView("interactions");
       }}
       onOpenRevision={(revision) => {
         setOpenedAlias(undefined);
+        setOpenedApproval(undefined);
         setOpenedArtifact(undefined);
         setOpenedInvocation(undefined);
         setOpenedPublishedRevision(undefined);
@@ -178,6 +195,7 @@ export function DevelopmentWorkbench({
       }}
       onOpenService={(service) => {
         setOpenedAlias(undefined);
+        setOpenedApproval(undefined);
         setOpenedArtifact(undefined);
         setOpenedInvocation(undefined);
         setOpenedPublishedRevision(undefined);
@@ -192,6 +210,7 @@ export function DevelopmentWorkbench({
         });
       }}
       selectedAlias={openedAlias}
+      selectedApproval={openedApproval}
       selectedArtifact={openedArtifact}
       selectedInvocation={openedInvocation}
       selectedPublishedRevision={openedPublishedRevision}

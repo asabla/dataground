@@ -1,5 +1,6 @@
 import {
   EventTimeline,
+  type TimelineApprovalReference,
   type TimelineArtifactReference,
   type TimelineEvent,
 } from "@dataground/patterns";
@@ -31,6 +32,7 @@ type EventTimelineAction =
 
 export interface EventTimelineWorkflowProps {
   client: DataGroundClient;
+  onInspectApproval?: (reference: TimelineApprovalReference) => void;
   onInspectArtifact?: (reference: TimelineArtifactReference) => void;
   reference: InvocationEventReference;
 }
@@ -156,6 +158,7 @@ export function eventTimelineReducer(
 
 export function EventTimelineWorkflow({
   client,
+  onInspectApproval,
   onInspectArtifact,
   reference,
 }: EventTimelineWorkflowProps) {
@@ -212,6 +215,7 @@ export function EventTimelineWorkflow({
       events={visibleEvents as TimelineEvent[]}
       hiddenEventCount={stateMatchesReference ? state.hiddenEventCount : 0}
       isReplaying={!stateMatchesReference || state.loading}
+      onInspectApproval={onInspectApproval}
       onInspectArtifact={onInspectArtifact}
       onReplay={() => void loadReplay(stateMatchesReference ? state.cursor : 0)}
       reference={reference}

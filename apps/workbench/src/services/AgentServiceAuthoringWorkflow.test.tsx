@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it } from "vitest";
 import type { ServiceAliasResource } from "../aliases";
+import type { InvocationApprovalReference } from "../approvals";
 import type { InvocationArtifactReference } from "../artifacts";
 import type { DataGroundClient } from "../contracts/client";
 import type { InvocationReference } from "../invocations";
@@ -10,6 +11,7 @@ import {
   AgentServiceAuthoringWorkflow,
   type AgentServiceInvocationSelection,
   isAliasSelectedForPublishedRevision,
+  isApprovalSelectedForInvocation,
   isArtifactSelectedForInvocation,
   isInvocationSelectedForAlias,
   isPublishedRevisionSelectedForService,
@@ -91,6 +93,10 @@ const artifactReference: InvocationArtifactReference = {
   artifactId: "art_00000000000000000001",
   ...invocationReference,
 };
+const approvalReference: InvocationApprovalReference = {
+  approvalId: "apr_00000000000000000001",
+  ...invocationReference,
+};
 
 function renderWorkflow(
   selectedService?: AgentServiceResource,
@@ -100,6 +106,7 @@ function renderWorkflow(
   selectedAlias?: ServiceAliasResource,
   selectedInvocation?: AgentServiceInvocationSelection,
   selectedArtifact?: InvocationArtifactReference,
+  selectedApproval?: InvocationApprovalReference,
 ): string {
   return renderToStaticMarkup(
     <AgentServiceAuthoringWorkflow
@@ -109,16 +116,20 @@ function renderWorkflow(
       canCreateService
       canInvokeService
       canPublishRevision
+      canResolveApproval
       client={{} as DataGroundClient}
       isolationDomainId={activeIsolationDomainId}
       onAssignAlias={() => undefined}
+      onCloseApproval={() => undefined}
       onCloseArtifact={() => undefined}
       onComposeInvocation={() => undefined}
+      onInspectApproval={() => undefined}
       onInspectArtifact={() => undefined}
       onOpenInvocation={() => undefined}
       onOpenRevision={() => undefined}
       onOpenService={() => undefined}
       selectedAlias={selectedAlias}
+      selectedApproval={selectedApproval}
       selectedArtifact={selectedArtifact}
       selectedInvocation={selectedInvocation}
       selectedPublishedRevision={selectedPublishedRevision}
@@ -207,12 +218,15 @@ describe("AgentServiceAuthoringWorkflow", () => {
         canCreateService
         canInvokeService
         canPublishRevision
+        canResolveApproval
         client={{} as DataGroundClient}
         focusCurrentStage
         isolationDomainId={isolationDomainId}
         onAssignAlias={() => undefined}
+        onCloseApproval={() => undefined}
         onCloseArtifact={() => undefined}
         onComposeInvocation={() => undefined}
+        onInspectApproval={() => undefined}
         onInspectArtifact={() => undefined}
         onOpenInvocation={() => undefined}
         onOpenRevision={() => undefined}
@@ -265,6 +279,51 @@ describe("AgentServiceAuthoringWorkflow", () => {
     assert.match(markup, /Loading metadata/u);
     assert.match(markup, /art_00000000000000000001/u);
     assert.match(markup, /Close metadata/u);
+  });
+
+  it("opens governed approval review only for the active invocation", () => {
+    const markup = renderWorkflow(
+      service,
+      isolationDomainId,
+      revision,
+      publishedRevision,
+      alias,
+      invocationSelection,
+      undefined,
+      approvalReference,
+    );
+
+    assert.equal(isApprovalSelectedForInvocation(approvalReference, invocationReference), true);
+    assert.match(markup, /Approval request/u);
+    assert.match(markup, /Loading approval/u);
+    assert.match(markup, /Close approval/u);
+    assert.doesNotMatch(markup, /Approval review unavailable/u);
+  });
+
+  it("fails closed without disclosing an approval selected from another invocation", () => {
+    const crossInvocationApproval: InvocationApprovalReference = {
+      ...approvalReference,
+      invocationId: "inv_00000000000000000002",
+    };
+    const markup = renderWorkflow(
+      service,
+      isolationDomainId,
+      revision,
+      publishedRevision,
+      alias,
+      invocationSelection,
+      undefined,
+      crossInvocationApproval,
+    );
+
+    assert.equal(
+      isApprovalSelectedForInvocation(crossInvocationApproval, invocationReference),
+      false,
+    );
+    assert.match(markup, /Approval review unavailable/u);
+    assert.doesNotMatch(markup, /Loading approval/u);
+    assert.doesNotMatch(markup, /inv_00000000000000000002/u);
+    assert.doesNotMatch(markup, /apr_00000000000000000001/u);
   });
 
   it("fails closed without disclosing an artifact selected from another invocation", () => {
@@ -418,12 +477,15 @@ describe("AgentServiceAuthoringWorkflow", () => {
         canCreateService
         canInvokeService
         canPublishRevision
+        canResolveApproval
         client={{} as DataGroundClient}
         focusCurrentStage
         isolationDomainId={isolationDomainId}
         onAssignAlias={() => undefined}
+        onCloseApproval={() => undefined}
         onCloseArtifact={() => undefined}
         onComposeInvocation={() => undefined}
+        onInspectApproval={() => undefined}
         onInspectArtifact={() => undefined}
         onOpenInvocation={() => undefined}
         onOpenRevision={() => undefined}

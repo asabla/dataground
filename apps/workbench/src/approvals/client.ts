@@ -24,6 +24,38 @@ export type ApprovalResult =
 
 const approvalPath =
   "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/approvals/{approvalId}";
+const patterns = {
+  approvalId: /^apr_[0-9a-z]{20,32}$/u,
+  idempotencyKey: /^[A-Za-z0-9._:-]{8,128}$/u,
+  invocationId: /^inv_[0-9a-z]{20,32}$/u,
+  isolationDomainId: /^iso_[0-9a-z]{20,32}$/u,
+  timestamp: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u,
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isTimestamp(value: unknown): value is string {
+  return (
+    typeof value === "string" && patterns.timestamp.test(value) && !Number.isNaN(Date.parse(value))
+  );
+}
+
+function validReference(reference: InvocationApprovalReference): boolean {
+  return (
+    patterns.approvalId.test(reference.approvalId) &&
+    patterns.invocationId.test(reference.invocationId) &&
+    patterns.isolationDomainId.test(reference.isolationDomainId)
+  );
+}
+
+function invalidRequestResult(message: string): ApprovalResult {
+  return {
+    error: { code: "WORKBENCH_INVALID_REQUEST", message, retryable: false },
+    ok: false,
+  };
+}
 
 function failedResult(error: ErrorEnvelope | undefined, status: number): ApprovalResult {
   const problem = error?.error;
@@ -62,14 +94,31 @@ function unavailableResult(): ApprovalResult {
 }
 
 function matchedApprovalResult(
-  approval: InvocationApproval,
+  value: unknown,
   reference: InvocationApprovalReference,
 ): ApprovalResult {
+  if (!isRecord(value)) {
+    return invalidRequestResult(
+      "DataGround returned approval data the Workbench could not interpret.",
+    );
+  }
   if (
-    approval.schemaVersion !== "dataground.invocation-approval/v1" ||
-    approval.id !== reference.approvalId ||
-    approval.invocationId !== reference.invocationId ||
-    approval.isolationDomainId !== reference.isolationDomainId
+    value.schemaVersion !== "dataground.invocation-approval/v1" ||
+    value.id !== reference.approvalId ||
+    value.invocationId !== reference.invocationId ||
+    value.isolationDomainId !== reference.isolationDomainId ||
+    !["process.execute", "workspace.change"].includes(String(value.requestedAction)) ||
+    !["pending", "resolved", "delivering", "delivered"].includes(String(value.state)) ||
+    !Number.isSafeInteger(value.version) ||
+    (value.version as number) < 1 ||
+    !isTimestamp(value.createdAt) ||
+    !isTimestamp(value.updatedAt) ||
+    (value.decision !== undefined && !["approve", "deny"].includes(String(value.decision))) ||
+    (value.resolvedBy !== undefined &&
+      (typeof value.resolvedBy !== "string" ||
+        value.resolvedBy.length < 1 ||
+        value.resolvedBy.length > 256)) ||
+    (value.resolvedAt !== undefined && !isTimestamp(value.resolvedAt))
   ) {
     return {
       error: {
@@ -80,13 +129,16 @@ function matchedApprovalResult(
       ok: false,
     };
   }
-  return { approval, ok: true };
+  return { approval: value as unknown as InvocationApproval, ok: true };
 }
 
 export async function readInvocationApproval(
   client: DataGroundClient,
   reference: InvocationApprovalReference,
 ): Promise<ApprovalResult> {
+  if (!validReference(reference)) {
+    return invalidRequestResult("The invocation approval reference is invalid.");
+  }
   try {
     const { data, error, response } = await client.GET(approvalPath, {
       params: { path: reference },
@@ -103,6 +155,13 @@ export async function resolveInvocationApproval(
   decision: "approve" | "deny",
   idempotencyKey: string,
 ): Promise<ApprovalResult> {
+  if (
+    !validReference(reference) ||
+    !["approve", "deny"].includes(decision) ||
+    !patterns.idempotencyKey.test(idempotencyKey)
+  ) {
+    return invalidRequestResult("The invocation approval decision request is invalid.");
+  }
   try {
     const { data, error, response } = await client.POST(approvalPath, {
       body: { decision, expectedVersion: 1 },
