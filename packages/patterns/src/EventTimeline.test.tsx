@@ -5,6 +5,7 @@ import {
   EventTimeline,
   presentTimelineEvent,
   type TimelineEvent,
+  timelineApprovalReference,
   timelineArtifactReference,
 } from "./EventTimeline";
 
@@ -153,5 +154,33 @@ describe("EventTimeline", () => {
     assert.match(markup, /Inspect artifact metadata/u);
     assert.equal(timelineArtifactReference(artifactEvent)?.artifactId, "art_00000000000000000001");
     assert.equal(timelineArtifactReference(malformedEvent), undefined);
+  });
+
+  it("offers approval review only for a governed platform approval reference", () => {
+    const approvalEvent = {
+      ...baseEvent,
+      payload: {
+        action: "workspace.change",
+        approvalId: "apr_00000000000000000001",
+        version: 1,
+      },
+      type: "interaction.approval.requested",
+    };
+    const nativeHandleEvent = {
+      ...approvalEvent,
+      payload: { action: "workspace.change", approvalId: "approval-1" },
+    };
+    const markup = renderToStaticMarkup(
+      <EventTimeline
+        connectionState="current"
+        events={[approvalEvent]}
+        onInspectApproval={() => undefined}
+        reference={reference}
+      />,
+    );
+
+    assert.match(markup, /Review approval request/u);
+    assert.equal(timelineApprovalReference(approvalEvent)?.approvalId, "apr_00000000000000000001");
+    assert.equal(timelineApprovalReference(nativeHandleEvent), undefined);
   });
 });

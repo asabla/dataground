@@ -23,11 +23,13 @@ export {
   EventTimeline,
   type EventTimelineProps,
   presentTimelineEvent,
+  type TimelineApprovalReference,
   type TimelineArtifactReference,
   type TimelineConnectionState,
   type TimelineError,
   type TimelineEvent,
   type TimelineReference,
+  timelineApprovalReference,
   timelineArtifactReference,
 } from "./EventTimeline";
 export {
@@ -50,6 +52,12 @@ export {
   isInvocationCancellable,
 } from "./InvocationStatus";
 export {
+  type AssignedServiceAlias,
+  ServiceAliasAssign,
+  type ServiceAliasAssignError,
+  type ServiceAliasAssignProps,
+} from "./ServiceAliasAssign";
+export {
   type CreatedServiceRevision,
   ServiceRevisionDraft,
   type ServiceRevisionDraftError,
@@ -61,9 +69,3 @@ export {
   type ServiceRevisionPublishError,
   type ServiceRevisionPublishProps,
 } from "./ServiceRevisionPublish";
-export {
-  type AssignedServiceAlias,
-  ServiceAliasAssign,
-  type ServiceAliasAssignError,
-  type ServiceAliasAssignProps,
-} from "./ServiceAliasAssign";

@@ -866,6 +866,8 @@
 
 .dg-event-timeline__event-actions {
   display: flex;
+  flex-wrap: wrap;
+  gap: var(--dg-space-2);
   justify-content: flex-start;
 }
 

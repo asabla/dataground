@@ -476,7 +476,7 @@ p {
   line-height: 1.55;
 }
 
-.product-workflow__artifact-inspection {
+.product-workflow__inspection {
   display: grid;
   gap: var(--dg-space-4);
   padding: var(--dg-density-panel-padding);
@@ -485,24 +485,24 @@ p {
   background: var(--dg-color-surface-raised);
 }
 
-.product-workflow__artifact-heading {
+.product-workflow__inspection-heading {
   display: flex;
   gap: var(--dg-space-4);
   align-items: start;
   justify-content: space-between;
 }
 
-.product-workflow__artifact-heading h2,
-.product-workflow__artifact-heading p {
+.product-workflow__inspection-heading h2,
+.product-workflow__inspection-heading p {
   margin: 0;
 }
 
-.product-workflow__artifact-heading h2 {
+.product-workflow__inspection-heading h2 {
   margin-top: var(--dg-space-1);
   font-size: var(--dg-font-size-heading);
 }
 
-.product-workflow__artifact-inspection .dg-artifact-card {
+.product-workflow__inspection > section {
   max-width: none;
 }
 
@@ -617,11 +617,11 @@ p {
     width: 100%;
   }
 
-  .product-workflow__artifact-heading {
+  .product-workflow__inspection-heading {
     display: grid;
   }
 
-  .product-workflow__artifact-heading .dg-button {
+  .product-workflow__inspection-heading .dg-button {
     justify-self: start;
   }
 }

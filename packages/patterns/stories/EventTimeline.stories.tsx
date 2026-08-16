@@ -42,6 +42,7 @@ const meta = {
   args: {
     connectionState: "current",
     events: successEvents,
+    onInspectApproval: fn(),
     onInspectArtifact: fn(),
     onReplay: fn(),
     reference,
@@ -96,9 +97,22 @@ export const WaitingForApproval: Story = {
   args: {
     events: [
       event(1, "lifecycle.started", { message: "Runtime turn started." }),
-      event(2, "interaction.approval.requested", { action: "workspace.change" }),
+      event(2, "interaction.approval.requested", {
+        action: "workspace.change",
+        approvalId: "apr_00000000000000000001",
+        version: 1,
+      }),
       event(3, "lifecycle.waiting", { reason: "approval" }),
     ],
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: "Review approval request" }));
+    await expect(args.onInspectApproval).toHaveBeenCalledWith({
+      approvalId: "apr_00000000000000000001",
+      invocationId: reference.invocationId,
+      isolationDomainId: reference.isolationDomainId,
+    });
   },
 };
 

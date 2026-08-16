@@ -5,6 +5,7 @@ import {
   ServiceAliasAssignWorkflow,
   type ServiceAliasResource,
 } from "../aliases";
+import { ApprovalWorkflow, type InvocationApprovalReference } from "../approvals";
 import { ArtifactWorkflow, type InvocationArtifactReference } from "../artifacts";
 import type { DataGroundClient } from "../contracts/client";
 import { EventTimelineWorkflow } from "../events";
@@ -27,6 +28,7 @@ import type { AgentServiceResource } from "./client";
 const serviceIdPattern = /^svc_[0-9a-z]{20,32}$/u;
 const isolationDomainIdPattern = /^iso_[0-9a-z]{20,32}$/u;
 const invocationIdPattern = /^inv_[0-9a-z]{20,32}$/u;
+const approvalIdPattern = /^apr_[0-9a-z]{20,32}$/u;
 const artifactIdPattern = /^art_[0-9a-z]{20,32}$/u;
 
 export interface AgentServiceInvocationSelection {
@@ -44,13 +46,16 @@ export interface AgentServiceAuthoringWorkflowProps {
   canCreateService: boolean;
   canInvokeService: boolean;
   canPublishRevision: boolean;
+  canResolveApproval: boolean;
   client: DataGroundClient;
   cancellationDisabledReason?: string;
   isolationDomainId: string;
   invocationDisabledReason?: string;
   onAssignAlias: (revision: PublishedServiceRevisionResource) => void;
+  onCloseApproval: () => void;
   onCloseArtifact: () => void;
   onComposeInvocation: (alias: ServiceAliasResource) => void;
+  onInspectApproval: (reference: InvocationApprovalReference) => void;
   onInspectArtifact: (reference: InvocationArtifactReference) => void;
   onOpenInvocation: (selection: AgentServiceInvocationSelection) => void;
   onOpenRevision: (revision: ServiceRevisionResource) => void;
@@ -58,6 +63,7 @@ export interface AgentServiceAuthoringWorkflowProps {
   publicationDisabledReason?: string;
   revisionDisabledReason?: string;
   selectedAlias?: ServiceAliasResource;
+  selectedApproval?: InvocationApprovalReference;
   selectedArtifact?: InvocationArtifactReference;
   selectedInvocation?: AgentServiceInvocationSelection;
   selectedPublishedRevision?: PublishedServiceRevisionResource;
@@ -93,6 +99,19 @@ export function isArtifactSelectedForInvocation(
     artifactIdPattern.test(artifact.artifactId) &&
     artifact.isolationDomainId === invocation.isolationDomainId &&
     artifact.invocationId === invocation.invocationId
+  );
+}
+
+export function isApprovalSelectedForInvocation(
+  approval: InvocationApprovalReference,
+  invocation: InvocationReference,
+): boolean {
+  return (
+    isolationDomainIdPattern.test(invocation.isolationDomainId) &&
+    invocationIdPattern.test(invocation.invocationId) &&
+    approvalIdPattern.test(approval.approvalId) &&
+    approval.isolationDomainId === invocation.isolationDomainId &&
+    approval.invocationId === invocation.invocationId
   );
 }
 
@@ -157,13 +176,16 @@ export function AgentServiceAuthoringWorkflow({
   canCreateService,
   canInvokeService,
   canPublishRevision,
+  canResolveApproval,
   cancellationDisabledReason,
   client,
   isolationDomainId,
   invocationDisabledReason,
   onAssignAlias,
+  onCloseApproval,
   onCloseArtifact,
   onComposeInvocation,
+  onInspectApproval,
   onInspectArtifact,
   onOpenInvocation,
   onOpenRevision,
@@ -171,6 +193,7 @@ export function AgentServiceAuthoringWorkflow({
   publicationDisabledReason,
   revisionDisabledReason,
   selectedAlias,
+  selectedApproval,
   selectedArtifact,
   selectedInvocation,
   selectedPublishedRevision,
@@ -184,6 +207,8 @@ export function AgentServiceAuthoringWorkflow({
   const publicationBlockedTitleId = useId();
   const invocationBlockedTitleId = useId();
   const monitoringBlockedTitleId = useId();
+  const approvalBlockedTitleId = useId();
+  const approvalInspectionTitleId = useId();
   const artifactBlockedTitleId = useId();
   const artifactInspectionTitleId = useId();
   const serviceInScope =
@@ -365,16 +390,52 @@ export function AgentServiceAuthoringWorkflow({
             />
             <EventTimelineWorkflow
               client={client}
+              onInspectApproval={onInspectApproval}
               onInspectArtifact={onInspectArtifact}
               reference={selectedInvocation.reference}
             />
+            {selectedApproval &&
+              (isApprovalSelectedForInvocation(selectedApproval, selectedInvocation.reference) ? (
+                <section
+                  aria-labelledby={approvalInspectionTitleId}
+                  className="product-workflow__inspection"
+                >
+                  <div className="product-workflow__inspection-heading">
+                    <div>
+                      <p className="workbench-kicker">Runtime decision</p>
+                      <h2 id={approvalInspectionTitleId}>Approval request</h2>
+                    </div>
+                    <Button onPress={onCloseApproval} variant="quiet">
+                      Close approval
+                    </Button>
+                  </div>
+                  <ApprovalWorkflow
+                    canResolve={canResolveApproval}
+                    client={client}
+                    reference={selectedApproval}
+                  />
+                </section>
+              ) : (
+                <section
+                  aria-labelledby={approvalBlockedTitleId}
+                  className="product-workflow__blocked"
+                  role="alert"
+                >
+                  <StatusBadge tone="critical">Scope mismatch</StatusBadge>
+                  <h2 id={approvalBlockedTitleId}>Approval review unavailable</h2>
+                  <p>
+                    The selected approval does not belong to the active invocation. Reopen it from
+                    the confirmed event timeline before reviewing the request.
+                  </p>
+                </section>
+              ))}
             {selectedArtifact &&
               (isArtifactSelectedForInvocation(selectedArtifact, selectedInvocation.reference) ? (
                 <section
                   aria-labelledby={artifactInspectionTitleId}
-                  className="product-workflow__artifact-inspection"
+                  className="product-workflow__inspection"
                 >
-                  <div className="product-workflow__artifact-heading">
+                  <div className="product-workflow__inspection-heading">
                     <div>
                       <p className="workbench-kicker">Governed output</p>
                       <h2 id={artifactInspectionTitleId}>Artifact inspection</h2>

@@ -129,4 +129,44 @@ describe("invocation approval client", () => {
       ok: false,
     });
   });
+
+  it("rejects malformed references and idempotency keys before transport", async () => {
+    let calls = 0;
+    const client = {
+      GET: async () => {
+        calls++;
+        return { data: approval, response: new Response(null, { status: 200 }) };
+      },
+      POST: async () => {
+        calls++;
+        return { data: approval, response: new Response(null, { status: 200 }) };
+      },
+    } as unknown as DataGroundClient;
+
+    const invalidRead = await readInvocationApproval(client, {
+      ...reference,
+      approvalId: "native-approval-handle",
+    });
+    const invalidDecision = await resolveInvocationApproval(client, reference, "approve", "short");
+
+    assert.equal(invalidRead.ok, false);
+    assert.equal(invalidDecision.ok, false);
+    assert.equal(calls, 0);
+  });
+
+  it("rejects malformed authoritative approval data", async () => {
+    const client = {
+      GET: async () => ({
+        data: { ...approval, requestedAction: "runtime.native-action" },
+        response: new Response(null, { status: 200 }),
+      }),
+    } as unknown as DataGroundClient;
+
+    const result = await readInvocationApproval(client, reference);
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.code, "WORKBENCH_SCOPE_MISMATCH");
+    }
+  });
 });

@@ -26,6 +26,10 @@ export interface TimelineArtifactReference extends TimelineReference {
   artifactId: string;
 }
 
+export interface TimelineApprovalReference extends TimelineReference {
+  approvalId: string;
+}
+
 export interface TimelineError {
   correlationId?: string;
   message: string;
@@ -40,6 +44,7 @@ export interface EventTimelineProps {
   events: readonly TimelineEvent[];
   hiddenEventCount?: number;
   isReplaying?: boolean;
+  onInspectApproval?: (reference: TimelineApprovalReference) => void;
   onInspectArtifact?: (reference: TimelineArtifactReference) => void;
   onReplay?: () => void;
   reference: TimelineReference;
@@ -52,6 +57,7 @@ interface EventPresentation {
 }
 
 const MAX_PREVIEW_LENGTH = 480;
+const approvalIdPattern = /^apr_[0-9a-z]{20,32}$/u;
 const artifactIdPattern = /^art_[0-9a-z]{20,32}$/u;
 
 function replaceUnsafeControls(value: string): string {
@@ -217,6 +223,21 @@ export function timelineArtifactReference(
     : undefined;
 }
 
+export function timelineApprovalReference(
+  event: TimelineEvent,
+): TimelineApprovalReference | undefined {
+  const approvalId = event.payload.approvalId;
+  return event.type === "interaction.approval.requested" &&
+    typeof approvalId === "string" &&
+    approvalIdPattern.test(approvalId)
+    ? {
+        approvalId,
+        invocationId: event.invocationId,
+        isolationDomainId: event.isolationDomainId,
+      }
+    : undefined;
+}
+
 const connectionPresentations: Record<
   TimelineConnectionState,
   { label: string; message: string; tone: StatusTone }
@@ -244,6 +265,7 @@ export function EventTimeline({
   events,
   hiddenEventCount = 0,
   isReplaying = false,
+  onInspectApproval,
   onInspectArtifact,
   onReplay,
   reference,
@@ -314,6 +336,7 @@ export function EventTimeline({
         <ol className="dg-event-timeline__list">
           {events.map((event) => {
             const presentation = presentTimelineEvent(event);
+            const approvalReference = timelineApprovalReference(event);
             const artifactReference = timelineArtifactReference(event);
             return (
               <li key={event.id}>
@@ -339,11 +362,25 @@ export function EventTimeline({
                       <dd>{event.actorId}</dd>
                     </div>
                   </dl>
-                  {artifactReference && onInspectArtifact && (
+                  {((approvalReference && onInspectApproval) ||
+                    (artifactReference && onInspectArtifact)) && (
                     <div className="dg-event-timeline__event-actions">
-                      <Button onPress={() => onInspectArtifact(artifactReference)} variant="quiet">
-                        Inspect artifact metadata
-                      </Button>
+                      {approvalReference && onInspectApproval && (
+                        <Button
+                          onPress={() => onInspectApproval(approvalReference)}
+                          variant="quiet"
+                        >
+                          Review approval request
+                        </Button>
+                      )}
+                      {artifactReference && onInspectArtifact && (
+                        <Button
+                          onPress={() => onInspectArtifact(artifactReference)}
+                          variant="quiet"
+                        >
+                          Inspect artifact metadata
+                        </Button>
+                      )}
                     </div>
                   )}
                 </article>
