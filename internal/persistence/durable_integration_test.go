@@ -89,6 +89,119 @@ func TestDurableServiceListingIsScopedAndPaged(t *testing.T) {
 	}
 }
 
+func TestDurableServiceRevisionListingIsScopedAndPaged(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	databaseURL := testDatabaseURL(t)
+	database, err := persistence.OpenSQL(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := persistence.MigrateDownTo(ctx, database, 0); err != nil {
+		database.Close()
+		t.Fatalf("reset schema: %v", err)
+	}
+	if err := persistence.MigrateUp(ctx, database); err != nil {
+		database.Close()
+		t.Fatalf("migrate schema: %v", err)
+	}
+	database.Close()
+	pool, err := persistence.OpenPool(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	repository := persistence.NewRepository(pool)
+	domainID := identity.New("iso")
+	otherDomainID := identity.New("iso")
+	serviceID := identity.New("svc")
+	otherServiceID := identity.New("svc")
+	otherDomainServiceID := identity.New("svc")
+	for _, scope := range []struct {
+		domainID  string
+		serviceID string
+		key       string
+	}{
+		{domainID: domainID, serviceID: serviceID, key: "revision-list-service"},
+		{domainID: domainID, serviceID: otherServiceID, key: "revision-list-other-service"},
+		{domainID: otherDomainID, serviceID: otherDomainServiceID, key: "revision-list-other-domain"},
+	} {
+		if _, err := repository.CreateService(
+			ctx,
+			testIdempotency(scope.domainID, scope.key),
+			persistence.CreateServiceInput{
+				ID: scope.serviceID, Name: "service", ActorID: "revision-listing-test",
+				CorrelationID: identity.New("cor"),
+			},
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	created := make(map[string]bool)
+	for index := 0; index < 3; index++ {
+		revisionID := identity.New("rev")
+		if _, err := repository.CreateRevision(
+			ctx,
+			testIdempotency(domainID, "revision-list-create-"+revisionID),
+			persistence.CreateRevisionInput{
+				ID: revisionID, ServiceID: serviceID, RuntimeProfile: "reference/v1",
+				RequiredCapabilities: []string{"usage"}, ActorID: "revision-listing-test",
+				CorrelationID: identity.New("cor"),
+			},
+		); err != nil {
+			t.Fatal(err)
+		}
+		created[revisionID] = true
+	}
+	for _, scope := range []struct {
+		domainID  string
+		serviceID string
+		key       string
+	}{
+		{domainID: domainID, serviceID: otherServiceID, key: "revision-list-other-service-create"},
+		{domainID: otherDomainID, serviceID: otherDomainServiceID, key: "revision-list-other-domain-create"},
+	} {
+		if _, err := repository.CreateRevision(
+			ctx,
+			testIdempotency(scope.domainID, scope.key),
+			persistence.CreateRevisionInput{
+				ID: identity.New("rev"), ServiceID: scope.serviceID, RuntimeProfile: "reference/v1",
+				ActorID: "revision-listing-test", CorrelationID: identity.New("cor"),
+			},
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, err := repository.ListServiceRevisions(ctx, domainID, serviceID, nil, "", 2)
+	if err != nil || len(first.Items) != 2 || !first.HasMore ||
+		first.Items[0].RevisionNumber != 3 || first.Items[1].RevisionNumber != 2 {
+		t.Fatalf("first revision page = (%#v, %v)", first, err)
+	}
+	boundary := first.Items[len(first.Items)-1]
+	before := boundary.RevisionNumber
+	second, err := repository.ListServiceRevisions(
+		ctx, domainID, serviceID, &before, boundary.Metadata.ID, 2,
+	)
+	if err != nil || len(second.Items) != 1 || second.HasMore || second.Items[0].RevisionNumber != 1 {
+		t.Fatalf("second revision page = (%#v, %v)", second, err)
+	}
+	seen := make(map[string]bool)
+	for _, revision := range append(first.Items, second.Items...) {
+		if revision.Metadata.IsolationDomainID != domainID || revision.ServiceID != serviceID ||
+			!created[revision.Metadata.ID] || seen[revision.Metadata.ID] {
+			t.Fatalf("revision listing widened or duplicated scope: %#v", revision)
+		}
+		seen[revision.Metadata.ID] = true
+	}
+	_, err = repository.ListServiceRevisions(
+		ctx, domainID, identity.New("svc"), nil, "", 2,
+	)
+	var problem *persistence.DomainError
+	if !errors.As(err, &problem) || problem.Code != "RESOURCE_NOT_FOUND" {
+		t.Fatalf("missing service revision list error = %v", err)
+	}
+}
+
 func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

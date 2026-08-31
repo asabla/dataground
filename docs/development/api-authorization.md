@@ -8,6 +8,7 @@ The request is deliberately closed and non-sensitive. It contains the validated 
 | --- | --- | --- |
 | List agent services | `listAgentServices` | `IsolationDomain` from `isolationDomainId` |
 | Create agent service | `createAgentService` | `IsolationDomain` from `isolationDomainId` |
+| List service revisions | `listServiceRevisions` | `AgentService` from `serviceId` |
 | Create service revision | `createServiceRevision` | `AgentService` from `serviceId` |
 | Publish service revision | `publishServiceRevision` | `ServiceRevision` from `revisionId` |
 | Assign service alias | `assignServiceAlias` | `AgentService` from `serviceId` |

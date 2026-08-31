@@ -63,6 +63,11 @@ type ServiceListPage struct {
 	HasMore bool
 }
 
+type ServiceRevisionListPage struct {
+	Items   []domain.ServiceRevision
+	HasMore bool
+}
+
 type CreateRevisionInput struct {
 	ID                   string
 	ServiceID            string
@@ -209,6 +214,91 @@ func (repository *Repository) ListServices(
 		services = services[:limit]
 	}
 	return ServiceListPage{Items: services, HasMore: hasMore}, nil
+}
+
+func (repository *Repository) ListServiceRevisions(
+	ctx context.Context,
+	isolationDomainID string,
+	serviceID string,
+	beforeRevisionNumber *int,
+	beforeID string,
+	limit int,
+) (ServiceRevisionListPage, error) {
+	if !repository.Configured() || isolationDomainID == "" || serviceID == "" ||
+		limit < 1 || limit > 100 || (beforeRevisionNumber == nil) != (beforeID == "") {
+		return ServiceRevisionListPage{}, errors.New("service revision list request is invalid")
+	}
+	var serviceExists bool
+	if err := repository.pool.QueryRow(ctx, `
+		SELECT true
+		FROM agent_services
+		WHERE isolation_domain_id = $1 AND id = $2
+	`, isolationDomainID, serviceID).Scan(&serviceExists); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ServiceRevisionListPage{}, &DomainError{
+				Code: "RESOURCE_NOT_FOUND", Message: "Agent service was not found.",
+			}
+		}
+		return ServiceRevisionListPage{}, fmt.Errorf("read agent service for revision list: %w", err)
+	}
+	rows, err := repository.pool.Query(ctx, `
+		SELECT id, revision_number, state, runtime_profile, required_capabilities,
+		       input_schema, output_schema, published_at, generation, version,
+		       created_at, updated_at, created_by
+		FROM service_revisions
+		WHERE isolation_domain_id = $1
+		  AND service_id = $2
+		  AND ($3::bigint IS NULL OR (revision_number, id) < ($3, $4))
+		ORDER BY revision_number DESC, id DESC
+		LIMIT $5
+	`, isolationDomainID, serviceID, beforeRevisionNumber, beforeID, limit+1)
+	if err != nil {
+		return ServiceRevisionListPage{}, fmt.Errorf("list service revisions: %w", err)
+	}
+	defer rows.Close()
+	revisions := make([]domain.ServiceRevision, 0, limit+1)
+	for rows.Next() {
+		var revision domain.ServiceRevision
+		var inputSchema, outputSchema []byte
+		revision.Metadata.IsolationDomainID = isolationDomainID
+		revision.ServiceID = serviceID
+		if err := rows.Scan(
+			&revision.Metadata.ID,
+			&revision.RevisionNumber,
+			&revision.State,
+			&revision.RuntimeProfile,
+			&revision.RequiredCapabilities,
+			&inputSchema,
+			&outputSchema,
+			&revision.PublishedAt,
+			&revision.Metadata.Generation,
+			&revision.Metadata.Version,
+			&revision.Metadata.CreatedAt,
+			&revision.Metadata.UpdatedAt,
+			&revision.Metadata.CreatedBy,
+		); err != nil {
+			return ServiceRevisionListPage{}, fmt.Errorf("scan service revision: %w", err)
+		}
+		if len(inputSchema) > 0 {
+			if err := json.Unmarshal(inputSchema, &revision.InputSchema); err != nil {
+				return ServiceRevisionListPage{}, fmt.Errorf("decode service revision input schema: %w", err)
+			}
+		}
+		if len(outputSchema) > 0 {
+			if err := json.Unmarshal(outputSchema, &revision.OutputSchema); err != nil {
+				return ServiceRevisionListPage{}, fmt.Errorf("decode service revision output schema: %w", err)
+			}
+		}
+		revisions = append(revisions, revision)
+	}
+	if err := rows.Err(); err != nil {
+		return ServiceRevisionListPage{}, fmt.Errorf("iterate service revisions: %w", err)
+	}
+	hasMore := len(revisions) > limit
+	if hasMore {
+		revisions = revisions[:limit]
+	}
+	return ServiceRevisionListPage{Items: revisions, HasMore: hasMore}, nil
 }
 
 func (repository *Repository) CreateRevision(
