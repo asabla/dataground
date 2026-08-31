@@ -1,5 +1,5 @@
 import { Button, StatusBadge, TextField } from "@dataground/ui";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ServiceAliasResource } from "./aliases";
 import type { InvocationApprovalReference } from "./approvals";
 import type { InvocationArtifactReference } from "./artifacts";
@@ -7,8 +7,10 @@ import { createDataGroundClient, type DataGroundClient } from "./contracts/clien
 import type { PublishedServiceRevisionResource, ServiceRevisionResource } from "./revisions";
 import {
   AgentServiceAuthoringWorkflow,
+  type AgentServiceFailure,
   type AgentServiceInvocationSelection,
   type AgentServiceResource,
+  listAgentServices,
 } from "./services";
 
 const DEFAULT_ISOLATION_DOMAIN_ID = "iso_00000000000000000001";
@@ -106,8 +108,48 @@ export function DevelopmentWorkbench({
     useState<PublishedServiceRevisionResource>();
   const [openedRevision, setOpenedRevision] = useState<ServiceRevisionResource>();
   const [openedService, setOpenedService] = useState<AgentServiceResource>();
-  const [sessionServices, setSessionServices] = useState<AgentServiceResource[]>([]);
+  const [scopedServices, setScopedServices] = useState<AgentServiceResource[]>([]);
+  const [serviceListError, setServiceListError] = useState<AgentServiceFailure>();
+  const [serviceListLoading, setServiceListLoading] = useState(true);
+  const [serviceListLoadingMore, setServiceListLoadingMore] = useState(false);
+  const [serviceListNextCursor, setServiceListNextCursor] = useState<string>();
   const [view, setView] = useState<WorkbenchView>("services");
+  const serviceListGeneration = useRef(0);
+
+  const loadServicePage = useCallback(
+    async (cursor?: string) => {
+      const generation = ++serviceListGeneration.current;
+      if (cursor === undefined) setServiceListLoading(true);
+      else setServiceListLoadingMore(true);
+      setServiceListError(undefined);
+      const result = await listAgentServices(client, isolationDomainId, cursor);
+      if (generation !== serviceListGeneration.current) return;
+      setServiceListLoading(false);
+      setServiceListLoadingMore(false);
+      if (!result.ok) {
+        setServiceListError(result.error);
+        return;
+      }
+      setServiceListNextCursor(result.page.nextCursor);
+      setScopedServices((current) => {
+        if (cursor === undefined) return result.page.items;
+        const merged = [...current];
+        const known = new Set(current.map((service) => service.metadata.id));
+        for (const service of result.page.items) {
+          if (!known.has(service.metadata.id)) merged.push(service);
+        }
+        return merged;
+      });
+    },
+    [client, isolationDomainId],
+  );
+
+  useEffect(() => {
+    void loadServicePage();
+    return () => {
+      serviceListGeneration.current++;
+    };
+  }, [loadServicePage]);
 
   const currentStage = stageIndex(
     openedService,
@@ -201,13 +243,14 @@ export function DevelopmentWorkbench({
         setOpenedPublishedRevision(undefined);
         setOpenedRevision(undefined);
         setOpenedService(service);
-        setSessionServices((current) => {
+        setScopedServices((current) => {
           const existing = current.findIndex(
             (candidate) => candidate.metadata.id === service.metadata.id,
           );
-          if (existing === -1) return [...current, service];
+          if (existing === -1) return [service, ...current];
           return current.map((candidate, index) => (index === existing ? service : candidate));
         });
+        void loadServicePage();
       }}
       selectedAlias={openedAlias}
       selectedApproval={openedApproval}
@@ -289,9 +332,9 @@ export function DevelopmentWorkbench({
 
               <dl className="workbench-summary" aria-label="Service summary">
                 <div>
-                  <dt>Opened in this session</dt>
+                  <dt>Available in scope</dt>
                   <dd>
-                    {sessionServices.length} {sessionServices.length === 1 ? "service" : "services"}
+                    {scopedServices.length} {scopedServices.length === 1 ? "service" : "services"}
                   </dd>
                 </div>
                 <div>
@@ -303,14 +346,23 @@ export function DevelopmentWorkbench({
                   <dd>
                     {openedService
                       ? workflowSteps[currentStage].shortLabel
-                      : sessionServices.length > 0
+                      : scopedServices.length > 0
                         ? "Open a service"
                         : "Create a service"}
                   </dd>
                 </div>
               </dl>
 
-              {sessionServices.length > 0 ? (
+              {serviceListError && scopedServices.length > 0 && (
+                <section className="workbench-inline-error" role="alert">
+                  <p>{serviceListError.message}</p>
+                  <Button onPress={() => void loadServicePage()} variant="quiet">
+                    Retry service discovery
+                  </Button>
+                </section>
+              )}
+
+              {scopedServices.length > 0 ? (
                 <section aria-label="Agent services" className="workbench-resource-list">
                   <div className="workbench-resource-list__head" aria-hidden="true">
                     <span>Service</span>
@@ -318,11 +370,11 @@ export function DevelopmentWorkbench({
                     <span>Next action</span>
                     <span />
                   </div>
-                  {sessionServices.map((service) => {
+                  {scopedServices.map((service) => {
                     const isSelected = service.metadata.id === openedService?.metadata.id;
                     const rowPresentation = isSelected
                       ? presentation
-                      : { label: "Opened", tone: "neutral" as const };
+                      : { label: "Available", tone: "neutral" as const };
                     return (
                       <button
                         className="workbench-resource-row"
@@ -348,17 +400,44 @@ export function DevelopmentWorkbench({
                       </button>
                     );
                   })}
+                  {serviceListNextCursor && (
+                    <div className="workbench-resource-list__more">
+                      <Button
+                        isDisabled={serviceListLoadingMore}
+                        onPress={() => void loadServicePage(serviceListNextCursor)}
+                        variant="quiet"
+                      >
+                        {serviceListLoadingMore ? "Loading more services…" : "Load more services"}
+                      </Button>
+                    </div>
+                  )}
+                </section>
+              ) : serviceListLoading ? (
+                <section aria-busy="true" className="workbench-empty">
+                  <span aria-hidden="true" className="workbench-empty__mark">
+                    ◇
+                  </span>
+                  <h2>Loading agent services</h2>
+                  <p>Reading the authoritative resource list for this isolation scope.</p>
+                </section>
+              ) : serviceListError ? (
+                <section className="workbench-empty" aria-labelledby="service-list-error-title">
+                  <span aria-hidden="true" className="workbench-empty__mark">
+                    !
+                  </span>
+                  <h2 id="service-list-error-title">Agent services are unavailable</h2>
+                  <p>{serviceListError.message}</p>
+                  <Button onPress={() => void loadServicePage()}>Retry service discovery</Button>
                 </section>
               ) : (
                 <section className="workbench-empty" aria-labelledby="empty-services-title">
                   <span aria-hidden="true" className="workbench-empty__mark">
                     ◇
                   </span>
-                  <h2 id="empty-services-title">No services opened in this session</h2>
+                  <h2 id="empty-services-title">No agent services in this scope</h2>
                   <p>
-                    Create a service to begin the governed vertical slice. A service-list contract
-                    is not available yet, so the Workbench does not invent or discover resources
-                    outside this session.
+                    Create a service to begin the governed vertical slice. New resources appear here
+                    from the authoritative isolation-scoped service list.
                   </p>
                   <Button
                     onPress={() => {

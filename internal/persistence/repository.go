@@ -58,6 +58,11 @@ type CreateServiceInput struct {
 	CorrelationID string
 }
 
+type ServiceListPage struct {
+	Items   []domain.AgentService
+	HasMore bool
+}
+
 type CreateRevisionInput struct {
 	ID                   string
 	ServiceID            string
@@ -153,6 +158,57 @@ func (repository *Repository) CreateService(
 		}
 		return http.StatusCreated, service, nil
 	})
+}
+
+func (repository *Repository) ListServices(
+	ctx context.Context,
+	isolationDomainID string,
+	beforeCreatedAt *time.Time,
+	beforeID string,
+	limit int,
+) (ServiceListPage, error) {
+	if !repository.Configured() || isolationDomainID == "" || limit < 1 || limit > 100 ||
+		(beforeCreatedAt == nil) != (beforeID == "") {
+		return ServiceListPage{}, errors.New("service list request is invalid")
+	}
+	rows, err := repository.pool.Query(ctx, `
+		SELECT id, name, description, generation, version, created_at, updated_at, created_by
+		FROM agent_services
+		WHERE isolation_domain_id = $1
+		  AND ($2::timestamptz IS NULL OR (created_at, id) < ($2, $3))
+		ORDER BY created_at DESC, id DESC
+		LIMIT $4
+	`, isolationDomainID, beforeCreatedAt, beforeID, limit+1)
+	if err != nil {
+		return ServiceListPage{}, fmt.Errorf("list agent services: %w", err)
+	}
+	defer rows.Close()
+	services := make([]domain.AgentService, 0, limit+1)
+	for rows.Next() {
+		var service domain.AgentService
+		service.Metadata.IsolationDomainID = isolationDomainID
+		if err := rows.Scan(
+			&service.Metadata.ID,
+			&service.Name,
+			&service.Description,
+			&service.Metadata.Generation,
+			&service.Metadata.Version,
+			&service.Metadata.CreatedAt,
+			&service.Metadata.UpdatedAt,
+			&service.Metadata.CreatedBy,
+		); err != nil {
+			return ServiceListPage{}, fmt.Errorf("scan agent service: %w", err)
+		}
+		services = append(services, service)
+	}
+	if err := rows.Err(); err != nil {
+		return ServiceListPage{}, fmt.Errorf("iterate agent services: %w", err)
+	}
+	hasMore := len(services) > limit
+	if hasMore {
+		services = services[:limit]
+	}
+	return ServiceListPage{Items: services, HasMore: hasMore}, nil
 }
 
 func (repository *Repository) CreateRevision(

@@ -147,6 +147,9 @@ func newDurableHandler(
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", healthHandler)
 	mux.HandleFunc("GET /readyz", server.ready)
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/agent-services", protected(
+		authz.ListAgentServices, authz.IsolationDomain, "", server.listAgentServices,
+	))
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services", protected(
 		authz.CreateAgentService, authz.IsolationDomain, "", server.createAgentService,
 	))
@@ -192,6 +195,47 @@ func (server *DurableServer) ready(response http.ResponseWriter, request *http.R
 		return
 	}
 	writeJSON(response, http.StatusOK, healthResponse{Status: "ok"})
+}
+
+func (server *DurableServer) listAgentServices(response http.ResponseWriter, request *http.Request) {
+	domainID, apiError := isolationDomain(request)
+	if apiError != nil {
+		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: *apiError})
+		return
+	}
+	limit, cursor, err := parseServiceListQuery(request.URL.Query())
+	if err != nil {
+		status, body := invalidField("query", "Service-list limit or cursor is invalid.")
+		writeJSON(response, status, body)
+		return
+	}
+	var beforeCreatedAt *time.Time
+	var beforeID string
+	if cursor != nil {
+		createdAt := cursor.CreatedAt
+		beforeCreatedAt = &createdAt
+		beforeID = cursor.ID
+	}
+	listed, err := server.repository.ListServices(
+		request.Context(), domainID, beforeCreatedAt, beforeID, limit,
+	)
+	if err != nil {
+		writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
+			"SERVICE_LIST_UNAVAILABLE", "Agent services are temporarily unavailable.", true,
+		)})
+		return
+	}
+	page := agentServicePage{Items: listed.Items}
+	if listed.HasMore {
+		page.NextCursor, err = encodeServiceListCursor(listed.Items[len(listed.Items)-1])
+		if err != nil {
+			writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
+				"SERVICE_LIST_UNAVAILABLE", "Agent services are temporarily unavailable.", true,
+			)})
+			return
+		}
+	}
+	writeJSON(response, http.StatusOK, page)
 }
 
 func (server *DurableServer) createAgentService(response http.ResponseWriter, request *http.Request) {

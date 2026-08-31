@@ -33,12 +33,22 @@ export interface AgentServiceFailure {
   status?: number;
 }
 
+export interface AgentServicePage {
+  items: AgentServiceResource[];
+  nextCursor?: string;
+}
+
 export type AgentServiceCreateResult =
   | { ok: true; service: AgentServiceResource }
   | { error: AgentServiceFailure; ok: false };
 
+export type AgentServiceListResult =
+  | { ok: true; page: AgentServicePage }
+  | { error: AgentServiceFailure; ok: false };
+
 const createPath = "/v1/isolation-domains/{isolationDomainId}/agent-services";
 const patterns = {
+  cursor: /^[A-Za-z0-9_-]{1,512}$/u,
   errorCode: /^[A-Z][A-Z0-9_]{2,63}$/u,
   idempotencyKey: /^[A-Za-z0-9._:-]{8,128}$/u,
   isolationDomainId: /^iso_[0-9a-z]{20,32}$/u,
@@ -72,7 +82,7 @@ function isTimestamp(value: unknown): value is string {
 function decodeService(
   value: unknown,
   isolationDomainId: string,
-  expected: AgentServiceCreateRequest,
+  expected?: AgentServiceCreateRequest,
 ): AgentServiceResource | undefined {
   if (!isRecord(value) || !isRecord(value.metadata)) return undefined;
   const metadata = value.metadata;
@@ -83,13 +93,14 @@ function decodeService(
     !isPositiveInteger(metadata.version) ||
     !isTimestamp(metadata.createdAt) ||
     !isTimestamp(metadata.updatedAt) ||
+    Date.parse(metadata.updatedAt) < Date.parse(metadata.createdAt) ||
     !boundedString(metadata.createdBy, 128) ||
     !boundedString(value.name, 128) ||
-    value.name !== expected.name ||
+    (expected !== undefined && value.name !== expected.name) ||
     (value.description !== undefined &&
       (typeof value.description !== "string" ||
         new TextEncoder().encode(value.description).byteLength > 2048)) ||
-    value.description !== expected.description
+    (expected !== undefined && value.description !== expected.description)
   ) {
     return undefined;
   }
@@ -105,6 +116,43 @@ function decodeService(
       version: metadata.version,
     },
     name: value.name,
+  };
+}
+
+function decodeServicePage(
+  value: unknown,
+  isolationDomainId: string,
+): AgentServicePage | undefined {
+  if (!isRecord(value) || !Array.isArray(value.items) || value.items.length > 100) return undefined;
+  const items: AgentServiceResource[] = [];
+  const serviceIds = new Set<string>();
+  for (const candidate of value.items) {
+    const service = decodeService(candidate, isolationDomainId);
+    if (!service || serviceIds.has(service.metadata.id)) return undefined;
+    const previous = items.at(-1);
+    const previousCreatedAt = previous ? Date.parse(previous.metadata.createdAt) : undefined;
+    const serviceCreatedAt = Date.parse(service.metadata.createdAt);
+    if (
+      previous &&
+      previousCreatedAt !== undefined &&
+      (previousCreatedAt < serviceCreatedAt ||
+        (previousCreatedAt === serviceCreatedAt && previous.metadata.id <= service.metadata.id))
+    ) {
+      return undefined;
+    }
+    serviceIds.add(service.metadata.id);
+    items.push(service);
+  }
+  if (
+    value.nextCursor !== undefined &&
+    (typeof value.nextCursor !== "string" || !patterns.cursor.test(value.nextCursor))
+  ) {
+    return undefined;
+  }
+  if (value.nextCursor !== undefined && items.length === 0) return undefined;
+  return {
+    items,
+    ...(value.nextCursor === undefined ? undefined : { nextCursor: value.nextCursor }),
   };
 }
 
@@ -200,6 +248,65 @@ export async function createAgentService(
         code: "WORKBENCH_SERVICE_CREATION_UNCONFIRMED",
         message: "The Workbench could not confirm whether DataGround created the service.",
         outcomeUnknown: true,
+        retryable: true,
+      },
+      ok: false,
+    };
+  }
+}
+
+export async function listAgentServices(
+  client: DataGroundClient,
+  isolationDomainId: string,
+  cursor?: string,
+): Promise<AgentServiceListResult> {
+  if (
+    !patterns.isolationDomainId.test(isolationDomainId) ||
+    (cursor !== undefined && !patterns.cursor.test(cursor))
+  ) {
+    return {
+      error: {
+        code: "WORKBENCH_INVALID_SERVICE_LIST_REQUEST",
+        message: "The isolation domain or service-list cursor is invalid.",
+        retryable: false,
+      },
+      ok: false,
+    };
+  }
+  try {
+    const { data, error, response } = await client.GET(createPath, {
+      params: {
+        path: { isolationDomainId },
+        query: { ...(cursor === undefined ? undefined : { cursor }), limit: 50 },
+      },
+    });
+    if (!data) return failedResult(error, response.status);
+    const page = decodeServicePage(data, isolationDomainId);
+    if (page?.nextCursor !== undefined && page.nextCursor === cursor) {
+      return {
+        error: {
+          code: "WORKBENCH_SERVICE_LIST_CURSOR_STALLED",
+          message: "DataGround returned a service-list cursor that did not advance.",
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+    return page
+      ? { ok: true, page }
+      : {
+          error: {
+            code: "WORKBENCH_SERVICE_LIST_SCOPE_MISMATCH",
+            message: "DataGround returned service state outside the requested scope or contract.",
+            retryable: false,
+          },
+          ok: false,
+        };
+  } catch {
+    return {
+      error: {
+        code: "WORKBENCH_SERVICE_LIST_UNAVAILABLE",
+        message: "The Workbench could not reach DataGround to list agent services.",
         retryable: true,
       },
       ok: false,

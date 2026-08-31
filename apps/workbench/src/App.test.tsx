@@ -33,7 +33,7 @@ describe("App", () => {
     assert.deepEqual(validateDevelopmentScope(" iso_00000000000000000001 ", "a".repeat(32)), {});
   });
 
-  it("renders the connected workbench with explicit scope and honest empty states", () => {
+  it("renders the connected workbench with explicit scope and authoritative loading state", () => {
     const markup = renderToStaticMarkup(
       <DevelopmentWorkbench
         client={{} as DataGroundClient}
@@ -45,8 +45,9 @@ describe("App", () => {
     assert.match(markup, /Agent services/u);
     assert.match(markup, /Interactions/u);
     assert.match(markup, /iso_00000000000000000001/u);
-    assert.match(markup, /No services opened in this session/u);
-    assert.match(markup, /service-list contract is not available yet/u);
+    assert.match(markup, /Loading agent services/u);
+    assert.match(markup, /authoritative resource list/u);
+    assert.doesNotMatch(markup, /service-list contract is not available yet/u);
     assert.doesNotMatch(markup, /Create agent service<\/h2>/u);
   });
 });

@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -135,6 +136,9 @@ func (server *Server) handler(
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", healthHandler)
 	mux.HandleFunc("GET /readyz", healthHandler)
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/agent-services", protected(
+		authz.ListAgentServices, authz.IsolationDomain, "", server.listAgentServices,
+	))
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services", protected(
 		authz.CreateAgentService, authz.IsolationDomain, "", server.createAgentService,
 	))
@@ -176,6 +180,63 @@ func (server *Server) handler(
 
 func healthHandler(response http.ResponseWriter, _ *http.Request) {
 	writeJSON(response, http.StatusOK, healthResponse{Status: "ok"})
+}
+
+func (server *Server) listAgentServices(response http.ResponseWriter, request *http.Request) {
+	domainID, apiError := isolationDomain(request)
+	if apiError != nil {
+		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: *apiError})
+		return
+	}
+	limit, cursor, err := parseServiceListQuery(request.URL.Query())
+	if err != nil {
+		status, body := invalidField("query", "Service-list limit or cursor is invalid.")
+		writeJSON(response, status, body)
+		return
+	}
+	server.mu.RLock()
+	services := make([]AgentService, 0, len(server.services))
+	for _, service := range server.services {
+		if service.Metadata.IsolationDomainID == domainID {
+			services = append(services, service)
+		}
+	}
+	server.mu.RUnlock()
+	sort.Slice(services, func(left, right int) bool {
+		if services[left].Metadata.CreatedAt.Equal(services[right].Metadata.CreatedAt) {
+			return services[left].Metadata.ID > services[right].Metadata.ID
+		}
+		return services[left].Metadata.CreatedAt.After(services[right].Metadata.CreatedAt)
+	})
+	if cursor != nil {
+		services = slicesAfterServiceCursor(services, *cursor)
+	}
+	hasMore := len(services) > limit
+	if hasMore {
+		services = services[:limit]
+	}
+	page := agentServicePage{Items: services}
+	if hasMore {
+		page.NextCursor, err = encodeServiceListCursor(services[len(services)-1])
+		if err != nil {
+			writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
+				"SERVICE_LIST_UNAVAILABLE", "Agent services are temporarily unavailable.", true,
+			)})
+			return
+		}
+	}
+	writeJSON(response, http.StatusOK, page)
+}
+
+func slicesAfterServiceCursor(services []AgentService, cursor serviceListCursor) []AgentService {
+	for index, service := range services {
+		createdAt := service.Metadata.CreatedAt
+		if createdAt.Before(cursor.CreatedAt) ||
+			(createdAt.Equal(cursor.CreatedAt) && service.Metadata.ID < cursor.ID) {
+			return services[index:]
+		}
+	}
+	return services[:0]
 }
 
 func (server *Server) createAgentService(response http.ResponseWriter, request *http.Request) {
