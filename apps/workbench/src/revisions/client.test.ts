@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import type { DataGroundClient } from "../contracts/client";
-import { createServiceRevision } from "./client";
+import { createServiceRevision, listServiceRevisions } from "./client";
 
 const isolationDomainId = "iso_00000000000000000001";
 const serviceId = "svc_00000000000000000001";
@@ -30,6 +30,19 @@ const revision = {
   runtimeProfile: "reference/v1",
   serviceId,
   state: "draft",
+};
+const publishedRevision = {
+  ...revision,
+  metadata: {
+    ...revision.metadata,
+    generation: 2,
+    id: "rev_00000000000000000002",
+    updatedAt: "2026-08-14T16:02:00Z",
+    version: 2,
+  },
+  publishedAt: "2026-08-14T16:02:00Z",
+  revisionNumber: 2,
+  state: "published",
 };
 
 describe("service revision client", () => {
@@ -154,5 +167,111 @@ describe("service revision client", () => {
       assert.equal(result.error.retryable, true);
       assert.doesNotMatch(result.error.message, /secret|upstream/u);
     }
+  });
+
+  it("lists newest authoritative revisions and strips unknown fields", async () => {
+    const calls: Array<{ options: unknown; path: string }> = [];
+    const client = {
+      GET: async (path: string, options: unknown) => {
+        calls.push({ options, path });
+        return {
+          data: {
+            futurePageField: "strip",
+            items: [publishedRevision, revision],
+            nextCursor: "eyJyZXZpc2lvbk51bWJlciI6MSwiaWQiOiJyZXZfMDAwMDAwMDAwMDAwMDAwMDAwMDEifQ",
+          },
+          response: new Response(null, { status: 200 }),
+        };
+      },
+    } as unknown as DataGroundClient;
+
+    const result = await listServiceRevisions(client, isolationDomainId, serviceId);
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(calls, [
+      {
+        options: {
+          params: {
+            path: { isolationDomainId, serviceId },
+            query: { limit: 50 },
+          },
+        },
+        path: "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions",
+      },
+    ]);
+    if (result.ok) {
+      const first = result.page.items[0];
+      assert.ok(first);
+      assert.deepEqual(
+        result.page.items.map((item) => [item.revisionNumber, item.state]),
+        [
+          [2, "published"],
+          [1, "draft"],
+        ],
+      );
+      assert.equal("futureResponseField" in first, false);
+      assert.equal("labels" in first.metadata, false);
+    }
+  });
+
+  it("rejects malformed, cross-scope, duplicate, and unordered revision pages", async () => {
+    const malformedPages = [
+      { items: [{ ...publishedRevision, serviceId: "svc_00000000000000000002" }] },
+      {
+        items: [
+          publishedRevision,
+          { ...revision, metadata: { ...revision.metadata, id: publishedRevision.metadata.id } },
+        ],
+      },
+      { items: [revision, publishedRevision] },
+      { items: [{ ...publishedRevision, publishedAt: undefined }] },
+      { items: [], nextCursor: "next" },
+    ];
+    for (const page of malformedPages) {
+      const result = await listServiceRevisions(
+        {
+          GET: async () => ({ data: page, response: new Response(null, { status: 200 }) }),
+        } as unknown as DataGroundClient,
+        isolationDomainId,
+        serviceId,
+      );
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.equal(result.error.code, "WORKBENCH_REVISION_LIST_SCOPE_MISMATCH");
+      }
+    }
+  });
+
+  it("rejects invalid list inputs and a stalled cursor", async () => {
+    let requested = false;
+    const client = {
+      GET: async () => {
+        requested = true;
+        return { data: { items: [] }, response: new Response(null, { status: 200 }) };
+      },
+    } as unknown as DataGroundClient;
+    for (const [domain, service, cursor] of [
+      ["native-domain", serviceId, undefined],
+      [isolationDomainId, "native-service", undefined],
+      [isolationDomainId, serviceId, "not+a+cursor"],
+    ] as const) {
+      assert.equal((await listServiceRevisions(client, domain, service, cursor)).ok, false);
+    }
+    assert.equal(requested, false);
+
+    const cursor = "eyJyZXZpc2lvbk51bWJlciI6MiwiaWQiOiJyZXZfMDAwMDAwMDAwMDAwMDAwMDAwMDIifQ";
+    const stalled = await listServiceRevisions(
+      {
+        GET: async () => ({
+          data: { items: [publishedRevision], nextCursor: cursor },
+          response: new Response(null, { status: 200 }),
+        }),
+      } as unknown as DataGroundClient,
+      isolationDomainId,
+      serviceId,
+      cursor,
+    );
+    assert.equal(stalled.ok, false);
+    if (!stalled.ok) assert.equal(stalled.error.code, "WORKBENCH_REVISION_LIST_CURSOR_STALLED");
   });
 });

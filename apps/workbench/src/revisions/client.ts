@@ -31,6 +31,23 @@ export interface ServiceRevisionCreateRequest {
   runtimeProfile: string;
 }
 
+export interface ServiceRevisionHistoryResource {
+  inputSchema?: Record<string, unknown>;
+  metadata: ServiceRevisionMetadata;
+  outputSchema?: Record<string, unknown>;
+  publishedAt?: string;
+  requiredCapabilities: string[];
+  revisionNumber: number;
+  runtimeProfile: string;
+  serviceId: string;
+  state: "draft" | "published" | "retired";
+}
+
+export interface ServiceRevisionPage {
+  items: ServiceRevisionHistoryResource[];
+  nextCursor?: string;
+}
+
 export interface ServiceRevisionFailure {
   code: string;
   correlationId?: string;
@@ -44,9 +61,14 @@ export type ServiceRevisionCreateResult =
   | { ok: true; revision: ServiceRevisionResource }
   | { error: ServiceRevisionFailure; ok: false };
 
+export type ServiceRevisionListResult =
+  | { ok: true; page: ServiceRevisionPage }
+  | { error: ServiceRevisionFailure; ok: false };
+
 const createPath = "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions";
 const maximumRequestBytes = 1 << 20;
 const patterns = {
+  cursor: /^[A-Za-z0-9_-]{1,512}$/u,
   errorCode: /^[A-Z][A-Z0-9_]{2,63}$/u,
   idempotencyKey: /^[A-Za-z0-9._:-]{8,128}$/u,
   isolationDomainId: /^iso_[0-9a-z]{20,32}$/u,
@@ -169,6 +191,7 @@ function decodeRevision(
     !isPositiveInteger(metadata.version) ||
     !isTimestamp(metadata.createdAt) ||
     !isTimestamp(metadata.updatedAt) ||
+    Date.parse(metadata.updatedAt) < Date.parse(metadata.createdAt) ||
     !boundedString(metadata.createdBy, 128) ||
     value.serviceId !== serviceId ||
     !isPositiveInteger(value.revisionNumber) ||
@@ -202,6 +225,124 @@ function decodeRevision(
     runtimeProfile: expected.runtimeProfile,
     serviceId,
     state: "draft",
+  };
+}
+
+function decodeRevisionHistory(
+  value: unknown,
+  isolationDomainId: string,
+  serviceId: string,
+): ServiceRevisionHistoryResource | undefined {
+  if (!isRecord(value) || !isRecord(value.metadata)) return undefined;
+  const metadata = value.metadata;
+  const inputSchema =
+    value.inputSchema === undefined ? undefined : normalizeSchema(value.inputSchema);
+  const outputSchema =
+    value.outputSchema === undefined ? undefined : normalizeSchema(value.outputSchema);
+  const state = value.state;
+  const publishedAt = value.publishedAt;
+  if (
+    !boundedString(metadata.id, 36, patterns.revisionId) ||
+    metadata.isolationDomainId !== isolationDomainId ||
+    !isPositiveInteger(metadata.generation) ||
+    !isPositiveInteger(metadata.version) ||
+    !isTimestamp(metadata.createdAt) ||
+    !isTimestamp(metadata.updatedAt) ||
+    Date.parse(metadata.updatedAt) < Date.parse(metadata.createdAt) ||
+    !boundedString(metadata.createdBy, 128) ||
+    value.serviceId !== serviceId ||
+    !isPositiveInteger(value.revisionNumber) ||
+    (state !== "draft" && state !== "published" && state !== "retired") ||
+    !boundedString(value.runtimeProfile, 128) ||
+    value.runtimeProfile !== value.runtimeProfile.trim() ||
+    value.runtimeProfile.includes("\0") ||
+    !Array.isArray(value.requiredCapabilities) ||
+    value.requiredCapabilities.length > 8192 ||
+    value.requiredCapabilities.some(
+      (capability) =>
+        !boundedString(capability, 128) ||
+        capability !== capability.trim() ||
+        capability.includes("\0"),
+    ) ||
+    new Set(value.requiredCapabilities).size !== value.requiredCapabilities.length ||
+    (value.inputSchema !== undefined && inputSchema === undefined) ||
+    (value.outputSchema !== undefined && outputSchema === undefined) ||
+    (state === "draft" && publishedAt !== undefined) ||
+    (state !== "draft" &&
+      (!isTimestamp(publishedAt) ||
+        Date.parse(publishedAt) < Date.parse(metadata.createdAt) ||
+        Date.parse(publishedAt) > Date.parse(metadata.updatedAt)))
+  ) {
+    return undefined;
+  }
+  const normalizedPublishedAt = typeof publishedAt === "string" ? publishedAt : undefined;
+  const revision = {
+    ...(inputSchema === undefined ? undefined : { inputSchema }),
+    metadata: {
+      createdAt: metadata.createdAt,
+      createdBy: metadata.createdBy,
+      generation: metadata.generation,
+      id: metadata.id,
+      isolationDomainId: metadata.isolationDomainId,
+      updatedAt: metadata.updatedAt,
+      version: metadata.version,
+    },
+    ...(outputSchema === undefined ? undefined : { outputSchema }),
+    ...(normalizedPublishedAt === undefined ? undefined : { publishedAt: normalizedPublishedAt }),
+    requiredCapabilities: [...value.requiredCapabilities],
+    revisionNumber: value.revisionNumber,
+    runtimeProfile: value.runtimeProfile,
+    serviceId,
+    state,
+  } satisfies ServiceRevisionHistoryResource;
+  const serialized = canonicalJSON(revision);
+  return serialized !== undefined &&
+    new TextEncoder().encode(serialized).byteLength <= maximumRequestBytes
+    ? revision
+    : undefined;
+}
+
+function decodeRevisionPage(
+  value: unknown,
+  isolationDomainId: string,
+  serviceId: string,
+): ServiceRevisionPage | undefined {
+  if (!isRecord(value) || !Array.isArray(value.items) || value.items.length > 100) return undefined;
+  const items: ServiceRevisionHistoryResource[] = [];
+  const revisionIds = new Set<string>();
+  const revisionNumbers = new Set<number>();
+  for (const candidate of value.items) {
+    const revision = decodeRevisionHistory(candidate, isolationDomainId, serviceId);
+    if (
+      !revision ||
+      revisionIds.has(revision.metadata.id) ||
+      revisionNumbers.has(revision.revisionNumber)
+    ) {
+      return undefined;
+    }
+    const previous = items.at(-1);
+    if (
+      previous &&
+      (previous.revisionNumber < revision.revisionNumber ||
+        (previous.revisionNumber === revision.revisionNumber &&
+          previous.metadata.id <= revision.metadata.id))
+    ) {
+      return undefined;
+    }
+    revisionIds.add(revision.metadata.id);
+    revisionNumbers.add(revision.revisionNumber);
+    items.push(revision);
+  }
+  if (
+    value.nextCursor !== undefined &&
+    (typeof value.nextCursor !== "string" || !patterns.cursor.test(value.nextCursor))
+  ) {
+    return undefined;
+  }
+  if (value.nextCursor !== undefined && items.length === 0) return undefined;
+  return {
+    items,
+    ...(value.nextCursor === undefined ? undefined : { nextCursor: value.nextCursor }),
   };
 }
 
@@ -292,6 +433,68 @@ export async function createServiceRevision(
         code: "WORKBENCH_REVISION_CREATION_UNCONFIRMED",
         message: "The Workbench could not confirm whether DataGround created the revision draft.",
         outcomeUnknown: true,
+        retryable: true,
+      },
+      ok: false,
+    };
+  }
+}
+
+export async function listServiceRevisions(
+  client: DataGroundClient,
+  isolationDomainId: string,
+  serviceId: string,
+  cursor?: string,
+): Promise<ServiceRevisionListResult> {
+  if (
+    !patterns.isolationDomainId.test(isolationDomainId) ||
+    !patterns.serviceId.test(serviceId) ||
+    (cursor !== undefined && !patterns.cursor.test(cursor))
+  ) {
+    return {
+      error: {
+        code: "WORKBENCH_INVALID_REVISION_LIST_REQUEST",
+        message: "The revision-list scope or cursor is invalid.",
+        retryable: false,
+      },
+      ok: false,
+    };
+  }
+  try {
+    const { data, error, response } = await client.GET(createPath, {
+      params: {
+        path: { isolationDomainId, serviceId },
+        query: { ...(cursor === undefined ? undefined : { cursor }), limit: 50 },
+      },
+    });
+    if (!data) return failedResult(error, response.status);
+    const page = decodeRevisionPage(data, isolationDomainId, serviceId);
+    if (page?.nextCursor !== undefined && page.nextCursor === cursor) {
+      return {
+        error: {
+          code: "WORKBENCH_REVISION_LIST_CURSOR_STALLED",
+          message: "DataGround returned a revision-list cursor that did not advance.",
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+    return page
+      ? { ok: true, page }
+      : {
+          error: {
+            code: "WORKBENCH_REVISION_LIST_SCOPE_MISMATCH",
+            message:
+              "DataGround returned revision history outside the requested scope or contract.",
+            retryable: false,
+          },
+          ok: false,
+        };
+  } catch {
+    return {
+      error: {
+        code: "WORKBENCH_REVISION_LIST_UNAVAILABLE",
+        message: "The Workbench could not reach DataGround to list service revisions.",
         retryable: true,
       },
       ok: false,

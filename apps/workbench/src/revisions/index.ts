@@ -1,11 +1,19 @@
 export {
   createServiceRevision,
+  listServiceRevisions,
   type ServiceRevisionCreateRequest,
   type ServiceRevisionCreateResult,
   type ServiceRevisionFailure,
+  type ServiceRevisionHistoryResource,
+  type ServiceRevisionListResult,
   type ServiceRevisionMetadata,
+  type ServiceRevisionPage,
   type ServiceRevisionResource,
 } from "./client";
+export {
+  resumeServiceRevision,
+  type ServiceRevisionResumeSelection,
+} from "./discovery";
 export {
   isPublishableServiceRevision,
   isPublishedServiceRevisionForDraft,
@@ -21,6 +29,10 @@ export {
   type ServiceRevisionDraftWorkflowProps,
   validateServiceRevisionDraft,
 } from "./ServiceRevisionDraftWorkflow";
+export {
+  ServiceRevisionHistoryPanel,
+  type ServiceRevisionHistoryPanelProps,
+} from "./ServiceRevisionHistoryPanel";
 export {
   createPublicationIdempotencyKey,
   ServiceRevisionPublishWorkflow,
