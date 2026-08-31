@@ -21,6 +21,11 @@ export interface ServiceAliasResource {
   serviceId: string;
 }
 
+export interface ServiceAliasReadScope {
+  isolationDomainId: string;
+  serviceId: string;
+}
+
 export interface ServiceAliasFailure {
   code: string;
   correlationId?: string;
@@ -32,6 +37,10 @@ export interface ServiceAliasFailure {
 
 export type ServiceAliasAssignResult =
   | { alias: ServiceAliasResource; ok: true }
+  | { error: ServiceAliasFailure; ok: false };
+
+export type ServiceAliasReadResult =
+  | { alias?: ServiceAliasResource; ok: true }
   | { error: ServiceAliasFailure; ok: false };
 
 const assignPath =
@@ -176,23 +185,16 @@ function decodeAlias(
   name: string,
   current: ServiceAliasResource | undefined,
 ): ServiceAliasResource | undefined {
-  if (!isRecord(value) || !isRecord(value.metadata)) return undefined;
-  const metadata = value.metadata;
-  if (
-    !boundedString(metadata.id, 36, patterns.aliasId) ||
-    metadata.isolationDomainId !== revision.metadata.isolationDomainId ||
-    !isPositiveInteger(metadata.generation) ||
-    !isPositiveInteger(metadata.version) ||
-    !isTimestamp(metadata.createdAt) ||
-    !isTimestamp(metadata.updatedAt) ||
-    Date.parse(metadata.updatedAt) < Date.parse(metadata.createdAt) ||
-    !boundedString(metadata.createdBy, 128) ||
-    value.serviceId !== revision.serviceId ||
-    value.name !== name ||
-    value.revisionId !== revision.metadata.id
-  ) {
-    return undefined;
-  }
+  const alias = decodeObservedAlias(
+    value,
+    {
+      isolationDomainId: revision.metadata.isolationDomainId,
+      serviceId: revision.serviceId,
+    },
+    name,
+  );
+  if (!alias || alias.revisionId !== revision.metadata.id) return undefined;
+  const metadata = alias.metadata;
   if (
     current
       ? metadata.id !== current.metadata.id ||
@@ -205,26 +207,48 @@ function decodeAlias(
   ) {
     return undefined;
   }
+  return alias;
+}
+
+function decodeObservedAlias(
+  value: unknown,
+  scope: ServiceAliasReadScope,
+  name: string,
+): ServiceAliasResource | undefined {
+  if (!isRecord(value) || !isRecord(value.metadata)) return undefined;
+  const metadata = value.metadata;
+  if (
+    !boundedString(metadata.id, 36, patterns.aliasId) ||
+    metadata.isolationDomainId !== scope.isolationDomainId ||
+    !isPositiveInteger(metadata.generation) ||
+    !isPositiveInteger(metadata.version) ||
+    !isTimestamp(metadata.createdAt) ||
+    !isTimestamp(metadata.updatedAt) ||
+    Date.parse(metadata.updatedAt) < Date.parse(metadata.createdAt) ||
+    !boundedString(metadata.createdBy, 128) ||
+    value.serviceId !== scope.serviceId ||
+    value.name !== name ||
+    !boundedString(value.revisionId, 36, patterns.revisionId)
+  ) {
+    return undefined;
+  }
   return {
     metadata: {
       createdAt: metadata.createdAt,
       createdBy: metadata.createdBy,
       generation: metadata.generation,
       id: metadata.id,
-      isolationDomainId: revision.metadata.isolationDomainId,
+      isolationDomainId: scope.isolationDomainId,
       updatedAt: metadata.updatedAt,
       version: metadata.version,
     },
     name,
-    revisionId: revision.metadata.id,
-    serviceId: revision.serviceId,
+    revisionId: value.revisionId,
+    serviceId: scope.serviceId,
   };
 }
 
-function failedResult(
-  error: ErrorEnvelope | undefined,
-  status: number,
-): Extract<ServiceAliasAssignResult, { ok: false }> {
+function responseFailure(error: ErrorEnvelope | undefined, status: number): ServiceAliasFailure {
   const problem = error?.error;
   if (
     problem &&
@@ -234,24 +258,18 @@ function failedResult(
     typeof problem.retryable === "boolean"
   ) {
     return {
-      error: {
-        code: problem.code,
-        correlationId: problem.correlationId,
-        message: problem.message,
-        retryable: problem.retryable,
-        status,
-      },
-      ok: false,
+      code: problem.code,
+      correlationId: problem.correlationId,
+      message: problem.message,
+      retryable: problem.retryable,
+      status,
     };
   }
   return {
-    error: {
-      code: "WORKBENCH_INVALID_RESPONSE",
-      message: "DataGround returned an alias response the Workbench could not interpret.",
-      retryable: false,
-      status,
-    },
-    ok: false,
+    code: "WORKBENCH_INVALID_RESPONSE",
+    message: "DataGround returned an alias response the Workbench could not interpret.",
+    retryable: false,
+    status,
   };
 }
 
@@ -296,7 +314,7 @@ export async function assignServiceAlias(
         },
       },
     });
-    if (!data) return failedResult(error, response.status);
+    if (!data) return { error: responseFailure(error, response.status), ok: false };
     const alias = decodeAlias(data, revision, name, current);
     return alias
       ? { alias, ok: true }
@@ -311,5 +329,63 @@ export async function assignServiceAlias(
       true,
       true,
     );
+  }
+}
+
+export async function readServiceAlias(
+  client: DataGroundClient,
+  scope: ServiceAliasReadScope,
+  name: string,
+): Promise<ServiceAliasReadResult> {
+  if (
+    !patterns.isolationDomainId.test(scope.isolationDomainId) ||
+    !patterns.serviceId.test(scope.serviceId) ||
+    !boundedString(name, 63, patterns.aliasName)
+  ) {
+    return {
+      error: {
+        code: "WORKBENCH_INVALID_ALIAS_READ_REQUEST",
+        message: "The service or alias scope is invalid.",
+        retryable: false,
+      },
+      ok: false,
+    };
+  }
+  try {
+    const { data, error, response } = await client.GET(assignPath, {
+      params: {
+        path: {
+          alias: name,
+          isolationDomainId: scope.isolationDomainId,
+          serviceId: scope.serviceId,
+        },
+      },
+    });
+    if (!data) {
+      const problem = responseFailure(error, response.status);
+      return response.status === 404 && problem.code === "SERVICE_ALIAS_NOT_FOUND"
+        ? { ok: true }
+        : { error: problem, ok: false };
+    }
+    const alias = decodeObservedAlias(data, scope, name);
+    return alias
+      ? { alias, ok: true }
+      : {
+          error: {
+            code: "WORKBENCH_ALIAS_READ_SCOPE_MISMATCH",
+            message: "DataGround returned alias state outside the requested scope or contract.",
+            retryable: false,
+          },
+          ok: false,
+        };
+  } catch {
+    return {
+      error: {
+        code: "WORKBENCH_ALIAS_READ_UNAVAILABLE",
+        message: "The Workbench could not reach DataGround to read the service route.",
+        retryable: true,
+      },
+      ok: false,
+    };
   }
 }

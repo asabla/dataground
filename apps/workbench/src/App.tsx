@@ -1,6 +1,11 @@
 import { Button, StatusBadge, TextField } from "@dataground/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ServiceAliasResource } from "./aliases";
+import {
+  isServiceAliasRoutedToRevision,
+  readServiceAlias,
+  type ServiceAliasFailure,
+  type ServiceAliasResource,
+} from "./aliases";
 import type { InvocationApprovalReference } from "./approvals";
 import type { InvocationArtifactReference } from "./artifacts";
 import { createDataGroundClient, type DataGroundClient } from "./contracts/client";
@@ -139,6 +144,7 @@ export function DevelopmentWorkbench({
   isolationDomainId,
   onDisconnect,
 }: DevelopmentWorkbenchProps) {
+  const [observedAlias, setObservedAlias] = useState<ServiceAliasResource>();
   const [openedAlias, setOpenedAlias] = useState<ServiceAliasResource>();
   const [openedApproval, setOpenedApproval] = useState<InvocationApprovalReference>();
   const [openedArtifact, setOpenedArtifact] = useState<InvocationArtifactReference>();
@@ -148,6 +154,8 @@ export function DevelopmentWorkbench({
   const [openedRevision, setOpenedRevision] = useState<ServiceRevisionResource>();
   const [openedService, setOpenedService] = useState<AgentServiceResource>();
   const [revisionHistory, setRevisionHistory] = useState<ServiceRevisionHistoryResource[]>([]);
+  const [aliasReadError, setAliasReadError] = useState<ServiceAliasFailure>();
+  const [aliasReadLoading, setAliasReadLoading] = useState(false);
   const [revisionListError, setRevisionListError] = useState<ServiceRevisionFailure>();
   const [revisionListLoading, setRevisionListLoading] = useState(false);
   const [revisionListLoadingMore, setRevisionListLoadingMore] = useState(false);
@@ -158,6 +166,7 @@ export function DevelopmentWorkbench({
   const [serviceListLoadingMore, setServiceListLoadingMore] = useState(false);
   const [serviceListNextCursor, setServiceListNextCursor] = useState<string>();
   const [view, setView] = useState<WorkbenchView>("services");
+  const aliasReadGeneration = useRef(0);
   const revisionListGeneration = useRef(0);
   const serviceListGeneration = useRef(0);
 
@@ -196,6 +205,42 @@ export function DevelopmentWorkbench({
     };
   }, [loadServicePage]);
 
+  const loadObservedAlias = useCallback(
+    async (
+      service: AgentServiceResource,
+      selectedPublication?: PublishedServiceRevisionResource,
+    ) => {
+      const generation = ++aliasReadGeneration.current;
+      setAliasReadLoading(true);
+      setAliasReadError(undefined);
+      setObservedAlias(undefined);
+      setOpenedAlias(undefined);
+      const result = await readServiceAlias(
+        client,
+        {
+          isolationDomainId: service.metadata.isolationDomainId,
+          serviceId: service.metadata.id,
+        },
+        "stable",
+      );
+      if (generation !== aliasReadGeneration.current) return;
+      setAliasReadLoading(false);
+      if (!result.ok) {
+        setAliasReadError(result.error);
+        return;
+      }
+      setObservedAlias(result.alias);
+      setOpenedAlias(
+        result.alias &&
+          selectedPublication &&
+          isServiceAliasRoutedToRevision(result.alias, selectedPublication)
+          ? result.alias
+          : undefined,
+      );
+    },
+    [client],
+  );
+
   const loadRevisionPage = useCallback(
     async (service: AgentServiceResource, cursor?: string) => {
       const generation = ++revisionListGeneration.current;
@@ -229,13 +274,15 @@ export function DevelopmentWorkbench({
         const selection = newest === undefined ? {} : resumeServiceRevision(newest);
         setOpenedPublishedRevision(selection.publishedRevision);
         setOpenedRevision(selection.revision);
+        void loadObservedAlias(service, selection.publishedRevision);
       }
     },
-    [client, isolationDomainId],
+    [client, isolationDomainId, loadObservedAlias],
   );
 
   useEffect(
     () => () => {
+      aliasReadGeneration.current++;
       revisionListGeneration.current++;
     },
     [],
@@ -256,7 +303,9 @@ export function DevelopmentWorkbench({
   );
 
   const clearWorkflow = () => {
+    aliasReadGeneration.current++;
     revisionListGeneration.current++;
+    setObservedAlias(undefined);
     setOpenedAlias(undefined);
     setOpenedApproval(undefined);
     setOpenedArtifact(undefined);
@@ -265,6 +314,8 @@ export function DevelopmentWorkbench({
     setOpenedRevision(undefined);
     setOpenedService(undefined);
     setRevisionHistory([]);
+    setAliasReadError(undefined);
+    setAliasReadLoading(false);
     setRevisionListError(undefined);
     setRevisionListLoading(false);
     setRevisionListLoadingMore(false);
@@ -272,7 +323,9 @@ export function DevelopmentWorkbench({
   };
 
   const openService = (service: AgentServiceResource) => {
+    aliasReadGeneration.current++;
     revisionListGeneration.current++;
+    setObservedAlias(undefined);
     setOpenedAlias(undefined);
     setOpenedApproval(undefined);
     setOpenedArtifact(undefined);
@@ -281,6 +334,8 @@ export function DevelopmentWorkbench({
     setOpenedRevision(undefined);
     setOpenedService(service);
     setRevisionHistory([]);
+    setAliasReadError(undefined);
+    setAliasReadLoading(false);
     setRevisionListError(undefined);
     setRevisionListNextCursor(undefined);
     setView("workflow");
@@ -310,6 +365,7 @@ export function DevelopmentWorkbench({
         );
       }}
       onComposeInvocation={(alias) => {
+        setObservedAlias(alias);
         setOpenedAlias(alias);
         setOpenedApproval(undefined);
         setOpenedArtifact(undefined);
@@ -354,6 +410,7 @@ export function DevelopmentWorkbench({
         openService(service);
         void loadServicePage();
       }}
+      observedAlias={observedAlias}
       selectedAlias={openedAlias}
       selectedApproval={openedApproval}
       selectedArtifact={openedArtifact}
@@ -601,11 +658,35 @@ export function DevelopmentWorkbench({
                       revisions={revisionHistory}
                     />
                   )}
+                  {openedService && aliasReadLoading && (
+                    <section aria-busy="true" className="workbench-empty">
+                      <span aria-hidden="true" className="workbench-empty__mark">
+                        ◇
+                      </span>
+                      <h2>Loading stable route</h2>
+                      <p>Reading the exact alias state before routing or invoking this service.</p>
+                    </section>
+                  )}
+                  {openedService && aliasReadError && (
+                    <section className="workbench-inline-error" role="alert">
+                      <p>{aliasReadError.message}</p>
+                      <Button
+                        onPress={() =>
+                          void loadObservedAlias(openedService, openedPublishedRevision)
+                        }
+                        variant="quiet"
+                      >
+                        Retry route discovery
+                      </Button>
+                    </section>
+                  )}
                   {openedService &&
                   revisionHistory.length === 0 &&
                   (revisionListLoading || revisionListError)
                     ? null
-                    : workflow}
+                    : openedService && (aliasReadLoading || aliasReadError)
+                      ? null
+                      : workflow}
                 </div>
               </div>
             </section>
