@@ -85,10 +85,19 @@ jobs:
 
       - name: Wait for disposable backends
         run: |
+          readiness_expected="$RUNNER_TEMP/s3-readiness-expected"
+          readiness_observed="$RUNNER_TEMP/s3-readiness-observed"
+          printf '%s' 'dataground-s3-ready' >"$readiness_expected"
           for attempt in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:8333/ >/dev/null \
-              && docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
-                pg_isready --username dataground --dbname dataground_conformance >/dev/null; then
+            if docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+                pg_isready --username dataground --dbname dataground_conformance >/dev/null \
+              && curl --fail --max-time 2 --silent --request PUT \
+                --upload-file "$readiness_expected" \
+                http://127.0.0.1:8333/dataground-conformance/.dataground-readiness \
+              && curl --fail --max-time 2 --silent \
+                --output "$readiness_observed" \
+                http://127.0.0.1:8333/dataground-conformance/.dataground-readiness \
+              && cmp --silent "$readiness_expected" "$readiness_observed"; then
               exit 0
             fi
             sleep 1
@@ -145,10 +154,19 @@ jobs:
           docker compose -f deploy/storage/seaweedfs-conformance.yml rm --force seaweedfs
           docker compose -f deploy/storage/seaweedfs-conformance.yml up --detach seaweedfs
           docker compose -f deploy/storage/seaweedfs-conformance.yml restart postgres
+          readiness_expected="$RUNNER_TEMP/s3-readiness-expected"
+          readiness_observed="$RUNNER_TEMP/s3-readiness-observed"
+          printf '%s' 'dataground-s3-ready' >"$readiness_expected"
           for attempt in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:8333/ >/dev/null \
-              && docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
-                pg_isready --username dataground --dbname dataground_conformance >/dev/null; then
+            if docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
+                pg_isready --username dataground --dbname dataground_conformance >/dev/null \
+              && curl --fail --max-time 2 --silent --request PUT \
+                --upload-file "$readiness_expected" \
+                http://127.0.0.1:8333/dataground-conformance/.dataground-readiness \
+              && curl --fail --max-time 2 --silent \
+                --output "$readiness_observed" \
+                http://127.0.0.1:8333/dataground-conformance/.dataground-readiness \
+              && cmp --silent "$readiness_expected" "$readiness_observed"; then
               exit 0
             fi
             sleep 1
@@ -1464,4 +1482,3 @@ jobs:
           docker compose -f deploy/storage/seaweedfs-conformance.yml \
             --profile postgres-failover down --volumes || cleanup_status=1
           exit "$cleanup_status"
-
