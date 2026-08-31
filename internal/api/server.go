@@ -151,6 +151,9 @@ func (server *Server) handler(
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/publish", protected(
 		authz.PublishServiceRevision, authz.ServiceRevision, "revisionId", server.publishServiceRevision,
 	))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}", protected(
+		authz.ReadServiceAlias, authz.AgentService, "serviceId", server.getServiceAlias,
+	))
 	mux.Handle("PUT /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}", protected(
 		authz.AssignServiceAlias, authz.AgentService, "serviceId", server.assignServiceAlias,
 	))
@@ -473,6 +476,37 @@ func (server *Server) assignServiceAlias(response http.ResponseWriter, request *
 		server.aliases[key] = alias
 		return http.StatusOK, alias
 	})
+}
+
+func (server *Server) getServiceAlias(response http.ResponseWriter, request *http.Request) {
+	domainID, apiError := isolationDomain(request)
+	if apiError != nil {
+		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: *apiError})
+		return
+	}
+	aliasName := request.PathValue("alias")
+	if len(aliasName) > 63 || !aliasPattern.MatchString(aliasName) {
+		status, body := invalidField("alias", "Alias is not valid.")
+		writeJSON(response, status, body)
+		return
+	}
+	serviceID := request.PathValue("serviceId")
+	server.mu.RLock()
+	_, serviceExists := server.services[resourceKey(domainID, serviceID)]
+	alias, aliasExists := server.aliases[aliasKey(domainID, serviceID, aliasName)]
+	server.mu.RUnlock()
+	if !serviceExists {
+		status, body := notFound("Agent service was not found.")
+		writeJSON(response, status, body)
+		return
+	}
+	if !aliasExists {
+		writeJSON(response, http.StatusNotFound, ErrorEnvelope{Error: safeError(
+			"SERVICE_ALIAS_NOT_FOUND", "Service alias was not found.", false,
+		)})
+		return
+	}
+	writeJSON(response, http.StatusOK, alias)
 }
 
 func (server *Server) invokeAgentService(response http.ResponseWriter, request *http.Request) {

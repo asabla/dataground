@@ -12,7 +12,7 @@ Every resource path begins with an isolation-domain identifier, every request is
 
 1. create and list agent services in one exact isolation domain;
 2. create, list, and publish immutable revisions using runtime profile `reference/v1`;
-3. assign a stable alias with optimistic version checks;
+3. read and assign an exact stable alias with optimistic version checks;
 4. invoke that alias and retrieve the normalized invocation result;
 5. replay typed events with SSE and resume after `Last-Event-ID`;
 6. cancel a waiting invocation; and
@@ -23,6 +23,10 @@ binds the next page to the last observed service creation or revision-number bou
 substitutes for isolation-domain authorization. Revision discovery also requires the exact service
 resource to exist in that domain. Process-local pages disappear on restart; PostgreSQL-backed pages
 remain durable.
+
+Exact alias discovery distinguishes a missing alias from a missing parent service. It returns the
+current alias generation and version even when that alias targets an older published revision, so
+clients can recover the required optimistic precondition before changing the route.
 
 The canonical routes, request bodies, responses, errors, and examples live in
 [`contracts/openapi/dataground-api.openapi.json`](../../contracts/openapi/dataground-api.openapi.json)

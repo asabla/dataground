@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -241,6 +242,59 @@ func TestServiceRevisionListingIsBoundedScopedAndCursorDriven(t *testing.T) {
 		if invalid.Code != http.StatusBadRequest {
 			t.Fatalf("expected invalid query %q rejection, got %d", query, invalid.Code)
 		}
+	}
+}
+
+func TestServiceAliasReadIsExactScopedAndDistinguishesAbsence(t *testing.T) {
+	t.Parallel()
+
+	handler := newHandler(t)
+	service := createService(t, handler, testDomain, "alias-read-service-0001")
+	revision := createPublishedRevision(t, handler, testDomain, service.Metadata.ID)
+	assigned := assignAlias(
+		t, handler, testDomain, service.Metadata.ID, revision.Metadata.ID, "alias-read-assign-0001",
+	)
+	read := performJSON[api.ServiceAlias](
+		t, handler, http.MethodGet, serviceAliasPath(testDomain, service.Metadata.ID, "stable"),
+		"", nil, http.StatusOK,
+	)
+	if !reflect.DeepEqual(read, assigned) {
+		t.Fatalf("alias read changed the assigned resource: %#v != %#v", read, assigned)
+	}
+
+	otherService := createService(t, handler, testDomain, "alias-read-service-0002")
+	missingAlias := perform(
+		t, handler, http.MethodGet, serviceAliasPath(testDomain, otherService.Metadata.ID, "stable"),
+		"", nil, nil,
+	)
+	if missingAlias.Code != http.StatusNotFound {
+		t.Fatalf("expected missing alias status, got %d", missingAlias.Code)
+	}
+	var missingAliasBody api.ErrorEnvelope
+	decodeResponse(t, missingAlias, &missingAliasBody)
+	if missingAliasBody.Error.Code != "SERVICE_ALIAS_NOT_FOUND" {
+		t.Fatalf("expected alias-specific absence, got %q", missingAliasBody.Error.Code)
+	}
+
+	missingService := perform(
+		t, handler, http.MethodGet,
+		serviceAliasPath(testDomain, "svc_00000000000000000009", "stable"), "", nil, nil,
+	)
+	if missingService.Code != http.StatusNotFound {
+		t.Fatalf("expected missing service status, got %d", missingService.Code)
+	}
+	var missingServiceBody api.ErrorEnvelope
+	decodeResponse(t, missingService, &missingServiceBody)
+	if missingServiceBody.Error.Code != "RESOURCE_NOT_FOUND" {
+		t.Fatalf("expected missing parent resource, got %q", missingServiceBody.Error.Code)
+	}
+
+	invalid := perform(
+		t, handler, http.MethodGet, serviceAliasPath(testDomain, service.Metadata.ID, "Stable"),
+		"", nil, nil,
+	)
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid alias rejection, got %d", invalid.Code)
 	}
 }
 
@@ -541,6 +595,12 @@ func revisionCollectionPath(domainID, serviceID string) string {
 	)
 }
 
+func serviceAliasPath(domainID, serviceID, alias string) string {
+	return fmt.Sprintf(
+		"/v1/isolation-domains/%s/agent-services/%s/aliases/%s", domainID, serviceID, alias,
+	)
+}
+
 func createPublishedRevision(t *testing.T, handler http.Handler, domainID, serviceID string) api.ServiceRevision {
 	t.Helper()
 	revisionPath := fmt.Sprintf("/v1/isolation-domains/%s/agent-services/%s/revisions", domainID, serviceID)
@@ -559,7 +619,7 @@ func createPublishedRevision(t *testing.T, handler http.Handler, domainID, servi
 
 func assignAlias(t *testing.T, handler http.Handler, domainID, serviceID, revisionID, key string) api.ServiceAlias {
 	t.Helper()
-	aliasPath := fmt.Sprintf("/v1/isolation-domains/%s/agent-services/%s/aliases/stable", domainID, serviceID)
+	aliasPath := serviceAliasPath(domainID, serviceID, "stable")
 	return performJSON[api.ServiceAlias](t, handler, http.MethodPut, aliasPath, key, map[string]any{"revisionId": revisionID, "expectedVersion": 0}, http.StatusOK)
 }
 
