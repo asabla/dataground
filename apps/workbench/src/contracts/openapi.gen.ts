@@ -66,7 +66,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List revisions for an agent service */
+        get: operations["listServiceRevisions"];
         put?: never;
         /** Create an immutable service revision draft */
         post: operations["createServiceRevision"];
@@ -361,6 +362,12 @@ export interface components {
             };
             /** Format: date-time */
             publishedAt?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        ServiceRevisionPage: {
+            items: components["schemas"]["ServiceRevision"][];
+            nextCursor?: string;
         } & {
             [key: string]: unknown;
         };
@@ -663,6 +670,37 @@ export interface operations {
             403: components["responses"]["Error"];
             409: components["responses"]["Error"];
             415: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    listServiceRevisions: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                serviceId: components["parameters"]["ServiceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Newest service revisions first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceRevisionPage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
             503: components["responses"]["Error"];
         };
     };

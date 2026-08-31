@@ -151,6 +151,99 @@ func TestAgentServiceListingIsBoundedScopedAndCursorDriven(t *testing.T) {
 	}
 }
 
+func TestServiceRevisionListingIsBoundedScopedAndCursorDriven(t *testing.T) {
+	t.Parallel()
+
+	principal, err := authn.NewPrincipal(authn.PrincipalInput{
+		ID: testActor, Kind: authn.PrincipalHuman, Issuer: "test", Subject: testActor,
+		Audience: authn.APIAudience, IsolationDomains: []string{testDomain, otherTestDomain},
+	})
+	if err != nil {
+		t.Fatalf("create principal: %v", err)
+	}
+	handler, err := api.NewServer().Handler(
+		tokenAuthenticator{principals: map[string]authn.Principal{testToken: principal}},
+		allowAuthorizer{},
+	)
+	if err != nil {
+		t.Fatalf("create handler: %v", err)
+	}
+	target := createService(t, handler, testDomain, "revision-list-service-0001")
+	otherService := createService(t, handler, testDomain, "revision-list-service-0002")
+	otherDomainService := createService(t, handler, otherTestDomain, "revision-list-service-0003")
+
+	created := make(map[string]bool)
+	for index := 0; index < 3; index++ {
+		revision := performJSON[api.ServiceRevision](
+			t,
+			handler,
+			http.MethodPost,
+			revisionCollectionPath(testDomain, target.Metadata.ID),
+			fmt.Sprintf("revision-list-create-%04d", index),
+			map[string]any{"runtimeProfile": "reference/v1", "requiredCapabilities": []string{"usage"}},
+			http.StatusCreated,
+		)
+		created[revision.Metadata.ID] = true
+	}
+	emptyCapabilitiesRevision := performJSON[api.ServiceRevision](
+		t, handler, http.MethodPost, revisionCollectionPath(testDomain, otherService.Metadata.ID),
+		"revision-list-other-service-0001",
+		map[string]any{"runtimeProfile": "reference/v1", "requiredCapabilities": []string{}},
+		http.StatusCreated,
+	)
+	if emptyCapabilitiesRevision.RequiredCapabilities == nil {
+		t.Fatal("expected an empty required-capabilities array, got null")
+	}
+	performJSON[api.ServiceRevision](
+		t, handler, http.MethodPost, revisionCollectionPath(otherTestDomain, otherDomainService.Metadata.ID),
+		"revision-list-other-domain-0001",
+		map[string]any{"runtimeProfile": "reference/v1", "requiredCapabilities": []string{}},
+		http.StatusCreated,
+	)
+
+	type page struct {
+		Items      []api.ServiceRevision `json:"items"`
+		NextCursor string                `json:"nextCursor"`
+	}
+	path := revisionCollectionPath(testDomain, target.Metadata.ID)
+	first := performJSON[page](t, handler, http.MethodGet, path+"?limit=2", "", nil, http.StatusOK)
+	if len(first.Items) != 2 || first.NextCursor == "" ||
+		first.Items[0].RevisionNumber != 3 || first.Items[1].RevisionNumber != 2 {
+		t.Fatalf("expected newest bounded revision page, got %#v", first)
+	}
+	second := performJSON[page](
+		t, handler, http.MethodGet, path+"?limit=2&cursor="+first.NextCursor,
+		"", nil, http.StatusOK,
+	)
+	if len(second.Items) != 1 || second.NextCursor != "" || second.Items[0].RevisionNumber != 1 {
+		t.Fatalf("expected terminal revision page, got %#v", second)
+	}
+	seen := make(map[string]bool)
+	for _, revision := range append(first.Items, second.Items...) {
+		if revision.Metadata.IsolationDomainID != testDomain || revision.ServiceID != target.Metadata.ID ||
+			!created[revision.Metadata.ID] || seen[revision.Metadata.ID] {
+			t.Fatalf("revision listing widened or duplicated scope: %#v", revision)
+		}
+		seen[revision.Metadata.ID] = true
+	}
+	missing := perform(
+		t, handler, http.MethodGet,
+		revisionCollectionPath(testDomain, "svc_00000000000000000009"), "", nil, nil,
+	)
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("expected missing service rejection, got %d", missing.Code)
+	}
+	for _, query := range []string{
+		"?cursor=not-a-cursor", "?cursor=", "?limit=", "?limit=101",
+		"?limit=1&limit=2", "?unknown=1",
+	} {
+		invalid := perform(t, handler, http.MethodGet, path+query, "", nil, nil)
+		if invalid.Code != http.StatusBadRequest {
+			t.Fatalf("expected invalid query %q rejection, got %d", query, invalid.Code)
+		}
+	}
+}
+
 func TestReferenceRuntimeLifecycleAndReplay(t *testing.T) {
 	t.Parallel()
 
@@ -440,6 +533,12 @@ func createService(t *testing.T, handler http.Handler, domainID, key string) api
 
 func serviceCollectionPath(domainID string) string {
 	return fmt.Sprintf("/v1/isolation-domains/%s/agent-services", domainID)
+}
+
+func revisionCollectionPath(domainID, serviceID string) string {
+	return fmt.Sprintf(
+		"/v1/isolation-domains/%s/agent-services/%s/revisions", domainID, serviceID,
+	)
 }
 
 func createPublishedRevision(t *testing.T, handler http.Handler, domainID, serviceID string) api.ServiceRevision {

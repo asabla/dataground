@@ -142,6 +142,9 @@ func (server *Server) handler(
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services", protected(
 		authz.CreateAgentService, authz.IsolationDomain, "", server.createAgentService,
 	))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions", protected(
+		authz.ListServiceRevisions, authz.AgentService, "serviceId", server.listServiceRevisions,
+	))
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions", protected(
 		authz.CreateServiceRevision, authz.AgentService, "serviceId", server.createServiceRevision,
 	))
@@ -268,6 +271,71 @@ func (server *Server) createAgentService(response http.ResponseWriter, request *
 	})
 }
 
+func (server *Server) listServiceRevisions(response http.ResponseWriter, request *http.Request) {
+	domainID, apiError := isolationDomain(request)
+	if apiError != nil {
+		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: *apiError})
+		return
+	}
+	limit, cursor, err := parseRevisionListQuery(request.URL.Query())
+	if err != nil {
+		status, body := invalidField("query", "Revision-list limit or cursor is invalid.")
+		writeJSON(response, status, body)
+		return
+	}
+	serviceID := request.PathValue("serviceId")
+	server.mu.RLock()
+	_, serviceExists := server.services[resourceKey(domainID, serviceID)]
+	revisions := make([]ServiceRevision, 0, len(server.revisions))
+	if serviceExists {
+		for _, revision := range server.revisions {
+			if revision.Metadata.IsolationDomainID == domainID && revision.ServiceID == serviceID {
+				revisions = append(revisions, revision)
+			}
+		}
+	}
+	server.mu.RUnlock()
+	if !serviceExists {
+		status, body := notFound("Agent service was not found.")
+		writeJSON(response, status, body)
+		return
+	}
+	sort.Slice(revisions, func(left, right int) bool {
+		if revisions[left].RevisionNumber == revisions[right].RevisionNumber {
+			return revisions[left].Metadata.ID > revisions[right].Metadata.ID
+		}
+		return revisions[left].RevisionNumber > revisions[right].RevisionNumber
+	})
+	if cursor != nil {
+		revisions = slicesAfterRevisionCursor(revisions, *cursor)
+	}
+	hasMore := len(revisions) > limit
+	if hasMore {
+		revisions = revisions[:limit]
+	}
+	page := serviceRevisionPage{Items: revisions}
+	if hasMore {
+		page.NextCursor, err = encodeRevisionListCursor(revisions[len(revisions)-1])
+		if err != nil {
+			writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
+				"REVISION_LIST_UNAVAILABLE", "Service revisions are temporarily unavailable.", true,
+			)})
+			return
+		}
+	}
+	writeJSON(response, http.StatusOK, page)
+}
+
+func slicesAfterRevisionCursor(revisions []ServiceRevision, cursor revisionListCursor) []ServiceRevision {
+	for index, revision := range revisions {
+		if revision.RevisionNumber < cursor.RevisionNumber ||
+			(revision.RevisionNumber == cursor.RevisionNumber && revision.Metadata.ID < cursor.ID) {
+			return revisions[index:]
+		}
+	}
+	return revisions[:0]
+}
+
 func (server *Server) createServiceRevision(response http.ResponseWriter, request *http.Request) {
 	server.mutate(response, request, func(actorID string, body []byte) (int, any) {
 		domainID, apiError := isolationDomain(request)
@@ -303,7 +371,7 @@ func (server *Server) createServiceRevision(response http.ResponseWriter, reques
 			RevisionNumber:       server.revisionCounts[serviceKey],
 			State:                "draft",
 			RuntimeProfile:       input.RuntimeProfile,
-			RequiredCapabilities: append([]string(nil), input.RequiredCapabilities...),
+			RequiredCapabilities: append([]string{}, input.RequiredCapabilities...),
 			InputSchema:          input.InputSchema,
 			OutputSchema:         input.OutputSchema,
 		}

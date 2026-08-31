@@ -11,16 +11,18 @@ Every resource path begins with an isolation-domain identifier, every request is
 `Idempotency-Key` header. A caller can:
 
 1. create and list agent services in one exact isolation domain;
-2. create and publish an immutable revision using runtime profile `reference/v1`;
+2. create, list, and publish immutable revisions using runtime profile `reference/v1`;
 3. assign a stable alias with optimistic version checks;
 4. invoke that alias and retrieve the normalized invocation result;
 5. replay typed events with SSE and resume after `Last-Event-ID`;
 6. cancel a waiting invocation; and
 7. retrieve governed artifact metadata.
 
-Service discovery returns bounded newest-first pages. The continuation cursor is opaque, binds the
-next page to the last observed creation boundary, and never substitutes for isolation-domain
-authorization. Process-local pages disappear on restart; PostgreSQL-backed pages remain durable.
+Service and revision discovery return bounded newest-first pages. Each opaque continuation cursor
+binds the next page to the last observed service creation or revision-number boundary and never
+substitutes for isolation-domain authorization. Revision discovery also requires the exact service
+resource to exist in that domain. Process-local pages disappear on restart; PostgreSQL-backed pages
+remain durable.
 
 The canonical routes, request bodies, responses, errors, and examples live in
 [`contracts/openapi/dataground-api.openapi.json`](../../contracts/openapi/dataground-api.openapi.json)

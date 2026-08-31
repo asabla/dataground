@@ -153,6 +153,9 @@ func newDurableHandler(
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services", protected(
 		authz.CreateAgentService, authz.IsolationDomain, "", server.createAgentService,
 	))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions", protected(
+		authz.ListServiceRevisions, authz.AgentService, "serviceId", server.listServiceRevisions,
+	))
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions", protected(
 		authz.CreateServiceRevision, authz.AgentService, "serviceId", server.createServiceRevision,
 	))
@@ -231,6 +234,56 @@ func (server *DurableServer) listAgentServices(response http.ResponseWriter, req
 		if err != nil {
 			writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
 				"SERVICE_LIST_UNAVAILABLE", "Agent services are temporarily unavailable.", true,
+			)})
+			return
+		}
+	}
+	writeJSON(response, http.StatusOK, page)
+}
+
+func (server *DurableServer) listServiceRevisions(response http.ResponseWriter, request *http.Request) {
+	domainID, apiError := isolationDomain(request)
+	if apiError != nil {
+		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: *apiError})
+		return
+	}
+	limit, cursor, err := parseRevisionListQuery(request.URL.Query())
+	if err != nil {
+		status, body := invalidField("query", "Revision-list limit or cursor is invalid.")
+		writeJSON(response, status, body)
+		return
+	}
+	var beforeRevisionNumber *int
+	var beforeID string
+	if cursor != nil {
+		revisionNumber := cursor.RevisionNumber
+		beforeRevisionNumber = &revisionNumber
+		beforeID = cursor.ID
+	}
+	listed, err := server.repository.ListServiceRevisions(
+		request.Context(), domainID, request.PathValue("serviceId"),
+		beforeRevisionNumber, beforeID, limit,
+	)
+	if err != nil {
+		var problem *persistence.DomainError
+		if errors.As(err, &problem) && problem.Code == "RESOURCE_NOT_FOUND" {
+			writeJSON(response, http.StatusNotFound, ErrorEnvelope{Error: APIError{
+				Code: problem.Code, Message: problem.Message,
+				CorrelationID: authenticatedCorrelationID(request), Retryable: false,
+			}})
+			return
+		}
+		writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
+			"REVISION_LIST_UNAVAILABLE", "Service revisions are temporarily unavailable.", true,
+		)})
+		return
+	}
+	page := serviceRevisionPage{Items: listed.Items}
+	if listed.HasMore {
+		page.NextCursor, err = encodeRevisionListCursor(listed.Items[len(listed.Items)-1])
+		if err != nil {
+			writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
+				"REVISION_LIST_UNAVAILABLE", "Service revisions are temporarily unavailable.", true,
 			)})
 			return
 		}

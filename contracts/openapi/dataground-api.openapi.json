@@ -111,6 +111,39 @@
       }
     },
     "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions": {
+      "get": {
+        "operationId": "listServiceRevisions",
+        "summary": "List revisions for an agent service",
+        "parameters": [
+          { "$ref": "#/components/parameters/IsolationDomainId" },
+          { "$ref": "#/components/parameters/ServiceId" },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 512 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Newest service revisions first.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ServiceRevisionPage" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
+        }
+      },
       "post": {
         "operationId": "createServiceRevision",
         "summary": "Create an immutable service revision draft",
@@ -769,6 +802,19 @@
           "inputSchema": { "type": "object", "additionalProperties": true },
           "outputSchema": { "type": "object", "additionalProperties": true },
           "publishedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ServiceRevisionPage": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": { "$ref": "#/components/schemas/ServiceRevision" }
+          },
+          "nextCursor": { "type": "string", "minLength": 1, "maxLength": 512 }
         }
       },
       "ServiceAlias": {
