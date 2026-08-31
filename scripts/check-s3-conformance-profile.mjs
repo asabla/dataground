@@ -951,6 +951,11 @@ if (
   !workflow.includes("--phase failover-rejoin-observe") ||
   !workflow.includes("DATAGROUND_TEST_DATABASE_URL") ||
   !workflow.includes("deploy/storage/seaweedfs-conformance.yml up --detach") ||
+  workflow.split("printf '%s' 'dataground-s3-ready'").length !== 3 ||
+  workflow.split("--fail --max-time 2 --silent").length !== 5 ||
+  workflow.split('--upload-file "$readiness_expected"').length !== 3 ||
+  workflow.split('--output "$readiness_observed"').length !== 3 ||
+  workflow.split('cmp --silent "$readiness_expected" "$readiness_observed"').length !== 3 ||
   !workflow.includes("deploy/storage/seaweedfs-conformance.yml down --volumes")
 ) {
   fail("CI does not enforce the pinned live conformance profile");
