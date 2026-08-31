@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import type { DataGroundClient } from "../contracts/client";
 import type { PublishedServiceRevisionResource } from "../revisions/publicationClient";
-import { assignServiceAlias, type ServiceAliasResource } from "./aliasClient";
+import { assignServiceAlias, readServiceAlias, type ServiceAliasResource } from "./aliasClient";
 
 const revision: PublishedServiceRevisionResource = {
   metadata: {
@@ -20,6 +20,11 @@ const revision: PublishedServiceRevisionResource = {
   runtimeProfile: "reference/v1",
   serviceId: "svc_00000000000000000001",
   state: "published",
+};
+
+const readScope = {
+  isolationDomainId: revision.metadata.isolationDomainId,
+  serviceId: revision.serviceId,
 };
 
 const createdAlias = {
@@ -55,6 +60,141 @@ const current: ServiceAliasResource = {
 };
 
 describe("service alias client", () => {
+  it("reads the exact alias without requiring it to target the newest publication", async () => {
+    const calls: Array<{ options: unknown; path: string }> = [];
+    const result = await readServiceAlias(
+      {
+        GET: async (path: string, options: unknown) => {
+          calls.push({ options, path });
+          return { data: current, response: new Response(null, { status: 200 }) };
+        },
+      } as unknown as DataGroundClient,
+      readScope,
+      "stable",
+    );
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(calls, [
+      {
+        options: {
+          params: {
+            path: {
+              alias: "stable",
+              isolationDomainId: revision.metadata.isolationDomainId,
+              serviceId: revision.serviceId,
+            },
+          },
+        },
+        path: "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}",
+      },
+    ]);
+    if (result.ok) {
+      assert.equal(result.alias?.revisionId, current.revisionId);
+      assert.equal(result.alias?.metadata.version, current.metadata.version);
+    }
+  });
+
+  it("treats only the stable alias-not-found response as observed absence", async () => {
+    const missing = await readServiceAlias(
+      {
+        GET: async () => ({
+          error: {
+            error: {
+              code: "SERVICE_ALIAS_NOT_FOUND",
+              correlationId: "cor_alias_read_0001",
+              message: "Service alias was not found.",
+              retryable: false,
+            },
+          },
+          response: new Response(null, { status: 404 }),
+        }),
+      } as unknown as DataGroundClient,
+      readScope,
+      "stable",
+    );
+    assert.deepEqual(missing, { ok: true });
+
+    const missingService = await readServiceAlias(
+      {
+        GET: async () => ({
+          error: {
+            error: {
+              code: "RESOURCE_NOT_FOUND",
+              correlationId: "cor_alias_read_0002",
+              message: "Agent service was not found.",
+              retryable: false,
+            },
+          },
+          response: new Response(null, { status: 404 }),
+        }),
+      } as unknown as DataGroundClient,
+      readScope,
+      "stable",
+    );
+    assert.equal(missingService.ok, false);
+    if (!missingService.ok) assert.equal(missingService.error.code, "RESOURCE_NOT_FOUND");
+  });
+
+  it("rejects invalid and substituted alias reads safely", async () => {
+    let requested = false;
+    const client = {
+      GET: async () => {
+        requested = true;
+        return { data: current, response: new Response(null, { status: 200 }) };
+      },
+    } as unknown as DataGroundClient;
+    assert.equal((await readServiceAlias(client, readScope, "Stable")).ok, false);
+    assert.equal(
+      (await readServiceAlias(client, { ...readScope, serviceId: "native-service" }, "stable")).ok,
+      false,
+    );
+    assert.equal(requested, false);
+
+    for (const responseAlias of [
+      { ...current, serviceId: "svc_00000000000000000002" },
+      { ...current, name: "candidate" },
+      { ...current, revisionId: "native-revision" },
+      {
+        ...current,
+        metadata: {
+          ...current.metadata,
+          isolationDomainId: "iso_00000000000000000002",
+        },
+      },
+    ]) {
+      const result = await readServiceAlias(
+        {
+          GET: async () => ({
+            data: responseAlias,
+            response: new Response(null, { status: 200 }),
+          }),
+        } as unknown as DataGroundClient,
+        readScope,
+        "stable",
+      );
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.equal(result.error.code, "WORKBENCH_ALIAS_READ_SCOPE_MISMATCH");
+    }
+  });
+
+  it("reports alias-read transport failure without upstream detail", async () => {
+    const result = await readServiceAlias(
+      {
+        GET: async () => {
+          throw new Error("secret upstream diagnostic");
+        },
+      } as unknown as DataGroundClient,
+      readScope,
+      "stable",
+    );
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.code, "WORKBENCH_ALIAS_READ_UNAVAILABLE");
+      assert.equal(result.error.retryable, true);
+      assert.doesNotMatch(result.error.message, /secret|upstream/u);
+    }
+  });
+
   it("creates a new alias with an explicit zero-version precondition", async () => {
     const calls: Array<{ options: unknown; path: string }> = [];
     const client = {

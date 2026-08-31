@@ -107,6 +107,7 @@ function renderWorkflow(
   selectedInvocation?: AgentServiceInvocationSelection,
   selectedArtifact?: InvocationArtifactReference,
   selectedApproval?: InvocationApprovalReference,
+  observedAlias?: ServiceAliasResource,
 ): string {
   return renderToStaticMarkup(
     <AgentServiceAuthoringWorkflow
@@ -128,6 +129,7 @@ function renderWorkflow(
       onOpenInvocation={() => undefined}
       onOpenRevision={() => undefined}
       onOpenService={() => undefined}
+      observedAlias={observedAlias}
       selectedAlias={selectedAlias}
       selectedApproval={selectedApproval}
       selectedArtifact={selectedArtifact}
@@ -188,6 +190,30 @@ describe("AgentServiceAuthoringWorkflow", () => {
     assert.match(markup, /Ready to assign/u);
     assert.match(markup, /value="stable"/u);
     assert.doesNotMatch(markup, /Ready to invoke/u);
+  });
+
+  it("uses the observed alias version when routing a newer publication", () => {
+    const previousAlias = {
+      ...alias,
+      metadata: { ...alias.metadata, generation: 4, version: 4 },
+      revisionId: "rev_00000000000000000002",
+    };
+    const markup = renderWorkflow(
+      service,
+      isolationDomainId,
+      revision,
+      publishedRevision,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      previousAlias,
+    );
+
+    assert.match(markup, /Move service alias/u);
+    assert.match(markup, /Current revision/u);
+    assert.match(markup, /rev_00000000000000000002/u);
+    assert.match(markup, /Expected alias version<\/dt><dd>4/u);
   });
 
   it("opens invocation composition only for the explicitly selected route", () => {
