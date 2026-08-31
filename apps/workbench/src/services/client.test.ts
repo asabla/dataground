@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import type { DataGroundClient } from "../contracts/client";
-import { createAgentService } from "./client";
+import { createAgentService, listAgentServices } from "./client";
 
 const isolationDomainId = "iso_00000000000000000001";
 const service = {
@@ -21,6 +21,101 @@ const service = {
 };
 
 describe("agent service client", () => {
+  it("lists one bounded scoped service page and strips ungoverned fields", async () => {
+    const calls: Array<{ options: unknown; path: string }> = [];
+    const client = {
+      GET: async (path: string, options: unknown) => {
+        calls.push({ options, path });
+        return {
+          data: { items: [service], nextCursor: "opaque_cursor_01", total: 99 },
+          response: new Response(null, { status: 200 }),
+        };
+      },
+    } as unknown as DataGroundClient;
+
+    const result = await listAgentServices(client, isolationDomainId, "opaque_cursor_00");
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(calls, [
+      {
+        options: {
+          params: {
+            path: { isolationDomainId },
+            query: { cursor: "opaque_cursor_00", limit: 50 },
+          },
+        },
+        path: "/v1/isolation-domains/{isolationDomainId}/agent-services",
+      },
+    ]);
+    if (result.ok) {
+      assert.equal(result.page.nextCursor, "opaque_cursor_01");
+      const [listedService] = result.page.items;
+      assert.ok(listedService);
+      assert.equal("futureResponseField" in listedService, false);
+      assert.equal("labels" in listedService.metadata, false);
+      assert.equal("total" in result.page, false);
+    }
+  });
+
+  it("rejects malformed, duplicate, and cross-domain service pages", async () => {
+    for (const page of [
+      {
+        items: [
+          {
+            ...service,
+            metadata: { ...service.metadata, isolationDomainId: "iso_00000000000000000002" },
+          },
+        ],
+      },
+      { items: [service, service] },
+      {
+        items: [
+          service,
+          {
+            ...service,
+            metadata: {
+              ...service.metadata,
+              createdAt: "2026-08-15T12:00:00Z",
+              id: "svc_00000000000000000002",
+              updatedAt: "2026-08-15T12:00:00Z",
+            },
+          },
+        ],
+      },
+      { items: [], nextCursor: "cursor_without_items" },
+    ]) {
+      const result = await listAgentServices(
+        {
+          GET: async () => ({ data: page, response: new Response(null, { status: 200 }) }),
+        } as unknown as DataGroundClient,
+        isolationDomainId,
+      );
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.equal(result.error.code, "WORKBENCH_SERVICE_LIST_SCOPE_MISMATCH");
+    }
+  });
+
+  it("rejects a non-advancing cursor without retrying transport", async () => {
+    let requests = 0;
+    const result = await listAgentServices(
+      {
+        GET: async () => {
+          requests++;
+          return {
+            data: { items: [service], nextCursor: "opaque_cursor_00" },
+            response: new Response(null, { status: 200 }),
+          };
+        },
+      } as unknown as DataGroundClient,
+      isolationDomainId,
+      "opaque_cursor_00",
+    );
+
+    assert.equal(requests, 1);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.error.code, "WORKBENCH_SERVICE_LIST_CURSOR_STALLED");
+  });
+
   it("submits the exact scoped command and strips ungoverned response fields", async () => {
     const calls: Array<{ options: unknown; path: string }> = [];
     const client = {

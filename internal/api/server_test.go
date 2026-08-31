@@ -64,6 +64,93 @@ func TestHealthEndpoints(t *testing.T) {
 	}
 }
 
+func TestAgentServiceListingIsBoundedScopedAndCursorDriven(t *testing.T) {
+	t.Parallel()
+
+	principal, err := authn.NewPrincipal(authn.PrincipalInput{
+		ID: testActor, Kind: authn.PrincipalHuman, Issuer: "test", Subject: testActor,
+		Audience: authn.APIAudience, IsolationDomains: []string{testDomain, otherTestDomain},
+	})
+	if err != nil {
+		t.Fatalf("create principal: %v", err)
+	}
+	server := api.NewServer()
+	handler, err := server.Handler(
+		tokenAuthenticator{principals: map[string]authn.Principal{testToken: principal}},
+		allowAuthorizer{},
+	)
+	if err != nil {
+		t.Fatalf("create handler: %v", err)
+	}
+	created := make(map[string]bool)
+	for index := 0; index < 3; index++ {
+		service := performJSON[api.AgentService](
+			t,
+			handler,
+			http.MethodPost,
+			serviceCollectionPath(testDomain),
+			fmt.Sprintf("service-list-create-%04d", index),
+			map[string]any{"name": fmt.Sprintf("Service %d", index)},
+			http.StatusCreated,
+		)
+		created[service.Metadata.ID] = true
+	}
+	performJSON[api.AgentService](
+		t,
+		handler,
+		http.MethodPost,
+		serviceCollectionPath(otherTestDomain),
+		"service-list-other-0001",
+		map[string]any{"name": "Other domain"},
+		http.StatusCreated,
+	)
+
+	type page struct {
+		Items      []api.AgentService `json:"items"`
+		NextCursor string             `json:"nextCursor"`
+	}
+	first := performJSON[page](
+		t, handler, http.MethodGet, serviceCollectionPath(testDomain)+"?limit=2", "", nil, http.StatusOK,
+	)
+	if len(first.Items) != 2 || first.NextCursor == "" {
+		t.Fatalf("expected a bounded first page, got %#v", first)
+	}
+	second := performJSON[page](
+		t,
+		handler,
+		http.MethodGet,
+		serviceCollectionPath(testDomain)+"?limit=2&cursor="+first.NextCursor,
+		"",
+		nil,
+		http.StatusOK,
+	)
+	if len(second.Items) != 1 || second.NextCursor != "" {
+		t.Fatalf("expected one terminal item, got %#v", second)
+	}
+	seen := make(map[string]bool)
+	for _, service := range append(first.Items, second.Items...) {
+		if service.Metadata.IsolationDomainID != testDomain || !created[service.Metadata.ID] || seen[service.Metadata.ID] {
+			t.Fatalf("service listing widened or duplicated scope: %#v", service)
+		}
+		seen[service.Metadata.ID] = true
+	}
+	for _, query := range []string{
+		"?cursor=not-a-cursor",
+		"?cursor=",
+		"?limit=",
+		"?limit=101",
+		"?limit=1&limit=2",
+		"?unknown=1",
+	} {
+		invalid := perform(
+			t, handler, http.MethodGet, serviceCollectionPath(testDomain)+query, "", nil, nil,
+		)
+		if invalid.Code != http.StatusBadRequest {
+			t.Fatalf("expected invalid query %q rejection, got %d", query, invalid.Code)
+		}
+	}
+}
+
 func TestReferenceRuntimeLifecycleAndReplay(t *testing.T) {
 	t.Parallel()
 

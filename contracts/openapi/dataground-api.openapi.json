@@ -4,7 +4,7 @@
   "info": {
     "title": "DataGround API",
     "version": "0.1.0",
-    "description": "Native DataGround contract for isolation-scoped agent services, immutable revisions, invocations, event replay, approval resolution, cancellation, and artifacts. Additive changes are compatible within v1. Removing or renaming fields, narrowing accepted values, changing state or error semantics, or making optional fields required is breaking and requires a new major API version. Clients must ignore unknown response fields and unknown event types while preserving the event envelope. All versioned API operations require a bearer access token whose issuer, audience, and isolation-domain membership are validated before a deployment authorizer evaluates the principal, closed action, path-derived resource identity, and effective isolation domain."
+    "description": "Native DataGround contract for isolation-scoped agent-service discovery, immutable revisions, invocations, event replay, approval resolution, cancellation, and artifacts. Additive changes are compatible within v1. Removing or renaming fields, narrowing accepted values, changing state or error semantics, or making optional fields required is breaking and requires a new major API version. Clients must ignore unknown response fields and unknown event types while preserving the event envelope. All versioned API operations require a bearer access token whose issuer, audience, and isolation-domain membership are validated before a deployment authorizer evaluates the principal, closed action, path-derived resource identity, and effective isolation domain."
   },
   "security": [{ "BearerAccessToken": [] }],
   "paths": {
@@ -43,6 +43,40 @@
       }
     },
     "/v1/isolation-domains/{isolationDomainId}/agent-services": {
+      "get": {
+        "operationId": "listAgentServices",
+        "summary": "List agent services in an isolation domain",
+        "description": "Returns one bounded newest-first page. The opaque cursor continues from the last item without widening isolation scope.",
+        "parameters": [
+          { "$ref": "#/components/parameters/IsolationDomainId" },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 512 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded agent-service page.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AgentServicePage" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
+        }
+      },
       "post": {
         "operationId": "createAgentService",
         "summary": "Create an agent service",
@@ -695,6 +729,19 @@
           "metadata": { "$ref": "#/components/schemas/ResourceMetadata" },
           "name": { "type": "string", "minLength": 1, "maxLength": 128 },
           "description": { "type": "string", "maxLength": 2048 }
+        }
+      },
+      "AgentServicePage": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": { "$ref": "#/components/schemas/AgentService" }
+          },
+          "nextCursor": { "type": "string", "minLength": 1, "maxLength": 512 }
         }
       },
       "ServiceRevision": {

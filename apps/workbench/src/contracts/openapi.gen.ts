@@ -45,7 +45,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List agent services in an isolation domain
+         * @description Returns one bounded newest-first page. The opaque cursor continues from the last item without widening isolation scope.
+         */
+        get: operations["listAgentServices"];
         put?: never;
         /** Create an agent service */
         post: operations["createAgentService"];
@@ -335,6 +339,12 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        AgentServicePage: {
+            items: components["schemas"]["AgentService"][];
+            nextCursor?: string;
+        } & {
+            [key: string]: unknown;
+        };
         ServiceRevision: {
             metadata: components["schemas"]["ResourceMetadata"];
             serviceId: components["schemas"]["ServiceId"];
@@ -590,6 +600,35 @@ export interface operations {
                     "application/json": components["schemas"]["HealthResponse"];
                 };
             };
+        };
+    };
+    listAgentServices: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded agent-service page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentServicePage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     createAgentService: {

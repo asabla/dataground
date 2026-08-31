@@ -18,7 +18,10 @@ export {
   type AgentServiceCreateRequest,
   type AgentServiceCreateResult,
   type AgentServiceFailure,
+  type AgentServiceListResult,
   type AgentServiceMetadata,
+  type AgentServicePage,
   type AgentServiceResource,
   createAgentService,
+  listAgentServices,
 } from "./client";

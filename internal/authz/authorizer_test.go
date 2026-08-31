@@ -26,6 +26,7 @@ func TestDevelopmentCedarAuthorizerBindsPrincipalDomainAndClosedActions(t *testi
 	principal := newPrincipal(t, testActor, testDomain)
 	requests := []authz.Request{
 		request(principal, authz.CreateAgentService, authz.IsolationDomain, testDomain),
+		request(principal, authz.ListAgentServices, authz.IsolationDomain, testDomain),
 		request(principal, authz.CreateServiceRevision, authz.AgentService, "svc_00000000000000000001"),
 		request(principal, authz.PublishServiceRevision, authz.ServiceRevision, "rev_00000000000000000001"),
 		request(principal, authz.AssignServiceAlias, authz.AgentService, "svc_00000000000000000001"),

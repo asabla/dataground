@@ -20,6 +20,75 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+func TestDurableServiceListingIsScopedAndPaged(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	databaseURL := testDatabaseURL(t)
+	database, err := persistence.OpenSQL(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := persistence.MigrateDownTo(ctx, database, 0); err != nil {
+		database.Close()
+		t.Fatalf("reset schema: %v", err)
+	}
+	if err := persistence.MigrateUp(ctx, database); err != nil {
+		database.Close()
+		t.Fatalf("migrate schema: %v", err)
+	}
+	database.Close()
+	pool, err := persistence.OpenPool(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	repository := persistence.NewRepository(pool)
+	domainID := identity.New("iso")
+	otherDomainID := identity.New("iso")
+	created := make(map[string]bool)
+	for index := 0; index < 3; index++ {
+		serviceID := identity.New("svc")
+		if _, err := repository.CreateService(
+			ctx,
+			testIdempotency(domainID, "list-service-"+serviceID),
+			persistence.CreateServiceInput{
+				ID: serviceID, Name: "service", ActorID: "listing-test",
+				CorrelationID: identity.New("cor"),
+			},
+		); err != nil {
+			t.Fatal(err)
+		}
+		created[serviceID] = true
+	}
+	if _, err := repository.CreateService(
+		ctx,
+		testIdempotency(otherDomainID, "list-service-other"),
+		persistence.CreateServiceInput{
+			ID: identity.New("svc"), Name: "other", ActorID: "listing-test",
+			CorrelationID: identity.New("cor"),
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	first, err := repository.ListServices(ctx, domainID, nil, "", 2)
+	if err != nil || len(first.Items) != 2 || !first.HasMore {
+		t.Fatalf("first service page = (%#v, %v)", first, err)
+	}
+	boundary := first.Items[len(first.Items)-1]
+	before := boundary.Metadata.CreatedAt
+	second, err := repository.ListServices(ctx, domainID, &before, boundary.Metadata.ID, 2)
+	if err != nil || len(second.Items) != 1 || second.HasMore {
+		t.Fatalf("second service page = (%#v, %v)", second, err)
+	}
+	seen := make(map[string]bool)
+	for _, service := range append(first.Items, second.Items...) {
+		if service.Metadata.IsolationDomainID != domainID || !created[service.Metadata.ID] || seen[service.Metadata.ID] {
+			t.Fatalf("service listing widened or duplicated scope: %#v", service)
+		}
+		seen[service.Metadata.ID] = true
+	}
+}
+
 func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
