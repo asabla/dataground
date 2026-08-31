@@ -475,6 +475,86 @@ p {
   max-width: none;
 }
 
+.revision-history {
+  overflow: hidden;
+  border: var(--dg-border-default) solid var(--dg-color-border-default);
+  border-radius: var(--dg-radius-panel);
+  background: var(--dg-color-surface-default);
+}
+
+.revision-history__heading {
+  display: flex;
+  gap: var(--dg-space-4);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--dg-space-4);
+  border-bottom: var(--dg-border-default) solid var(--dg-color-border-default);
+}
+
+.revision-history__heading h2 {
+  margin: var(--dg-space-1) 0 0;
+  font-size: var(--dg-font-size-heading);
+}
+
+.revision-history__heading > span,
+.revision-history__state,
+.revision-history__list li > span:last-child {
+  color: var(--dg-color-text-muted);
+  font-size: var(--dg-font-size-caption);
+}
+
+.revision-history__error {
+  margin: var(--dg-space-4);
+}
+
+.revision-history__state {
+  margin: 0;
+  padding: var(--dg-space-5) var(--dg-space-4);
+  line-height: 1.55;
+}
+
+.revision-history__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.revision-history__list li {
+  display: grid;
+  grid-template-columns: minmax(6rem, 0.5fr) minmax(7rem, auto) minmax(10rem, 1fr) minmax(
+      14rem,
+      1.3fr
+    );
+  gap: var(--dg-space-4);
+  align-items: center;
+  padding: var(--dg-space-3) var(--dg-space-4);
+  border-bottom: var(--dg-border-default) solid var(--dg-color-border-default);
+}
+
+.revision-history__number {
+  font-weight: var(--dg-font-weight-semibold);
+}
+
+.revision-history__list code {
+  overflow: hidden;
+  font-family: var(--dg-font-family-data);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.revision-history__list time {
+  display: block;
+  margin-top: var(--dg-space-1);
+  color: var(--dg-color-text-secondary);
+  font-family: var(--dg-font-family-data);
+}
+
+.revision-history__more {
+  display: flex;
+  justify-content: center;
+  padding: var(--dg-space-3) var(--dg-space-4);
+}
+
 .product-workflow__blocked {
   display: grid;
   justify-items: start;
@@ -556,6 +636,15 @@ p {
     padding: var(--dg-space-2) var(--dg-space-4);
     border-right: 0;
     border-bottom: var(--dg-border-default) solid var(--dg-color-border-default);
+  }
+
+  .revision-history__list li {
+    grid-template-columns: minmax(6rem, 1fr) auto;
+  }
+
+  .revision-history__list code,
+  .revision-history__list li > span:last-child {
+    grid-column: 1 / -1;
   }
 
   .workbench-sidebar__label {

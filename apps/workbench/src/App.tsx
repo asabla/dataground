@@ -4,7 +4,15 @@ import type { ServiceAliasResource } from "./aliases";
 import type { InvocationApprovalReference } from "./approvals";
 import type { InvocationArtifactReference } from "./artifacts";
 import { createDataGroundClient, type DataGroundClient } from "./contracts/client";
-import type { PublishedServiceRevisionResource, ServiceRevisionResource } from "./revisions";
+import {
+  listServiceRevisions,
+  type PublishedServiceRevisionResource,
+  resumeServiceRevision,
+  type ServiceRevisionFailure,
+  ServiceRevisionHistoryPanel,
+  type ServiceRevisionHistoryResource,
+  type ServiceRevisionResource,
+} from "./revisions";
 import {
   AgentServiceAuthoringWorkflow,
   type AgentServiceFailure,
@@ -89,6 +97,37 @@ function servicePresentation(
   return { label: "Draft", tone: "neutral" as const };
 }
 
+function historyFromDraft(revision: ServiceRevisionResource): ServiceRevisionHistoryResource {
+  return {
+    ...revision,
+    metadata: { ...revision.metadata },
+    requiredCapabilities: [...revision.requiredCapabilities],
+  };
+}
+
+function historyFromPublished(
+  revision: PublishedServiceRevisionResource,
+): ServiceRevisionHistoryResource {
+  return {
+    ...revision,
+    metadata: { ...revision.metadata },
+    requiredCapabilities: [...revision.requiredCapabilities],
+  };
+}
+
+function mergeRevisionHistory(
+  current: ServiceRevisionHistoryResource[],
+  incoming: ServiceRevisionHistoryResource[],
+) {
+  const byID = new Map(current.map((revision) => [revision.metadata.id, revision]));
+  for (const revision of incoming) byID.set(revision.metadata.id, revision);
+  return [...byID.values()].sort(
+    (left, right) =>
+      right.revisionNumber - left.revisionNumber ||
+      right.metadata.id.localeCompare(left.metadata.id),
+  );
+}
+
 interface DevelopmentWorkbenchProps {
   client: DataGroundClient;
   isolationDomainId: string;
@@ -108,12 +147,18 @@ export function DevelopmentWorkbench({
     useState<PublishedServiceRevisionResource>();
   const [openedRevision, setOpenedRevision] = useState<ServiceRevisionResource>();
   const [openedService, setOpenedService] = useState<AgentServiceResource>();
+  const [revisionHistory, setRevisionHistory] = useState<ServiceRevisionHistoryResource[]>([]);
+  const [revisionListError, setRevisionListError] = useState<ServiceRevisionFailure>();
+  const [revisionListLoading, setRevisionListLoading] = useState(false);
+  const [revisionListLoadingMore, setRevisionListLoadingMore] = useState(false);
+  const [revisionListNextCursor, setRevisionListNextCursor] = useState<string>();
   const [scopedServices, setScopedServices] = useState<AgentServiceResource[]>([]);
   const [serviceListError, setServiceListError] = useState<AgentServiceFailure>();
   const [serviceListLoading, setServiceListLoading] = useState(true);
   const [serviceListLoadingMore, setServiceListLoadingMore] = useState(false);
   const [serviceListNextCursor, setServiceListNextCursor] = useState<string>();
   const [view, setView] = useState<WorkbenchView>("services");
+  const revisionListGeneration = useRef(0);
   const serviceListGeneration = useRef(0);
 
   const loadServicePage = useCallback(
@@ -151,6 +196,51 @@ export function DevelopmentWorkbench({
     };
   }, [loadServicePage]);
 
+  const loadRevisionPage = useCallback(
+    async (service: AgentServiceResource, cursor?: string) => {
+      const generation = ++revisionListGeneration.current;
+      if (cursor === undefined) {
+        setRevisionListLoading(true);
+        setRevisionHistory([]);
+        setRevisionListNextCursor(undefined);
+      } else {
+        setRevisionListLoadingMore(true);
+      }
+      setRevisionListError(undefined);
+      const result = await listServiceRevisions(
+        client,
+        isolationDomainId,
+        service.metadata.id,
+        cursor,
+      );
+      if (generation !== revisionListGeneration.current) return;
+      setRevisionListLoading(false);
+      setRevisionListLoadingMore(false);
+      if (!result.ok) {
+        setRevisionListError(result.error);
+        return;
+      }
+      setRevisionListNextCursor(result.page.nextCursor);
+      setRevisionHistory((current) =>
+        cursor === undefined ? result.page.items : mergeRevisionHistory(current, result.page.items),
+      );
+      if (cursor === undefined) {
+        const newest = result.page.items[0];
+        const selection = newest === undefined ? {} : resumeServiceRevision(newest);
+        setOpenedPublishedRevision(selection.publishedRevision);
+        setOpenedRevision(selection.revision);
+      }
+    },
+    [client, isolationDomainId],
+  );
+
+  useEffect(
+    () => () => {
+      revisionListGeneration.current++;
+    },
+    [],
+  );
+
   const currentStage = stageIndex(
     openedService,
     openedRevision,
@@ -166,6 +256,7 @@ export function DevelopmentWorkbench({
   );
 
   const clearWorkflow = () => {
+    revisionListGeneration.current++;
     setOpenedAlias(undefined);
     setOpenedApproval(undefined);
     setOpenedArtifact(undefined);
@@ -173,9 +264,15 @@ export function DevelopmentWorkbench({
     setOpenedPublishedRevision(undefined);
     setOpenedRevision(undefined);
     setOpenedService(undefined);
+    setRevisionHistory([]);
+    setRevisionListError(undefined);
+    setRevisionListLoading(false);
+    setRevisionListLoadingMore(false);
+    setRevisionListNextCursor(undefined);
   };
 
-  const selectSessionService = (service: AgentServiceResource) => {
+  const openService = (service: AgentServiceResource) => {
+    revisionListGeneration.current++;
     setOpenedAlias(undefined);
     setOpenedApproval(undefined);
     setOpenedArtifact(undefined);
@@ -183,7 +280,11 @@ export function DevelopmentWorkbench({
     setOpenedPublishedRevision(undefined);
     setOpenedRevision(undefined);
     setOpenedService(service);
+    setRevisionHistory([]);
+    setRevisionListError(undefined);
+    setRevisionListNextCursor(undefined);
     setView("workflow");
+    void loadRevisionPage(service);
   };
 
   const workflow = (
@@ -204,6 +305,9 @@ export function DevelopmentWorkbench({
         setOpenedArtifact(undefined);
         setOpenedInvocation(undefined);
         setOpenedPublishedRevision(revision);
+        setRevisionHistory((current) =>
+          mergeRevisionHistory(current, [historyFromPublished(revision)]),
+        );
       }}
       onComposeInvocation={(alias) => {
         setOpenedAlias(alias);
@@ -228,21 +332,18 @@ export function DevelopmentWorkbench({
         setView("interactions");
       }}
       onOpenRevision={(revision) => {
+        revisionListGeneration.current++;
         setOpenedAlias(undefined);
         setOpenedApproval(undefined);
         setOpenedArtifact(undefined);
         setOpenedInvocation(undefined);
         setOpenedPublishedRevision(undefined);
         setOpenedRevision(revision);
+        setRevisionHistory((current) =>
+          mergeRevisionHistory(current, [historyFromDraft(revision)]),
+        );
       }}
       onOpenService={(service) => {
-        setOpenedAlias(undefined);
-        setOpenedApproval(undefined);
-        setOpenedArtifact(undefined);
-        setOpenedInvocation(undefined);
-        setOpenedPublishedRevision(undefined);
-        setOpenedRevision(undefined);
-        setOpenedService(service);
         setScopedServices((current) => {
           const existing = current.findIndex(
             (candidate) => candidate.metadata.id === service.metadata.id,
@@ -250,6 +351,7 @@ export function DevelopmentWorkbench({
           if (existing === -1) return [service, ...current];
           return current.map((candidate, index) => (index === existing ? service : candidate));
         });
+        openService(service);
         void loadServicePage();
       }}
       selectedAlias={openedAlias}
@@ -382,7 +484,7 @@ export function DevelopmentWorkbench({
                         onClick={() => {
                           if (isSelected && openedInvocation) setView("interactions");
                           else if (isSelected) setView("workflow");
-                          else selectSessionService(service);
+                          else openService(service);
                         }}
                         type="button"
                       >
@@ -484,7 +586,27 @@ export function DevelopmentWorkbench({
                     ))}
                   </ol>
                 </nav>
-                <div className="workbench-stage">{workflow}</div>
+                <div className="workbench-stage">
+                  {openedService && (
+                    <ServiceRevisionHistoryPanel
+                      error={revisionListError}
+                      isLoading={revisionListLoading}
+                      isLoadingMore={revisionListLoadingMore}
+                      nextCursor={revisionListNextCursor}
+                      onLoadMore={() =>
+                        revisionListNextCursor &&
+                        void loadRevisionPage(openedService, revisionListNextCursor)
+                      }
+                      onRetry={() => void loadRevisionPage(openedService)}
+                      revisions={revisionHistory}
+                    />
+                  )}
+                  {openedService &&
+                  revisionHistory.length === 0 &&
+                  (revisionListLoading || revisionListError)
+                    ? null
+                    : workflow}
+                </div>
               </div>
             </section>
           )}
