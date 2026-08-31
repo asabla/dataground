@@ -280,6 +280,16 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	observedAlias, err := repository.GetServiceAlias(ctx, domainID, serviceID, "stable")
+	if err != nil || observedAlias.Metadata.ID != aliasID ||
+		observedAlias.RevisionID != revisionID || observedAlias.Metadata.Version != 1 {
+		t.Fatalf("read assigned alias = (%#v, %v)", observedAlias, err)
+	}
+	_, err = repository.GetServiceAlias(ctx, domainID, serviceID, "candidate")
+	var missingAlias *persistence.DomainError
+	if !errors.As(err, &missingAlias) || missingAlias.Code != "SERVICE_ALIAS_NOT_FOUND" {
+		t.Fatalf("missing alias read error = %v", err)
+	}
 	invocationID := identity.New("inv")
 	accepted, err := repository.AcceptInvocation(ctx, testIdempotency(domainID, "invoke"), persistence.AcceptInvocationInput{
 		ID: invocationID, ServiceID: serviceID, Alias: "stable", Input: map[string]any{"message": "hello"},

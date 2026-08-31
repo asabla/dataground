@@ -224,6 +224,30 @@
       }
     },
     "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}": {
+      "get": {
+        "operationId": "readServiceAlias",
+        "summary": "Read an exact service alias",
+        "parameters": [
+          { "$ref": "#/components/parameters/IsolationDomainId" },
+          { "$ref": "#/components/parameters/ServiceId" },
+          { "$ref": "#/components/parameters/Alias" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current alias assignment.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ServiceAlias" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
+        }
+      },
       "put": {
         "operationId": "assignServiceAlias",
         "summary": "Assign an alias to a published revision",

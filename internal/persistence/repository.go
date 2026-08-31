@@ -518,6 +518,45 @@ func (repository *Repository) AssignAlias(
 	})
 }
 
+func (repository *Repository) GetServiceAlias(
+	ctx context.Context,
+	isolationDomainID string,
+	serviceID string,
+	name string,
+) (domain.ServiceAlias, error) {
+	if !repository.Configured() || isolationDomainID == "" || serviceID == "" || name == "" {
+		return domain.ServiceAlias{}, errors.New("service alias read request is invalid")
+	}
+	var serviceExists bool
+	if err := repository.pool.QueryRow(ctx, `
+		SELECT true
+		FROM agent_services
+		WHERE isolation_domain_id = $1 AND id = $2
+	`, isolationDomainID, serviceID).Scan(&serviceExists); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ServiceAlias{}, &DomainError{
+				Code: "RESOURCE_NOT_FOUND", Message: "Agent service was not found.",
+			}
+		}
+		return domain.ServiceAlias{}, fmt.Errorf("read agent service for alias: %w", err)
+	}
+	var alias domain.ServiceAlias
+	if err := scanAlias(repository.pool.QueryRow(ctx, `
+		SELECT isolation_domain_id, id, service_id, name, revision_id,
+		       generation, version, created_at, updated_at, created_by
+		FROM service_aliases
+		WHERE isolation_domain_id = $1 AND service_id = $2 AND name = $3
+	`, isolationDomainID, serviceID, name), &alias); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ServiceAlias{}, &DomainError{
+				Code: "SERVICE_ALIAS_NOT_FOUND", Message: "Service alias was not found.",
+			}
+		}
+		return domain.ServiceAlias{}, fmt.Errorf("read service alias: %w", err)
+	}
+	return alias, nil
+}
+
 func (repository *Repository) AcceptInvocation(
 	ctx context.Context,
 	idempotency Idempotency,

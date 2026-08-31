@@ -144,8 +144,11 @@
         "action": {
           "enum": [
             "createAgentService",
+            "listAgentServices",
             "createServiceRevision",
+            "listServiceRevisions",
             "publishServiceRevision",
+            "readServiceAlias",
             "assignServiceAlias",
             "invokeAgentService",
             "readInvocation",

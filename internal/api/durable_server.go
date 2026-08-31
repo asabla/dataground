@@ -162,6 +162,9 @@ func newDurableHandler(
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/publish", protected(
 		authz.PublishServiceRevision, authz.ServiceRevision, "revisionId", server.publishServiceRevision,
 	))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}", protected(
+		authz.ReadServiceAlias, authz.AgentService, "serviceId", server.getServiceAlias,
+	))
 	mux.Handle("PUT /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}", protected(
 		authz.AssignServiceAlias, authz.AgentService, "serviceId", server.assignServiceAlias,
 	))
@@ -355,6 +358,39 @@ func (server *DurableServer) assignServiceAlias(response http.ResponseWriter, re
 			ActorID: actorID, CorrelationID: correlationID,
 		})
 	})
+}
+
+func (server *DurableServer) getServiceAlias(response http.ResponseWriter, request *http.Request) {
+	domainID, apiError := isolationDomain(request)
+	if apiError != nil {
+		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: *apiError})
+		return
+	}
+	aliasName := request.PathValue("alias")
+	if len(aliasName) > 63 || !aliasPattern.MatchString(aliasName) {
+		status, body := invalidField("alias", "Alias is not valid.")
+		writeJSON(response, status, body)
+		return
+	}
+	alias, err := server.repository.GetServiceAlias(
+		request.Context(), domainID, request.PathValue("serviceId"), aliasName,
+	)
+	if err != nil {
+		var problem *persistence.DomainError
+		if errors.As(err, &problem) &&
+			(problem.Code == "RESOURCE_NOT_FOUND" || problem.Code == "SERVICE_ALIAS_NOT_FOUND") {
+			writeJSON(response, http.StatusNotFound, ErrorEnvelope{Error: APIError{
+				Code: problem.Code, Message: problem.Message,
+				CorrelationID: authenticatedCorrelationID(request), Retryable: false,
+			}})
+			return
+		}
+		writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
+			"ALIAS_READ_UNAVAILABLE", "Service alias is temporarily unavailable.", true,
+		)})
+		return
+	}
+	writeJSON(response, http.StatusOK, alias)
 }
 
 func (server *DurableServer) invokeAgentService(response http.ResponseWriter, request *http.Request) {
