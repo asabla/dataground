@@ -157,6 +157,9 @@ func (server *Server) handler(
 	mux.Handle("PUT /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}", protected(
 		authz.AssignServiceAlias, authz.AgentService, "serviceId", server.assignServiceAlias,
 	))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations", protected(
+		authz.ListInvocations, authz.AgentService, "serviceId", server.listInvocations,
+	))
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations", protected(
 		authz.InvokeAgentService, authz.AgentService, "serviceId", server.invokeAgentService,
 	))

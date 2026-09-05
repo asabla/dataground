@@ -119,7 +119,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List invocation summaries for a service
+         * @description Returns a bounded page ordered by creation time and identifier, newest first. Cursors bind the exact isolation domain and service; each request is independently authorized. Summaries exclude inputs, results, error payloads, usage and artifact contents. Later pages reflect current lifecycle state; this is not a frozen snapshot.
+         */
+        get: operations["listInvocations"];
         put?: never;
         /** Invoke a published service revision through an alias */
         post: operations["invokeAgentService"];
@@ -396,6 +400,26 @@ export interface components {
             inputTokens: number;
             outputTokens: number;
             totalTokens: number;
+        } & {
+            [key: string]: unknown;
+        };
+        InvocationSummary: {
+            metadata: components["schemas"]["ResourceMetadata"];
+            serviceId: components["schemas"]["ServiceId"];
+            revisionId: components["schemas"]["RevisionId"];
+            alias: components["schemas"]["AliasName"];
+            /** @enum {unknown} */
+            state: "accepted" | "running" | "waiting" | "cancelling" | "succeeded" | "failed" | "cancelled" | "unknown";
+            correlationId: string;
+            operationId: components["schemas"]["OperationId"];
+            /** Format: date-time */
+            completedAt?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        InvocationPage: {
+            items: components["schemas"]["InvocationSummary"][];
+            nextCursor?: string;
         } & {
             [key: string]: unknown;
         };
@@ -852,6 +876,37 @@ export interface operations {
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
             415: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    listInvocations: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                serviceId: components["parameters"]["ServiceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded invocation history page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvocationPage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
             503: components["responses"]["Error"];
         };
     };

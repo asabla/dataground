@@ -18,6 +18,12 @@ Every resource path begins with an isolation-domain identifier, every request is
 6. cancel a waiting invocation; and
 7. retrieve governed artifact metadata.
 
+Clients can recover invocation history with `GET /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations`. The `listInvocations` action authorizes a bounded summary page (default 50, maximum 100) for that exact service. Summaries carry resource identity, revision, alias, lifecycle state, operation and correlation references, and optional completion time; they exclude input, result, error payloads, usage and artifact contents. Read individual resources through their independently authorized endpoints to inspect those details.
+
+Invocation pages order by creation time and identifier, newest first. Each opaque versioned cursor binds the isolation domain, service and last item's creation boundary. Repeated, unknown, malformed or out-of-scope query inputs fail validation. A new invocation ahead of the boundary does not shift older pages; lifecycle values are observed when each page is read, so pagination is not a frozen snapshot. An existing service without invocations returns an empty array, while an absent service returns `RESOURCE_NOT_FOUND`. PostgreSQL history survives API/worker restarts; reference memory remains ephemeral.
+
+Schema migration 45 adds the service-history index and permits the new action in append-only API decision audit. Upgrade the database before starting the new API. Downgrade is refused once a `listInvocations` decision exists, preserving historical authorization evidence; forward repair is then required. Earlier code does not expose the new endpoint and retains its existing strict schema-version startup check.
+
 Service and revision discovery return bounded newest-first pages. Each opaque continuation cursor
 binds the next page to the last observed service creation or revision-number boundary and never
 substitutes for isolation-domain authorization. Revision discovery also requires the exact service

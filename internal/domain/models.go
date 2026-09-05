@@ -86,6 +86,20 @@ type Invocation struct {
 	CompletedAt   *time.Time       `json:"completedAt,omitempty"`
 }
 
+// InvocationSummary supports history discovery without disclosing invocation
+// inputs, results, runtime errors, or artifact contents. Those remain separately
+// authorized reads against the invocation and artifact resources.
+type InvocationSummary struct {
+	Metadata      ResourceMetadata `json:"metadata"`
+	ServiceID     string           `json:"serviceId"`
+	RevisionID    string           `json:"revisionId"`
+	Alias         string           `json:"alias"`
+	State         string           `json:"state"`
+	CorrelationID string           `json:"correlationId"`
+	OperationID   string           `json:"operationId"`
+	CompletedAt   *time.Time       `json:"completedAt,omitempty"`
+}
+
 type EventEnvelope struct {
 	SchemaVersion     string                     `json:"schemaVersion"`
 	ID                string                     `json:"id"`
