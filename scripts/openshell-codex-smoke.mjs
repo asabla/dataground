@@ -27,7 +27,6 @@ const sandboxImage =
 const sandboxPolicyPath = join(repositoryRoot, "deploy/openshell/policies/deny-all.yaml");
 const expectedCredentialKeys = ["CHATGPT_ACCOUNT_ID", "OPENAI_API_KEY"];
 const sentinel = "dataground-openshell-e2e-ok";
-const model = "gpt-5.4";
 const modelProviderConfig =
   'model_providers.dataground={name="DataGround OpenShell",base_url="https://chatgpt.com/backend-api/codex",env_key="OPENAI_API_KEY",env_http_headers={"ChatGPT-Account-Id"="CHATGPT_ACCOUNT_ID"},wire_api="responses",requires_openai_auth=false,supports_websockets=false}';
 const maximumCommandOutputBytes = 4 << 20;
@@ -35,6 +34,13 @@ const maximumAuthFileBytes = 64 << 10;
 
 function fail(message) {
   throw new Error(message);
+}
+
+export function smokeModel(value) {
+  if (typeof value !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u.test(value)) {
+    fail("DATAGROUND_CODEX_SMOKE_MODEL must name an explicit model available to the local account");
+  }
+  return value;
 }
 
 function sameFile(left, right) {
@@ -484,7 +490,7 @@ function sandboxNames(binary) {
   return value.map((sandbox) => sandbox.name).filter((name) => typeof name === "string");
 }
 
-function runSmoke(binary) {
+function runSmoke(binary, model) {
   const sandboxName = `dg-codex-smoke-${randomBytes(8).toString("hex")}`;
   if (sandboxNames(binary).includes(sandboxName)) {
     fail("the fresh OpenShell smoke sandbox name already exists");
@@ -555,13 +561,14 @@ function runSmoke(binary) {
 }
 
 function main() {
+  const model = smokeModel(process.env.DATAGROUND_CODEX_SMOKE_MODEL);
   const binary = resolveOpenShellBinary();
   requirePinnedOpenShell(binary);
   requireGateway(binary);
   enableProviderProfiles(binary);
   ensureBridgeProfile(binary);
   ensureBridgeProvider(binary);
-  runSmoke(binary);
+  runSmoke(binary, model);
   process.stdout.write("OpenShell Codex smoke completed successfully.\n");
 }
 
