@@ -18,7 +18,7 @@ export interface EventReplayFailure {
 }
 
 export type EventReplayResult =
-  | { cursor: number; events: InvocationEvent[]; ok: true }
+  | { cursor: number; events: InvocationEvent[]; hasMore?: boolean; ok: true }
   | { error: EventReplayFailure; ok: false };
 
 const eventPath = "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/events";
@@ -244,13 +244,32 @@ export async function replayInvocationEvents(
       params: {
         ...(afterSequence > 0 ? { header: { "Last-Event-ID": String(afterSequence) } } : undefined),
         path: reference,
+        query: { limit: 200 },
       },
     });
-    if (typeof data === "string") {
-      return parseInvocationEventStream(data, reference, afterSequence);
-    }
-    if (response.status === 200 && data === undefined && error === undefined) {
-      return parseInvocationEventStream("", reference, afterSequence);
+    if (
+      response.status === 200 &&
+      error === undefined &&
+      (typeof data === "string" || data === undefined)
+    ) {
+      const continuation = response.headers.get("X-DataGround-Has-More");
+      if (continuation !== null && continuation !== "true" && continuation !== "false") {
+        return failure(
+          "WORKBENCH_INVALID_EVENT_PAGE",
+          "DataGround returned an invalid event continuation marker.",
+        );
+      }
+      const parsed = parseInvocationEventStream(data ?? "", reference, afterSequence);
+      if (!parsed.ok || continuation === null) {
+        return parsed;
+      }
+      if (continuation === "true" && parsed.cursor === afterSequence) {
+        return failure(
+          "WORKBENCH_INVALID_EVENT_PAGE",
+          "The event page did not advance its continuation cursor.",
+        );
+      }
+      return { ...parsed, hasMore: continuation === "true" };
     }
     return failedResult(error, response.status);
   } catch {

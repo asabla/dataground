@@ -44,6 +44,7 @@ export interface EventTimelineProps {
   error?: TimelineError;
   events: readonly TimelineEvent[];
   hiddenEventCount?: number;
+  hasMore?: boolean;
   isReplaying?: boolean;
   onInspectApproval?: (reference: TimelineApprovalReference) => void;
   onInspectArtifact?: (reference: TimelineArtifactReference) => void;
@@ -334,6 +335,7 @@ export function EventTimeline({
   error,
   events,
   hiddenEventCount = 0,
+  hasMore = false,
   isReplaying = false,
   onInspectApproval,
   onInspectArtifact,
@@ -341,7 +343,15 @@ export function EventTimeline({
   reference,
 }: EventTimelineProps) {
   const titleId = useId();
-  const connection = connectionPresentations[connectionState];
+  const connection =
+    connectionState === "current" && hasMore
+      ? {
+          label: "More events available",
+          message:
+            "More retained events follow this page. Replay the next page to continue from the confirmed cursor.",
+          tone: "active" as const,
+        }
+      : connectionPresentations[connectionState];
   const cursor = events.at(-1)?.sequence ?? 0;
 
   return (
@@ -394,6 +404,20 @@ export function EventTimeline({
           {hiddenEventCount} earlier {hiddenEventCount === 1 ? "event is" : "events are"} outside
           the bounded display. Replay continues from the confirmed cursor.
         </p>
+      )}
+
+      {onReplay && (
+        <div className="dg-event-timeline__actions">
+          <Button isPending={isReplaying} onPress={onReplay} variant="secondary">
+            {isReplaying
+              ? "Replaying events…"
+              : error?.retryable
+                ? "Retry replay"
+                : hasMore
+                  ? "Replay more events"
+                  : "Replay new events"}
+          </Button>
+        </div>
       )}
 
       {events.length === 0 ? (
@@ -458,18 +482,6 @@ export function EventTimeline({
             );
           })}
         </ol>
-      )}
-
-      {onReplay && (
-        <div className="dg-event-timeline__actions">
-          <Button isDisabled={isReplaying} onPress={onReplay} variant="secondary">
-            {isReplaying
-              ? "Replaying events…"
-              : error?.retryable
-                ? "Retry replay"
-                : "Replay new events"}
-          </Button>
-        </div>
       )}
     </section>
   );

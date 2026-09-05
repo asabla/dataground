@@ -99,6 +99,8 @@ Durable cancellation requests now emit `lifecycle.cancellation.requested`, follo
 
 Clients can opt into bounded event replay with `?limit=200` (1–500 records). Each page also stops before exceeding 1 MiB of SSE bytes. `X-DataGround-Has-More: true` means another retained record follows; continue with the last returned sequence in `Last-Event-ID`. A single oversized next record fails with `413 EVENT_REPLAY_RECORD_TOO_LARGE` before any successful SSE headers and is never skipped. Empty pages preserve the caller’s cursor, and every page requires fresh authorization. PostgreSQL bounds its record query and preserves source provenance. Omitting `limit` retains the existing unpaged replay contract.
 
+The Workbench requests 200 events per replay page and shows “More events available” until the server reports no remaining retained records. “Replay more events” advances from the confirmed cursor; failed reads preserve that cursor for retry. The display retains the most recent 200 loaded events and counts earlier loaded events outside the display. Duplicate clicks do not overlap page reads, and changing the authenticated client or invocation clears prior content and discards late responses. Older unpaged servers remain readable within the existing parser safety bounds.
+
 SSE `id` values are invocation-local journal sequences. Reconnecting with `Last-Event-ID` replays
 only later records with stable event identities. Identical mutation retries return the first
 response; reuse of the same key with a different body returns `IDEMPOTENCY_KEY_REUSED`.

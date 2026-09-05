@@ -169,6 +169,7 @@ describe("invocation event replay client", () => {
       params: {
         header: { "Last-Event-ID": "1" },
         path: reference,
+        query: { limit: 200 },
       },
     });
   });
@@ -187,7 +188,7 @@ describe("invocation event replay client", () => {
     assert.equal(result.ok, true);
     assert.deepEqual(options, {
       parseAs: "text",
-      params: { path: reference },
+      params: { path: reference, query: { limit: 200 } },
     });
   });
 
@@ -270,4 +271,42 @@ describe("invocation event replay client", () => {
       assert.doesNotMatch(transportResult.error.message, /secret upstream details/u);
     }
   });
+});
+
+it("validates page continuation without accepting stalled or malformed pages", async () => {
+  for (const [header, body, want] of [
+    ["true", frame(event(2)), true],
+    ["false", frame(event(2)), true],
+    ["false", "", true],
+    ["true", "", false],
+    ["TRUE", frame(event(2)), false],
+    ["true, false", frame(event(2)), false],
+    ["", frame(event(2)), false],
+  ] as const) {
+    const client = {
+      GET: async () => ({
+        data: body,
+        response: new Response(null, {
+          status: 200,
+          headers: { "X-DataGround-Has-More": header },
+        }),
+      }),
+    } as unknown as DataGroundClient;
+    const result = await replayInvocationEvents(client, reference, 1);
+    assert.equal(result.ok, want);
+    if (result.ok) {
+      assert.equal(result.hasMore, header === "true");
+      assert.equal(result.cursor, body === "" ? 1 : 2);
+    } else {
+      assert.equal(result.error.code, "WORKBENCH_INVALID_EVENT_PAGE");
+    }
+  }
+});
+
+it("does not accept successful-looking events from an unexpected HTTP status", async () => {
+  const client = {
+    GET: async () => ({ data: frame(event(1)), response: new Response(null, { status: 206 }) }),
+  } as unknown as DataGroundClient;
+  const result = await replayInvocationEvents(client, reference);
+  assert.equal(result.ok, false);
 });

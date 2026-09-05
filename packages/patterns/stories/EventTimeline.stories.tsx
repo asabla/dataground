@@ -187,3 +187,17 @@ export const NarrowRightToLeft: Story = {
     ),
   ],
 };
+
+export const MoreRetainedEvents: Story = {
+  args: { events: successEvents.slice(0, 3), hasMore: true },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("More events available", { exact: true })).toBeVisible();
+    await expect(canvas.queryByText("Replay current", { exact: true })).toBeNull();
+    const replay = canvas.getByRole("button", { name: "Replay more events" });
+    replay.focus();
+    await userEvent.keyboard("{Enter}");
+    await expect(args.onReplay).toHaveBeenCalledOnce();
+    await expect(replay).toHaveFocus();
+  },
+};
