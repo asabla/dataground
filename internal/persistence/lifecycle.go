@@ -367,6 +367,39 @@ func (repository *Repository) advance(
 			failure = problem
 		}
 	}
+	if claim.Kind == OperationKindInvocation && nextState == "succeeded" {
+		var schema map[string]any
+		var runtimeProfile string
+		// Definitions and invocation revision bindings are immutable. Join through
+		// the exact operation instead of resolving the service's current alias.
+		if err := tx.QueryRow(ctx, `
+            SELECT revision.output_schema, revision.runtime_profile
+            FROM invocation_execution_operations AS operation
+            JOIN invocations AS invocation
+              ON invocation.isolation_domain_id = operation.isolation_domain_id
+             AND invocation.id = operation.invocation_id
+            JOIN service_revisions AS revision
+              ON revision.isolation_domain_id = invocation.isolation_domain_id
+             AND revision.id = invocation.revision_id
+             AND revision.service_id = invocation.service_id
+            WHERE operation.isolation_domain_id = $1 AND operation.id = $2
+              AND operation.invocation_id = $3
+        `, claim.IsolationDomainID, claim.ID, claim.ResourceID).Scan(&schema, &runtimeProfile); err != nil {
+			return fmt.Errorf("read invocation output contract: %w", err)
+		}
+		// Governed drivers validate their structured output before wrapping the
+		// internal runtime result. The reference driver exposes its result directly.
+		if runtimeProfile == "reference/v1" {
+			if problem := domain.ValidateInvocationOutput(schema, terminalResult); problem != nil {
+				if err := validateTransition(claim.Kind, claim.ObservedState, "failed"); err != nil {
+					return err
+				}
+				nextState, terminalResult = "failed", nil
+				problem.CorrelationID = claim.CorrelationID
+				failure = problem
+			}
+		}
+	}
 	encodedResult, err := marshalNullable(terminalResult)
 	if err != nil {
 		return fmt.Errorf("encode terminal result: %w", err)
@@ -409,7 +442,7 @@ func (repository *Repository) advance(
 	if result.RowsAffected() != 1 {
 		return ErrLeaseLost
 	}
-	if err := repository.updateResourceForTransition(ctx, tx, claim, nextState, terminalResult, now); err != nil {
+	if err := repository.updateResourceForTransition(ctx, tx, claim, nextState, terminalResult, encodedError, now); err != nil {
 		return err
 	}
 	outcome := transitionOutcome(nextState)
@@ -716,6 +749,7 @@ func (repository *Repository) updateResourceForTransition(
 	claim OperationClaim,
 	nextState string,
 	terminalResult map[string]any,
+	encodedError []byte,
 	now time.Time,
 ) error {
 	switch claim.Kind {
@@ -743,11 +777,11 @@ func (repository *Repository) updateResourceForTransition(
 		}
 		_, err = tx.Exec(ctx, `
 			UPDATE invocations
-			SET state = $3, result = COALESCE($4, result),
+			SET state = $3, result = COALESCE($4, result), error = COALESCE($6, error),
 			    completed_at = CASE WHEN $3 IN ('succeeded', 'failed', 'cancelled') THEN $5 ELSE completed_at END,
 			    generation = generation + 1, version = version + 1, updated_at = $5
 			WHERE isolation_domain_id = $1 AND id = $2
-		`, claim.IsolationDomainID, claim.ResourceID, resourceState, encodedResult, now)
+		`, claim.IsolationDomainID, claim.ResourceID, resourceState, encodedResult, now, encodedError)
 		if err != nil {
 			return fmt.Errorf("update invocation state: %w", err)
 		}

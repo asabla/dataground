@@ -9,32 +9,31 @@ import (
 // ValidateInvocationInput checks the exact resolved revision's contract. It
 // retains no schema or input and returns only closed, content-free failures.
 func ValidateInvocationInput(schema, input map[string]any) *APIError {
+	return validateInvocationContract(schema, input,
+		"REVISION_INPUT_SCHEMA_INVALID", "The service revision input contract cannot be validated.",
+		"INVOCATION_INPUT_INVALID", "Invocation input does not satisfy the service revision input contract.")
+}
+
+// ValidateInvocationOutput checks the completed result against the invocation's
+// immutable revision, without retaining values or exposing validator diagnostics.
+func ValidateInvocationOutput(schema, output map[string]any) *APIError {
+	return validateInvocationContract(schema, output,
+		"REVISION_OUTPUT_SCHEMA_INVALID", "The service revision output contract cannot be validated.",
+		"INVOCATION_OUTPUT_INVALID", "Invocation output does not satisfy the service revision output contract.")
+}
+
+func validateInvocationContract(schema, value map[string]any, schemaCode, schemaMessage, valueCode, valueMessage string) *APIError {
 	if schema == nil {
 		return nil
 	}
-	invalidSchema := func() *APIError {
-		return &APIError{
-			Code:    "REVISION_INPUT_SCHEMA_INVALID",
-			Message: "The service revision input contract cannot be validated.",
-		}
-	}
-	invalidInput := func() *APIError {
-		return &APIError{
-			Code:    "INVOCATION_INPUT_INVALID",
-			Message: "Invocation input does not satisfy the service revision input contract.",
-		}
-	}
 	compiled, err := compileRevisionSchema(schema)
 	if err != nil {
-		return invalidSchema()
+		return &APIError{Code: schemaCode, Message: schemaMessage}
 	}
-	inputJSON, err := json.Marshal(input)
-	if err != nil {
-		return invalidInput()
-	}
-	var value any
-	if json.Unmarshal(inputJSON, &value) != nil || compiled.Validate(value) != nil {
-		return invalidInput()
+	encoded, err := json.Marshal(value)
+	var normalized any
+	if err != nil || json.Unmarshal(encoded, &normalized) != nil || compiled.Validate(normalized) != nil {
+		return &APIError{Code: valueCode, Message: valueMessage}
 	}
 	return nil
 }

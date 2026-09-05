@@ -612,6 +612,16 @@ func (server *Server) invokeAgentService(response http.ResponseWriter, request *
 		for _, runtimeEvent := range normalized {
 			eventTime := now.Add(time.Duration(runtimeEvent.Sequence-1) * time.Millisecond)
 			payload := cloneMap(runtimeEvent.Payload)
+			eventType := runtimeEvent.Type
+			if eventType == "lifecycle.succeeded" {
+				result := map[string]any{"message": stringValue(payload["message"])}
+				if problem := domain.ValidateInvocationOutput(revision.OutputSchema, result); problem != nil {
+					problem.CorrelationID = correlationID
+					invocation.Error = problem
+					eventType = "lifecycle.failed"
+					payload = map[string]any{"state": "failed"}
+				}
+			}
 			if runtimeEvent.Type == "artifact.available" {
 				artifact := server.createArtifact(domainID, invocationID, eventTime, payload)
 				invocation.ArtifactIDs = append(invocation.ArtifactIDs, artifact.Metadata.ID)
@@ -623,7 +633,7 @@ func (server *Server) invokeAgentService(response http.ResponseWriter, request *
 				IsolationDomainID: domainID,
 				InvocationID:      invocationID,
 				Sequence:          runtimeEvent.Sequence,
-				Type:              runtimeEvent.Type,
+				Type:              eventType,
 				OccurredAt:        eventTime,
 				RecordedAt:        eventTime,
 				CorrelationID:     correlationID,
@@ -633,7 +643,7 @@ func (server *Server) invokeAgentService(response http.ResponseWriter, request *
 				Payload:           payload,
 				Extensions:        runtimeEvent.Extensions,
 			})
-			applyEvent(&invocation, runtimeEvent.Type, payload, eventTime)
+			applyEvent(&invocation, eventType, payload, eventTime)
 		}
 		key := resourceKey(domainID, invocationID)
 		server.invocations[key] = invocation

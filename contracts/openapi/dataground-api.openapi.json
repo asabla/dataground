@@ -576,7 +576,7 @@
       "post": {
         "operationId": "invokeAgentService",
         "summary": "Invoke a published service revision through an alias",
-        "description": "New invocations validate input against the exact alias-resolved revision inputSchema before creating work. JSON Schema defaults to draft 2020-12; external resource loading is disabled. Input mismatch returns 400 INVOCATION_INPUT_INVALID; an invalid or unresolvable schema returns 409 REVISION_INPUT_SCHEMA_INVALID. Accepted idempotent replay retains the original revision and response after alias changes.",
+        "description": "New invocations validate input against the exact alias-resolved revision inputSchema before creating work. JSON Schema defaults to draft 2020-12; external resource loading is disabled. Input mismatch returns 400 INVOCATION_INPUT_INVALID; an invalid or unresolvable schema returns 409 REVISION_INPUT_SCHEMA_INVALID. Accepted idempotent replay retains the original revision and response after alias changes. Reference runtimes validate the completed result against that revision outputSchema; invalid output ends as failed with INVOCATION_OUTPUT_INVALID and no result, while an invalid retained schema uses REVISION_OUTPUT_SCHEMA_INVALID. This is a terminal invocation outcome, not an admission rejection.",
         "parameters": [
           { "$ref": "#/components/parameters/IsolationDomainId" },
           { "$ref": "#/components/parameters/ServiceId" },
