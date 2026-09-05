@@ -95,6 +95,45 @@ func TestCodexProbesCompleteConcreteScenario(t *testing.T) {
 	}
 }
 
+func TestCodexProbesRejectUnexpectedTerminalWithoutWaitingForDeadline(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		index  int
+		status string
+	}{
+		{"failed-success-probe", 1, "failed"},
+		{"cancelled-success-probe", 1, "interrupted"},
+		{"successful-failure-probe", 2, "completed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			scripts := codexProbeScripts(testRunID)
+			scripts[test.index] = func(server *codexProbeServer) {
+				server.start()
+				server.notify("turn/completed", map[string]any{
+					"threadId": "native-thread", "turn": map[string]any{"id": "native-turn", "status": test.status, "items": []any{}},
+				})
+			}
+			fixture := newCodexProbeFixture(scripts...)
+			probes := fixture.open(t)
+			calls := []func(context.Context, ProbeRequest) (ProbeResult, error){probes.Initialize, probes.TurnSuccess, probes.TurnFailure}
+			for index := 0; index < test.index; index++ {
+				if _, err := calls[index](context.Background(), testProbeRequest()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			result, err := calls[test.index](ctx, testProbeRequest())
+			if ctx.Err() != nil || !errors.Is(err, ErrCodexProbeObservation) || result.ObservationSHA256 != ([32]byte{}) {
+				t.Fatalf("unexpected terminal did not fail immediately without evidence: %v", err)
+			}
+			if _, err := probes.EventNormalization(context.Background(), testProbeRequest()); !errors.Is(err, ErrCodexProbeOrder) {
+				t.Fatal("unexpected terminal did not poison the remaining probes")
+			}
+		})
+	}
+}
+
 func TestCodexProbesFailClosed(t *testing.T) {
 	t.Parallel()
 
