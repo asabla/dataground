@@ -1043,6 +1043,12 @@
         "properties": {
           "metadata": { "$ref": "#/components/schemas/ResourceMetadata" },
           "kind": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "resourceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The exact affected resource in metadata.isolationDomainId: a revision for service-publication or an invocation for invocation-execution. Present on current operation reads and newly accepted publication receipts. Historical idempotent receipts may omit it; clients must obtain an authorized operation read and validate its resource binding before relying on those receipts."
+          },
           "command": { "type": "string", "minLength": 1, "maxLength": 64 },
           "desiredState": { "type": "string", "minLength": 1, "maxLength": 64 },
           "observedState": { "type": "string", "minLength": 1, "maxLength": 64 },

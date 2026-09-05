@@ -261,6 +261,36 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if publicationOperation.ResourceID != revisionID {
+		t.Fatal("publication acceptance omitted its revision binding")
+	}
+	// Simulate a retained receipt from before the additive resource binding.
+	// Replay must remain byte-exact; a current authorized read supplies the binding.
+	var legacy map[string]any
+	if err := json.Unmarshal(publish.Body, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	delete(legacy, "resourceId")
+	legacyBody, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idem := testIdempotency(domainID, "publish")
+	if _, err := pool.Exec(ctx, `UPDATE idempotency_records SET response_body=$5 WHERE isolation_domain_id=$1 AND method=$2 AND request_path=$3 AND idempotency_key=$4`, domainID, idem.Method, idem.Path, idem.Key, legacyBody); err != nil {
+		t.Fatal(err)
+	}
+	replay, err := repository.AcceptPublication(ctx, idem, persistence.AcceptPublicationInput{RevisionID: revisionID, ExpectedVersion: 1, ActorID: actorID, Deadline: time.Now().Add(time.Minute)}, reference.Capabilities())
+	if err != nil || string(replay.Body) != string(legacyBody) {
+		t.Fatal("historical publication replay was rewritten")
+	}
+	bound, err := persistence.NewRepository(pool).GetOperation(ctx, domainID, publicationOperation.Metadata.ID)
+	if err != nil || bound.ResourceID != revisionID || bound.Kind != "service-publication" {
+		t.Fatal("current publication read lost resource binding")
+	}
+	if _, err := repository.GetOperation(ctx, identity.New("iso"), publicationOperation.Metadata.ID); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatal("operation read crossed isolation scope")
+	}
+
 	stale, err := repository.ClaimNext(ctx, persistence.OperationKindPublication, "stale-worker", -time.Second)
 	if err != nil || stale == nil {
 		t.Fatalf("claim stale lease = (%v, %v)", stale, err)
@@ -328,7 +358,7 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 			t.Fatalf("advance invocation to %s = (%t, %v)", wantState, ran, err)
 		}
 		operation, err := repository.GetOperation(ctx, domainID, invocation.OperationID)
-		if err != nil || operation.ObservedState != wantState {
+		if err != nil || operation.ObservedState != wantState || operation.ResourceID != invocationID {
 			t.Fatalf("invocation operation state = (%q, %v), want %q", operation.ObservedState, err, wantState)
 		}
 	}

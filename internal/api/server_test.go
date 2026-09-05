@@ -347,6 +347,11 @@ func TestReferenceRuntimeLifecycleAndReplay(t *testing.T) {
 		t.Fatalf("invocation lost revision or operation identity: %#v", observed)
 	}
 
+	operation := performJSON[api.Operation](t, handler, http.MethodGet, "/v1/isolation-domains/"+testDomain+"/operations/"+observed.OperationID, "", nil, http.StatusOK)
+	if operation.ResourceID != observed.Metadata.ID || operation.Kind != "invocation-execution" || operation.Metadata.IsolationDomainID != testDomain {
+		t.Fatal("operation did not bind the exact invocation")
+	}
+
 	journal := streamEvents(t, handler, invocationPath+"/events", "")
 	wantTypes := []string{
 		"lifecycle.started",
