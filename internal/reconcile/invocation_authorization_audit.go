@@ -70,6 +70,23 @@ func (evaluator *AuditedInvocationCedarEvaluator) EvaluateInvocationAuthorizatio
 		PolicyDigest:      "sha256:" + hex.EncodeToString(policy.Digest[:]),
 		CorrelationID:     input.CorrelationID,
 	}
+	if input.Question != nil {
+		questionRecorder, ok := evaluator.recorder.(authz.InvocationQuestionDecisionRecorder)
+		if !ok || governedInvocationDependencyMissing(questionRecorder) {
+			return ErrInvocationAuthorizationPolicyUnavailable
+		}
+		questionRecord := authz.InvocationQuestionDecisionRecord{
+			Invocation: record, PolicyContract: policy.Contract, QuestionID: input.Question.ID, QuestionVersion: input.Question.Version, Phase: input.Question.Phase,
+			QuestionCount: input.Question.QuestionCount, FreeTextCount: input.Question.FreeTextCount, SelectedOptionCount: input.Question.SelectedOptionCount,
+		}
+		if !questionRecord.Valid() {
+			return ErrInvocationAuthorizationPolicyUnavailable
+		}
+		if recordErr := questionRecorder.RecordInvocationQuestionAuthorizationDecision(ctx, questionRecord); recordErr != nil {
+			return ErrInvocationAuthorizationPolicyUnavailable
+		}
+		return err
+	}
 	if !record.Valid() {
 		return ErrInvocationAuthorizationPolicyUnavailable
 	}

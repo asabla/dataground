@@ -15,6 +15,8 @@ const invocationCedarSchemaV2 = `{"DataGround":{"entityTypes":{"Role":{"memberOf
 
 const invocationCedarSchemaV3 = `{"DataGround":{"entityTypes":{"Role":{"memberOfTypes":[],"shape":{"type":"Record","attributes":{},"additionalAttributes":false},"tags":{"type":"String"}},"Actor":{"memberOfTypes":["Role"],"shape":{"type":"Record","attributes":{},"additionalAttributes":false},"tags":{"type":"String"}},"Invocation":{"memberOfTypes":[],"shape":{"type":"Record","attributes":{},"additionalAttributes":false},"tags":{"type":"String"}}},"actions":{"admit":{"appliesTo":{"principalTypes":["Actor"],"resourceTypes":["Invocation"],"context":{"type":"Record","attributes":{"isolationDomainID":{"type":"String","required":true},"operationID":{"type":"String","required":true},"serviceID":{"type":"String","required":true},"revisionID":{"type":"String","required":true},"correlationID":{"type":"String","required":true}},"additionalAttributes":false}}},"run":{"appliesTo":{"principalTypes":["Actor"],"resourceTypes":["Invocation"],"context":{"type":"Record","attributes":{"isolationDomainID":{"type":"String","required":true},"operationID":{"type":"String","required":true},"serviceID":{"type":"String","required":true},"revisionID":{"type":"String","required":true},"correlationID":{"type":"String","required":true},"runtime":{"type":"Record","required":true,"attributes":{"approvalMode":{"type":"String","required":true},"sandboxMode":{"type":"String","required":true},"hasOutputSchema":{"type":"Boolean","required":true},"artifactCount":{"type":"Long","required":true},"artifactKinds":{"type":"Set","element":{"type":"String"},"required":true}},"additionalAttributes":false}},"additionalAttributes":false}}},"cancel":{"appliesTo":{"principalTypes":["Actor"],"resourceTypes":["Invocation"],"context":{"type":"Record","attributes":{"isolationDomainID":{"type":"String","required":true},"operationID":{"type":"String","required":true},"serviceID":{"type":"String","required":true},"revisionID":{"type":"String","required":true},"correlationID":{"type":"String","required":true}},"additionalAttributes":false}}},"approve":{"appliesTo":{"principalTypes":["Actor"],"resourceTypes":["Invocation"],"context":{"type":"Record","attributes":{"isolationDomainID":{"type":"String","required":true},"operationID":{"type":"String","required":true},"serviceID":{"type":"String","required":true},"revisionID":{"type":"String","required":true},"correlationID":{"type":"String","required":true},"approval":{"type":"Record","required":true,"attributes":{"approvalID":{"type":"String","required":true},"requestedAction":{"type":"String","required":true},"decision":{"type":"String","required":true},"phase":{"type":"String","required":true}},"additionalAttributes":false}},"additionalAttributes":false}}}}}}`
 
+const invocationCedarSchemaV4 = `{"DataGround":{"entityTypes":{"Role":{"memberOfTypes":[],"shape":{"type":"Record","attributes":{},"additionalAttributes":false},"tags":{"type":"String"}},"Actor":{"memberOfTypes":["Role"],"shape":{"type":"Record","attributes":{},"additionalAttributes":false},"tags":{"type":"String"}},"Invocation":{"memberOfTypes":[],"shape":{"type":"Record","attributes":{},"additionalAttributes":false},"tags":{"type":"String"}}},"actions":{"admit":{"appliesTo":{"principalTypes":["Actor"],"resourceTypes":["Invocation"],"context":{"type":"Record","attributes":{"isolationDomainID":{"type":"String","required":true},"operationID":{"type":"String","required":true},"serviceID":{"type":"String","required":true},"revisionID":{"type":"String","required":true},"correlationID":{"type":"String","required":true}},"additionalAttributes":false}}},"run":{"appliesTo":{"principalTypes":["Actor"],"resourceTypes":["Invocation"],"context":{"type":"Record","attributes":{"isolationDomainID":{"type":"String","required":true},"operationID":{"type":"String","required":true},"serviceID":{"type":"String","required":true},"revisionID":{"type":"String","required":true},"correlationID":{"type":"String","required":true},"runtime":{"type":"Record","required":true,"attributes":{"approvalMode":{"type":"String","required":true},"sandboxMode":{"type":"String","required":true},"hasOutputSchema":{"type":"Boolean","required":true},"artifactCount":{"type":"Long","required":true},"artifactKinds":{"type":"Set","element":{"type":"String"},"required":true},"questionTimeoutMillis":{"type":"Long","required":false}},"additionalAttributes":false}},"additionalAttributes":false}}},"cancel":{"appliesTo":{"principalTypes":["Actor"],"resourceTypes":["Invocation"],"context":{"type":"Record","attributes":{"isolationDomainID":{"type":"String","required":true},"operationID":{"type":"String","required":true},"serviceID":{"type":"String","required":true},"revisionID":{"type":"String","required":true},"correlationID":{"type":"String","required":true}},"additionalAttributes":false}}},"approve":{"appliesTo":{"principalTypes":["Actor"],"resourceTypes":["Invocation"],"context":{"type":"Record","attributes":{"isolationDomainID":{"type":"String","required":true},"operationID":{"type":"String","required":true},"serviceID":{"type":"String","required":true},"revisionID":{"type":"String","required":true},"correlationID":{"type":"String","required":true},"approval":{"type":"Record","required":true,"attributes":{"approvalID":{"type":"String","required":true},"requestedAction":{"type":"String","required":true},"decision":{"type":"String","required":true},"phase":{"type":"String","required":true}},"additionalAttributes":false}},"additionalAttributes":false}}},"answer":{"appliesTo":{"principalTypes":["Actor"],"resourceTypes":["Invocation"],"context":{"type":"Record","attributes":{"isolationDomainID":{"type":"String","required":true},"operationID":{"type":"String","required":true},"serviceID":{"type":"String","required":true},"revisionID":{"type":"String","required":true},"correlationID":{"type":"String","required":true},"question":{"type":"Record","required":true,"attributes":{"questionID":{"type":"String","required":true},"version":{"type":"Long","required":true},"phase":{"type":"String","required":true},"questionCount":{"type":"Long","required":true},"freeTextCount":{"type":"Long","required":true},"selectedOptionCount":{"type":"Long","required":true}},"additionalAttributes":false}},"additionalAttributes":false}}}}}}`
+
 var errInvocationCedarEvaluation = errors.New("invocation Cedar evaluation failed")
 
 type CedarInvocationAuthorizationEvaluator struct{}
@@ -30,6 +32,8 @@ func CanonicalInvocationCedarSchema() []byte {
 func CanonicalInvocationCedarEntitySchema() []byte {
 	return []byte(invocationCedarSchemaV2)
 }
+
+func CanonicalInvocationCedarQuestionSchema() []byte { return []byte(invocationCedarSchemaV4) }
 
 func CanonicalInvocationCedarApprovalSchema() []byte {
 	return []byte(invocationCedarSchemaV3)
@@ -55,6 +59,10 @@ func (*CedarInvocationAuthorizationEvaluator) EvaluateInvocationAuthorization(
 	policies, err := validatedInvocationCedarPolicySet(policy, scope)
 	if err != nil {
 		return errInvocationCedarEvaluation
+	}
+	// A wildcard in an older policy never acquires question authority.
+	if input.Contract == InvocationCedarQuestionContract && policy.Contract != InvocationAuthorizationPolicyQuestionContract {
+		return ErrInvocationAuthorizationDenied
 	}
 	entities, err := validatedInvocationCedarEntities(policy, scope)
 	if err != nil {
@@ -95,6 +103,10 @@ func validatedInvocationCedarPolicySet(
 		}
 	case InvocationAuthorizationPolicyApprovalContract:
 		if !bytes.Equal(policy.Schema, []byte(invocationCedarSchemaV3)) {
+			return nil, errInvocationCedarEvaluation
+		}
+	case InvocationAuthorizationPolicyQuestionContract:
+		if !bytes.Equal(policy.Schema, []byte(invocationCedarSchemaV4)) {
 			return nil, errInvocationCedarEvaluation
 		}
 	default:
@@ -147,6 +159,12 @@ func invocationCedarRequest(input InvocationCedarInput) (cedar.Request, error) {
 		"revisionID":        cedar.String(input.RevisionID),
 		"correlationID":     cedar.String(input.CorrelationID),
 	}
+	if input.Question != nil {
+		contextValues["question"] = cedar.NewRecord(cedar.RecordMap{
+			"questionID": cedar.String(input.Question.ID), "version": cedar.Long(input.Question.Version), "phase": cedar.String(input.Question.Phase),
+			"questionCount": cedar.Long(input.Question.QuestionCount), "freeTextCount": cedar.Long(input.Question.FreeTextCount), "selectedOptionCount": cedar.Long(input.Question.SelectedOptionCount),
+		})
+	}
 	if input.Approval != nil {
 		contextValues["approval"] = cedar.NewRecord(cedar.RecordMap{
 			"approvalID":      cedar.String(input.Approval.ID),
@@ -164,13 +182,17 @@ func invocationCedarRequest(input InvocationCedarInput) (cedar.Request, error) {
 		if input.Runtime.HasOutputSchema {
 			hasOutputSchema = cedar.True
 		}
-		contextValues["runtime"] = cedar.NewRecord(cedar.RecordMap{
+		runtimeValues := cedar.RecordMap{
 			"approvalMode":    cedar.String(input.Runtime.ApprovalMode),
 			"sandboxMode":     cedar.String(input.Runtime.SandboxMode),
 			"hasOutputSchema": hasOutputSchema,
 			"artifactCount":   cedar.Long(input.Runtime.ArtifactCount),
 			"artifactKinds":   cedar.NewSet(artifactKinds...),
-		})
+		}
+		if input.Runtime.QuestionTimeoutMillis > 0 {
+			runtimeValues["questionTimeoutMillis"] = cedar.Long(input.Runtime.QuestionTimeoutMillis)
+		}
+		contextValues["runtime"] = cedar.NewRecord(runtimeValues)
 	}
 	return cedar.Request{
 		Principal: cedar.NewEntityUID(

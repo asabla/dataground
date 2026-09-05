@@ -61,12 +61,14 @@ func (record InvocationAuthorizationPolicyRecord) Valid() bool {
 		digest := invocationAuthorizationPolicyRecordDigest(record.Schema, record.Policies)
 		return len(record.Entities) == 0 && bytes.Equal(record.PolicyDigest, digest[:])
 	case "dataground.invocation-authorization-policy/v2",
-		"dataground.invocation-authorization-policy/v3":
+		"dataground.invocation-authorization-policy/v3", "dataground.invocation-authorization-policy/v4":
 		if !validInvocationAuthorizationEntityBytes(record.Entities) {
 			return false
 		}
 		var digest [sha256.Size]byte
-		if record.Contract == "dataground.invocation-authorization-policy/v3" {
+		if record.Contract == "dataground.invocation-authorization-policy/v4" {
+			digest = authz.InvocationAuthorizationPolicyV4Digest(record.Schema, record.Policies, record.Entities)
+		} else if record.Contract == "dataground.invocation-authorization-policy/v3" {
 			digest = authz.InvocationAuthorizationPolicyV3Digest(
 				record.Schema, record.Policies, record.Entities,
 			)
