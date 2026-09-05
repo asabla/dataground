@@ -135,6 +135,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}/actions/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Withdraw a service alias
+         * @description Stops new routing through this alias after an exact version check. Accepted invocations and historical command replay remain unchanged. The response records withdrawnAt; ordinary alias reads return 404 while withdrawn. Assigning the name again uses the absent-alias precondition (omitted or zero expectedVersion) and preserves its identity while advancing its version, preventing stale updates after reuse.
+         */
+        post: operations["withdrawServiceAlias"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations": {
         parameters: {
             query?: never;
@@ -407,6 +427,8 @@ export interface components {
             serviceId: components["schemas"]["ServiceId"];
             name: components["schemas"]["AliasName"];
             revisionId: components["schemas"]["RevisionId"];
+            /** Format: date-time */
+            withdrawnAt?: string;
         } & {
             [key: string]: unknown;
         };
@@ -576,6 +598,9 @@ export interface components {
         AssignServiceAliasRequest: {
             revisionId: components["schemas"]["RevisionId"];
             expectedVersion?: number;
+        };
+        WithdrawServiceAliasRequest: {
+            expectedVersion: number;
         };
         InvokeAgentServiceRequest: {
             alias: components["schemas"]["AliasName"];
@@ -928,6 +953,44 @@ export interface operations {
         };
         responses: {
             /** @description Alias assigned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceAlias"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            415: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    withdrawServiceAlias: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque caller key scoped to the isolation domain, HTTP method, and route. Reuse with a different body fails with IDEMPOTENCY_KEY_REUSED. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                serviceId: components["parameters"]["ServiceId"];
+                alias: components["parameters"]["Alias"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WithdrawServiceAliasRequest"];
+            };
+        };
+        responses: {
+            /** @description Withdrawn alias receipt. */
             200: {
                 headers: {
                     [name: string]: unknown;

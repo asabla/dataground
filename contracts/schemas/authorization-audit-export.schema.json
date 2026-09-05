@@ -149,6 +149,7 @@
             "listServiceRevisions",
             "publishServiceRevision",
             "retireServiceRevision",
+            "withdrawServiceAlias",
             "readServiceAlias",
             "assignServiceAlias",
             "invokeAgentService",

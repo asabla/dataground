@@ -161,6 +161,9 @@ func (server *Server) handler(
 	mux.Handle("PUT /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}", protected(
 		authz.AssignServiceAlias, authz.AgentService, "serviceId", server.assignServiceAlias,
 	))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}/actions/withdraw", protected(
+		authz.WithdrawServiceAlias, authz.AgentService, "serviceId", server.withdrawServiceAlias,
+	))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations", protected(
 		authz.ListInvocations, authz.AgentService, "serviceId", server.listInvocations,
 	))
@@ -466,10 +469,15 @@ func (server *Server) assignServiceAlias(response http.ResponseWriter, request *
 		current, exists := server.aliases[key]
 		now := server.now()
 		if exists {
-			if input.ExpectedVersion == nil || *input.ExpectedVersion != current.Metadata.Version {
+			requiredVersion := current.Metadata.Version
+			if current.WithdrawnAt != nil {
+				requiredVersion = 0
+			}
+			if (input.ExpectedVersion == nil && requiredVersion != 0) || (input.ExpectedVersion != nil && *input.ExpectedVersion != requiredVersion) {
 				return conflict("VERSION_CONFLICT", "Alias version did not match.")
 			}
 			current.RevisionID = input.RevisionID
+			current.WithdrawnAt = nil
 			current.Metadata.Generation++
 			current.Metadata.Version++
 			current.Metadata.UpdatedAt = now
@@ -512,7 +520,7 @@ func (server *Server) getServiceAlias(response http.ResponseWriter, request *htt
 		writeJSON(response, status, body)
 		return
 	}
-	if !aliasExists {
+	if !aliasExists || alias.WithdrawnAt != nil {
 		writeJSON(response, http.StatusNotFound, ErrorEnvelope{Error: safeError(
 			"SERVICE_ALIAS_NOT_FOUND", "Service alias was not found.", false,
 		)})
@@ -539,7 +547,7 @@ func (server *Server) invokeAgentService(response http.ResponseWriter, request *
 			return invalidField("alias", "Alias and input are required.")
 		}
 		alias, exists := server.aliases[aliasKey(domainID, serviceID, input.Alias)]
-		if !exists {
+		if !exists || alias.WithdrawnAt != nil {
 			return notFound("Service alias was not found.")
 		}
 		revision, exists := server.revisions[resourceKey(domainID, alias.RevisionID)]

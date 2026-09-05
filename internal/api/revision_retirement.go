@@ -52,8 +52,8 @@ func (server *Server) retireServiceRevision(response http.ResponseWriter, reques
 			return reject(http.StatusConflict, "REVISION_NOT_PUBLISHED", "Only a published revision can be retired.")
 		}
 		for _, alias := range server.aliases {
-			if alias.Metadata.IsolationDomainID == domainID && alias.RevisionID == revision.Metadata.ID {
-				return reject(http.StatusConflict, "REVISION_STILL_ROUTED", "Move all aliases away from this revision before retiring it.")
+			if alias.Metadata.IsolationDomainID == domainID && alias.RevisionID == revision.Metadata.ID && alias.WithdrawnAt == nil {
+				return reject(http.StatusConflict, "REVISION_STILL_ROUTED", "Move or withdraw all aliases from this revision before retiring it.")
 			}
 		}
 		for _, invocation := range server.invocations {

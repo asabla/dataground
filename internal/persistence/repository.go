@@ -472,23 +472,28 @@ func (repository *Repository) AssignAlias(
 		var alias domain.ServiceAlias
 		err := scanAlias(tx.QueryRow(ctx, `
 			SELECT isolation_domain_id, id, service_id, name, revision_id,
-			       generation, version, created_at, updated_at, created_by
+			       generation, version, created_at, updated_at, created_by, withdrawn_at
 			FROM service_aliases
 			WHERE isolation_domain_id = $1 AND service_id = $2 AND name = $3
 			FOR UPDATE
 		`, idempotency.IsolationDomainID, input.ServiceID, input.Name), &alias)
 		switch {
 		case err == nil:
-			if input.ExpectedVersion == nil || *input.ExpectedVersion != alias.Metadata.Version {
+			requiredVersion := alias.Metadata.Version
+			if alias.WithdrawnAt != nil {
+				requiredVersion = 0
+			}
+			if (input.ExpectedVersion == nil && requiredVersion != 0) || (input.ExpectedVersion != nil && *input.ExpectedVersion != requiredVersion) {
 				return 0, nil, &DomainError{Code: "VERSION_CONFLICT", Message: "Alias version did not match."}
 			}
 			alias.RevisionID = input.RevisionID
+			alias.WithdrawnAt = nil
 			alias.Metadata.Generation++
 			alias.Metadata.Version++
 			alias.Metadata.UpdatedAt = now
 			_, err = tx.Exec(ctx, `
 				UPDATE service_aliases
-				SET revision_id = $4, generation = generation + 1, version = version + 1, updated_at = $5
+				SET revision_id = $4, withdrawn_at = NULL, generation = generation + 1, version = version + 1, updated_at = $5
 				WHERE isolation_domain_id = $1 AND service_id = $2 AND name = $3
 			`, idempotency.IsolationDomainID, input.ServiceID, input.Name, input.RevisionID, now)
 		case errors.Is(err, pgx.ErrNoRows):
@@ -548,9 +553,9 @@ func (repository *Repository) GetServiceAlias(
 	var alias domain.ServiceAlias
 	if err := scanAlias(repository.pool.QueryRow(ctx, `
 		SELECT isolation_domain_id, id, service_id, name, revision_id,
-		       generation, version, created_at, updated_at, created_by
+		       generation, version, created_at, updated_at, created_by, withdrawn_at
 		FROM service_aliases
-		WHERE isolation_domain_id = $1 AND service_id = $2 AND name = $3
+		WHERE isolation_domain_id = $1 AND service_id = $2 AND name = $3 AND withdrawn_at IS NULL
 	`, isolationDomainID, serviceID, name), &alias); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ServiceAlias{}, &DomainError{
@@ -592,6 +597,7 @@ func (repository *Repository) AcceptInvocation(
 			WHERE alias.isolation_domain_id = $1
 			  AND alias.service_id = $2
 			  AND alias.name = $3
+			  AND alias.withdrawn_at IS NULL
 			  AND revision.state = 'published'
 			FOR SHARE OF alias, revision
 		`, idempotency.IsolationDomainID, input.ServiceID, input.Alias).Scan(&revisionID, &runtimeProfile, &inputSchemaJSON); err != nil {
@@ -1048,6 +1054,7 @@ func scanAlias(row rowScanner, alias *domain.ServiceAlias) error {
 		&alias.Metadata.CreatedAt,
 		&alias.Metadata.UpdatedAt,
 		&alias.Metadata.CreatedBy,
+		&alias.WithdrawnAt,
 	)
 }
 
