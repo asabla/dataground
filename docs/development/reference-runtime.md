@@ -26,6 +26,11 @@ In the Workbench, select a service and open Interactions to browse invocation hi
 
 Schema migration 45 adds the service-history index and permits the new action in append-only API decision audit. Upgrade the database before starting the new API. Downgrade is refused once a `listInvocations` decision exists, preserving historical authorization evidence; forward repair is then required. Earlier code does not expose the new endpoint and retains its existing strict schema-version startup check.
 
+A published revision can be retired with `POST /v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/retire`, an idempotency key, and `{"expectedVersion": 2}` using its current version. The exact revision requires `retireServiceRevision` authorization. Move every alias away first, then finish or cancel all invocations and complete any pending publication or repair. Routed revisions return `REVISION_STILL_ROUTED`; nonterminal invocation or operation state, including waiting or unknown work, returns `REVISION_STILL_ACTIVE`. Retirement increments the resource version, permanently prevents new routing and new operator repair through that revision, and preserves definitions, publication provenance, invocation history, artifacts and audit. It does not delete retained data, revoke independent provider grants, or implement content retention policy. Exact historical command and repair replay remains read-only.
+
+Schema migration 46 permits retirement decisions in append-only API audit. Revision locks serialize retirement with alias assignment, invocation admission and repair, and the successful state change, outbox event, audit record and idempotency receipt commit together. Downgrade is refused after retirement authorization or a successful retirement receipt; forward repair is required. The strict schema-version startup check prevents older API and worker binaries from starting against the new schema. The Workbench lists retired revisions; retirement itself is currently an API command.
+
+
 Service and revision discovery return bounded newest-first pages. Each opaque continuation cursor
 binds the next page to the last observed service creation or revision-number boundary and never
 substitutes for isolation-domain authorization. Revision discovery also requires the exact service

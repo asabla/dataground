@@ -661,6 +661,9 @@ func (repository *Repository) RepairOperation(
 		}
 		return nil
 	}
+	if err := lockRepairRevision(ctx, tx, kind, isolationDomainID, operationID); err != nil {
+		return err
+	}
 	query := fmt.Sprintf(`
 		UPDATE %s
 		SET command = 'repair', observed_state = 'queued',
