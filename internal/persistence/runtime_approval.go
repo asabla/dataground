@@ -532,23 +532,22 @@ func verifyReservedInvocationRuntimeAttempt(
 }
 
 func (repository *Repository) recordInvocationRuntimeApprovalEvent(
-	ctx context.Context,
-	tx pgx.Tx,
-	claim OperationClaim,
-	target InvocationRuntimeTarget,
-	approval InvocationRuntimeApproval,
+	ctx context.Context, tx pgx.Tx, claim OperationClaim, target InvocationRuntimeTarget, approval InvocationRuntimeApproval,
 ) error {
-	payload := map[string]any{
-		"approvalId": approval.ID,
-		"action":     approval.RequestedAction,
-		"version":    int64(1),
-	}
+	return repository.recordInvocationRuntimeInteractionEvent(ctx, tx, claim, target, approval.SourceSequence, "interaction.approval.requested", map[string]any{
+		"approvalId": approval.ID, "action": approval.RequestedAction, "version": int64(1),
+	})
+}
+
+func (repository *Repository) recordInvocationRuntimeInteractionEvent(
+	ctx context.Context, tx pgx.Tx, claim OperationClaim, target InvocationRuntimeTarget, sourceSequence uint64, eventType string, payload map[string]any,
+) error {
 	encodedPayload, err := json.Marshal(payload)
 	if err != nil || len(encodedPayload) > maximumInvocationRuntimeEventPayloadBytes {
 		return ErrInvocationRuntimeEventInvalid
 	}
 	existing, found, err := getInvocationRuntimeEvent(
-		ctx, tx, target.IsolationDomainID, target.InvocationID, approval.SourceSequence,
+		ctx, tx, target.IsolationDomainID, target.InvocationID, sourceSequence,
 	)
 	if err != nil {
 		return err
@@ -556,9 +555,9 @@ func (repository *Repository) recordInvocationRuntimeApprovalEvent(
 	if found {
 		encodedExisting, encodeErr := json.Marshal(existing.Payload)
 		if encodeErr != nil {
-			return fmt.Errorf("encode persisted invocation approval event: %w", encodeErr)
+			return fmt.Errorf("encode persisted invocation interaction event: %w", encodeErr)
 		}
-		if existing.Type != "interaction.approval.requested" ||
+		if existing.Type != eventType ||
 			!bytes.Equal(encodedExisting, encodedPayload) {
 			return ErrInvocationRuntimeEventConflict
 		}
@@ -570,17 +569,17 @@ func (repository *Repository) recordInvocationRuntimeApprovalEvent(
 		FROM invocation_events
 		WHERE isolation_domain_id = $1 AND invocation_id = $2
 	`, target.IsolationDomainID, target.InvocationID).Scan(&sequence); err != nil {
-		return fmt.Errorf("allocate invocation approval event sequence: %w", err)
+		return fmt.Errorf("allocate invocation interaction event sequence: %w", err)
 	}
 	now := repository.now()
 	value := domain.EventEnvelope{
 		Source:            "runtime",
 		SchemaVersion:     "dataground.event/v1",
-		ID:                identity.Derived("evt", target.InvocationID+":runtime:"+strconv.FormatUint(approval.SourceSequence, 10)),
+		ID:                identity.Derived("evt", target.InvocationID+":runtime:"+strconv.FormatUint(sourceSequence, 10)),
 		IsolationDomainID: target.IsolationDomainID,
 		InvocationID:      target.InvocationID,
 		Sequence:          sequence,
-		Type:              "interaction.approval.requested",
+		Type:              eventType,
 		OccurredAt:        now,
 		RecordedAt:        now,
 		CorrelationID:     target.CorrelationID,
@@ -609,11 +608,11 @@ func (repository *Repository) recordInvocationRuntimeApprovalEvent(
 		  AND operation.deadline_at > clock_timestamp()
 	`, value.IsolationDomainID, value.InvocationID, value.ID, value.Sequence, value.SchemaVersion,
 		value.Type, value.OccurredAt, value.RecordedAt, value.CorrelationID, value.ActorID,
-		value.ServiceID, value.RevisionID, encodedPayload, approval.SourceSequence,
+		value.ServiceID, value.RevisionID, encodedPayload, sourceSequence,
 		claim.ID, claim.Command, claim.ObservedState, claim.LeaseOwner, claim.FencingToken,
 	)
 	if err != nil {
-		return fmt.Errorf("persist invocation approval event: %w", err)
+		return fmt.Errorf("persist invocation interaction event: %w", err)
 	}
 	if result.RowsAffected() != 1 {
 		return ErrLeaseLost
