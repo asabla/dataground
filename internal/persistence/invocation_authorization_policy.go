@@ -65,23 +65,28 @@ func (record InvocationAuthorizationPolicyRecord) Valid() bool {
 		if !validInvocationAuthorizationEntityBytes(record.Entities) {
 			return false
 		}
-		var digest [sha256.Size]byte
-		if record.Contract == "dataground.invocation-authorization-policy/v4" {
-			digest = authz.InvocationAuthorizationPolicyV4Digest(record.Schema, record.Policies, record.Entities)
-		} else if record.Contract == "dataground.invocation-authorization-policy/v3" {
-			digest = authz.InvocationAuthorizationPolicyV3Digest(
-				record.Schema, record.Policies, record.Entities,
-			)
-		} else {
-			digest = authz.InvocationAuthorizationPolicyV2Digest(
-				record.Schema, record.Policies, record.Entities,
-			)
-		}
+		digest, _ := record.entityPolicyDigest(record.Entities)
 		return bytes.Equal(record.PolicyDigest, digest[:])
 	default:
 		return false
 	}
 }
+
+// Entity refresh must retain the installed contract's digest domain. An entity
+// generation changes membership, never the policy's available actions or schema.
+func (record InvocationAuthorizationPolicyRecord) entityPolicyDigest(entities []byte) ([sha256.Size]byte, bool) {
+	switch record.Contract {
+	case "dataground.invocation-authorization-policy/v2":
+		return authz.InvocationAuthorizationPolicyV2Digest(record.Schema, record.Policies, entities), true
+	case "dataground.invocation-authorization-policy/v3":
+		return authz.InvocationAuthorizationPolicyV3Digest(record.Schema, record.Policies, entities), true
+	case "dataground.invocation-authorization-policy/v4":
+		return authz.InvocationAuthorizationPolicyV4Digest(record.Schema, record.Policies, entities), true
+	default:
+		return [sha256.Size]byte{}, false
+	}
+}
+
 func (repository *Repository) InstallInvocationAuthorizationPolicy(
 	ctx context.Context,
 	record InvocationAuthorizationPolicyRecord,
