@@ -421,6 +421,11 @@ func (server *Server) publishServiceRevision(response http.ResponseWriter, reque
 			}
 		}
 
+		if problem := domain.ValidateRevisionSchemas(revision.InputSchema, revision.OutputSchema); problem != nil {
+			problem.CorrelationID = authenticatedCorrelationID(request)
+			return http.StatusConflict, ErrorEnvelope{Error: *problem}
+		}
+
 		now := server.now()
 		revision.State = "published"
 		revision.PublishedAt = &now

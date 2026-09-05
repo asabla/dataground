@@ -106,7 +106,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Publish a revision immutably */
+        /**
+         * Publish a revision immutably
+         * @description Both input and output schemas must compile without external resource loading before publication is accepted. Invalid contracts return non-retryable 409 REVISION_INPUT_SCHEMA_INVALID or REVISION_OUTPUT_SCHEMA_INVALID without schema details.
+         */
         post: operations["publishServiceRevision"];
         delete?: never;
         options?: never;

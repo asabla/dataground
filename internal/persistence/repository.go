@@ -404,6 +404,10 @@ func (repository *Repository) AcceptPublication(
 			}
 		}
 
+		if problem := domain.ValidateRevisionSchemas(revision.InputSchema, revision.OutputSchema); problem != nil {
+			return 0, nil, &DomainError{Code: problem.Code, Message: problem.Message}
+		}
+
 		operationID := identity.Derived("op", idempotency.IsolationDomainID+":"+input.RevisionID+":publication:v1")
 		insertResult, err := tx.Exec(ctx, `
 			INSERT INTO service_publication_operations (
