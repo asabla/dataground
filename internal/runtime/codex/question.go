@@ -123,6 +123,19 @@ func (client *Client) handleQuestionRequest(message wireMessage) {
 	client.emit("interaction.question.requested", map[string]any{"questionId": id, "questions": cloneQuestionPrompts(prompts), "expiresAt": pending.expiresAt.Format(time.RFC3339Nano)})
 }
 
+// QuestionPending exposes only adapter-local interaction authority. It lets the
+// worker retire its durable request after native clearance without exposing a
+// native handle or sending an answer to probe whether the request still exists.
+func (client *Client) QuestionPending(ctx context.Context, id string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	client.stateMu.Lock()
+	defer client.stateMu.Unlock()
+	pending, exists := client.questions[id]
+	return exists && !client.interactionsClosed && !pending.resolving && time.Now().Before(pending.expiresAt), nil
+}
+
 func (client *Client) AnswerQuestion(ctx context.Context, id string, answers []domain.QuestionAnswer) error {
 	if err := ctx.Err(); err != nil {
 		return err

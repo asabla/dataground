@@ -9,8 +9,32 @@ import (
 	"time"
 
 	"github.com/asabla/dataground/internal/domain"
+	"github.com/asabla/dataground/internal/execution"
 	dgruntime "github.com/asabla/dataground/internal/runtime"
 )
+
+type cancelledQuestionWriteSession struct{ execution.RuntimeSession }
+
+func (cancelledQuestionWriteSession) Close() error { return nil }
+
+func TestQuestionWriteRechecksItsDeliveryContextAfterTheGuard(t *testing.T) {
+	wire := &approvalWire{}
+	client := &Client{input: wire, session: cancelledQuestionWriteSession{}, done: make(chan struct{}), closed: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err := client.writeGuarded(ctx, map[string]any{"result": "bounded answer"}, func() error { cancel(); return nil })
+	if err == nil {
+		t.Fatal("cancelled delivery context was ignored")
+	}
+	// Join the writer even if the outer call observed cancellation first.
+	client.writeMu.Lock()
+	client.writeMu.Unlock()
+	wire.mu.Lock()
+	defer wire.mu.Unlock()
+	if wire.writes != 0 {
+		t.Fatal("answer crossed its delivery context after the guard")
+	}
+}
 
 func TestQueuedQuestionAnswerCannotOutliveNativeClearance(t *testing.T) {
 	wire := &approvalWire{}

@@ -78,6 +78,12 @@ func TestQuestionAnswersUseFrozenChoicesAndHideNativeIdentifiers(t *testing.T) {
 	}
 	prompts[0].Options[0].Label = "tampered display copy"
 	questionTurn := turn.(dgruntime.QuestionTurn)
+	if pending, err := questionTurn.QuestionPending(ctx, "question-1"); err != nil || !pending {
+		t.Fatal("active question authority was not observable")
+	}
+	if pending, err := questionTurn.QuestionPending(ctx, "native-question"); err != nil || pending {
+		t.Fatal("native or missing question gained authority")
+	}
 	if err := questionTurn.AnswerQuestion(ctx, "question-1", nil); !errors.Is(err, domain.ErrQuestionInvalid) {
 		t.Fatal("missing answers were accepted")
 	}
@@ -90,6 +96,9 @@ func TestQuestionAnswersUseFrozenChoicesAndHideNativeIdentifiers(t *testing.T) {
 	answers := []domain.QuestionAnswer{{QuestionID: "item_1", OptionIDs: []string{"option_1"}}, {QuestionID: "item_2", Text: &text}}
 	if err := questionTurn.AnswerQuestion(ctx, "question-1", answers); err != nil {
 		t.Fatal(err)
+	}
+	if pending, err := questionTurn.QuestionPending(ctx, "question-1"); err != nil || pending {
+		t.Fatal("consumed question retained authority")
 	}
 	var received wireRecord
 	select {

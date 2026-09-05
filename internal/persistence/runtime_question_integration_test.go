@@ -29,6 +29,11 @@ type runtimeQuestionFixture struct {
 
 func newRuntimeQuestionFixture(t *testing.T, ctx context.Context) *runtimeQuestionFixture {
 	t.Helper()
+	return newRuntimeQuestionFixtureWithReservation(t, ctx, true)
+}
+
+func newRuntimeQuestionFixtureWithReservation(t *testing.T, ctx context.Context, reserve bool) *runtimeQuestionFixture {
+	t.Helper()
 	pool := resetOperatorAuditDatabase(t, ctx)
 	t.Cleanup(pool.Close)
 	t.Cleanup(func() {
@@ -129,8 +134,10 @@ func newRuntimeQuestionFixture(t *testing.T, ctx context.Context) *runtimeQuesti
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repository.BeginInvocationRuntimeAttempt(ctx, *claim, effect); err != nil {
-		t.Fatal(err)
+	if reserve {
+		if _, err := repository.BeginInvocationRuntimeAttempt(ctx, *claim, effect); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return &runtimeQuestionFixture{repository: repository, pool: pool, claim: *claim, effect: effect, target: target}
 }

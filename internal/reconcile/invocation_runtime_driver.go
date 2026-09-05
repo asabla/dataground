@@ -123,6 +123,8 @@ type InvocationRuntimeDriverConfig struct {
 	Readiness          func(context.Context) error
 	ApprovalStore      InvocationRuntimeApprovalStore
 	ApprovalAuthorizer InvocationApprovalAuthorizer
+	QuestionStore      InvocationRuntimeQuestionStore
+	QuestionAuthorizer InvocationQuestionAuthorizer
 }
 
 // InvocationRuntimeDriver is the claim-bound bridge from one durable runtime
@@ -141,6 +143,8 @@ type InvocationRuntimeDriver struct {
 	readiness          func(context.Context) error
 	approvalStore      InvocationRuntimeApprovalStore
 	approvalAuthorizer InvocationApprovalAuthorizer
+	questionStore      InvocationRuntimeQuestionStore
+	questionAuthorizer InvocationQuestionAuthorizer
 }
 
 func NewInvocationRuntimeDriver(
@@ -166,6 +170,9 @@ func NewInvocationRuntimeDriver(
 		governedInvocationDependencyMissing(config.ApprovalAuthorizer) {
 		return nil, errors.New("runtime approval store and authorizer must be configured together")
 	}
+	if governedInvocationDependencyMissing(config.QuestionStore) != governedInvocationDependencyMissing(config.QuestionAuthorizer) {
+		return nil, errors.New("runtime question store and authorizer must be configured together")
+	}
 	if config.LeaseDuration <= 0 ||
 		config.RenewInterval <= 0 ||
 		config.RenewInterval >= config.LeaseDuration {
@@ -176,6 +183,7 @@ func NewInvocationRuntimeDriver(
 		provider: provider, adapters: adapters, artifacts: artifacts, leaseDuration: config.LeaseDuration,
 		renewInterval: config.RenewInterval, readiness: config.Readiness,
 		approvalStore: config.ApprovalStore, approvalAuthorizer: config.ApprovalAuthorizer,
+		questionStore: config.QuestionStore, questionAuthorizer: config.QuestionAuthorizer,
 	}, nil
 }
 
@@ -341,6 +349,8 @@ func (driver *InvocationRuntimeDriver) ApplyClaimed(
 		target,
 		ref,
 		request.Artifacts,
+		request.QuestionMode == dgruntime.QuestionInteractive,
+		request.QuestionTimeout,
 	)
 }
 
@@ -353,9 +363,53 @@ func (driver *InvocationRuntimeDriver) runTurn(
 	target persistence.InvocationRuntimeTarget,
 	ref execution.ExecutionRef,
 	declarations []dgruntime.ArtifactDeclaration,
-) (map[string]any, error) {
+	questionsEnabled bool,
+	questionTimeout time.Duration,
+) (result map[string]any, runErr error) {
 	runCtx, cancel := context.WithDeadline(ctx, claim.DeadlineAt)
 	defer cancel()
+	questionTurn, supportsQuestions := turn.(dgruntime.QuestionTurn)
+	if questionsEnabled && (!supportsQuestions || governedInvocationDependencyMissing(questionTurn)) {
+		return nil, errors.Join(ErrAmbiguousEffect, dgruntime.ErrQuestionMode)
+	}
+	questions := &invocationRuntimeQuestions{driver: driver, target: target, effect: effect, turn: questionTurn, enabled: questionsEnabled, timeout: questionTimeout}
+	defer func() {
+		if questions.pending == nil {
+			return
+		}
+		cleanup, stop := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		defer stop()
+		if err := questions.close(cleanup, claim, "runtime-ended"); err != nil {
+			runErr = errors.Join(runErr, ErrAmbiguousEffect, err)
+		}
+	}()
+	ended := false
+	consume := func(event dgruntime.Event) error {
+		if handled, err := questions.record(runCtx, claim, event, ended); handled {
+			return err
+		}
+		if event.Type == "interaction.approval.requested" && questions.pending != nil {
+			if err := questions.poll(runCtx, claim); err != nil {
+				return err
+			}
+			if questions.pending != nil {
+				return persistence.ErrInvocationRuntimeQuestionConflict
+			}
+		}
+		renewed, err := driver.recordRuntimeEvent(runCtx, claim, effect, target, turn, event)
+		if err != nil {
+			return err
+		}
+		claim = renewed
+		output.Observe(event)
+		return nil
+	}
+	var questionPoll <-chan time.Time
+	if questionsEnabled {
+		poller := time.NewTicker(invocationQuestionPollInterval)
+		defer poller.Stop()
+		questionPoll = poller.C
+	}
 	waited := make(chan error, 1)
 	go func() { waited <- turn.Wait(runCtx) }()
 	ticker := time.NewTicker(driver.renewInterval)
@@ -368,26 +422,29 @@ func (driver *InvocationRuntimeDriver) runTurn(
 				events = nil
 				continue
 			}
-			renewed, err := driver.recordRuntimeEvent(
-				runCtx, claim, effect, target, turn, event,
-			)
-			if err != nil {
+			if err := consume(event); err != nil {
 				_ = turn.Interrupt(context.Background())
 				return nil, errors.Join(ErrAmbiguousEffect, err)
 			}
-			claim = renewed
-			output.Observe(event)
+		case <-questionPoll:
+			if err := questions.poll(runCtx, claim); err != nil {
+				_ = turn.Interrupt(context.Background())
+				return nil, errors.Join(ErrAmbiguousEffect, err)
+			}
 		case waitErr := <-waited:
+			ended = true
+			if err := questions.close(runCtx, claim, "runtime-ended"); err != nil {
+				return nil, errors.Join(ErrAmbiguousEffect, err)
+			}
 			if err := driver.ready(runCtx); err != nil {
 				return nil, errors.Join(ErrAmbiguousEffect, err)
 			}
-			renewed, err := driver.drainRuntimeEvents(
-				runCtx, claim, effect, target, turn, events, output,
-			)
-			if err != nil {
+			if err := drainRuntimeEvents(events, consume); err != nil {
 				return nil, errors.Join(ErrAmbiguousEffect, err)
 			}
-			claim = renewed
+			if err := questions.close(runCtx, claim, "runtime-ended"); err != nil {
+				return nil, errors.Join(ErrAmbiguousEffect, err)
+			}
 			if waitErr != nil {
 				if errors.Is(waitErr, dgruntime.ErrTurnFailed) {
 					result := map[string]any{"code": "RUNTIME_TURN_FAILED", "status": "failed"}
@@ -530,34 +587,24 @@ func (driver *InvocationRuntimeDriver) ready(ctx context.Context) error {
 	return driver.readiness(ctx)
 }
 
-func (driver *InvocationRuntimeDriver) drainRuntimeEvents(
-	ctx context.Context,
-	claim persistence.OperationClaim,
-	effect persistence.EffectRecord,
-	target persistence.InvocationRuntimeTarget,
-	turn dgruntime.Turn,
+func drainRuntimeEvents(
 	events <-chan dgruntime.Event,
-	output *invocationRuntimeOutput,
-) (persistence.OperationClaim, error) {
+	consume func(dgruntime.Event) error,
+) error {
 	for events != nil {
 		select {
 		case event, open := <-events:
 			if !open {
-				return claim, nil
+				return nil
 			}
-			renewed, err := driver.recordRuntimeEvent(
-				ctx, claim, effect, target, turn, event,
-			)
-			if err != nil {
-				return claim, err
+			if err := consume(event); err != nil {
+				return err
 			}
-			claim = renewed
-			output.Observe(event)
 		default:
-			return claim, nil
+			return nil
 		}
 	}
-	return claim, nil
+	return nil
 }
 
 func (driver *InvocationRuntimeDriver) recordRuntimeEvent(
@@ -568,6 +615,9 @@ func (driver *InvocationRuntimeDriver) recordRuntimeEvent(
 	turn dgruntime.Turn,
 	event dgruntime.Event,
 ) (persistence.OperationClaim, error) {
+	if strings.HasPrefix(event.Type, "interaction.question.") {
+		return claim, dgruntime.ErrQuestionMode
+	}
 	if event.Type != "interaction.approval.requested" {
 		_, err := driver.store.RecordInvocationRuntimeEvent(ctx, claim, persistence.InvocationRuntimeEvent{
 			SourceSequence: event.Sequence,
@@ -692,6 +742,9 @@ func (driver *InvocationRuntimeDriver) validateInvocationRuntimeRequest(
 			governedInvocationDependencyMissing(driver.approvalAuthorizer)) {
 		return errors.New("interactive invocation runtime approvals require durable mediation")
 	}
+	if request.QuestionMode == dgruntime.QuestionInteractive && (governedInvocationDependencyMissing(driver.questionStore) || governedInvocationDependencyMissing(driver.questionAuthorizer) || driver.readiness == nil) {
+		return dgruntime.ErrQuestionMode
+	}
 	return nil
 }
 
@@ -701,8 +754,7 @@ func validateInvocationRuntimeRequest(
 	if request.Prompt == "" {
 		return errors.New("invocation runtime prompt is required")
 	}
-	// Questions are disabled until the driver owns durable question mediation.
-	if (request.QuestionMode != "" && request.QuestionMode != dgruntime.QuestionDisabled) || request.QuestionTimeout != 0 {
+	if !validInvocationRuntimeQuestionMode(request) {
 		return dgruntime.ErrQuestionMode
 	}
 	if request.ApprovalMode != "" &&
