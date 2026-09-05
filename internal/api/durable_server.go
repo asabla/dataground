@@ -165,6 +165,9 @@ func newDurableHandler(
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/retire", protected(
 		authz.RetireServiceRevision, authz.ServiceRevision, "revisionId", server.retireServiceRevision,
 	))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases", protected(
+		authz.ListServiceAliases, authz.AgentService, "serviceId", server.listServiceAliases,
+	))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}", protected(
 		authz.ReadServiceAlias, authz.AgentService, "serviceId", server.getServiceAlias,
 	))

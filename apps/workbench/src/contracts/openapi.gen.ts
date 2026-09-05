@@ -117,6 +117,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List active service aliases
+         * @description Returns active aliases ordered by name in ascending ASCII order, with a default limit of 50 and maximum of 100. Cursors bind the exact isolation domain and service; each request is independently authorized. Withdrawn aliases are excluded. Pages reflect current routing state rather than a frozen snapshot; assignment, withdrawal, or recreation may change later pages. Refresh from the first page to reconcile concurrent changes.
+         */
+        get: operations["listServiceAliases"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}": {
         parameters: {
             query?: never;
@@ -462,6 +482,12 @@ export interface components {
             operationId: components["schemas"]["OperationId"];
             /** Format: date-time */
             completedAt?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        ServiceAliasPage: {
+            items: components["schemas"]["ServiceAlias"][];
+            nextCursor?: string;
         } & {
             [key: string]: unknown;
         };
@@ -900,6 +926,37 @@ export interface operations {
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
             415: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    listServiceAliases: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                serviceId: components["parameters"]["ServiceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of active service aliases */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceAliasPage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
             503: components["responses"]["Error"];
         };
     };

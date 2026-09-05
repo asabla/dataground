@@ -16,6 +16,7 @@ The request is deliberately closed and non-sensitive. It contains the validated 
 | Assign service alias | `assignServiceAlias` | `AgentService` from `serviceId` |
 | Withdraw service alias | `withdrawServiceAlias` | `AgentService` from `serviceId` |
 | Invoke agent service | `invokeAgentService` | `AgentService` from `serviceId` |
+| List active service aliases | `listServiceAliases` | `AgentService` from `serviceId` |
 | List invocation summaries | `listInvocations` | `AgentService` from `serviceId` |
 | Read invocation | `readInvocation` | `Invocation` from `invocationId` |
 | Read operation | `readOperation` | `Operation` from `operationId` |
