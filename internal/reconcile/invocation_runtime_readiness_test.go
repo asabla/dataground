@@ -37,3 +37,26 @@ func TestInvocationRuntimeReadinessRemainsOptionalOutsideGovernedComposition(t *
 		t.Fatalf("optional readiness: %v", err)
 	}
 }
+
+func TestInvocationRuntimeReadinessHonorsCancellationBeforeAndDuringChecks(t *testing.T) {
+	t.Parallel()
+	for _, during := range []bool{false, true} {
+		ctx, cancel := context.WithCancel(context.Background())
+		calls := 0
+		driver := &InvocationRuntimeDriver{readiness: func(context.Context) error { calls++; cancel(); return nil }}
+		if !during {
+			cancel()
+		}
+		if err := driver.ready(ctx); !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled readiness passed: %v", err)
+		}
+		if (calls == 1) != during {
+			t.Fatal("cancelled readiness invoked the dependency")
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := (&InvocationRuntimeDriver{}).ready(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("optional readiness ignored cancellation: %v", err)
+	}
+}

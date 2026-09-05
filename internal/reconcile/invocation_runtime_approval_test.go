@@ -26,6 +26,9 @@ type runtimeApprovalStoreStub struct {
 	approval          persistence.InvocationRuntimeApproval
 	effectiveDecision string
 	completed         bool
+	onRead            func()
+	onBegin           func()
+	keepPending       bool
 }
 
 func (store *runtimeApprovalStoreStub) RecordInvocationRuntimeApprovalRequest(
@@ -56,6 +59,12 @@ func (store *runtimeApprovalStoreStub) GetInvocationRuntimeApproval(
 	string,
 	string,
 ) (persistence.InvocationRuntimeApproval, error) {
+	if store.onRead != nil {
+		store.onRead()
+	}
+	if store.keepPending {
+		return store.approval, nil
+	}
 	store.approval.State = "resolved"
 	store.approval.Version = 2
 	store.approval.Decision = "approve"
@@ -71,6 +80,9 @@ func (store *runtimeApprovalStoreStub) BeginInvocationRuntimeApprovalDelivery(
 	_ string,
 	effectiveDecision string,
 ) (persistence.InvocationRuntimeApproval, error) {
+	if store.onBegin != nil {
+		store.onBegin()
+	}
 	store.effectiveDecision = effectiveDecision
 	store.approval.State = "delivering"
 	store.approval.EffectiveDecision = effectiveDecision
@@ -92,6 +104,8 @@ type approvalTurnStub struct {
 	decisionID string
 	decision   dgruntime.ApprovalDecision
 	err        error
+	deadline   time.Time
+	onResolve  func(context.Context)
 }
 
 func (*approvalTurnStub) Events() <-chan dgruntime.Event {
@@ -99,10 +113,17 @@ func (*approvalTurnStub) Events() <-chan dgruntime.Event {
 }
 
 func (turn *approvalTurnStub) ResolveApproval(
-	_ context.Context,
+	ctx context.Context,
 	id string,
 	decision dgruntime.ApprovalDecision,
 ) error {
+	turn.deadline, _ = ctx.Deadline()
+	if turn.onResolve != nil {
+		turn.onResolve(ctx)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	turn.decisionID = id
 	turn.decision = decision
 	return turn.err
@@ -179,6 +200,7 @@ func TestInvocationRuntimeApprovalDeliveryReauthorizesAndUsesPlatformIdentity(t 
 				LeaseOwner:          "worker",
 				FencingToken:        1,
 				DeadlineAt:          time.Now().Add(time.Minute),
+				LeaseExpiresAt:      time.Now().Add(30 * time.Second),
 			}
 			effect := persistence.EffectRecord{
 				IsolationDomainID: claim.IsolationDomainID,
@@ -218,6 +240,9 @@ func TestInvocationRuntimeApprovalDeliveryReauthorizesAndUsesPlatformIdentity(t 
 			if test.expectedDecision != "" {
 				expectedAdapterID = "approval-1"
 			}
+			if test.expectedDecision != "" && !turn.deadline.Equal(claim.LeaseExpiresAt) {
+				t.Fatal("native approval delivery was not bounded to its lease")
+			}
 			if turn.decisionID != expectedAdapterID ||
 				turn.decision != test.expectedDecision ||
 				approvalStore.effectiveDecision != test.expectedEffective ||
@@ -230,6 +255,104 @@ func TestInvocationRuntimeApprovalDeliveryReauthorizesAndUsesPlatformIdentity(t 
 					approvalStore.approval,
 					authorizer,
 				)
+			}
+		})
+	}
+}
+
+func TestInvocationRuntimeApprovalDeliveryRechecksReadinessAtEffectBoundaries(t *testing.T) {
+	t.Parallel()
+	for _, boundary := range []string{"request", "waiting", "authorization", "reservation", "acknowledgement"} {
+		t.Run(boundary, func(t *testing.T) {
+			t.Parallel()
+			claim, effect, target := runtimeDriverFixture()
+			claim.DeadlineAt = time.Now().Add(time.Minute)
+			claim.LeaseExpiresAt = time.Now().Add(30 * time.Second)
+			unavailable := errors.New("governed readiness withdrawn")
+			ready := boundary != "request"
+			store := &runtimeApprovalStoreStub{}
+			turn := &approvalTurnStub{}
+			if boundary == "waiting" {
+				store.keepPending = true
+				store.onRead = func() { ready = false }
+			}
+			if boundary == "reservation" {
+				store.onBegin = func() { ready = false }
+			}
+			if boundary == "acknowledgement" {
+				turn.onResolve = func(context.Context) { ready = false }
+			}
+			authorizer := approvalBoundaryAuthorizer(func(context.Context, persistence.InvocationRuntimeApproval, string) error {
+				if boundary == "authorization" {
+					ready = false
+				}
+				return nil
+			})
+			driver := &InvocationRuntimeDriver{store: &approvalRuntimeStore{}, approvalStore: store, approvalAuthorizer: authorizer, leaseDuration: time.Minute, renewInterval: time.Millisecond,
+				readiness: func(context.Context) error {
+					if !ready {
+						return unavailable
+					}
+					return nil
+				},
+			}
+			_, err := driver.recordRuntimeEvent(context.Background(), claim, effect, target, turn, dgruntime.Event{Sequence: 1, Type: "interaction.approval.requested", Payload: map[string]any{"approvalId": "approval-1", "action": "process.execute"}})
+			if !errors.Is(err, unavailable) || store.completed {
+				t.Fatalf("readiness boundary completed delivery: %v", err)
+			}
+			wantReserved := boundary == "reservation" || boundary == "acknowledgement"
+			if (store.effectiveDecision != "") != wantReserved {
+				t.Fatal("readiness failure lost the reservation boundary")
+			}
+			if (turn.decisionID != "") != (boundary == "acknowledgement") {
+				t.Fatal("readiness loss permitted a native write")
+			}
+		})
+	}
+}
+
+type approvalBoundaryAuthorizer func(context.Context, persistence.InvocationRuntimeApproval, string) error
+
+func (authorize approvalBoundaryAuthorizer) AuthorizeInvocationApproval(ctx context.Context, approval persistence.InvocationRuntimeApproval, phase string) error {
+	return authorize(ctx, approval, phase)
+}
+
+func TestInvocationRuntimeApprovalDeliveryCannotOutliveItsClaim(t *testing.T) {
+	t.Parallel()
+	for _, boundary := range []string{"expired lease", "lease expires during delivery", "operation expires during delivery", "cancelled after reservation"} {
+		t.Run(boundary, func(t *testing.T) {
+			t.Parallel()
+			claim, effect, target := runtimeDriverFixture()
+			claim.DeadlineAt = time.Now().Add(time.Minute)
+			claim.LeaseExpiresAt = time.Now().Add(30 * time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			store := &runtimeApprovalStoreStub{}
+			turn := &approvalTurnStub{}
+			wantErr := error(context.DeadlineExceeded)
+			wantDeadline := claim.LeaseExpiresAt
+			switch boundary {
+			case "expired lease":
+				claim.LeaseExpiresAt = time.Now().Add(-time.Second)
+			case "lease expires during delivery":
+				claim.LeaseExpiresAt = time.Now().Add(50 * time.Millisecond)
+				wantDeadline = claim.LeaseExpiresAt
+				turn.onResolve = func(ctx context.Context) { <-ctx.Done() }
+			case "operation expires during delivery":
+				claim.DeadlineAt = time.Now().Add(50 * time.Millisecond)
+				wantDeadline = claim.DeadlineAt
+				turn.onResolve = func(ctx context.Context) { <-ctx.Done() }
+			case "cancelled after reservation":
+				store.onBegin = cancel
+				wantErr = context.Canceled
+			}
+			driver := &InvocationRuntimeDriver{store: &approvalRuntimeStore{}, approvalStore: store, approvalAuthorizer: &approvalAuthorizerStub{}, leaseDuration: time.Minute, renewInterval: time.Millisecond}
+			_, err := driver.recordRuntimeEvent(ctx, claim, effect, target, turn, dgruntime.Event{Sequence: 1, Type: "interaction.approval.requested", Payload: map[string]any{"approvalId": "approval-1", "action": "process.execute"}})
+			if !errors.Is(err, wantErr) || store.completed || turn.decisionID != "" {
+				t.Fatalf("expired authority delivered an approval: %v", err)
+			}
+			if !turn.deadline.IsZero() && !turn.deadline.Equal(wantDeadline) {
+				t.Fatal("native delivery exceeded the earlier lease or operation deadline")
 			}
 		})
 	}
