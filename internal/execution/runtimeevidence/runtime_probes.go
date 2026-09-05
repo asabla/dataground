@@ -452,7 +452,12 @@ func (state *codexProbeState) start(
 		return nil, func() error { return nil }, ErrCodexProbeObservation
 	}
 	trackedSession := &trackedCodexProbeSession{RuntimeSession: session}
-	client, err := codex.New(trackedSession)
+	var client *codex.Client
+	if state.diagnosticModel == "" {
+		client, err = codex.New(trackedSession)
+	} else {
+		client, err = codex.NewOpenShellConformance(trackedSession)
+	}
 	if err != nil {
 		_ = trackedSession.Close()
 		return nil, func() error { return nil }, ErrCodexProbeObservation
