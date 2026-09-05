@@ -531,6 +531,12 @@ func observeTurn(
 				return nil, ErrCodexProbeObservation
 			}
 			events = append(events, event)
+			switch event.Type {
+			case "lifecycle.succeeded", "lifecycle.failed", "lifecycle.cancelled":
+				if event.Type != stopType {
+					return nil, ErrCodexProbeObservation
+				}
+			}
 			if onEvent != nil {
 				stop, err := onEvent(event)
 				if err != nil {
