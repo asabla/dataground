@@ -44,7 +44,7 @@ func TestReferenceInvocationOutputContractAndReplay(t *testing.T) {
 				t.Fatalf("operation failure diverged: %+v", operation)
 			}
 			events := perform(t, handler, http.MethodGet, "/v1/isolation-domains/"+testDomain+"/invocations/"+invocation.Metadata.ID+"/events", "", nil, nil)
-			if strings.Contains(events.Body.String(), "lifecycle.succeeded") || !strings.Contains(events.Body.String(), "lifecycle.failed") {
+			if strings.Contains(events.Body.String(), "lifecycle.succeeded") || !strings.Contains(events.Body.String(), "lifecycle.failed") || !strings.Contains(events.Body.String(), `"source":"platform"`) {
 				t.Fatalf("journal exposed invalid completion: %s", events.Body.String())
 			}
 		}

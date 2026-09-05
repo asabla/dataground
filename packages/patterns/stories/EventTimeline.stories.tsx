@@ -84,6 +84,25 @@ export const DurableCancellation: Story = {
   },
 };
 
+export const RuntimeCompletionBeforePlatformFailure: Story = {
+  args: {
+    events: [
+      { ...event(1, "lifecycle.started", {}), source: "runtime" },
+      { ...event(2, "lifecycle.succeeded", {}), source: "runtime" },
+      {
+        ...event(3, "lifecycle.failed", { code: "INVOCATION_RUNTIME_FAILED" }),
+        source: "platform",
+      },
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Runtime turn completed", { exact: true })).toBeVisible();
+    await expect(canvas.getByText("Invocation failed", { exact: true })).toBeVisible();
+    await expect(canvas.queryByText("Invocation succeeded", { exact: true })).toBeNull();
+  },
+};
+
 export const Loading: Story = {
   args: { connectionState: "loading", events: [], isReplaying: true },
 };

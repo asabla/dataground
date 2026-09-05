@@ -64,6 +64,54 @@ describe("EventTimeline", () => {
     }
   });
 
+  it("keeps native turn completion separate from the platform outcome", () => {
+    for (const [type, label] of [
+      ["lifecycle.started", "Runtime turn started"],
+      ["lifecycle.waiting", "Runtime turn waiting"],
+      ["lifecycle.succeeded", "Runtime turn completed"],
+      ["lifecycle.failed", "Runtime turn failed"],
+      ["lifecycle.cancelled", "Runtime turn cancelled"],
+      ["lifecycle.future", "Runtime lifecycle event"],
+    ] as const) {
+      const result = presentTimelineEvent({
+        ...baseEvent,
+        source: "runtime",
+        type,
+        payload: { message: "untrusted completion claim" },
+      });
+      assert.equal(result.label, label);
+      assert.notEqual(result.tone, "success");
+      assert.doesNotMatch(result.detail, /untrusted completion claim/);
+    }
+    const events: TimelineEvent[] = [
+      { ...baseEvent, source: "runtime", type: "lifecycle.succeeded" },
+      {
+        ...baseEvent,
+        id: "evt_00000000000000000002",
+        sequence: 2,
+        source: "platform",
+        type: "lifecycle.failed",
+        payload: { code: "INVOCATION_RUNTIME_FAILED" },
+      },
+    ];
+    const markup = renderToStaticMarkup(
+      <EventTimeline connectionState="current" events={events} reference={reference} />,
+    );
+    assert.match(markup, /Runtime turn completed/);
+    assert.match(markup, /Output validation and platform finalization may still be pending/);
+    assert.match(markup, /Invocation failed/);
+    assert.doesNotMatch(markup, /Invocation succeeded/);
+    assert.equal(
+      presentTimelineEvent({
+        ...baseEvent,
+        source: "platform",
+        type: "lifecycle.succeeded",
+        payload: { source: "runtime" },
+      }).label,
+      "Invocation succeeded",
+    );
+  });
+
   it("preserves unknown event visibility without rendering arbitrary payload data", () => {
     const unknown = {
       ...baseEvent,

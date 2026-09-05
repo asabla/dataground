@@ -103,6 +103,7 @@ type InvocationSummary struct {
 }
 
 type EventEnvelope struct {
+	Source            string                     `json:"source,omitempty"`
 	SchemaVersion     string                     `json:"schemaVersion"`
 	ID                string                     `json:"id"`
 	IsolationDomainID string                     `json:"isolationDomainId"`

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "dataground.event/v1",
+  "id": "evt_00000000000000000001",
+  "isolationDomainId": "iso_00000000000000000001",
+  "invocationId": "inv_00000000000000000001",
+  "sequence": 2,
+  "type": "lifecycle.succeeded",
+  "occurredAt": "2026-07-16T08:00:00Z",
+  "recordedAt": "2026-07-16T08:00:00.001Z",
+  "correlationId": "correlation-fixture",
+  "actorId": "fixture",
+  "serviceId": "svc_00000000000000000001",
+  "revisionId": "rev_00000000000000000001",
+  "payload": {
+    "message": "Runtime turn completed."
+  },
+  "source": "runtime"
+}

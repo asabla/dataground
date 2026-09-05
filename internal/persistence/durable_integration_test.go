@@ -525,13 +525,13 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 	persistedRuntimeEvent, err := repository.RecordInvocationRuntimeEvent(
 		ctx, renewedRuntimeClaim, runtimeEvent,
 	)
-	if err != nil {
-		t.Fatalf("record invocation runtime event: %v", err)
+	if err != nil || persistedRuntimeEvent.Source != "runtime" {
+		t.Fatalf("record invocation runtime event: %+v %v", persistedRuntimeEvent, err)
 	}
 	replayedRuntimeEvent, err := repository.RecordInvocationRuntimeEvent(
 		ctx, renewedRuntimeClaim, runtimeEvent,
 	)
-	if err != nil || replayedRuntimeEvent.ID != persistedRuntimeEvent.ID ||
+	if err != nil || replayedRuntimeEvent.Source != "runtime" || replayedRuntimeEvent.ID != persistedRuntimeEvent.ID ||
 		replayedRuntimeEvent.Sequence != persistedRuntimeEvent.Sequence {
 		t.Fatalf("replay invocation runtime event = (%#v, %v)", replayedRuntimeEvent, err)
 	}
@@ -573,7 +573,7 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 	}
 	events, err := repository.ListEvents(ctx, domainID, invocationID, persistedRuntimeEvent.Sequence-1)
 	if err != nil || len(events) != 1 || events[0].ID != persistedRuntimeEvent.ID ||
-		events[0].ActorID != actorID || events[0].CorrelationID != invocation.CorrelationID {
+		events[0].Source != "runtime" || events[0].ActorID != actorID || events[0].CorrelationID != invocation.CorrelationID {
 		t.Fatalf("persisted invocation runtime events = (%#v, %v)", events, err)
 	}
 	if err := repository.ScheduleRetry(
@@ -790,7 +790,7 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 		t.Fatal(err)
 	}
 	cancellationEvents, err := repository.ListEvents(ctx, domainID, cancelledInvocationID, 0)
-	if err != nil || len(cancellationEvents) != 2 || cancellationEvents[0].Type != "lifecycle.accepted" || cancellationEvents[1].Type != "lifecycle.cancellation.requested" || cancellationEvents[1].Payload["state"] != "cancelling" {
+	if err != nil || len(cancellationEvents) != 2 || cancellationEvents[0].Source != "platform" || cancellationEvents[1].Source != "platform" || cancellationEvents[0].Type != "lifecycle.accepted" || cancellationEvents[1].Type != "lifecycle.cancellation.requested" || cancellationEvents[1].Payload["state"] != "cancelling" {
 		t.Fatalf("cancellation journal contract or duplicate handling changed: %+v %v", cancellationEvents, err)
 	}
 	cancellationTarget, err := repository.GetInvocationCancellationTarget(

@@ -566,6 +566,11 @@ export interface components {
             [key: string]: unknown;
         };
         EventEnvelope: {
+            /**
+             * @description Trusted event origin class. Runtime lifecycle events describe a native turn and do not establish terminal platform invocation state. Durable reads derive this value from retained journal provenance without changing event identity, sequence, type, or payload. Older envelopes may omit it.
+             * @enum {string}
+             */
+            source?: "platform" | "runtime";
             /** @constant */
             schemaVersion: "dataground.event/v1";
             id: string;

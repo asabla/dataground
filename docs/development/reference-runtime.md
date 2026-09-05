@@ -93,6 +93,8 @@ closed.
 
 ## Compatibility and recovery boundary
 
+Event reads include the trusted `source` class, `platform` or `runtime`. Durable reads derive it from the retained journal source marker; existing event identities, sequences, types and payloads remain unchanged. The process-local reference emitter reports `platform`, while normalized native events, including mediated approval requests, report `runtime`. Older envelopes can omit the field. The Workbench labels runtime lifecycle events as turn progress: runtime completion does not establish successful output validation, artifact finalization, or terminal invocation state. Platform lifecycle events and the independent invocation read retain those product meanings.
+
 Durable cancellation requests now emit `lifecycle.cancellation.requested`, following the event contract’s dot-separated names. Retained `lifecycle.cancellation-requested` events remain unchanged and are explicitly accepted by the v1 schema and Workbench replay parser. This compatibility exception does not permit other hyphenated event names or extension keys. The timeline distinguishes acceptance, running, cancellation requested, cancelling and cancelled; pending cancellation never implies that execution has stopped.
 
 SSE `id` values are invocation-local journal sequences. Reconnecting with `Last-Event-ID` replays
