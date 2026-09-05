@@ -60,15 +60,20 @@ type Client struct {
 	nextID  uint64
 	pending map[uint64]chan wireMessage
 
-	started         bool
-	threadID        string
-	turnID          string
-	approvalMode    dgruntime.ApprovalMode
-	approvalsClosed bool
-	nextSequence    uint64
-	nextApproval    uint64
-	approvals       map[string]approval
-	nativeApprovals map[string]struct{}
+	started            bool
+	threadID           string
+	turnID             string
+	approvalMode       dgruntime.ApprovalMode
+	interactionsClosed bool
+	nextSequence       uint64
+	nextApproval       uint64
+	approvals          map[string]approval
+	nativeRequests     map[string]struct{}
+
+	questionMode    dgruntime.QuestionMode
+	questionTimeout time.Duration
+	nextQuestion    uint64
+	questions       map[string]*pendingQuestion
 
 	inbound chan wireMessage
 	events  chan dgruntime.Event
@@ -97,12 +102,13 @@ func newClient(session execution.RuntimeSession, openShellProvider bool) (*Clien
 		return nil, errors.New("runtime session streams are required")
 	}
 	client := &Client{
+		questions:         make(map[string]*pendingQuestion),
 		session:           session,
 		input:             input,
 		openShellProvider: openShellProvider,
 		pending:           make(map[uint64]chan wireMessage),
 		approvals:         make(map[string]approval),
-		nativeApprovals:   make(map[string]struct{}),
+		nativeRequests:    make(map[string]struct{}),
 		inbound:           make(chan wireMessage, inboundLimit),
 		events:            make(chan dgruntime.Event, eventLimit),
 		done:              make(chan struct{}),
@@ -121,6 +127,14 @@ func newClient(session execution.RuntimeSession, openShellProvider bool) (*Clien
 func (client *Client) Start(ctx context.Context, request dgruntime.StartRequest) (dgruntime.Turn, error) {
 	if request.Prompt == "" {
 		return nil, errors.New("runtime prompt is required")
+	}
+	if request.QuestionMode == "" {
+		request.QuestionMode = dgruntime.QuestionDisabled
+	}
+	if (request.QuestionMode != dgruntime.QuestionDisabled && request.QuestionMode != dgruntime.QuestionInteractive) ||
+		(request.QuestionMode == dgruntime.QuestionDisabled && request.QuestionTimeout != 0) ||
+		(request.QuestionMode == dgruntime.QuestionInteractive && (request.QuestionTimeout <= 0 || request.QuestionTimeout > 15*time.Minute)) {
+		return nil, dgruntime.ErrQuestionMode
 	}
 	if request.ApprovalMode == "" {
 		request.ApprovalMode = dgruntime.ApprovalLocked
@@ -145,12 +159,14 @@ func (client *Client) Start(ctx context.Context, request dgruntime.StartRequest)
 	}
 	client.started = true
 	client.approvalMode = request.ApprovalMode
+	client.questionMode = request.QuestionMode
+	client.questionTimeout = request.QuestionTimeout
 	client.stateMu.Unlock()
 
 	var initialized struct{}
 	if err := client.request(ctx, "initialize", map[string]any{
 		"clientInfo":   map[string]any{"name": "dataground", "title": "DataGround", "version": "0.1.0"},
-		"capabilities": map[string]any{"experimentalApi": false},
+		"capabilities": map[string]any{"experimentalApi": request.QuestionMode == dgruntime.QuestionInteractive},
 	}, &initialized); err != nil {
 		return nil, err
 	}
@@ -226,7 +242,7 @@ func (client *Client) Events() <-chan dgruntime.Event { return client.events }
 func (client *Client) Interrupt(ctx context.Context) error {
 	client.stateMu.Lock()
 	threadID, turnID := client.threadID, client.turnID
-	client.closeApprovalsLocked()
+	client.closeInteractionsLocked()
 	client.stateMu.Unlock()
 	if threadID == "" || turnID == "" {
 		return dgruntime.ErrClosed
@@ -241,7 +257,7 @@ func (client *Client) ResolveApproval(ctx context.Context, approvalID string, de
 	}
 	client.stateMu.Lock()
 	pending, ok := client.approvals[approvalID]
-	if client.approvalsClosed || (ok && pending.resolving) {
+	if client.interactionsClosed || (ok && pending.resolving) {
 		ok = false
 	}
 	if ok {
@@ -267,14 +283,14 @@ func (client *Client) ResolveApproval(ctx context.Context, approvalID string, de
 		client.stateMu.Lock()
 		defer client.stateMu.Unlock()
 		current, exists := client.approvals[approvalID]
-		if client.approvalsClosed || !exists || !current.resolving || current.nativeKey != pending.nativeKey {
+		if client.interactionsClosed || !exists || !current.resolving || current.nativeKey != pending.nativeKey {
 			return dgruntime.ErrApprovalNotFound
 		}
 		return nil
 	}
 	if err := client.writeGuarded(ctx, map[string]any{"id": pending.requestID, "result": response}, guard); err != nil {
 		client.stateMu.Lock()
-		if current, exists := client.approvals[approvalID]; exists && !client.approvalsClosed && current.nativeKey == pending.nativeKey {
+		if current, exists := client.approvals[approvalID]; exists && !client.interactionsClosed && current.nativeKey == pending.nativeKey {
 			current.resolving = false
 			client.approvals[approvalID] = current
 		}
@@ -283,7 +299,7 @@ func (client *Client) ResolveApproval(ctx context.Context, approvalID string, de
 	}
 	client.stateMu.Lock()
 	delete(client.approvals, approvalID)
-	delete(client.nativeApprovals, pending.nativeKey)
+	delete(client.nativeRequests, pending.nativeKey)
 	client.stateMu.Unlock()
 	return nil
 }
@@ -520,6 +536,20 @@ func (client *Client) handleServerRequest(message wireMessage) {
 		client.fail(fmt.Errorf("%w: server request identifier is invalid", dgruntime.ErrProtocol))
 		return
 	}
+	requestKey, _ := nativeRequestKey(message.ID)
+	client.stateMu.Lock()
+	_, duplicate := client.nativeRequests[requestKey]
+	client.stateMu.Unlock()
+	if duplicate {
+		if err := client.respondError(message.ID, -32600, "duplicate server request"); err != nil {
+			client.fail(err)
+		}
+		return
+	}
+	if message.Method == "item/tool/requestUserInput" {
+		client.handleQuestionRequest(message)
+		return
+	}
 	action := ""
 	switch message.Method {
 	case "item/commandExecution/requestApproval":
@@ -534,7 +564,7 @@ func (client *Client) handleServerRequest(message wireMessage) {
 	}
 	client.stateMu.Lock()
 	locked := client.approvalMode == dgruntime.ApprovalLocked
-	closed := client.approvalsClosed
+	closed := client.interactionsClosed
 	client.stateMu.Unlock()
 	if closed {
 		if err := client.respondError(message.ID, -32600, "approval turn is no longer active"); err != nil {
@@ -560,7 +590,7 @@ func (client *Client) handleServerRequest(message wireMessage) {
 	}
 	nativeKey, _ := nativeRequestKey(message.ID)
 	client.stateMu.Lock()
-	if _, duplicate := client.nativeApprovals[nativeKey]; duplicate || client.approvalsClosed {
+	if _, duplicate := client.nativeRequests[nativeKey]; duplicate || client.interactionsClosed {
 		client.stateMu.Unlock()
 		if err := client.respondError(message.ID, -32600, "duplicate approval request"); err != nil {
 			client.fail(err)
@@ -569,7 +599,7 @@ func (client *Client) handleServerRequest(message wireMessage) {
 	}
 	client.nextApproval++
 	approvalID := fmt.Sprintf("approval-%d", client.nextApproval)
-	client.nativeApprovals[nativeKey] = struct{}{}
+	client.nativeRequests[nativeKey] = struct{}{}
 	client.approvals[approvalID] = approval{
 		requestID: append(json.RawMessage(nil), message.ID...), method: message.Method, nativeKey: nativeKey,
 	}
@@ -668,7 +698,7 @@ func (client *Client) handleTurnCompleted(message wireMessage) {
 		return
 	}
 	client.stateMu.Lock()
-	client.closeApprovalsLocked()
+	client.closeInteractionsLocked()
 	client.stateMu.Unlock()
 	var terminalErr error
 	switch params.Turn.Status {
@@ -755,16 +785,22 @@ func (client *Client) protocolFailure(message string) error {
 	return err
 }
 
-func (client *Client) closeApprovalsLocked() {
-	client.approvalsClosed = true
+func (client *Client) closeInteractionsLocked() {
+	client.interactionsClosed = true
 	clear(client.approvals)
-	clear(client.nativeApprovals)
+	clear(client.nativeRequests)
+	for id, pending := range client.questions {
+		if pending.timer != nil {
+			pending.timer.Stop()
+		}
+		delete(client.questions, id)
+	}
 }
 
 func (client *Client) fail(err error) {
 	client.failOnce.Do(func() {
 		client.stateMu.Lock()
-		client.closeApprovalsLocked()
+		client.closeInteractionsLocked()
 		client.stateMu.Unlock()
 		client.errMu.Lock()
 		client.err = err
@@ -833,7 +869,15 @@ func (client *Client) handleResolvedRequest(message wireMessage) {
 			delete(client.approvals, id)
 		}
 	}
+	for id, pending := range client.questions {
+		if pending.nativeKey == key {
+			if pending.timer != nil {
+				pending.timer.Stop()
+			}
+			delete(client.questions, id)
+		}
+	}
 	// A confirmation can arrive after our response already removed its handle.
-	delete(client.nativeApprovals, key)
+	delete(client.nativeRequests, key)
 	client.stateMu.Unlock()
 }

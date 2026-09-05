@@ -40,8 +40,8 @@ func TestQueuedApprovalRechecksTurnBeforeWriting(t *testing.T) {
 						method:    "item/fileChange/requestApproval", nativeKey: "string:native-request",
 					},
 				},
-				nativeApprovals: map[string]struct{}{"string:native-request": {}},
-				events:          make(chan dgruntime.Event, 4), done: make(chan struct{}),
+				nativeRequests: map[string]struct{}{"string:native-request": {}},
+				events:         make(chan dgruntime.Event, 4), done: make(chan struct{}),
 				closed: make(chan struct{}), terminalDone: make(chan struct{}),
 			}
 			// Hold the transport busy while a human decision is accepted locally.
@@ -69,7 +69,7 @@ func TestQueuedApprovalRechecksTurnBeforeWriting(t *testing.T) {
 				client.handleResolvedRequest(wireMessage{Params: json.RawMessage(`{"threadId":"thread","requestId":"native-request"}`)})
 			} else {
 				client.stateMu.Lock()
-				client.closeApprovalsLocked()
+				client.closeInteractionsLocked()
 				client.stateMu.Unlock()
 			}
 			client.writeMu.Unlock()

@@ -201,11 +201,13 @@ func TestInvocationRuntimeDriverNeverRepeatsReservedAttempt(t *testing.T) {
 func TestInvocationRuntimeDriverChecksPreconditionsBeforeReservation(t *testing.T) {
 	claim, effect, target := runtimeDriverFixture()
 	tests := map[string]struct {
-		authorize    error
-		observation  execution.Observation
-		buildErr     error
-		outputSchema map[string]any
-		want         error
+		authorize       error
+		observation     execution.Observation
+		buildErr        error
+		outputSchema    map[string]any
+		questionMode    dgruntime.QuestionMode
+		questionTimeout time.Duration
+		want            error
 	}{
 		"authorization denial": {
 			authorize: ErrInvocationRuntimeDenied,
@@ -233,6 +235,11 @@ func TestInvocationRuntimeDriverChecksPreconditionsBeforeReservation(t *testing.
 			buildErr: errors.New("runtime profile mapping is invalid"),
 			want:     ErrEffectInvalid,
 		},
+		"questions without durable mediation": {
+			observation:  execution.Observation{IsolationDomainID: target.IsolationDomainID, ExecutionID: "exe_runtime", State: "ready"},
+			questionMode: dgruntime.QuestionInteractive, questionTimeout: time.Minute,
+			want: ErrEffectInvalid,
+		},
 		"invalid output schema": {
 			observation: execution.Observation{
 				IsolationDomainID: target.IsolationDomainID,
@@ -253,6 +260,7 @@ func TestInvocationRuntimeDriverChecksPreconditionsBeforeReservation(t *testing.
 				return dgruntime.StartRequest{
 					Prompt:       "persisted prompt",
 					OutputSchema: test.outputSchema,
+					QuestionMode: test.questionMode, QuestionTimeout: test.questionTimeout,
 				}, test.buildErr
 			})
 			driver, err := NewInvocationRuntimeDriver(

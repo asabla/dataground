@@ -46,7 +46,11 @@ for (const method of [
 const serverRequestPath = files.find((file) => basename(file) === "ServerRequest.json");
 assert.ok(serverRequestPath, "ServerRequest.json is missing");
 const serverMethods = collectMethods(JSON.parse(await readFile(serverRequestPath, "utf8")));
-for (const method of ["item/commandExecution/requestApproval", "item/fileChange/requestApproval"]) {
+for (const method of [
+  "item/commandExecution/requestApproval",
+  "item/fileChange/requestApproval",
+  "item/tool/requestUserInput",
+]) {
   assert.ok(serverMethods.has(method), `required server request ${method} is absent`);
 }
 
