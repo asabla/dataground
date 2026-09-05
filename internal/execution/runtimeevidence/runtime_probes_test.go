@@ -108,7 +108,11 @@ func TestCodexProbesRejectUnexpectedTerminalWithoutWaitingForDeadline(t *testing
 		t.Run(test.name, func(t *testing.T) {
 			scripts := codexProbeScripts(testRunID)
 			scripts[test.index] = func(server *codexProbeServer) {
-				server.start()
+				if test.index == 2 {
+					server.startModel(runtimeFailureModel(testRunID))
+				} else {
+					server.start()
+				}
 				server.notify("turn/completed", map[string]any{
 					"threadId": "native-thread", "turn": map[string]any{"id": "native-turn", "status": test.status, "items": []any{}},
 				})
@@ -498,6 +502,10 @@ func (server *codexProbeServer) write(value any) {
 func (server *codexProbeServer) start() { server.startModel("") }
 
 func (server *codexProbeServer) startModel(model string) {
+	server.startWithModel(model, "")
+}
+
+func (server *codexProbeServer) startWithModel(model, provider string) {
 	initialize := server.read()
 	if initialize.Method != "initialize" {
 		panic("expected initialize")
@@ -518,11 +526,11 @@ func (server *codexProbeServer) startModel(model string) {
 		panic("unexpected probe model")
 	}
 	response := map[string]any{"thread": map[string]any{"id": "native-thread"}}
-	if model != "" {
-		if params["modelProvider"] != "dataground_openshell_codex" || params["config"] == nil {
+	if provider != "" {
+		if params["modelProvider"] != provider || params["config"] == nil {
 			panic("local probe did not select the mediated provider")
 		}
-		response["modelProvider"] = "dataground_openshell_codex"
+		response["modelProvider"] = provider
 	} else if params["modelProvider"] != nil || params["config"] != nil {
 		panic("local provider configuration entered certification mode")
 	}
@@ -562,7 +570,7 @@ func codexProbeScripts(runID string) []func(*codexProbeServer) {
 		},
 		successScript(successMarker),
 		func(server *codexProbeServer) {
-			server.start()
+			server.startModel(runtimeFailureModel(runID))
 			server.notify("turn/completed", map[string]any{
 				"threadId": "native-thread",
 				"turn":     map[string]any{"id": "native-turn", "status": "failed", "items": []any{}},
@@ -638,7 +646,7 @@ func approvalScript(method string) func(*codexProbeServer) {
 
 func TestLocalDiagnosticProbePinsSelectedModel(t *testing.T) {
 	fixture := newCodexProbeFixture(func(server *codexProbeServer) {
-		server.startModel("selected-model.v1")
+		server.startWithModel("selected-model.v1", "dataground_openshell_codex")
 		server.interrupt()
 	})
 	config := fixture.config()
@@ -653,5 +661,27 @@ func TestLocalDiagnosticProbePinsSelectedModel(t *testing.T) {
 	config.diagnosticModel = "unsafe/model"
 	if _, err := NewCodexProbes(config); !errors.Is(err, ErrCodexProbeConfiguration) {
 		t.Fatal("invalid model accepted")
+	}
+}
+
+func TestLocalFailureProbeUsesUnavailableModelWithTheSameProvider(t *testing.T) {
+	fixture := newCodexProbeFixture(func(server *codexProbeServer) {
+		server.startWithModel("dataground-runtime-unavailable-"+testRunID, "dataground_openshell_codex")
+		server.notify("turn/completed", map[string]any{
+			"threadId": "native-thread", "turn": map[string]any{"id": "native-turn", "status": "failed", "items": []any{}},
+		})
+	})
+	config := fixture.config()
+	config.diagnosticModel = "selected-model.v1"
+	probes, err := NewCodexProbes(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Earlier probes already exercise local selection; isolate the negative
+	// case here to detect accidental replacement with that successful model.
+	probes.state.next = 2
+	result, err := probes.TurnFailure(context.Background(), testProbeRequest())
+	if err != nil || result.ObservationSHA256 == ([32]byte{}) {
+		t.Fatalf("controlled failure was not observed: %v", err)
 	}
 }

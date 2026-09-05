@@ -178,9 +178,12 @@ func (probes *CodexProbes) TurnFailure(
 		ctx context.Context,
 		state *codexProbeState,
 	) (codexProbeObservation, error) {
-		turn, closeTurn, err := state.start(ctx, request, lockedRequest(
-			"Fail this turn deterministically without producing a successful response.",
-		))
+		// A prompt asking the model to fail can itself complete successfully.
+		// Require an actual rejection of a run-derived unavailable model; a
+		// successful response or rejection before turn startup cannot certify it.
+		startRequest := lockedRequest("Exercise the controlled unavailable-model failure case.")
+		startRequest.Model = runtimeFailureModel(request.RunID)
+		turn, closeTurn, err := state.start(ctx, request, startRequest)
 		if err != nil {
 			return codexProbeObservation{}, err
 		}
@@ -462,7 +465,7 @@ func (state *codexProbeState) start(
 		_ = trackedSession.Close()
 		return nil, func() error { return nil }, ErrCodexProbeObservation
 	}
-	if state.diagnosticModel != "" {
+	if state.diagnosticModel != "" && startRequest.Model == "" {
 		startRequest.Model = state.diagnosticModel
 	}
 	turn, err := client.Start(ctx, startRequest)
@@ -520,6 +523,10 @@ func lockedRequest(prompt string) dgruntime.StartRequest {
 		ApprovalMode: dgruntime.ApprovalLocked,
 		SandboxMode:  dgruntime.SandboxReadOnly,
 	}
+}
+
+func runtimeFailureModel(runID string) string {
+	return "dataground-runtime-unavailable-" + runID
 }
 
 func observeTurn(
