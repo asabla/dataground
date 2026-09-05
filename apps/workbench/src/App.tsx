@@ -9,6 +9,7 @@ import {
 import type { InvocationApprovalReference } from "./approvals";
 import type { InvocationArtifactReference } from "./artifacts";
 import { createDataGroundClient, type DataGroundClient } from "./contracts/client";
+import { InvocationHistoryWorkflow } from "./invocations/InvocationHistoryWorkflow";
 import {
   listServiceRevisions,
   type PublishedServiceRevisionResource,
@@ -709,13 +710,25 @@ export function DevelopmentWorkbench({
                   </p>
                 </div>
                 {openedInvocation && (
-                  <Button onPress={() => setView("services")} variant="quiet">
-                    Close
+                  <Button
+                    onPress={() => {
+                      setOpenedInvocation(undefined);
+                      setOpenedApproval(undefined);
+                      setOpenedArtifact(undefined);
+                    }}
+                    variant="quiet"
+                  >
+                    View invocation history
                   </Button>
                 )}
               </div>
               {openedInvocation ? (
                 <div className="workbench-interaction">{workflow}</div>
+              ) : openedService ? (
+                <InvocationHistoryWorkflow
+                  client={client}
+                  target={{ isolationDomainId, serviceId: openedService.metadata.id }}
+                />
               ) : (
                 <section className="workbench-empty" aria-labelledby="empty-interactions-title">
                   <span aria-hidden="true" className="workbench-empty__mark">
@@ -723,7 +736,7 @@ export function DevelopmentWorkbench({
                   </span>
                   <h2 id="empty-interactions-title">No interaction is open</h2>
                   <p>
-                    Publish and route a service, then start an interaction from its guided flow.
+                    Select a service to browse its invocation history or start a new interaction.
                   </p>
                   <Button onPress={() => setView(openedService ? "workflow" : "services")}>
                     {openedService ? "Continue service setup" : "View agent services"}

@@ -63,6 +63,22 @@ export interface AgentServiceInvocationTarget {
   serviceId: string;
 }
 
+export type InvocationSummaryResource = Pick<
+  InvocationStatusResource,
+  | "metadata"
+  | "alias"
+  | "completedAt"
+  | "correlationId"
+  | "operationId"
+  | "revisionId"
+  | "serviceId"
+  | "state"
+>;
+
+export type InvocationListResult =
+  | { ok: true; page: { items: InvocationSummaryResource[]; nextCursor?: string } }
+  | { ok: false; error: InvocationFailure };
+
 export interface InvocationFailure {
   code: string;
   correlationId?: string;
@@ -88,6 +104,7 @@ const cancellationPath =
   "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel";
 const operationPath = "/v1/isolation-domains/{isolationDomainId}/operations/{operationId}";
 const patterns = {
+  cursor: /^[A-Za-z0-9_-]{1,512}$/u,
   alias: /^[a-z](?:[a-z0-9-]*[a-z0-9])?$/u,
   artifactId: /^art_[0-9a-z]{20,32}$/u,
   errorCode: /^[A-Z][A-Z0-9_]{2,63}$/u,
@@ -343,6 +360,112 @@ function validTarget(target: AgentServiceInvocationTarget): boolean {
     patterns.isolationDomainId.test(target.isolationDomainId) &&
     patterns.serviceId.test(target.serviceId)
   );
+}
+
+function decodeInvocationSummary(
+  value: unknown,
+  target: AgentServiceInvocationTarget,
+): InvocationSummaryResource | undefined {
+  if (
+    !isRecord(value) ||
+    !isRecord(value.metadata) ||
+    !boundedString(value.metadata.id, 36, patterns.invocationId)
+  )
+    return undefined;
+  const metadata = decodeMetadata(value.metadata, value.metadata.id, target.isolationDomainId);
+  if (
+    !metadata ||
+    value.serviceId !== target.serviceId ||
+    !boundedString(value.revisionId, 36, patterns.revisionId) ||
+    !boundedString(value.alias, 63, patterns.alias) ||
+    !boundedString(value.state, 64, patterns.state) ||
+    !boundedString(value.correlationId, 128) ||
+    !boundedString(value.operationId, 35, patterns.operationId) ||
+    (value.completedAt !== undefined && !isTimestamp(value.completedAt))
+  )
+    return undefined;
+  return {
+    metadata,
+    serviceId: value.serviceId,
+    revisionId: value.revisionId,
+    alias: value.alias,
+    state: value.state,
+    correlationId: value.correlationId,
+    operationId: value.operationId,
+    ...(value.completedAt === undefined ? undefined : { completedAt: value.completedAt }),
+  };
+}
+
+export async function listInvocations(
+  client: DataGroundClient,
+  target: AgentServiceInvocationTarget,
+  cursor?: string,
+): Promise<InvocationListResult> {
+  if (!validTarget(target) || (cursor !== undefined && !patterns.cursor.test(cursor))) {
+    return {
+      ok: false,
+      error: {
+        code: "WORKBENCH_INVALID_INVOCATION_LIST_REQUEST",
+        message: "The service scope or history cursor is invalid.",
+        retryable: false,
+      },
+    };
+  }
+  try {
+    const { data, error, response } = await client.GET(invocationCreatePath, {
+      params: {
+        path: target,
+        query: { limit: 50, ...(cursor === undefined ? undefined : { cursor }) },
+      },
+    });
+    if (!data)
+      return failedResult(error, response.status, "DataGround could not list invocation history.");
+    const value: unknown = data;
+    const invalid: InvocationListResult = {
+      ok: false,
+      error: {
+        code: "WORKBENCH_INVALID_INVOCATION_HISTORY",
+        message: "DataGround returned invocation history outside the requested scope or contract.",
+        retryable: false,
+      },
+    };
+    if (
+      !isRecord(value) ||
+      !Array.isArray(value.items) ||
+      value.items.length > 50 ||
+      (value.nextCursor !== undefined &&
+        (!boundedString(value.nextCursor, 512, patterns.cursor) ||
+          value.nextCursor === cursor ||
+          value.items.length === 0))
+    )
+      return invalid;
+    const items: InvocationSummaryResource[] = [];
+    const ids = new Set<string>();
+    for (const item of value.items) {
+      const summary = decodeInvocationSummary(item, target);
+      if (!summary || ids.has(summary.metadata.id)) return invalid;
+      ids.add(summary.metadata.id);
+      items.push(summary);
+    }
+    return {
+      ok: true,
+      page: {
+        items,
+        ...(value.nextCursor === undefined
+          ? undefined
+          : { nextCursor: value.nextCursor as string }),
+      },
+    };
+  } catch {
+    return {
+      ok: false,
+      error: {
+        code: "WORKBENCH_INVOCATION_HISTORY_UNAVAILABLE",
+        message: "The Workbench could not reach DataGround to load invocation history.",
+        retryable: true,
+      },
+    };
+  }
 }
 
 function decodeCreatedInvocation(

@@ -762,3 +762,28 @@ p {
     font-size: var(--dg-font-size-caption);
   }
 }
+
+.invocation-history-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--dg-space-4);
+  padding: 0;
+  list-style: none;
+}
+
+.invocation-history-list li {
+  padding: var(--dg-space-4);
+  border: var(--dg-border-default) solid var(--dg-color-border-default);
+  border-radius: var(--dg-radius-panel);
+  overflow-wrap: anywhere;
+}
+
+.invocation-history h2 {
+  overflow-wrap: anywhere;
+}
+
+.invocation-history-list .dg-button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
