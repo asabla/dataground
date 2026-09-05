@@ -115,16 +115,6 @@ function historyFromDraft(revision: ServiceRevisionResource): ServiceRevisionHis
   };
 }
 
-function historyFromPublished(
-  revision: PublishedServiceRevisionResource,
-): ServiceRevisionHistoryResource {
-  return {
-    ...revision,
-    metadata: { ...revision.metadata },
-    requiredCapabilities: [...revision.requiredCapabilities],
-  };
-}
-
 function mergeRevisionHistory(
   current: ServiceRevisionHistoryResource[],
   incoming: ServiceRevisionHistoryResource[],
@@ -149,6 +139,7 @@ export function DevelopmentWorkbench({
   isolationDomainId,
   onDisconnect,
 }: DevelopmentWorkbenchProps) {
+  const [draftFormGeneration, setDraftFormGeneration] = useState(0);
   const [observedAlias, setObservedAlias] = useState<ServiceAliasResource>();
   const [openedAlias, setOpenedAlias] = useState<ServiceAliasResource>();
   const [openedApproval, setOpenedApproval] = useState<InvocationApprovalReference>();
@@ -163,7 +154,11 @@ export function DevelopmentWorkbench({
   const [revisionHistory, setRevisionHistory] = useState<ServiceRevisionHistoryResource[]>([]);
   const [aliasReadError, setAliasReadError] = useState<ServiceAliasFailure>();
   const [aliasReadLoading, setAliasReadLoading] = useState(false);
-  const [aliasReadTarget, setAliasReadTarget] = useState({ name: "stable", required: false });
+  const [aliasReadTarget, setAliasReadTarget] = useState<{
+    name: string;
+    required: boolean;
+    revisionId?: string;
+  }>({ name: "stable", required: false });
   const [revisionListError, setRevisionListError] = useState<ServiceRevisionFailure>();
   const [revisionListLoading, setRevisionListLoading] = useState(false);
   const [revisionListLoadingMore, setRevisionListLoadingMore] = useState(false);
@@ -279,6 +274,66 @@ export function DevelopmentWorkbench({
     [client],
   );
 
+  const openServiceRevision = useCallback(
+    async (service: AgentServiceResource, revisionId: string) => {
+      const generation = ++aliasReadGeneration.current;
+      setAliasReadTarget({ name: "stable", required: false, revisionId });
+      setAliasReadLoading(true);
+      setAliasReadError(undefined);
+      setObservedAlias(undefined);
+      setOpenedAlias(undefined);
+      setOpenedApproval(undefined);
+      setOpenedArtifact(undefined);
+      setOpenedInvocation(undefined);
+      setOpenedPublishedRevision(undefined);
+      setOpenedRevision(undefined);
+      const exact = await readServiceRevision(client, {
+        isolationDomainId: service.metadata.isolationDomainId,
+        serviceId: service.metadata.id,
+        revisionId,
+      });
+      if (generation !== aliasReadGeneration.current) return;
+      if (!exact.ok) {
+        setAliasReadLoading(false);
+        setAliasReadError(exact.error);
+        return;
+      }
+      const selection = resumeServiceRevision(exact.revision);
+      if (!selection.revision) {
+        setAliasReadLoading(false);
+        setAliasReadError({
+          code: "WORKBENCH_REVISION_RETIRED",
+          message:
+            "This revision has retired. Create a new revision to change the service definition.",
+          retryable: false,
+        });
+        setRevisionHistory((current) => mergeRevisionHistory(current, [exact.revision]));
+        return;
+      }
+      // Revision management keeps the chosen publication as the routing target.
+      // The current alias is only an observed version precondition for assignment.
+      if (selection.publishedRevision) {
+        const route = await readServiceAlias(
+          client,
+          { isolationDomainId: service.metadata.isolationDomainId, serviceId: service.metadata.id },
+          "stable",
+        );
+        if (generation !== aliasReadGeneration.current) return;
+        if (!route.ok) {
+          setAliasReadLoading(false);
+          setAliasReadError(route.error);
+          return;
+        }
+        setObservedAlias(route.alias);
+      }
+      setAliasReadLoading(false);
+      setOpenedRevision(selection.revision);
+      setOpenedPublishedRevision(selection.publishedRevision);
+      setRevisionHistory((current) => mergeRevisionHistory(current, [exact.revision]));
+    },
+    [client],
+  );
+
   const loadRevisionPage = useCallback(
     async (service: AgentServiceResource, cursor?: string) => {
       const generation = ++revisionListGeneration.current;
@@ -384,8 +439,25 @@ export function DevelopmentWorkbench({
     void loadRevisionPage(service);
   };
 
+  const startServiceRevision = () => {
+    setDraftFormGeneration((current) => current + 1);
+    aliasReadGeneration.current++;
+    setAliasReadLoading(false);
+    setAliasReadError(undefined);
+    setObservedAlias(undefined);
+    setOpenedAlias(undefined);
+    setOpenedApproval(undefined);
+    setOpenedArtifact(undefined);
+    setOpenedInvocation(undefined);
+    setOpenedPublishedRevision(undefined);
+    setOpenedRevision(undefined);
+    setRetirementRevision(undefined);
+    setWithdrawalAlias(undefined);
+  };
+
   const workflow = (
     <AgentServiceAuthoringWorkflow
+      key={draftFormGeneration}
       canAssignAlias
       canCancelInvocation
       canCreateRevision
@@ -397,14 +469,7 @@ export function DevelopmentWorkbench({
       focusCurrentStage
       isolationDomainId={isolationDomainId}
       onAssignAlias={(revision) => {
-        setOpenedAlias(undefined);
-        setOpenedApproval(undefined);
-        setOpenedArtifact(undefined);
-        setOpenedInvocation(undefined);
-        setOpenedPublishedRevision(revision);
-        setRevisionHistory((current) =>
-          mergeRevisionHistory(current, [historyFromPublished(revision)]),
-        );
+        if (openedService) void openServiceRevision(openedService, revision.metadata.id);
       }}
       onComposeInvocation={(alias) => {
         setObservedAlias(alias);
@@ -430,6 +495,9 @@ export function DevelopmentWorkbench({
         setView("interactions");
       }}
       onOpenRevision={(revision) => {
+        aliasReadGeneration.current++;
+        setAliasReadLoading(false);
+        setAliasReadError(undefined);
         revisionListGeneration.current++;
         setOpenedAlias(undefined);
         setOpenedApproval(undefined);
@@ -697,6 +765,15 @@ export function DevelopmentWorkbench({
                         void loadRevisionPage(openedService, revisionListNextCursor)
                       }
                       onRetry={() => void loadRevisionPage(openedService)}
+                      onCreate={
+                        retirementRevision || withdrawalAlias ? undefined : startServiceRevision
+                      }
+                      onOpen={
+                        retirementRevision || withdrawalAlias
+                          ? undefined
+                          : (revision) =>
+                              void openServiceRevision(openedService, revision.metadata.id)
+                      }
                       onRetire={
                         retirementRevision || withdrawalAlias
                           ? undefined
@@ -777,7 +854,11 @@ export function DevelopmentWorkbench({
                       <span aria-hidden="true" className="workbench-empty__mark">
                         ◇
                       </span>
-                      <h2>Loading {aliasReadTarget.name} route</h2>
+                      <h2>
+                        {aliasReadTarget.revisionId
+                          ? "Loading service revision"
+                          : `Loading ${aliasReadTarget.name} route`}
+                      </h2>
                       <p>Reading the exact alias state before routing or invoking this service.</p>
                     </section>
                   )}
@@ -786,11 +867,13 @@ export function DevelopmentWorkbench({
                       <p>{aliasReadError.message}</p>
                       <Button
                         onPress={() =>
-                          void loadObservedAlias(
-                            openedService,
-                            aliasReadTarget.name,
-                            aliasReadTarget.required,
-                          )
+                          aliasReadTarget.revisionId
+                            ? void openServiceRevision(openedService, aliasReadTarget.revisionId)
+                            : void loadObservedAlias(
+                                openedService,
+                                aliasReadTarget.name,
+                                aliasReadTarget.required,
+                              )
                         }
                         variant="quiet"
                       >
