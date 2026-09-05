@@ -10,6 +10,7 @@ The request is deliberately closed and non-sensitive. It contains the validated 
 | Create agent service | `createAgentService` | `IsolationDomain` from `isolationDomainId` |
 | List service revisions | `listServiceRevisions` | `AgentService` from `serviceId` |
 | Create service revision | `createServiceRevision` | `AgentService` from `serviceId` |
+| Read exact service revision | `readServiceRevision` | `ServiceRevision` from `revisionId` |
 | Publish service revision | `publishServiceRevision` | `ServiceRevision` from `revisionId` |
 | Retire service revision | `retireServiceRevision` | `ServiceRevision` from `revisionId` |
 | Read service alias | `readServiceAlias` | `AgentService` from `serviceId` |

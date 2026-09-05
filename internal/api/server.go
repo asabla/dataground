@@ -149,6 +149,9 @@ func (server *Server) handler(
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions", protected(
 		authz.CreateServiceRevision, authz.AgentService, "serviceId", server.createServiceRevision,
 	))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}", protected(
+		authz.ReadServiceRevision, authz.ServiceRevision, "revisionId", server.getServiceRevision,
+	))
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/publish", protected(
 		authz.PublishServiceRevision, authz.ServiceRevision, "revisionId", server.publishServiceRevision,
 	))
