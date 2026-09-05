@@ -60,6 +60,7 @@ type workerResources struct {
 	policyWorkspace *openshell.PolicyWorkspace
 	exportWorkspace *openshell.ExportWorkspace
 	readiness       runtimeCertificationReadiness
+	questionExpiry  *questionExpiryOwner
 }
 
 type governedExecutionPlanStore struct {
@@ -224,6 +225,7 @@ func (resources *workerResources) Close() error {
 	if resources == nil {
 		return nil
 	}
+	resources.questionExpiry.Close()
 	var exportErr, policyErr error
 	if resources.exportWorkspace != nil {
 		exportErr = resources.exportWorkspace.Close()
@@ -400,6 +402,12 @@ func composeWorkerDriver(
 	fail := func(cause error) (reconcile.EffectDriver, *workerResources, error) {
 		return nil, nil, errors.Join(cause, resources.Close())
 	}
+	resources.questionExpiry, err = newQuestionExpiryOwner(ctx, repository, config.isolationDomainID, questionExpiryInterval, questionExpiryTimeout)
+	if err != nil {
+		return fail(err)
+	}
+	readiness := governedWorkerReadiness{certification: checker, questions: resources.questionExpiry}
+	resources.readiness = readiness
 	policyWorkspace, err := openshell.OpenPolicyWorkspace(config.policyWorkspace)
 	if err != nil {
 		return fail(err)
@@ -458,7 +466,7 @@ func composeWorkerDriver(
 	}
 	provider := &certifiedExecutionProvider{
 		ExecutionProvider: openShellProvider,
-		readiness:         checker,
+		readiness:         readiness,
 		target:            config.certification.target,
 	}
 
@@ -469,7 +477,7 @@ func composeWorkerDriver(
 	admission, err := execution.NewCredentialMediatedAdmission(
 		governedExecutionPlanStore{
 			ExecutionPlanStore: executionStore,
-			readiness:          checker,
+			readiness:          readiness,
 			target:             config.certification.target,
 		},
 		bundles,
@@ -502,7 +510,7 @@ func composeWorkerDriver(
 		return fail(err)
 	}
 	authorizer := &certifiedInvocationAuthorizer{
-		delegate: baseAuthorizer, readiness: checker, target: config.certification.target,
+		delegate: baseAuthorizer, readiness: readiness, target: config.certification.target,
 	}
 	admissionDriver, err := reconcile.NewInvocationAdmissionDriver(
 		repository,
@@ -524,7 +532,7 @@ func composeWorkerDriver(
 		reconcile.InvocationRuntimeDriverConfig{
 			LeaseDuration:      governedRuntimeLeaseDuration,
 			RenewInterval:      governedRuntimeRenewInterval,
-			Readiness:          checker.Check,
+			Readiness:          readiness.Check,
 			ApprovalStore:      repository,
 			ApprovalAuthorizer: authorizer,
 		},
@@ -551,9 +559,9 @@ func composeWorkerDriver(
 		return fail(err)
 	}
 	driver := &certificationBoundDriver{
-		delegate: routed, readiness: checker, target: config.certification.target,
+		delegate: routed, readiness: readiness, target: config.certification.target,
 	}
-	if err := checker.Check(ctx); err != nil {
+	if err := readiness.Check(ctx); err != nil {
 		return fail(err)
 	}
 	if _, err := openShellProvider.RegisterGateway(ctx, execution.GatewayRegistration{
