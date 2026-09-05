@@ -129,19 +129,22 @@
   transform: rotate(45deg);
 }
 
-.dg-text-field {
+.dg-text-field,
+.dg-select-field {
   display: grid;
   gap: var(--dg-space-2);
   color: var(--dg-color-text-primary);
 }
 
-.dg-text-field label {
+.dg-text-field label,
+.dg-select-field label {
   font-size: var(--dg-font-size-caption);
   font-weight: var(--dg-font-weight-semibold);
 }
 
 .dg-text-field input,
-.dg-text-field textarea {
+.dg-text-field textarea,
+.dg-select-field select {
   width: 100%;
   min-height: var(--dg-density-control-height);
   padding: var(--dg-space-3) var(--dg-space-4);
@@ -159,29 +162,35 @@
 }
 
 .dg-text-field:focus-within input,
-.dg-text-field:focus-within textarea {
+.dg-text-field:focus-within textarea,
+.dg-select-field:focus-within select {
   outline: var(--dg-border-strong) solid var(--dg-color-focus);
   outline-offset: var(--dg-space-1);
 }
 
 .dg-text-field.is-invalid input,
-.dg-text-field.is-invalid textarea {
+.dg-text-field.is-invalid textarea,
+.dg-select-field.is-invalid select {
   border-color: var(--dg-color-status-critical);
 }
 
 .dg-text-field [slot="description"],
-.dg-text-field [slot="errorMessage"] {
+.dg-select-field [slot="description"],
+.dg-text-field [slot="errorMessage"],
+.dg-select-field [slot="errorMessage"] {
   color: var(--dg-color-text-secondary);
   font-size: var(--dg-font-size-caption);
   line-height: 1.5;
 }
 
-.dg-text-field [slot="errorMessage"] {
+.dg-text-field [slot="errorMessage"],
+.dg-select-field [slot="errorMessage"] {
   color: var(--dg-color-status-critical);
 }
 
 .dg-text-field.is-disabled input,
-.dg-text-field.is-disabled textarea {
+.dg-text-field.is-disabled textarea,
+.dg-select-field.is-disabled select {
   border-color: var(--dg-color-border-subtle);
   background: var(--dg-color-surface-raised);
   color: var(--dg-color-text-secondary);

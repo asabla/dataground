@@ -579,7 +579,7 @@ export async function invokeAgentService(
   client: DataGroundClient,
   target: AgentServiceInvocationTarget,
   alias: string,
-  input: Readonly<Record<string, string>>,
+  input: Readonly<Record<string, string | number | boolean>>,
   idempotencyKey: string,
 ): Promise<InvocationStatusResult> {
   if (
@@ -587,7 +587,14 @@ export async function invokeAgentService(
     !patterns.alias.test(alias) ||
     alias.length > 63 ||
     !isRecord(input) ||
-    !Object.values(input).every((value) => typeof value === "string") ||
+    !Object.values(input).every(
+      (value) =>
+        typeof value === "string" ||
+        typeof value === "boolean" ||
+        (typeof value === "number" &&
+          Number.isFinite(value) &&
+          Math.abs(value) <= Number.MAX_SAFE_INTEGER),
+    ) ||
     !patterns.idempotencyKey.test(idempotencyKey)
   ) {
     return failure(
@@ -596,6 +603,12 @@ export async function invokeAgentService(
     );
   }
   try {
+    if (new TextEncoder().encode(JSON.stringify({ alias, input })).byteLength > 1 << 20) {
+      return failure(
+        "WORKBENCH_INVALID_INVOCATION_REQUEST",
+        "The complete invocation input exceeds the API request limit.",
+      );
+    }
     const { data, error, response } = await client.POST(invocationCreatePath, {
       body: { alias, input },
       params: {

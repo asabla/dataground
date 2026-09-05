@@ -1,12 +1,14 @@
-import { Button, StatusBadge, TextField } from "@dataground/ui";
+import { Button, SelectField, StatusBadge, TextField } from "@dataground/ui";
 import { useId } from "react";
 
 export interface InvocationComposerField {
   description?: string;
   key: string;
   label: string;
-  maxLength: number;
-  minLength: number;
+  maxLength?: number;
+  minLength?: number;
+  type?: "string" | "number" | "integer" | "boolean";
+  options?: readonly { label: string; value: string }[];
   required: boolean;
 }
 
@@ -210,7 +212,7 @@ export function InvocationComposer({
             </p>
           )}
           <TextField
-            errorMessage={validationErrors.alias}
+            errorMessage={validationErrors.$alias}
             isDisabled={!canInvoke || isSubmitting || recoveryPending}
             isRequired
             label="Alias"
@@ -219,22 +221,49 @@ export function InvocationComposer({
             onChange={onAliasChange}
             value={alias}
           />
-          {schema.fields.map((field) => (
-            <TextField
-              description={field.description && displayText(field.description, 512)}
-              errorMessage={validationErrors[field.key]}
-              isDisabled={!canInvoke || isSubmitting || recoveryPending}
-              isMultiline={field.key === "prompt"}
-              isRequired={field.required}
-              key={field.key}
-              label={displayText(field.label, 128)}
-              maxLength={field.maxLength}
-              minLength={field.minLength}
-              name={field.key}
-              onChange={(value) => onValueChange?.(field.key, value)}
-              value={values[field.key] ?? ""}
-            />
-          ))}
+          {schema.fields.map((field) =>
+            field.options ? (
+              <SelectField
+                description={field.description && displayText(field.description, 512)}
+                errorMessage={
+                  Object.hasOwn(validationErrors, field.key)
+                    ? validationErrors[field.key]
+                    : undefined
+                }
+                isDisabled={!canInvoke || isSubmitting || recoveryPending}
+                isRequired={field.required}
+                key={field.key}
+                label={displayText(field.label, 128)}
+                name={field.key}
+                onChange={(value) => onValueChange?.(field.key, value)}
+                options={field.options}
+                placeholder={field.required ? "Choose an option" : "Not provided"}
+                value={Object.hasOwn(values, field.key) ? (values[field.key] ?? "") : ""}
+              />
+            ) : (
+              <TextField
+                description={field.description && displayText(field.description, 512)}
+                errorMessage={
+                  Object.hasOwn(validationErrors, field.key)
+                    ? validationErrors[field.key]
+                    : undefined
+                }
+                isDisabled={!canInvoke || isSubmitting || recoveryPending}
+                isMultiline={field.key === "prompt" && (!field.type || field.type === "string")}
+                isRequired={field.required}
+                key={field.key}
+                label={displayText(field.label, 128)}
+                inputMode={
+                  field.type === "number" || field.type === "integer" ? "decimal" : undefined
+                }
+                maxLength={field.maxLength === undefined ? 128 : field.maxLength * 2}
+                name={field.key}
+                onChange={(value) => onValueChange?.(field.key, value)}
+                value={Object.hasOwn(values, field.key) ? (values[field.key] ?? "") : ""}
+                validationBehavior="aria"
+              />
+            ),
+          )}
           <div className="dg-invocation-composer__actions">
             <Button isDisabled={disabled} type="submit">
               Start invocation

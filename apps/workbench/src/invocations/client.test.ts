@@ -93,6 +93,64 @@ describe("invocation status client", () => {
     if (result.ok) assert.equal("input" in result.invocation, false);
   });
 
+  it("preserves false, zero, and empty strings in the submitted JSON", async () => {
+    let submitted: unknown;
+    const client = {
+      POST: async (_path: string, options: { body: unknown }) => {
+        submitted = options.body;
+        return {
+          data: { ...invocation, state: "accepted" },
+          response: new Response(null, { status: 202 }),
+        };
+      },
+      GET: async () => ({ data: operation, response: new Response(null, { status: 200 }) }),
+    } as unknown as DataGroundClient;
+    const result = await invokeAgentService(
+      client,
+      { isolationDomainId: reference.isolationDomainId, serviceId: invocation.serviceId },
+      "stable",
+      { count: 0, enabled: false, mode: "", ratio: -0.5 },
+      "invoke:typed0001",
+    );
+    assert.equal(result.ok, true);
+    assert.deepEqual(submitted, {
+      alias: "stable",
+      input: { count: 0, enabled: false, mode: "", ratio: -0.5 },
+    });
+  });
+
+  it("rejects oversized serialized bodies and unrepresentable numbers before transport", async () => {
+    let calls = 0;
+    const client = {
+      POST: async () => {
+        calls++;
+        throw new Error("unexpected transport");
+      },
+    } as unknown as DataGroundClient;
+    for (const input of [
+      { value: "😀".repeat(262144) },
+      { value: "\n".repeat(524288) },
+      { value: Number.NaN },
+      { value: Number.POSITIVE_INFINITY },
+      { value: Number.MAX_SAFE_INTEGER + 1 },
+    ]) {
+      const result = await invokeAgentService(
+        client,
+        { isolationDomainId: reference.isolationDomainId, serviceId: invocation.serviceId },
+        "stable",
+        input,
+        "invoke:typed0002",
+      );
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.equal(result.error.code, "WORKBENCH_INVALID_INVOCATION_REQUEST");
+        assert.equal(result.error.retryable, false);
+        assert.doesNotMatch(result.error.message, /😀|NaN|Infinity/);
+      }
+    }
+    assert.equal(calls, 0);
+  });
+
   it("rejects invalid create requests and cross-service responses before operation reads", async () => {
     let calls = 0;
     const target = {

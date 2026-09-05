@@ -4,17 +4,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DataGroundClient } from "../contracts/client";
 import {
   type AgentServiceInvocationTarget,
-  invokeAgentService,
   type InvocationFailure,
   type InvocationReference,
   type InvocationStatusResource,
+  invokeAgentService,
 } from "./client";
-import { type InvocationComposerSchema, normalizeInvocationComposerSchema } from "./composerSchema";
+import {
+  type InvocationComposerSchema,
+  type InvocationInput,
+  normalizeInvocationComposerSchema,
+  prepareInvocationInput,
+} from "./composerSchema";
 
 interface InvocationAttempt {
   alias: string;
   idempotencyKey: string;
-  input: Record<string, string>;
+  input: InvocationInput;
 }
 
 interface ComposerWorkflowState {
@@ -51,20 +56,12 @@ export function validateInvocationComposerValues(
   values: Readonly<Record<string, string>>,
   schema: InvocationComposerSchema,
 ): Record<string, string> {
-  const errors: Record<string, string> = {};
-  if (alias.length === 0) errors.alias = "Alias is required.";
+  const errors = prepareInvocationInput(values, schema).errors;
+  // Input properties may themselves be named alias. Reserve a key outside
+  // the supported property-name grammar for the routing field's error.
+  if (alias.length === 0) errors.$alias = "Alias is required.";
   else if (alias.length > 63 || !aliasPattern.test(alias)) {
-    errors.alias = "Use lowercase letters, numbers, and internal hyphens.";
-  }
-  const encoder = new TextEncoder();
-  for (const field of schema.fields) {
-    const value = values[field.key] ?? "";
-    const bytes = encoder.encode(value).byteLength;
-    if (field.required && value.length === 0) errors[field.key] = `${field.label} is required.`;
-    else if (value.length < field.minLength) errors[field.key] = `${field.label} is too short.`;
-    else if (bytes > field.maxLength) errors[field.key] = `${field.label} is too long.`;
-    else if (value.includes("\0"))
-      errors[field.key] = `${field.label} contains unsupported characters.`;
+    errors.$alias = "Use lowercase letters, numbers, and internal hyphens.";
   }
   return errors;
 }
@@ -142,9 +139,7 @@ export function InvocationComposerWorkflow({
         attempt = {
           alias: state.alias,
           idempotencyKey: createIdempotencyKey(),
-          input: Object.fromEntries(
-            normalized.schema.fields.map((field) => [field.key, state.values[field.key] ?? ""]),
-          ),
+          input: prepareInvocationInput(state.values, normalized.schema).input,
         };
       } catch {
         setState((current) =>
