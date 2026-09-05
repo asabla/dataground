@@ -52,7 +52,7 @@ export const Invalid: Story = {
   args: {
     alias: "INVALID",
     validationErrors: {
-      alias: "Use lowercase letters, numbers, and internal hyphens.",
+      $alias: "Use lowercase letters, numbers, and internal hyphens.",
       prompt: "Prompt is required.",
     },
     values: { prompt: "" },
@@ -96,5 +96,43 @@ export const UnsupportedContract: Story = {
   args: {
     schema: undefined,
     schemaError: "This input contract is not supported by the Workbench composer.",
+  },
+};
+
+export const TypedInputs: Story = {
+  args: {
+    schema: {
+      fields: [
+        { key: "count", label: "Count", type: "integer", required: true },
+        {
+          key: "enabled",
+          label: "Enabled",
+          type: "boolean",
+          required: true,
+          options: [
+            { label: "True", value: "true" },
+            { label: "False", value: "false" },
+          ],
+        },
+        {
+          key: "mode",
+          label: "Mode",
+          required: false,
+          options: [
+            { label: "Brief", value: "0" },
+            { label: "Full", value: "1" },
+          ],
+        },
+      ],
+    },
+    values: { count: "0", enabled: "false", mode: "" },
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("combobox", { name: "Enabled" })).toHaveValue("false");
+    await userEvent.selectOptions(canvas.getByRole("combobox", { name: "Mode" }), "1");
+    await expect(args.onValueChange).toHaveBeenCalledWith("mode", "1");
+    await userEvent.click(canvas.getByRole("button", { name: "Start invocation" }));
+    await expect(args.onSubmit).toHaveBeenCalledOnce();
   },
 };

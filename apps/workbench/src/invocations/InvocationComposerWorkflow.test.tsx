@@ -25,15 +25,30 @@ describe("InvocationComposerWorkflow", () => {
     );
   });
 
-  it("validates aliases and UTF-8 input bounds before transport", () => {
+  it("validates aliases and Unicode character bounds before transport", () => {
     assert.deepEqual(validateInvocationComposerValues("INVALID", { prompt: "" }, schema), {
-      alias: "Use lowercase letters, numbers, and internal hyphens.",
+      $alias: "Use lowercase letters, numbers, and internal hyphens.",
       prompt: "Prompt is required.",
     });
-    assert.deepEqual(validateInvocationComposerValues("stable", { prompt: "😀😀😀😀" }, schema), {
-      prompt: "Prompt is too long.",
-    });
+    assert.deepEqual(
+      validateInvocationComposerValues("stable", { prompt: "😀😀😀😀" }, schema),
+      {},
+    );
     assert.deepEqual(validateInvocationComposerValues("stable", { prompt: "valid" }, schema), {});
+  });
+
+  it("keeps routing alias errors separate from an input field named alias", () => {
+    const errors = validateInvocationComposerValues(
+      "INVALID",
+      { alias: "" },
+      {
+        fields: [
+          { key: "alias", label: "Input alias", required: true, minLength: 1, maxLength: 16 },
+        ],
+      },
+    );
+    assert.equal(errors.$alias, "Use lowercase letters, numbers, and internal hyphens.");
+    assert.equal(errors.alias, "Input alias is required.");
   });
 
   it("renders observer authority and scope without enabling submission", () => {
