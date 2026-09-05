@@ -1145,55 +1145,8 @@ func getInvocationForUpdate(
 	`, isolationDomainID, invocationID))
 }
 
-func getRevisionForUpdate(
-	ctx context.Context,
-	tx pgx.Tx,
-	isolationDomainID string,
-	revisionID string,
-) (domain.ServiceRevision, error) {
-	var revision domain.ServiceRevision
-	var inputSchema, outputSchema []byte
-	err := tx.QueryRow(ctx, `
-		SELECT isolation_domain_id, id, service_id, revision_number, state, runtime_profile,
-		       required_capabilities, input_schema, output_schema, published_at,
-		       generation, version, created_at, updated_at, created_by
-		FROM service_revisions
-		WHERE isolation_domain_id = $1 AND id = $2
-		FOR UPDATE
-	`, isolationDomainID, revisionID).Scan(
-		&revision.Metadata.IsolationDomainID,
-		&revision.Metadata.ID,
-		&revision.ServiceID,
-		&revision.RevisionNumber,
-		&revision.State,
-		&revision.RuntimeProfile,
-		&revision.RequiredCapabilities,
-		&inputSchema,
-		&outputSchema,
-		&revision.PublishedAt,
-		&revision.Metadata.Generation,
-		&revision.Metadata.Version,
-		&revision.Metadata.CreatedAt,
-		&revision.Metadata.UpdatedAt,
-		&revision.Metadata.CreatedBy,
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.ServiceRevision{}, &DomainError{Code: "RESOURCE_NOT_FOUND", Message: "Service revision was not found."}
-	}
-	if err != nil {
-		return domain.ServiceRevision{}, fmt.Errorf("read service revision: %w", err)
-	}
-	if len(inputSchema) > 0 {
-		if err := json.Unmarshal(inputSchema, &revision.InputSchema); err != nil {
-			return domain.ServiceRevision{}, fmt.Errorf("decode input schema: %w", err)
-		}
-	}
-	if len(outputSchema) > 0 {
-		if err := json.Unmarshal(outputSchema, &revision.OutputSchema); err != nil {
-			return domain.ServiceRevision{}, fmt.Errorf("decode output schema: %w", err)
-		}
-	}
-	return revision, nil
+func getRevisionForUpdate(ctx context.Context, tx pgx.Tx, isolationDomainID, revisionID string) (domain.ServiceRevision, error) {
+	return scanServiceRevision(tx.QueryRow(ctx, serviceRevisionSelect+" FOR UPDATE", isolationDomainID, revisionID))
 }
 
 type operationQuerier interface {

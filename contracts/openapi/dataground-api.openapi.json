@@ -240,6 +240,48 @@
         "description": "Atomically retires a published revision after checking its expected version, absence of aliases, and absence of nonterminal invocation or publication activity. Retirement prevents new routing and operator repair through this revision. It retains resource history, artifacts and audit; it does not delete content or replace retention policy."
       }
     },
+    "/v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}": {
+      "get": {
+        "operationId": "readServiceRevision",
+        "summary": "Read an exact service revision",
+        "description": "Reads one isolation-scoped revision by immutable identifier, including its current publication or retirement state. No newest-revision or alias fallback is performed. The request requires readServiceRevision authorization on that exact revision.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "$ref": "#/components/parameters/RevisionId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The exact service revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceRevision"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/publish": {
       "post": {
         "operationId": "publishServiceRevision",
