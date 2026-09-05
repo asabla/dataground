@@ -791,7 +791,10 @@ p {
   overflow-wrap: anywhere;
 }
 
-.revision-history__retire {
+.revision-history__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dg-space-3);
   grid-column: 1 / -1;
   justify-self: start;
 }

@@ -76,3 +76,16 @@ describe("service revision history panel", () => {
     assert.match(markup, /Load more revisions/u);
   });
 });
+
+it("offers explicit creation and reopening only with callbacks and excludes retired revisions", () => {
+  const markup = render({
+    revisions: [revision, { ...revision, revisionNumber: 3, state: "retired" }],
+    onCreate: () => {},
+    onOpen: () => {},
+  });
+  assert.match(markup, /New revision/u);
+  assert.match(markup, /Open revision 2/u);
+  assert.doesNotMatch(markup, /Open revision 3/u);
+  assert.doesNotMatch(render({ revisions: [revision] }), /Open revision|New revision/u);
+  assert.match(render({ isLoading: true, onCreate: () => {} }), /disabled/u);
+});

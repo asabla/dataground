@@ -8,6 +8,8 @@ export interface ServiceRevisionHistoryPanelProps {
   nextCursor?: string;
   onLoadMore: () => void;
   onRetry: () => void;
+  onCreate?: () => void;
+  onOpen?: (revision: ServiceRevisionHistoryResource) => void;
   onRetire?: (revision: ServiceRevisionHistoryResource) => void;
   revisions: ServiceRevisionHistoryResource[];
 }
@@ -26,6 +28,8 @@ export function ServiceRevisionHistoryPanel({
   onLoadMore,
   onRetry,
   onRetire,
+  onCreate,
+  onOpen,
   revisions,
 }: ServiceRevisionHistoryPanelProps) {
   return (
@@ -37,7 +41,18 @@ export function ServiceRevisionHistoryPanel({
             Service revisions
           </h2>
         </div>
-        {revisions.length > 0 && <span>{revisions.length} loaded</span>}
+        <div>
+          {revisions.length > 0 && <span>{revisions.length} loaded</span>}
+          {onCreate && (
+            <Button
+              isDisabled={isLoading || isLoadingMore || !!error}
+              onPress={onCreate}
+              variant="quiet"
+            >
+              New revision
+            </Button>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -69,14 +84,28 @@ export function ServiceRevisionHistoryPanel({
                   Updated{" "}
                   <time dateTime={revision.metadata.updatedAt}>{revision.metadata.updatedAt}</time>
                 </span>
-                {onRetire && revision.state === "published" && (
-                  <Button
-                    className="revision-history__retire"
-                    variant="quiet"
-                    onPress={() => onRetire(revision)}
-                  >
-                    Retire revision {revision.revisionNumber}
-                  </Button>
+                {((onOpen && revision.state !== "retired") ||
+                  (onRetire && revision.state === "published")) && (
+                  <div className="revision-history__actions">
+                    {onOpen && (
+                      <Button
+                        isDisabled={isLoading || isLoadingMore || !!error}
+                        variant="quiet"
+                        onPress={() => onOpen(revision)}
+                      >
+                        Open revision {revision.revisionNumber}
+                      </Button>
+                    )}
+                    {onRetire && revision.state === "published" && (
+                      <Button
+                        isDisabled={isLoading || isLoadingMore || !!error}
+                        variant="quiet"
+                        onPress={() => onRetire(revision)}
+                      >
+                        Retire revision {revision.revisionNumber}
+                      </Button>
+                    )}
+                  </div>
                 )}
               </li>
             ))}
