@@ -54,3 +54,5 @@ Add a foundation token only when multiple semantic roles need the value. Add a s
 Do not add a primitive only to complete an inventory. Introduce it with a real consumer, its contract surface, interaction evidence, and tests. Product patterns must preserve requested versus observed state, typed events, explainable authority, provenance, recovery, and unknown states from the platform specification.
 
 The Workbench service-route list uses semantic headings and lists with shared buttons. Refresh keeps keyboard focus; completion returns focus to the section heading only when a removed pagination or retry control would otherwise strand focus on the page body. Observation omits withdrawal controls. Pending or failed route reads disable mutation controls, while the server independently authorizes each read and command.
+
+Route selection re-reads the chosen alias and exact revision before composing input. The Workbench keeps loading and failed selection explicit and never substitutes the newest history item for the route target. Route-list actions use the same loading and error guards as withdrawal; choosing another route cancels ownership of older read responses.

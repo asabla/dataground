@@ -13,6 +13,7 @@ export interface ServiceRouteDiscoveryProps {
   scope: ServiceAliasReadScope;
   canWithdraw?: boolean;
   onWithdraw: (alias: ServiceAliasResource) => void;
+  onSelect?: (alias: ServiceAliasResource) => void;
 }
 
 export function ServiceRouteDiscovery({
@@ -20,6 +21,7 @@ export function ServiceRouteDiscovery({
   scope: { isolationDomainId, serviceId },
   canWithdraw = false,
   onWithdraw,
+  onSelect,
 }: ServiceRouteDiscoveryProps) {
   const scope = `${isolationDomainId}/${serviceId}`;
   const titleId = useId();
@@ -113,6 +115,18 @@ export function ServiceRouteDiscovery({
               <p>
                 Revision <code>{alias.revisionId}</code>
               </p>
+              {onSelect && (
+                <Button
+                  isDisabled={loading || !!error}
+                  onPress={() => {
+                    if (current && !inFlight.current && !loading && !error)
+                      onSelect({ ...alias, metadata: { ...alias.metadata } });
+                  }}
+                  variant="quiet"
+                >
+                  Use {alias.name} route
+                </Button>
+              )}
               {canWithdraw && (
                 <Button
                   isDisabled={loading || !!error}

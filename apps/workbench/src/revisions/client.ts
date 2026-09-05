@@ -605,3 +605,64 @@ export async function listServiceRevisions(
     };
   }
 }
+
+export interface ServiceRevisionReadScope {
+  isolationDomainId: string;
+  serviceId: string;
+  revisionId: string;
+}
+
+export type ServiceRevisionReadResult =
+  | { ok: true; revision: ServiceRevisionHistoryResource }
+  | { ok: false; error: ServiceRevisionFailure };
+
+export async function readServiceRevision(
+  client: DataGroundClient,
+  scope: ServiceRevisionReadScope,
+): Promise<ServiceRevisionReadResult> {
+  if (
+    !patterns.isolationDomainId.test(scope.isolationDomainId) ||
+    !patterns.serviceId.test(scope.serviceId) ||
+    !patterns.revisionId.test(scope.revisionId)
+  ) {
+    return {
+      ok: false,
+      error: {
+        code: "WORKBENCH_INVALID_REVISION_READ_REQUEST",
+        message: "The revision scope is invalid.",
+        retryable: false,
+      },
+    };
+  }
+  try {
+    const { data, error, response } = await client.GET(
+      "/v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}",
+      {
+        params: {
+          path: { isolationDomainId: scope.isolationDomainId, revisionId: scope.revisionId },
+        },
+      },
+    );
+    if (response.status !== 200) return failedResult(error, response.status);
+    const revision = decodeRevisionHistory(data, scope.isolationDomainId, scope.serviceId);
+    if (!revision || revision.metadata.id !== scope.revisionId)
+      return {
+        ok: false,
+        error: {
+          code: "WORKBENCH_REVISION_READ_SCOPE_MISMATCH",
+          message: "DataGround returned a revision outside the requested scope or contract.",
+          retryable: false,
+        },
+      };
+    return { ok: true, revision };
+  } catch {
+    return {
+      ok: false,
+      error: {
+        code: "WORKBENCH_REVISION_READ_UNAVAILABLE",
+        message: "The Workbench could not reach DataGround to read the service revision.",
+        retryable: true,
+      },
+    };
+  }
+}

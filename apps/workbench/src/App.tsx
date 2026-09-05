@@ -15,6 +15,7 @@ import { InvocationHistoryWorkflow } from "./invocations/InvocationHistoryWorkfl
 import {
   listServiceRevisions,
   type PublishedServiceRevisionResource,
+  readServiceRevision,
   resumeServiceRevision,
   type ServiceRevisionFailure,
   ServiceRevisionHistoryPanel,
@@ -162,6 +163,7 @@ export function DevelopmentWorkbench({
   const [revisionHistory, setRevisionHistory] = useState<ServiceRevisionHistoryResource[]>([]);
   const [aliasReadError, setAliasReadError] = useState<ServiceAliasFailure>();
   const [aliasReadLoading, setAliasReadLoading] = useState(false);
+  const [aliasReadTarget, setAliasReadTarget] = useState({ name: "stable", required: false });
   const [revisionListError, setRevisionListError] = useState<ServiceRevisionFailure>();
   const [revisionListLoading, setRevisionListLoading] = useState(false);
   const [revisionListLoadingMore, setRevisionListLoadingMore] = useState(false);
@@ -212,11 +214,9 @@ export function DevelopmentWorkbench({
   }, [loadServicePage]);
 
   const loadObservedAlias = useCallback(
-    async (
-      service: AgentServiceResource,
-      selectedPublication?: PublishedServiceRevisionResource,
-    ) => {
+    async (service: AgentServiceResource, name = "stable", required = false) => {
       const generation = ++aliasReadGeneration.current;
+      setAliasReadTarget({ name, required });
       setAliasReadLoading(true);
       setAliasReadError(undefined);
       setObservedAlias(undefined);
@@ -227,22 +227,54 @@ export function DevelopmentWorkbench({
           isolationDomainId: service.metadata.isolationDomainId,
           serviceId: service.metadata.id,
         },
-        "stable",
+        name,
       );
       if (generation !== aliasReadGeneration.current) return;
-      setAliasReadLoading(false);
       if (!result.ok) {
+        setAliasReadLoading(false);
         setAliasReadError(result.error);
         return;
       }
+      if (!result.alias) {
+        setAliasReadLoading(false);
+        if (required)
+          setAliasReadError({
+            code: "WORKBENCH_ROUTE_NOT_FOUND",
+            message:
+              "This route is no longer active. Refresh service routes to choose another route.",
+            retryable: false,
+          });
+        return;
+      }
+      const exact = await readServiceRevision(client, {
+        isolationDomainId: service.metadata.isolationDomainId,
+        serviceId: service.metadata.id,
+        revisionId: result.alias.revisionId,
+      });
+      if (generation !== aliasReadGeneration.current) return;
+      setAliasReadLoading(false);
+      if (!exact.ok) {
+        setAliasReadError(exact.error);
+        return;
+      }
+      const selection = resumeServiceRevision(exact.revision);
+      if (
+        !selection.publishedRevision ||
+        !isServiceAliasRoutedToRevision(result.alias, selection.publishedRevision)
+      ) {
+        setAliasReadError({
+          code: "WORKBENCH_ROUTE_REVISION_UNAVAILABLE",
+          message:
+            "The route does not resolve to a published revision. Refresh service routes before continuing.",
+          retryable: false,
+        });
+        return;
+      }
+      setOpenedRevision(selection.revision);
+      setOpenedPublishedRevision(selection.publishedRevision);
+      setRevisionHistory((current) => mergeRevisionHistory(current, [exact.revision]));
       setObservedAlias(result.alias);
-      setOpenedAlias(
-        result.alias &&
-          selectedPublication &&
-          isServiceAliasRoutedToRevision(result.alias, selectedPublication)
-          ? result.alias
-          : undefined,
-      );
+      setOpenedAlias(result.alias);
     },
     [client],
   );
@@ -280,7 +312,7 @@ export function DevelopmentWorkbench({
         const selection = newest === undefined ? {} : resumeServiceRevision(newest);
         setOpenedPublishedRevision(selection.publishedRevision);
         setOpenedRevision(selection.revision);
-        void loadObservedAlias(service, selection.publishedRevision);
+        void loadObservedAlias(service);
       }
     },
     [client, isolationDomainId, loadObservedAlias],
@@ -668,7 +700,12 @@ export function DevelopmentWorkbench({
                       onRetire={
                         retirementRevision || withdrawalAlias
                           ? undefined
-                          : (revision) => setRetirementRevision(revision)
+                          : (revision) => {
+                              aliasReadGeneration.current++;
+                              setAliasReadLoading(false);
+                              setAliasReadError(undefined);
+                              setRetirementRevision(revision);
+                            }
                       }
                       revisions={revisionHistory}
                     />
@@ -678,7 +715,22 @@ export function DevelopmentWorkbench({
                       client={client}
                       scope={{ isolationDomainId, serviceId: openedService.metadata.id }}
                       canWithdraw
-                      onWithdraw={setWithdrawalAlias}
+                      onWithdraw={(alias) => {
+                        aliasReadGeneration.current++;
+                        setAliasReadLoading(false);
+                        setAliasReadError(undefined);
+                        setWithdrawalAlias(alias);
+                      }}
+                      onSelect={
+                        revisionListLoading || revisionListError
+                          ? undefined
+                          : (alias) => {
+                              setOpenedApproval(undefined);
+                              setOpenedArtifact(undefined);
+                              setOpenedInvocation(undefined);
+                              void loadObservedAlias(openedService, alias.name, true);
+                            }
+                      }
                     />
                   )}
                   {withdrawalAlias &&
@@ -725,7 +777,7 @@ export function DevelopmentWorkbench({
                       <span aria-hidden="true" className="workbench-empty__mark">
                         ◇
                       </span>
-                      <h2>Loading stable route</h2>
+                      <h2>Loading {aliasReadTarget.name} route</h2>
                       <p>Reading the exact alias state before routing or invoking this service.</p>
                     </section>
                   )}
@@ -734,7 +786,11 @@ export function DevelopmentWorkbench({
                       <p>{aliasReadError.message}</p>
                       <Button
                         onPress={() =>
-                          void loadObservedAlias(openedService, openedPublishedRevision)
+                          void loadObservedAlias(
+                            openedService,
+                            aliasReadTarget.name,
+                            aliasReadTarget.required,
+                          )
                         }
                         variant="quiet"
                       >

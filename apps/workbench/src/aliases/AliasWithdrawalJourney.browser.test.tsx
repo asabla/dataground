@@ -57,6 +57,8 @@ it.each(["stable", "canary"])("withdraws %s before retirement", async (name) => 
           data: { items: withdrawn ? [] : [alias] },
           response: new Response(null, { status: 200 }),
         };
+      if (path.endsWith("/service-revisions/{revisionId}"))
+        return { data: revision, response: new Response(null, { status: 200 }) };
       if (path.endsWith("/aliases/{alias}")) {
         aliasReads++;
         return withdrawn || name !== "stable"

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import type { DataGroundClient } from "../contracts/client";
-import { createServiceRevision, listServiceRevisions } from "./client";
+import { createServiceRevision, listServiceRevisions, readServiceRevision } from "./client";
 
 const isolationDomainId = "iso_00000000000000000001";
 const serviceId = "svc_00000000000000000001";
@@ -273,5 +273,107 @@ describe("service revision client", () => {
     );
     assert.equal(stalled.ok, false);
     if (!stalled.ok) assert.equal(stalled.error.code, "WORKBENCH_REVISION_LIST_CURSOR_STALLED");
+  });
+});
+
+describe("exact revision client", () => {
+  const scope = { isolationDomainId, serviceId, revisionId: publishedRevision.metadata.id };
+  it("reads an exact scoped revision and strips unknown fields", async () => {
+    const calls: unknown[] = [];
+    const result = await readServiceRevision(
+      {
+        GET: async (path: string, options: unknown) => {
+          calls.push({ path, options });
+          return { data: publishedRevision, response: new Response(null, { status: 200 }) };
+        },
+      } as unknown as DataGroundClient,
+      scope,
+    );
+    assert.deepEqual(calls, [
+      {
+        path: "/v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}",
+        options: { params: { path: { isolationDomainId, revisionId: scope.revisionId } } },
+      },
+    ]);
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.revision.metadata.id, scope.revisionId);
+      assert.equal(result.revision.state, "published");
+      assert.ok(!JSON.stringify(result.revision).includes("must be stripped"));
+    }
+  });
+  it("rejects substituted identifiers, scopes, malformed state and successful non-200 statuses", async () => {
+    for (const data of [
+      revision,
+      { ...publishedRevision, serviceId: "svc_00000000000000000002" },
+      {
+        ...publishedRevision,
+        metadata: { ...publishedRevision.metadata, isolationDomainId: "iso_00000000000000000002" },
+      },
+      { ...publishedRevision, publishedAt: undefined },
+      { ...publishedRevision, state: "unknown" },
+      undefined,
+    ]) {
+      const result = await readServiceRevision(
+        {
+          GET: async () => ({ data, response: new Response(null, { status: 200 }) }),
+        } as unknown as DataGroundClient,
+        scope,
+      );
+      assert.equal(result.ok, false);
+    }
+    const result = await readServiceRevision(
+      {
+        GET: async () => ({
+          data: publishedRevision,
+          response: new Response(null, { status: 202 }),
+        }),
+      } as unknown as DataGroundClient,
+      scope,
+    );
+    assert.equal(result.ok, false);
+  });
+  it("does not send invalid scope and returns safe denial and network failures", async () => {
+    let called = false;
+    const offline = {
+      GET: async () => {
+        called = true;
+        throw new Error("private provider details");
+      },
+    } as unknown as DataGroundClient;
+    for (const changed of [
+      { ...scope, isolationDomainId: "bad" },
+      { ...scope, serviceId: "bad" },
+      { ...scope, revisionId: "bad" },
+    ])
+      assert.equal((await readServiceRevision(offline, changed)).ok, false);
+    assert.equal(called, false);
+    const failed = await readServiceRevision(offline, scope);
+    assert.equal(failed.ok, false);
+    if (!failed.ok) {
+      assert.equal(failed.error.retryable, true);
+      assert.ok(!failed.error.message.includes("private"));
+    }
+    const denied = await readServiceRevision(
+      {
+        GET: async () => ({
+          response: new Response(null, { status: 403 }),
+          error: {
+            error: {
+              code: "ACCESS_DENIED",
+              message: "Access denied.",
+              correlationId: "cor_denied",
+              retryable: false,
+            },
+          },
+        }),
+      } as unknown as DataGroundClient,
+      scope,
+    );
+    assert.equal(denied.ok, false);
+    if (!denied.ok) {
+      assert.equal(denied.error.status, 403);
+      assert.equal(denied.error.retryable, false);
+    }
   });
 });

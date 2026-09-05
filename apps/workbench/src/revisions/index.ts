@@ -1,6 +1,7 @@
 export {
   createServiceRevision,
   listServiceRevisions,
+  readServiceRevision,
   type ServiceRevisionCreateRequest,
   type ServiceRevisionCreateResult,
   type ServiceRevisionFailure,
@@ -8,6 +9,8 @@ export {
   type ServiceRevisionListResult,
   type ServiceRevisionMetadata,
   type ServiceRevisionPage,
+  type ServiceRevisionReadResult,
+  type ServiceRevisionReadScope,
   type ServiceRevisionResource,
 } from "./client";
 export {
