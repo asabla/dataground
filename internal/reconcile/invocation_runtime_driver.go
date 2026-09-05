@@ -581,10 +581,15 @@ func (driver *InvocationRuntimeDriver) publishInvocationArtifacts(
 }
 
 func (driver *InvocationRuntimeDriver) ready(ctx context.Context) error {
-	if driver.readiness == nil {
-		return nil
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	return driver.readiness(ctx)
+	if driver.readiness != nil {
+		if err := driver.readiness(ctx); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
 }
 
 func drainRuntimeEvents(
@@ -630,6 +635,11 @@ func (driver *InvocationRuntimeDriver) recordRuntimeEvent(
 		governedInvocationDependencyMissing(driver.approvalAuthorizer) {
 		return claim, ErrInvocationApprovalUnavailable
 	}
+	ctx, cancel := context.WithDeadline(ctx, claim.DeadlineAt)
+	defer cancel()
+	if err := driver.ready(ctx); err != nil {
+		return claim, err
+	}
 	adapterApprovalID, idOK := event.Payload["approvalId"].(string)
 	requestedAction, actionOK := event.Payload["action"].(string)
 	if !idOK || adapterApprovalID == "" || !actionOK || len(event.Payload) != 2 {
@@ -649,6 +659,9 @@ func (driver *InvocationRuntimeDriver) recordRuntimeEvent(
 	ticker := time.NewTicker(driver.renewInterval)
 	defer ticker.Stop()
 	for {
+		if err := driver.ready(ctx); err != nil {
+			return claim, err
+		}
 		approval, err = driver.approvalStore.GetInvocationRuntimeApproval(
 			ctx, approval.IsolationDomainID, approval.ID,
 		)
@@ -667,16 +680,26 @@ func (driver *InvocationRuntimeDriver) recordRuntimeEvent(
 			} else if authorizationErr != nil {
 				return claim, authorizationErr
 			}
+			if err := driver.ready(ctx); err != nil {
+				return claim, err
+			}
 			if _, err := driver.approvalStore.BeginInvocationRuntimeApprovalDelivery(
 				ctx, claim, effect, approval.ID, effectiveDecision,
 			); err != nil {
 				return claim, err
 			}
-			if err := turn.ResolveApproval(
-				ctx,
-				adapterApprovalID,
-				dgruntime.ApprovalDecision(effectiveDecision),
-			); err != nil {
+			// The reservation is single-use even if readiness or the claim expires
+			// before the native write. Keep ambiguous delivery reserved for recovery.
+			deliveryCtx, stopDelivery := context.WithDeadline(ctx, claim.LeaseExpiresAt)
+			deliveryErr := driver.ready(deliveryCtx)
+			if deliveryErr == nil {
+				deliveryErr = turn.ResolveApproval(deliveryCtx, adapterApprovalID, dgruntime.ApprovalDecision(effectiveDecision))
+			}
+			stopDelivery()
+			if deliveryErr != nil {
+				return claim, deliveryErr
+			}
+			if err := driver.ready(ctx); err != nil {
 				return claim, err
 			}
 			if _, err := driver.approvalStore.CompleteInvocationRuntimeApprovalDelivery(
