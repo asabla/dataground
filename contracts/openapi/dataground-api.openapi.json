@@ -346,6 +346,70 @@
         }
       }
     },
+    "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}/actions/withdraw": {
+      "post": {
+        "operationId": "withdrawServiceAlias",
+        "summary": "Withdraw a service alias",
+        "description": "Stops new routing through this alias after an exact version check. Accepted invocations and historical command replay remain unchanged. The response records withdrawnAt; ordinary alias reads return 404 while withdrawn. Assigning the name again uses the absent-alias precondition (omitted or zero expectedVersion) and preserves its identity while advancing its version, preventing stale updates after reuse.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "$ref": "#/components/parameters/ServiceId"
+          },
+          {
+            "$ref": "#/components/parameters/Alias"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WithdrawServiceAliasRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Withdrawn alias receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAlias"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations": {
       "get": {
         "operationId": "listInvocations",
@@ -971,7 +1035,8 @@
           "metadata": { "$ref": "#/components/schemas/ResourceMetadata" },
           "serviceId": { "$ref": "#/components/schemas/ServiceId" },
           "name": { "$ref": "#/components/schemas/AliasName" },
-          "revisionId": { "$ref": "#/components/schemas/RevisionId" }
+          "revisionId": { "$ref": "#/components/schemas/RevisionId" },
+          "withdrawnAt": { "type": "string", "format": "date-time" }
         }
       },
       "ServiceDeployment": {
@@ -1283,6 +1348,12 @@
           "revisionId": { "$ref": "#/components/schemas/RevisionId" },
           "expectedVersion": { "type": "integer", "minimum": 0 }
         }
+      },
+      "WithdrawServiceAliasRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedVersion"],
+        "properties": { "expectedVersion": { "type": "integer", "minimum": 1 } }
       },
       "InvokeAgentServiceRequest": {
         "type": "object",

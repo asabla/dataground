@@ -151,6 +151,7 @@ describe("service alias client", () => {
     assert.equal(requested, false);
 
     for (const responseAlias of [
+      { ...createdAlias, withdrawnAt: "2026-09-05T12:00:00Z" },
       { ...current, serviceId: "svc_00000000000000000002" },
       { ...current, name: "candidate" },
       { ...current, revisionId: "native-revision" },
@@ -321,6 +322,26 @@ describe("service alias client", () => {
       assert.equal((await assignServiceAlias(client, target, name, observed, key)).ok, false);
     }
     assert.equal(requested, false);
+  });
+
+  it("accepts an absent alias recreated with retained identity and a later version", async () => {
+    const result = await assignServiceAlias(
+      {
+        PUT: async () => ({
+          data: {
+            ...createdAlias,
+            metadata: { ...createdAlias.metadata, generation: 3, version: 3 },
+          },
+          response: new Response(null, { status: 200 }),
+        }),
+      } as unknown as DataGroundClient,
+      revision,
+      "stable",
+      undefined,
+      "alias:recreated0001",
+    );
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.alias.metadata.version, 3);
   });
 
   it("rejects substituted or impossible alias responses", async () => {

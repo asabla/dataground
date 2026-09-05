@@ -39,13 +39,13 @@ func (repository *Repository) RetireRevision(ctx context.Context, idempotency Id
 		if err := tx.QueryRow(ctx, `
 			SELECT EXISTS (
 			 SELECT 1 FROM service_aliases
-			 WHERE isolation_domain_id = $1 AND revision_id = $2
+			 WHERE isolation_domain_id = $1 AND revision_id = $2 AND withdrawn_at IS NULL
 			)
   `, idempotency.IsolationDomainID, input.RevisionID).Scan(&routed); err != nil {
 			return 0, nil, fmt.Errorf("read retirement routing: %w", err)
 		}
 		if routed {
-			return 0, nil, &DomainError{Code: "REVISION_STILL_ROUTED", Message: "Move all aliases away from this revision before retiring it."}
+			return 0, nil, &DomainError{Code: "REVISION_STILL_ROUTED", Message: "Move or withdraw all aliases from this revision before retiring it."}
 		}
 		if err := tx.QueryRow(ctx, `
 			SELECT EXISTS (

@@ -35,10 +35,11 @@ type ServiceRevision struct {
 }
 
 type ServiceAlias struct {
-	Metadata   ResourceMetadata `json:"metadata"`
-	ServiceID  string           `json:"serviceId"`
-	Name       string           `json:"name"`
-	RevisionID string           `json:"revisionId"`
+	WithdrawnAt *time.Time       `json:"withdrawnAt,omitempty"`
+	Metadata    ResourceMetadata `json:"metadata"`
+	ServiceID   string           `json:"serviceId"`
+	Name        string           `json:"name"`
+	RevisionID  string           `json:"revisionId"`
 }
 
 type OperationLease struct {

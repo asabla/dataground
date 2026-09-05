@@ -195,15 +195,16 @@ function decodeAlias(
   );
   if (!alias || alias.revisionId !== revision.metadata.id) return undefined;
   const metadata = alias.metadata;
+  // An absent route may retain a withdrawn identity with an advanced version.
+  if (!current && metadata.generation !== metadata.version) return undefined;
   if (
-    current
-      ? metadata.id !== current.metadata.id ||
-        metadata.createdAt !== current.metadata.createdAt ||
-        metadata.createdBy !== current.metadata.createdBy ||
-        metadata.generation !== current.metadata.generation + 1 ||
-        metadata.version !== current.metadata.version + 1 ||
-        Date.parse(metadata.updatedAt) < Date.parse(current.metadata.updatedAt)
-      : metadata.generation !== 1 || metadata.version !== 1
+    current &&
+    (metadata.id !== current.metadata.id ||
+      metadata.createdAt !== current.metadata.createdAt ||
+      metadata.createdBy !== current.metadata.createdBy ||
+      metadata.generation !== current.metadata.generation + 1 ||
+      metadata.version !== current.metadata.version + 1 ||
+      Date.parse(metadata.updatedAt) < Date.parse(current.metadata.updatedAt))
   ) {
     return undefined;
   }
@@ -215,7 +216,8 @@ function decodeObservedAlias(
   scope: ServiceAliasReadScope,
   name: string,
 ): ServiceAliasResource | undefined {
-  if (!isRecord(value) || !isRecord(value.metadata)) return undefined;
+  if (!isRecord(value) || !isRecord(value.metadata) || value.withdrawnAt !== undefined)
+    return undefined;
   const metadata = value.metadata;
   if (
     !boundedString(metadata.id, 36, patterns.aliasId) ||
