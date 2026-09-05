@@ -345,6 +345,28 @@ func (repository *Repository) advance(
 		return err
 	}
 	now := repository.now()
+	tx, err := repository.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin operation transition: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	// Revalidate immutable contracts for operations accepted by older versions.
+	// The revision lock precedes the operation update, matching acceptance order;
+	// the transition still requires the exact active claim before any write commits.
+	if claim.Kind == OperationKindPublication && nextState != "failed" && nextState != "cancelled" {
+		revision, err := getRevisionForUpdate(ctx, tx, claim.IsolationDomainID, claim.ResourceID)
+		if err != nil {
+			return err
+		}
+		if problem := domain.ValidateRevisionSchemas(revision.InputSchema, revision.OutputSchema); problem != nil {
+			if err := validateTransition(claim.Kind, claim.ObservedState, "failed"); err != nil {
+				return err
+			}
+			nextState, terminalResult = "failed", nil
+			problem.CorrelationID = claim.CorrelationID
+			failure = problem
+		}
+	}
 	encodedResult, err := marshalNullable(terminalResult)
 	if err != nil {
 		return fmt.Errorf("encode terminal result: %w", err)
@@ -356,11 +378,6 @@ func (repository *Repository) advance(
 			return fmt.Errorf("encode terminal error: %w", err)
 		}
 	}
-	tx, err := repository.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin operation transition: %w", err)
-	}
-	defer tx.Rollback(ctx)
 	query := fmt.Sprintf(`
 		UPDATE %s
 		SET observed_state = $6,

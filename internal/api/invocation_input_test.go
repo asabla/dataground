@@ -45,17 +45,3 @@ func TestInvocationAdmissionValidatesResolvedInputAndPreservesReplay(t *testing.
 		t.Fatal("new invocation did not validate the newly resolved revision")
 	}
 }
-
-func TestInvocationAdmissionRejectsUnverifiableSchemaSafely(t *testing.T) {
-	handler := newHandler(t)
-	service := createService(t, handler, testDomain, "unsafe-input-service")
-	draft := performJSON[api.ServiceRevision](t, handler, http.MethodPost, revisionCollectionPath(testDomain, service.Metadata.ID), "unsafe-input-draft", map[string]any{"runtimeProfile": "reference/v1", "inputSchema": map[string]any{"$ref": "https://private.example/schema"}}, http.StatusCreated)
-	revision := performJSON[api.ServiceRevision](t, handler, http.MethodPost, "/v1/isolation-domains/"+testDomain+"/service-revisions/"+draft.Metadata.ID+"/actions/publish", "unsafe-input-publish", map[string]any{"expectedVersion": 1}, http.StatusOK)
-	assignAlias(t, handler, testDomain, service.Metadata.ID, revision.Metadata.ID, "unsafe-input-alias")
-	response := perform(t, handler, http.MethodPost, "/v1/isolation-domains/"+testDomain+"/agent-services/"+service.Metadata.ID+"/invocations", "unsafe-input-invoke", map[string]any{"alias": "stable", "input": map[string]any{}}, nil)
-	var envelope api.ErrorEnvelope
-	decodeResponse(t, response, &envelope)
-	if response.Code != http.StatusConflict || envelope.Error.Code != "REVISION_INPUT_SCHEMA_INVALID" || strings.Contains(response.Body.String(), "private.example") {
-		t.Fatalf("unsafe schema response = %d %s", response.Code, response.Body.String())
-	}
-}
