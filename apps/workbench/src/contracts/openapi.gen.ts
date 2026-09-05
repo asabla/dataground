@@ -145,7 +145,10 @@ export interface paths {
          */
         get: operations["listInvocations"];
         put?: never;
-        /** Invoke a published service revision through an alias */
+        /**
+         * Invoke a published service revision through an alias
+         * @description New invocations validate input against the exact alias-resolved revision inputSchema before creating work. JSON Schema defaults to draft 2020-12; external resource loading is disabled. Input mismatch returns 400 INVOCATION_INPUT_INVALID; an invalid or unresolvable schema returns 409 REVISION_INPUT_SCHEMA_INVALID. Accepted idempotent replay retains the original revision and response after alias changes.
+         */
         post: operations["invokeAgentService"];
         delete?: never;
         options?: never;

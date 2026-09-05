@@ -695,7 +695,7 @@ func (server *DurableServer) writeCommandError(response http.ResponseWriter, err
 			status = http.StatusServiceUnavailable
 		} else if problem.Code == "INVOCATION_APPROVAL_FORBIDDEN" {
 			status = http.StatusForbidden
-		} else if problem.Code == "INVALID_INVOCATION_APPROVAL" {
+		} else if problem.Code == "INVALID_INVOCATION_APPROVAL" || problem.Code == "INVOCATION_INPUT_INVALID" {
 			status = http.StatusBadRequest
 		}
 		writeJSON(response, status, ErrorEnvelope{Error: APIError{

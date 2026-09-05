@@ -18,6 +18,7 @@ import (
 
 	"github.com/asabla/dataground/internal/authn"
 	"github.com/asabla/dataground/internal/authz"
+	"github.com/asabla/dataground/internal/domain"
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/reference"
 )
@@ -539,6 +540,14 @@ func (server *Server) invokeAgentService(response http.ResponseWriter, request *
 		revision, exists := server.revisions[resourceKey(domainID, alias.RevisionID)]
 		if !exists || revision.State != "published" {
 			return notFound("Published service revision was not found.")
+		}
+		if problem := domain.ValidateInvocationInput(revision.InputSchema, input.Input); problem != nil {
+			problem.CorrelationID = authenticatedCorrelationID(request)
+			status := http.StatusBadRequest
+			if problem.Code == "REVISION_INPUT_SCHEMA_INVALID" {
+				status = http.StatusConflict
+			}
+			return status, ErrorEnvelope{Error: *problem}
 		}
 
 		scenario := reference.ScenarioSuccess
