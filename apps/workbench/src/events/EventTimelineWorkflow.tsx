@@ -22,6 +22,7 @@ interface EventTimelineState {
   error?: EventReplayFailure;
   events: InvocationEvent[];
   hiddenEventCount: number;
+  hasMore?: boolean;
   loading: boolean;
   referenceKey: string;
 }
@@ -149,6 +150,7 @@ export function eventTimelineReducer(
         error: merged.error,
         events: merged.events,
         hiddenEventCount: merged.hiddenEventCount,
+        hasMore: merged.error ? state.hasMore : action.result.hasMore,
         loading: false,
         referenceKey: state.referenceKey,
       };
@@ -170,7 +172,9 @@ export function EventTimelineWorkflow({
     loading: true,
     referenceKey: currentReferenceKey,
   });
+  const [boundClient, setBoundClient] = useState(client);
   const requestGeneration = useRef(0);
+  const inFlight = useRef<object | undefined>(undefined);
   const stableReference = useMemo(
     () => ({
       invocationId: reference.invocationId,
@@ -185,25 +189,33 @@ export function EventTimelineWorkflow({
 
   const loadReplay = useCallback(
     async (afterSequence: number) => {
+      if (inFlight.current) return;
+      const request = {};
+      inFlight.current = request;
       const generation = ++requestGeneration.current;
+      setBoundClient(client);
       const referenceKey = eventReferenceKey(stableReference);
       dispatch({ afterSequence, referenceKey, type: "replay-started" });
       const result = await replayInvocationEvents(client, stableReference, afterSequence);
       if (requestGeneration.current === generation) {
         dispatch({ referenceKey, result, type: "replay-finished" });
       }
+      if (inFlight.current === request) inFlight.current = undefined;
     },
     [client, dispatch, stableReference],
   );
 
   useEffect(() => {
+    inFlight.current = undefined;
     void loadReplay(0);
     return () => {
       requestGeneration.current++;
+      inFlight.current = undefined;
     };
   }, [loadReplay]);
 
-  const stateMatchesReference = state.referenceKey === currentReferenceKey;
+  const stateMatchesReference =
+    state.referenceKey === currentReferenceKey && boundClient === client;
   const visibleEvents = stateMatchesReference ? state.events : [];
   const connectionState =
     !stateMatchesReference || state.loading ? "loading" : state.error ? "degraded" : "current";
@@ -214,6 +226,7 @@ export function EventTimelineWorkflow({
       error={stateMatchesReference ? state.error : undefined}
       events={visibleEvents as TimelineEvent[]}
       hiddenEventCount={stateMatchesReference ? state.hiddenEventCount : 0}
+      hasMore={stateMatchesReference && state.hasMore}
       isReplaying={!stateMatchesReference || state.loading}
       onInspectApproval={onInspectApproval}
       onInspectArtifact={onInspectArtifact}
