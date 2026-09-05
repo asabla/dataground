@@ -12,6 +12,7 @@ import type { InvocationApprovalReference } from "./approvals";
 import type { InvocationArtifactReference } from "./artifacts";
 import { createDataGroundClient, type DataGroundClient } from "./contracts/client";
 import { InvocationHistoryWorkflow } from "./invocations/InvocationHistoryWorkflow";
+import type { InvocationQuestionReference } from "./questions";
 import {
   listServiceRevisions,
   type PublishedServiceRevisionResource,
@@ -142,6 +143,7 @@ export function DevelopmentWorkbench({
   const [draftFormGeneration, setDraftFormGeneration] = useState(0);
   const [observedAlias, setObservedAlias] = useState<ServiceAliasResource>();
   const [openedAlias, setOpenedAlias] = useState<ServiceAliasResource>();
+  const [openedQuestion, setOpenedQuestion] = useState<InvocationQuestionReference>();
   const [openedApproval, setOpenedApproval] = useState<InvocationApprovalReference>();
   const [openedArtifact, setOpenedArtifact] = useState<InvocationArtifactReference>();
   const [openedInvocation, setOpenedInvocation] = useState<AgentServiceInvocationSelection>();
@@ -282,6 +284,7 @@ export function DevelopmentWorkbench({
       setAliasReadError(undefined);
       setObservedAlias(undefined);
       setOpenedAlias(undefined);
+      setOpenedQuestion(undefined);
       setOpenedApproval(undefined);
       setOpenedArtifact(undefined);
       setOpenedInvocation(undefined);
@@ -400,6 +403,7 @@ export function DevelopmentWorkbench({
     revisionListGeneration.current++;
     setObservedAlias(undefined);
     setOpenedAlias(undefined);
+    setOpenedQuestion(undefined);
     setOpenedApproval(undefined);
     setOpenedArtifact(undefined);
     setOpenedInvocation(undefined);
@@ -422,6 +426,7 @@ export function DevelopmentWorkbench({
     revisionListGeneration.current++;
     setObservedAlias(undefined);
     setOpenedAlias(undefined);
+    setOpenedQuestion(undefined);
     setOpenedApproval(undefined);
     setOpenedArtifact(undefined);
     setOpenedInvocation(undefined);
@@ -446,6 +451,7 @@ export function DevelopmentWorkbench({
     setAliasReadError(undefined);
     setObservedAlias(undefined);
     setOpenedAlias(undefined);
+    setOpenedQuestion(undefined);
     setOpenedApproval(undefined);
     setOpenedArtifact(undefined);
     setOpenedInvocation(undefined);
@@ -463,6 +469,7 @@ export function DevelopmentWorkbench({
       canCreateRevision
       canCreateService
       canPublishRevision
+      canAnswerQuestion
       canResolveApproval
       canInvokeService
       client={client}
@@ -474,21 +481,31 @@ export function DevelopmentWorkbench({
       onComposeInvocation={(alias) => {
         setObservedAlias(alias);
         setOpenedAlias(alias);
+        setOpenedQuestion(undefined);
         setOpenedApproval(undefined);
         setOpenedArtifact(undefined);
         setOpenedInvocation(undefined);
       }}
+      onCloseQuestion={() => setOpenedQuestion(undefined)}
+      onInspectQuestion={(reference) => {
+        setOpenedApproval(undefined);
+        setOpenedArtifact(undefined);
+        setOpenedQuestion(reference);
+      }}
       onCloseApproval={() => setOpenedApproval(undefined)}
       onCloseArtifact={() => setOpenedArtifact(undefined)}
       onInspectApproval={(reference) => {
+        setOpenedQuestion(undefined);
         setOpenedArtifact(undefined);
         setOpenedApproval(reference);
       }}
       onInspectArtifact={(reference) => {
+        setOpenedQuestion(undefined);
         setOpenedApproval(undefined);
         setOpenedArtifact(reference);
       }}
       onOpenInvocation={(selection) => {
+        setOpenedQuestion(undefined);
         setOpenedApproval(undefined);
         setOpenedArtifact(undefined);
         setOpenedInvocation(selection);
@@ -500,6 +517,7 @@ export function DevelopmentWorkbench({
         setAliasReadError(undefined);
         revisionListGeneration.current++;
         setOpenedAlias(undefined);
+        setOpenedQuestion(undefined);
         setOpenedApproval(undefined);
         setOpenedArtifact(undefined);
         setOpenedInvocation(undefined);
@@ -534,6 +552,7 @@ export function DevelopmentWorkbench({
       }}
       observedAlias={observedAlias}
       selectedAlias={openedAlias}
+      selectedQuestion={openedQuestion}
       selectedApproval={openedApproval}
       selectedArtifact={openedArtifact}
       selectedInvocation={openedInvocation}
@@ -814,6 +833,7 @@ export function DevelopmentWorkbench({
                         revisionListLoading || revisionListError
                           ? undefined
                           : (alias) => {
+                              setOpenedQuestion(undefined);
                               setOpenedApproval(undefined);
                               setOpenedArtifact(undefined);
                               setOpenedInvocation(undefined);
@@ -927,6 +947,7 @@ export function DevelopmentWorkbench({
                   <Button
                     onPress={() => {
                       setOpenedInvocation(undefined);
+                      setOpenedQuestion(undefined);
                       setOpenedApproval(undefined);
                       setOpenedArtifact(undefined);
                     }}

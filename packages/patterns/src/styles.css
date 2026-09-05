@@ -368,6 +368,86 @@
   color: var(--dg-color-text-primary);
 }
 
+.dg-question-request,
+.dg-question-request * {
+  box-sizing: border-box;
+}
+
+.dg-question-request {
+  display: grid;
+  width: min(100%, 52rem);
+  gap: var(--dg-space-4);
+  padding: var(--dg-density-panel-padding);
+  border: var(--dg-border-default) solid var(--dg-color-border-default);
+  border-radius: var(--dg-radius-panel);
+  background: var(--dg-color-surface-default);
+  color: var(--dg-color-text-primary);
+  overflow-wrap: anywhere;
+}
+.dg-question-request__heading,
+.dg-question-request__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dg-space-3);
+}
+.dg-question-request h2,
+.dg-question-request p {
+  margin: 0;
+}
+.dg-question-request__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: var(--dg-space-3);
+  margin: 0;
+}
+.dg-question-request__facts dd {
+  margin: var(--dg-space-1) 0 0;
+  color: var(--dg-color-text-secondary);
+  font-family: var(--dg-font-family-data);
+  font-size: var(--dg-font-size-caption);
+}
+.dg-question-request__item {
+  display: grid;
+  gap: var(--dg-space-3);
+  min-width: 0;
+  margin: 0;
+  padding: var(--dg-space-4);
+  border: var(--dg-border-default) solid var(--dg-color-border-default);
+}
+.dg-question-request__item legend {
+  font-weight: var(--dg-font-weight-semibold);
+}
+.dg-question-request__item p {
+  white-space: pre-wrap;
+}
+.dg-question-request__choice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--dg-space-3);
+  padding: var(--dg-space-2);
+  min-height: 2.75rem;
+}
+.dg-question-request__choice input {
+  flex-shrink: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+}
+.dg-question-request__choice input:focus-visible {
+  outline: var(--dg-border-strong) solid var(--dg-color-focus);
+  outline-offset: var(--dg-space-1);
+}
+.dg-question-request__choice small {
+  display: block;
+  color: var(--dg-color-text-secondary);
+}
+.dg-question-request__error {
+  padding: var(--dg-space-4);
+  border-inline-start: var(--dg-border-strong) solid var(--dg-color-status-critical);
+  background: var(--dg-color-status-critical-surface);
+}
+
 .dg-approval-request__heading {
   display: flex;
   flex-wrap: wrap;

@@ -7,6 +7,7 @@ import {
   type TimelineEvent,
   timelineApprovalReference,
   timelineArtifactReference,
+  timelineQuestionReference,
 } from "./EventTimeline";
 
 const baseEvent: TimelineEvent = {
@@ -31,6 +32,45 @@ const reference = {
 };
 
 describe("EventTimeline", () => {
+  it("opens only opaque question references from the request event", () => {
+    const event = {
+      ...baseEvent,
+      type: "interaction.question.requested",
+      payload: { questionId: "qst_00000000000000000001" },
+    };
+    assert.deepEqual(timelineQuestionReference(event), {
+      ...reference,
+      questionId: event.payload.questionId,
+    });
+    for (const value of [
+      { ...event, payload: { questionId: "native-question" } },
+      { ...event, type: "interaction.approval.requested" },
+    ]) {
+      assert.equal(timelineQuestionReference(value), undefined);
+      assert.doesNotMatch(
+        renderToStaticMarkup(
+          <EventTimeline
+            connectionState="current"
+            events={[value]}
+            reference={reference}
+            onInspectQuestion={() => {}}
+          />,
+        ),
+        /View questions/u,
+      );
+    }
+    assert.match(
+      renderToStaticMarkup(
+        <EventTimeline
+          connectionState="current"
+          events={[event]}
+          reference={reference}
+          onInspectQuestion={() => {}}
+        />,
+      ),
+      /View questions/u,
+    );
+  });
   it("renders ordered event scope, cursor, type, and safe presentation", () => {
     const markup = renderToStaticMarkup(
       <EventTimeline connectionState="current" events={[baseEvent]} reference={reference} />,

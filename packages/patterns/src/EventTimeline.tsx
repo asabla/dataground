@@ -27,6 +27,10 @@ export interface TimelineArtifactReference extends TimelineReference {
   artifactId: string;
 }
 
+export interface TimelineQuestionReference extends TimelineReference {
+  questionId: string;
+}
+
 export interface TimelineApprovalReference extends TimelineReference {
   approvalId: string;
 }
@@ -46,6 +50,7 @@ export interface EventTimelineProps {
   hiddenEventCount?: number;
   hasMore?: boolean;
   isReplaying?: boolean;
+  onInspectQuestion?: (reference: TimelineQuestionReference) => void;
   onInspectApproval?: (reference: TimelineApprovalReference) => void;
   onInspectArtifact?: (reference: TimelineArtifactReference) => void;
   onReplay?: () => void;
@@ -294,6 +299,17 @@ export function timelineArtifactReference(
     : undefined;
 }
 
+export function timelineQuestionReference(
+  event: TimelineEvent,
+): TimelineQuestionReference | undefined {
+  const questionId = event.payload.questionId;
+  return event.type === "interaction.question.requested" &&
+    typeof questionId === "string" &&
+    /^qst_[0-9a-z]{20,32}$/u.test(questionId)
+    ? { questionId, invocationId: event.invocationId, isolationDomainId: event.isolationDomainId }
+    : undefined;
+}
+
 export function timelineApprovalReference(
   event: TimelineEvent,
 ): TimelineApprovalReference | undefined {
@@ -337,6 +353,7 @@ export function EventTimeline({
   hiddenEventCount = 0,
   hasMore = false,
   isReplaying = false,
+  onInspectQuestion,
   onInspectApproval,
   onInspectArtifact,
   onReplay,
@@ -430,6 +447,7 @@ export function EventTimeline({
         <ol className="dg-event-timeline__list">
           {events.map((event) => {
             const presentation = presentTimelineEvent(event);
+            const questionReference = timelineQuestionReference(event);
             const approvalReference = timelineApprovalReference(event);
             const artifactReference = timelineArtifactReference(event);
             return (
@@ -456,9 +474,18 @@ export function EventTimeline({
                       <dd>{event.actorId}</dd>
                     </div>
                   </dl>
-                  {((approvalReference && onInspectApproval) ||
+                  {((questionReference && onInspectQuestion) ||
+                    (approvalReference && onInspectApproval) ||
                     (artifactReference && onInspectArtifact)) && (
                     <div className="dg-event-timeline__event-actions">
+                      {questionReference && onInspectQuestion && (
+                        <Button
+                          onPress={() => onInspectQuestion(questionReference)}
+                          variant="quiet"
+                        >
+                          View questions
+                        </Button>
+                      )}
                       {approvalReference && onInspectApproval && (
                         <Button
                           onPress={() => onInspectApproval(approvalReference)}
