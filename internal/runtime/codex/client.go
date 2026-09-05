@@ -50,8 +50,9 @@ type approval struct {
 // Client owns one app-server transport and supports one active turn. A worker
 // creates a new client for each RuntimeSession returned by ExecutionProvider.
 type Client struct {
-	session execution.RuntimeSession
-	input   io.WriteCloser
+	session           execution.RuntimeSession
+	input             io.WriteCloser
+	openShellProvider bool
 
 	writeMu sync.Mutex
 	stateMu sync.Mutex
@@ -82,6 +83,10 @@ type Client struct {
 }
 
 func New(session execution.RuntimeSession) (*Client, error) {
+	return newClient(session, false)
+}
+
+func newClient(session execution.RuntimeSession, openShellProvider bool) (*Client, error) {
 	if session == nil {
 		return nil, errors.New("runtime session streams are required")
 	}
@@ -90,16 +95,17 @@ func New(session execution.RuntimeSession) (*Client, error) {
 		return nil, errors.New("runtime session streams are required")
 	}
 	client := &Client{
-		session:         session,
-		input:           input,
-		pending:         make(map[uint64]chan wireMessage),
-		approvals:       make(map[string]approval),
-		nativeApprovals: make(map[string]struct{}),
-		inbound:         make(chan wireMessage, inboundLimit),
-		events:          make(chan dgruntime.Event, eventLimit),
-		done:            make(chan struct{}),
-		closed:          make(chan struct{}),
-		terminalDone:    make(chan struct{}),
+		session:           session,
+		input:             input,
+		openShellProvider: openShellProvider,
+		pending:           make(map[uint64]chan wireMessage),
+		approvals:         make(map[string]approval),
+		nativeApprovals:   make(map[string]struct{}),
+		inbound:           make(chan wireMessage, inboundLimit),
+		events:            make(chan dgruntime.Event, eventLimit),
+		done:              make(chan struct{}),
+		closed:            make(chan struct{}),
+		terminalDone:      make(chan struct{}),
 	}
 	go client.readLoop(output)
 	go client.inboundLoop()
@@ -156,6 +162,10 @@ func (client *Client) Start(ctx context.Context, request dgruntime.StartRequest)
 		"approvalPolicy":    approvalPolicy(request.ApprovalMode),
 		"sandbox":           request.SandboxMode,
 	}
+	if client.openShellProvider {
+		threadParams["modelProvider"] = openShellModelProvider
+		threadParams["config"] = openShellProviderConfig()
+	}
 	if request.WorkingDir != "" {
 		threadParams["cwd"] = request.WorkingDir
 	}
@@ -163,7 +173,8 @@ func (client *Client) Start(ctx context.Context, request dgruntime.StartRequest)
 		threadParams["model"] = request.Model
 	}
 	var threadResponse struct {
-		Thread struct {
+		ModelProvider string `json:"modelProvider"`
+		Thread        struct {
 			ID string `json:"id"`
 		} `json:"thread"`
 	}
@@ -172,6 +183,9 @@ func (client *Client) Start(ctx context.Context, request dgruntime.StartRequest)
 	}
 	if threadResponse.Thread.ID == "" {
 		return nil, client.protocolFailure("thread/start response is missing its identifier")
+	}
+	if client.openShellProvider && threadResponse.ModelProvider != openShellModelProvider {
+		return nil, client.protocolFailure("thread/start did not select the required provider")
 	}
 	client.stateMu.Lock()
 	client.threadID = threadResponse.Thread.ID

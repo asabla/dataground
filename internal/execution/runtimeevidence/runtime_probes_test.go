@@ -517,7 +517,16 @@ func (server *codexProbeServer) startModel(model string) {
 	if model == "" && params["model"] != nil || model != "" && params["model"] != model {
 		panic("unexpected probe model")
 	}
-	server.respond(thread.ID, map[string]any{"thread": map[string]any{"id": "native-thread"}})
+	response := map[string]any{"thread": map[string]any{"id": "native-thread"}}
+	if model != "" {
+		if params["modelProvider"] != "dataground_openshell_codex" || params["config"] == nil {
+			panic("local probe did not select the mediated provider")
+		}
+		response["modelProvider"] = "dataground_openshell_codex"
+	} else if params["modelProvider"] != nil || params["config"] != nil {
+		panic("local provider configuration entered certification mode")
+	}
+	server.respond(thread.ID, response)
 	turn := server.read()
 	if turn.Method != "turn/start" {
 		panic("expected turn/start")
