@@ -39,6 +39,13 @@ func TestInvocationRuntimeApprovalLifecycleIsDurableAndSingleUse(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if _, err := pool.Exec(cleanupCtx, `TRUNCATE invocation_runtime_approvals`); err != nil {
+			t.Error(err)
+		}
+	}()
 	repository := persistence.NewRepository(pool)
 	domainID, serviceID, revisionID := identity.New("iso"), identity.New("svc"), identity.New("rev")
 	if result, err := repository.CreateService(
