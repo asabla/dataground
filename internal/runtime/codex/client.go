@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -63,6 +64,7 @@ type Client struct {
 	threadID        string
 	turnID          string
 	approvalMode    dgruntime.ApprovalMode
+	approvalsClosed bool
 	nextSequence    uint64
 	nextApproval    uint64
 	approvals       map[string]approval
@@ -224,6 +226,7 @@ func (client *Client) Events() <-chan dgruntime.Event { return client.events }
 func (client *Client) Interrupt(ctx context.Context) error {
 	client.stateMu.Lock()
 	threadID, turnID := client.threadID, client.turnID
+	client.closeApprovalsLocked()
 	client.stateMu.Unlock()
 	if threadID == "" || turnID == "" {
 		return dgruntime.ErrClosed
@@ -238,7 +241,7 @@ func (client *Client) ResolveApproval(ctx context.Context, approvalID string, de
 	}
 	client.stateMu.Lock()
 	pending, ok := client.approvals[approvalID]
-	if ok && pending.resolving {
+	if client.approvalsClosed || (ok && pending.resolving) {
 		ok = false
 	}
 	if ok {
@@ -258,10 +261,23 @@ func (client *Client) ResolveApproval(ctx context.Context, approvalID string, de
 	if pending.method != "item/commandExecution/requestApproval" && pending.method != "item/fileChange/requestApproval" {
 		return dgruntime.ErrApprovalNotFound
 	}
-	if err := client.respond(ctx, pending.requestID, response); err != nil {
+	// Recheck after acquiring the protocol writer: a queued decision must not
+	// outlive a terminal notification or an explicit interruption request.
+	guard := func() error {
 		client.stateMu.Lock()
-		pending.resolving = false
-		client.approvals[approvalID] = pending
+		defer client.stateMu.Unlock()
+		current, exists := client.approvals[approvalID]
+		if client.approvalsClosed || !exists || !current.resolving || current.nativeKey != pending.nativeKey {
+			return dgruntime.ErrApprovalNotFound
+		}
+		return nil
+	}
+	if err := client.writeGuarded(ctx, map[string]any{"id": pending.requestID, "result": response}, guard); err != nil {
+		client.stateMu.Lock()
+		if current, exists := client.approvals[approvalID]; exists && !client.approvalsClosed && current.nativeKey == pending.nativeKey {
+			current.resolving = false
+			client.approvals[approvalID] = current
+		}
 		client.stateMu.Unlock()
 		return err
 	}
@@ -366,6 +382,13 @@ func (client *Client) respond(ctx context.Context, id json.RawMessage, result an
 }
 
 func (client *Client) write(ctx context.Context, message any) error {
+	return client.writeGuarded(ctx, message, nil)
+}
+
+func (client *Client) writeGuarded(ctx context.Context, message any, guard func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	encoded, err := json.Marshal(message)
 	if err != nil {
 		return err
@@ -374,22 +397,35 @@ func (client *Client) write(ctx context.Context, message any) error {
 		return client.protocolFailure("outbound frame exceeds the size limit")
 	}
 	encoded = append(encoded, '\n')
-	result := make(chan error, 1)
+	type writeResult struct {
+		err      error
+		rejected bool
+	}
+	result := make(chan writeResult, 1)
 	go func() {
 		client.writeMu.Lock()
 		defer client.writeMu.Unlock()
 		select {
 		case <-client.done:
-			result <- client.failure()
+			result <- writeResult{err: client.failure()}
 			return
 		default:
 		}
+		if guard != nil {
+			if err := guard(); err != nil {
+				result <- writeResult{err: err, rejected: true}
+				return
+			}
+		}
 		_, err := client.input.Write(encoded)
-		result <- err
+		result <- writeResult{err: err}
 	}()
 	select {
-	case err := <-result:
-		if err != nil {
+	case completed := <-result:
+		if completed.rejected {
+			return completed.err
+		}
+		if completed.err != nil {
 			client.fail(fmt.Errorf("%w: write failed", dgruntime.ErrProtocol))
 			return client.failure()
 		}
@@ -498,7 +534,14 @@ func (client *Client) handleServerRequest(message wireMessage) {
 	}
 	client.stateMu.Lock()
 	locked := client.approvalMode == dgruntime.ApprovalLocked
+	closed := client.approvalsClosed
 	client.stateMu.Unlock()
+	if closed {
+		if err := client.respondError(message.ID, -32600, "approval turn is no longer active"); err != nil {
+			client.fail(err)
+		}
+		return
+	}
 	if locked {
 		if err := client.respond(context.Background(), message.ID, map[string]any{"decision": "decline"}); err != nil {
 			client.fail(err)
@@ -515,9 +558,9 @@ func (client *Client) handleServerRequest(message wireMessage) {
 		}
 		return
 	}
-	nativeKey := string(message.ID)
+	nativeKey, _ := nativeRequestKey(message.ID)
 	client.stateMu.Lock()
-	if _, duplicate := client.nativeApprovals[nativeKey]; duplicate {
+	if _, duplicate := client.nativeApprovals[nativeKey]; duplicate || client.approvalsClosed {
 		client.stateMu.Unlock()
 		if err := client.respondError(message.ID, -32600, "duplicate approval request"); err != nil {
 			client.fail(err)
@@ -536,6 +579,8 @@ func (client *Client) handleServerRequest(message wireMessage) {
 
 func (client *Client) handleNotification(message wireMessage) {
 	switch message.Method {
+	case "serverRequest/resolved":
+		client.handleResolvedRequest(message)
 	case "turn/started":
 		var params struct {
 			ThreadID string `json:"threadId"`
@@ -618,6 +663,13 @@ func (client *Client) handleTurnCompleted(message wireMessage) {
 		client.fail(fmt.Errorf("%w: turn completion scope does not match", dgruntime.ErrProtocol))
 		return
 	}
+	if params.Turn.Status != "completed" && params.Turn.Status != "interrupted" && params.Turn.Status != "failed" {
+		client.fail(fmt.Errorf("%w: terminal turn status is invalid", dgruntime.ErrProtocol))
+		return
+	}
+	client.stateMu.Lock()
+	client.closeApprovalsLocked()
+	client.stateMu.Unlock()
 	var terminalErr error
 	switch params.Turn.Status {
 	case "completed":
@@ -627,9 +679,6 @@ func (client *Client) handleTurnCompleted(message wireMessage) {
 	case "failed":
 		terminalErr = dgruntime.ErrTurnFailed
 		client.emit("lifecycle.failed", map[string]any{"code": "RUNTIME_TURN_FAILED", "retryable": false})
-	default:
-		client.fail(fmt.Errorf("%w: terminal turn status is invalid", dgruntime.ErrProtocol))
-		return
 	}
 	client.terminalOnce.Do(func() {
 		client.stateMu.Lock()
@@ -706,8 +755,17 @@ func (client *Client) protocolFailure(message string) error {
 	return err
 }
 
+func (client *Client) closeApprovalsLocked() {
+	client.approvalsClosed = true
+	clear(client.approvals)
+	clear(client.nativeApprovals)
+}
+
 func (client *Client) fail(err error) {
 	client.failOnce.Do(func() {
+		client.stateMu.Lock()
+		client.closeApprovalsLocked()
+		client.stateMu.Unlock()
 		client.errMu.Lock()
 		client.err = err
 		client.errMu.Unlock()
@@ -735,19 +793,47 @@ func numericID(raw json.RawMessage) (uint64, bool) {
 }
 
 func validRequestID(raw json.RawMessage) bool {
-	if len(raw) == 0 || string(raw) == "null" {
-		return false
+	_, ok := nativeRequestKey(raw)
+	return ok
+}
+
+// Request identity follows the pinned string-or-int64 contract, not raw JSON
+// spelling. Escaped strings and signed zero must not alias separate handles.
+func nativeRequestKey(raw json.RawMessage) (string, bool) {
+	raw = bytes.TrimSpace(raw)
+	var text string
+	if len(raw) > 0 && raw[0] == '"' && json.Unmarshal(raw, &text) == nil {
+		return "string:" + text, true
 	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	var value any
-	if decoder.Decode(&value) != nil {
-		return false
+	var number int64
+	if len(raw) > 0 && string(raw) != "null" && json.Unmarshal(raw, &number) == nil {
+		return "integer:" + strconv.FormatInt(number, 10), true
 	}
-	switch value.(type) {
-	case string, json.Number:
-		return true
-	default:
-		return false
+	return "", false
+}
+
+func (client *Client) handleResolvedRequest(message wireMessage) {
+	var params struct {
+		ThreadID  string          `json:"threadId"`
+		RequestID json.RawMessage `json:"requestId"`
 	}
+	if json.Unmarshal(message.Params, &params) != nil {
+		client.protocolFailure("resolved request payload is invalid")
+		return
+	}
+	key, valid := nativeRequestKey(params.RequestID)
+	client.stateMu.Lock()
+	if !valid || params.ThreadID == "" || params.ThreadID != client.threadID {
+		client.stateMu.Unlock()
+		client.protocolFailure("resolved request scope is invalid")
+		return
+	}
+	for id, pending := range client.approvals {
+		if pending.nativeKey == key {
+			delete(client.approvals, id)
+		}
+	}
+	// A confirmation can arrive after our response already removed its handle.
+	delete(client.nativeApprovals, key)
+	client.stateMu.Unlock()
 }
