@@ -97,6 +97,8 @@ Event reads include the trusted `source` class, `platform` or `runtime`. Durable
 
 Durable cancellation requests now emit `lifecycle.cancellation.requested`, following the event contract’s dot-separated names. Retained `lifecycle.cancellation-requested` events remain unchanged and are explicitly accepted by the v1 schema and Workbench replay parser. This compatibility exception does not permit other hyphenated event names or extension keys. The timeline distinguishes acceptance, running, cancellation requested, cancelling and cancelled; pending cancellation never implies that execution has stopped.
 
+Clients can opt into bounded event replay with `?limit=200` (1–500 records). Each page also stops before exceeding 1 MiB of SSE bytes. `X-DataGround-Has-More: true` means another retained record follows; continue with the last returned sequence in `Last-Event-ID`. A single oversized next record fails with `413 EVENT_REPLAY_RECORD_TOO_LARGE` before any successful SSE headers and is never skipped. Empty pages preserve the caller’s cursor, and every page requires fresh authorization. PostgreSQL bounds its record query and preserves source provenance. Omitting `limit` retains the existing unpaged replay contract.
+
 SSE `id` values are invocation-local journal sequences. Reconnecting with `Last-Event-ID` replays
 only later records with stable event identities. Identical mutation retries return the first
 response; reuse of the same key with a different body returns `IDEMPOTENCY_KEY_REUSED`.

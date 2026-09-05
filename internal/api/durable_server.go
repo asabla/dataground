@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -588,29 +587,29 @@ func (server *DurableServer) streamInvocationEvents(response http.ResponseWriter
 		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: *apiError})
 		return
 	}
+	limit, err := parseEventReplayLimit(request.URL.RawQuery)
+	if err != nil {
+		status, body := invalidField("query", "Event replay limit must be an integer from 1 to 500.")
+		writeJSON(response, status, body)
+		return
+	}
 	cursor, err := parseCursor(request.Header.Get("Last-Event-ID"))
 	if err != nil {
 		status, value := invalidField("Last-Event-ID", "Event cursor must be a non-negative integer.")
 		writeJSON(response, status, value)
 		return
 	}
-	events, err := server.repository.ListEvents(request.Context(), domainID, request.PathValue("invocationId"), cursor)
+	var events []EventEnvelope
+	if limit == 0 {
+		events, err = server.repository.ListEvents(request.Context(), domainID, request.PathValue("invocationId"), cursor)
+	} else {
+		events, err = server.repository.ListEventsBounded(request.Context(), domainID, request.PathValue("invocationId"), cursor, limit+1)
+	}
 	if err != nil {
 		server.writeReadError(response, err, "Invocation was not found.")
 		return
 	}
-	response.Header().Set("Cache-Control", "no-store")
-	response.Header().Set("Content-Type", "text/event-stream")
-	response.Header().Set("X-Accel-Buffering", "no")
-	response.Header().Set("X-Content-Type-Options", "nosniff")
-	response.WriteHeader(http.StatusOK)
-	for _, event := range events {
-		encoded, marshalErr := json.Marshal(event)
-		if marshalErr != nil {
-			return
-		}
-		_, _ = fmt.Fprintf(response, "id: %d\nevent: %s\ndata: %s\n\n", event.Sequence, event.Type, encoded)
-	}
+	writeInvocationEventReplay(response, events, cursor, limit)
 }
 
 func (server *DurableServer) mutate(

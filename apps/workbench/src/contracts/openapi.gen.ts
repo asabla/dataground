@@ -303,7 +303,7 @@ export interface paths {
         };
         /**
          * Replay the invocation event journal as server-sent events
-         * @description The Last-Event-ID header is an invocation-local sequence cursor. Unknown event types and fields remain replayable and are safe to ignore.
+         * @description The Last-Event-ID header is an invocation-local sequence cursor. Unknown event types and fields remain replayable and are safe to ignore. Optional limit enables bounded pages containing at most that many records and 1 MiB of SSE bytes. X-DataGround-Has-More indicates additional retained records; continue with the last returned sequence as Last-Event-ID. An oversized next record returns 413 EVENT_REPLAY_RECORD_TOO_LARGE without skipping it. Omitting limit retains unpaged replay.
          */
         get: operations["streamInvocationEvents"];
         put?: never;
@@ -1358,7 +1358,10 @@ export interface operations {
     };
     streamInvocationEvents: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Opt into bounded replay pages. Omit to retain unpaged replay. */
+                limit?: number;
+            };
             header?: {
                 "Last-Event-ID"?: components["parameters"]["LastEventId"];
             };
@@ -1373,6 +1376,8 @@ export interface operations {
             /** @description Ordered event replay after the supplied cursor. */
             200: {
                 headers: {
+                    /** @description Present for bounded replay. True means more retained records follow this page. */
+                    "X-DataGround-Has-More"?: boolean;
                     [name: string]: unknown;
                 };
                 content: {
@@ -1383,6 +1388,7 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            413: components["responses"]["Error"];
             503: components["responses"]["Error"];
         };
     };

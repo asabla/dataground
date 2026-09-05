@@ -768,15 +768,28 @@
       "get": {
         "operationId": "streamInvocationEvents",
         "summary": "Replay the invocation event journal as server-sent events",
-        "description": "The Last-Event-ID header is an invocation-local sequence cursor. Unknown event types and fields remain replayable and are safe to ignore.",
+        "description": "The Last-Event-ID header is an invocation-local sequence cursor. Unknown event types and fields remain replayable and are safe to ignore. Optional limit enables bounded pages containing at most that many records and 1 MiB of SSE bytes. X-DataGround-Has-More indicates additional retained records; continue with the last returned sequence as Last-Event-ID. An oversized next record returns 413 EVENT_REPLAY_RECORD_TOO_LARGE without skipping it. Omitting limit retains unpaged replay.",
         "parameters": [
           { "$ref": "#/components/parameters/IsolationDomainId" },
           { "$ref": "#/components/parameters/InvocationId" },
-          { "$ref": "#/components/parameters/LastEventId" }
+          { "$ref": "#/components/parameters/LastEventId" },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 500 },
+            "description": "Opt into bounded replay pages. Omit to retain unpaged replay."
+          }
         ],
         "responses": {
           "200": {
             "description": "Ordered event replay after the supplied cursor.",
+            "headers": {
+              "X-DataGround-Has-More": {
+                "description": "Present for bounded replay. True means more retained records follow this page.",
+                "schema": { "type": "boolean" }
+              }
+            },
             "content": {
               "text/event-stream": {
                 "schema": {
@@ -790,6 +803,7 @@
           "404": { "$ref": "#/components/responses/Error" },
           "401": { "$ref": "#/components/responses/Error" },
           "403": { "$ref": "#/components/responses/Error" },
+          "413": { "$ref": "#/components/responses/Error" },
           "503": { "$ref": "#/components/responses/Error" }
         }
       }

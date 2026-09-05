@@ -774,6 +774,19 @@ func (repository *Repository) ListEvents(
 	invocationID string,
 	after uint64,
 ) ([]domain.EventEnvelope, error) {
+	return repository.listEvents(ctx, isolationDomainID, invocationID, after, 0)
+}
+
+// ListEventsBounded reads at most limit records, allowing the HTTP boundary to
+// request one extra record to determine whether another replay page remains.
+func (repository *Repository) ListEventsBounded(ctx context.Context, isolationDomainID, invocationID string, after uint64, limit int) ([]domain.EventEnvelope, error) {
+	if limit < 1 || limit > 501 {
+		return nil, errors.New("event replay record limit is invalid")
+	}
+	return repository.listEvents(ctx, isolationDomainID, invocationID, after, limit)
+}
+
+func (repository *Repository) listEvents(ctx context.Context, isolationDomainID, invocationID string, after uint64, limit int) ([]domain.EventEnvelope, error) {
 	rows, err := repository.pool.Query(ctx, `
 		SELECT schema_version, id, isolation_domain_id, invocation_id, sequence,
 		       event_type, COALESCE(source_kind, 'platform'), occurred_at, recorded_at, correlation_id, actor_id,
@@ -781,7 +794,8 @@ func (repository *Repository) ListEvents(
 		FROM invocation_events
 		WHERE isolation_domain_id = $1 AND invocation_id = $2 AND sequence > $3
 		ORDER BY sequence
-	`, isolationDomainID, invocationID, after)
+        LIMIT NULLIF($4, 0)
+	`, isolationDomainID, invocationID, after, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query invocation events: %w", err)
 	}
