@@ -285,6 +285,67 @@
         }
       }
     },
+    "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases": {
+      "get": {
+        "operationId": "listServiceAliases",
+        "summary": "List active service aliases",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "$ref": "#/components/parameters/ServiceId"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of active service aliases",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAliasPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "description": "Returns active aliases ordered by name in ascending ASCII order, with a default limit of 50 and maximum of 100. Cursors bind the exact isolation domain and service; each request is independently authorized. Withdrawn aliases are excluded. Pages reflect current routing state rather than a frozen snapshot; assignment, withdrawal, or recreation may change later pages. Refresh from the first page to reconcile concurrent changes."
+      }
+    },
     "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}": {
       "get": {
         "operationId": "readServiceAlias",
@@ -1112,6 +1173,25 @@
           "completedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "ServiceAliasPage": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/ServiceAlias"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
           }
         }
       },
