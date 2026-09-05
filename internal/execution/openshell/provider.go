@@ -463,17 +463,44 @@ func (provider *Provider) Observe(ctx context.Context, ref execution.ExecutionRe
 }
 
 func (provider *Provider) StartRuntime(ctx context.Context, ref execution.ExecutionRef) (execution.RuntimeSession, error) {
+	if ctx == nil || ctx.Err() != nil {
+		return nil, ErrRuntimeTransport
+	}
 	entry, gateway, err := provider.lookupExecution(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
-	args := provider.gatewayArgs(gateway.Endpoint, "sandbox", "exec", "--name", entry.SandboxName, "--no-tty", "--", "codex", "app-server")
-	session, err := provider.runner.Start(ctx, provider.binary, args...)
-	if err != nil {
-		return nil, ErrProviderFailure
+	if !validRuntimeTarget(ref, entry, gateway) || provider.expected != credentialEvidenceOpenShellVersion {
+		return nil, ErrRuntimeTransport
 	}
-	return session, nil
-
+	setupCtx, setupCancel := context.WithTimeout(ctx, runtimeSSHSetupTimeout)
+	defer setupCancel()
+	if err := provider.Check(setupCtx); err != nil {
+		return nil, ErrRuntimeTransport
+	}
+	current, currentGateway, err := provider.lookupExecution(setupCtx, ref)
+	if err != nil || !validRuntimeTarget(ref, current, currentGateway) || current.PlacementID != entry.PlacementID || current.OperationID != entry.OperationID || current.Execution.GatewayID != entry.Execution.GatewayID {
+		return nil, ErrRuntimeTransport
+	}
+	// The proxy owns authentication and exact named-sandbox resolution. Keep its
+	// process alive during bounded graceful runtime shutdown after cancellation.
+	proxyCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	stopSetup := context.AfterFunc(setupCtx, cancel)
+	// Unlike other pinned CLI commands, ssh-proxy ignores the global endpoint
+	// flag. Its named mode requires both --server and --gateway-name to avoid
+	// ambient endpoint resolution and provide the tunnel's gateway context.
+	args := []string{"ssh-proxy", "--server", gateway.Endpoint, "--gateway-name", gateway.Gateway.ID, "--name", entry.SandboxName}
+	proxy, err := provider.runner.Start(proxyCtx, provider.binary, args...)
+	setupActive := stopSetup() && setupCtx.Err() == nil
+	if err != nil || proxy == nil || !setupActive {
+		cancel()
+		if proxy != nil {
+			_ = proxy.Close()
+			go func() { _ = proxy.Wait() }()
+		}
+		return nil, ErrRuntimeTransport
+	}
+	return openSSHRuntime(ctx, proxy, cancel)
 }
 
 func (provider *Provider) Logs(ctx context.Context, request execution.LogRequest) ([]byte, error) {
