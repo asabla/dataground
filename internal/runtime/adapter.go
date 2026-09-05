@@ -96,5 +96,6 @@ type Turn interface {
 // question mediation before enabling it; ordinary turns remain unchanged.
 type QuestionTurn interface {
 	Turn
+	QuestionPending(context.Context, string) (bool, error)
 	AnswerQuestion(context.Context, string, []domain.QuestionAnswer) error
 }

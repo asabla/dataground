@@ -421,6 +421,10 @@ func (client *Client) writeGuarded(ctx context.Context, message any, guard func(
 	go func() {
 		client.writeMu.Lock()
 		defer client.writeMu.Unlock()
+		if err := ctx.Err(); err != nil {
+			result <- writeResult{err: err, rejected: true}
+			return
+		}
 		select {
 		case <-client.done:
 			result <- writeResult{err: client.failure()}
@@ -432,6 +436,10 @@ func (client *Client) writeGuarded(ctx context.Context, message any, guard func(
 				result <- writeResult{err: err, rejected: true}
 				return
 			}
+		}
+		if err := ctx.Err(); err != nil {
+			result <- writeResult{err: err, rejected: true}
+			return
 		}
 		_, err := client.input.Write(encoded)
 		result <- writeResult{err: err}
