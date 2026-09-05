@@ -1,14 +1,40 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   parseCodexCredentials,
   readCodexCredentials,
+  smokeModel,
   validateBridgeProfile,
   validateBridgeProvider,
 } from "./openshell-codex-smoke.mjs";
+
+test("requires an explicit bounded model identifier without changing the selection", () => {
+  for (const model of ["account-model-1", "model.snapshot_2026"]) {
+    assert.equal(smokeModel(model), model);
+  }
+  for (const value of [undefined, null, "", " ", "--help", "model\n", 'model"', "a".repeat(129)]) {
+    assert.throws(() => smokeModel(value), /DATAGROUND_CODEX_SMOKE_MODEL/u);
+  }
+});
+
+test("rejects a missing model before command discovery or credential access", () => {
+  const result = spawnSync(
+    process.execPath,
+    [fileURLToPath(new URL("./openshell-codex-smoke.mjs", import.meta.url))],
+    { env: { PATH: "", CODEX_HOME: "invalid" }, encoding: "utf8" },
+  );
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, "");
+  assert.equal(
+    result.stderr,
+    "OpenShell Codex smoke failed: DATAGROUND_CODEX_SMOKE_MODEL must name an explicit model available to the local account\n",
+  );
+});
 
 function jwt(expiry) {
   return [

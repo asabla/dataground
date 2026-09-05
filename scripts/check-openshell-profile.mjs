@@ -930,7 +930,7 @@ if (
 }
 if (
   !localCodexSmoke.includes(profile.artifacts.sandbox) ||
-  !localCodexSmoke.includes('const model = "gpt-5.4"') ||
+  !localCodexSmoke.includes("const model = smokeModel(process.env.DATAGROUND_CODEX_SMOKE_MODEL)") ||
   !localCodexSmoke.includes('base_url="https://chatgpt.com/backend-api/codex"') ||
   !localCodexSmoke.includes('env_key="OPENAI_API_KEY"') ||
   !localCodexSmoke.includes('"ChatGPT-Account-Id"="CHATGPT_ACCOUNT_ID"') ||

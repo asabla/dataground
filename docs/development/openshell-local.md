@@ -78,10 +78,12 @@ openshell --gateway-endpoint http://127.0.0.1:8080 sandbox create \
 For a real, billable local inference smoke test, first sign in with the pinned Codex CLI so an owner-only ChatGPT authentication file exists at `$CODEX_HOME/auth.json` or `~/.codex/auth.json`, then run:
 
 ```shell
-pnpm openshell:local:codex-smoke
+DATAGROUND_CODEX_SMOKE_MODEL="<available-model-id>" pnpm openshell:local:codex-smoke
 ```
 
-The smoke command requires the running loopback gateway and exact OpenShell `0.0.86` CLI. It enables provider profiles, lints and installs the checked `dataground-codex-chatgpt` bridge profile, and imports only the short-lived access token and account identifier into a persistent local OpenShell provider through a scrubbed child environment. Credential values are never command arguments or command output. It then creates a randomly named, digest-pinned, deny-all sandbox; runs one locked, read-only, ephemeral Codex `gpt-5.4` turn through the ChatGPT Codex endpoint; requires the exact `dataground-openshell-e2e-ok` response; and verifies that the sandbox was removed.
+Choose a model available to the local account explicitly; the command has no default or fallback model. The model identifier must contain 1–128 ASCII letters, digits, dots, underscores, or hyphens and begin with a letter or digit. Invalid or missing selections fail before credential access or gateway changes.
+
+The smoke command requires the running loopback gateway and exact OpenShell `0.0.86` CLI. It enables provider profiles, lints and installs the checked `dataground-codex-chatgpt` bridge profile, and imports only the short-lived access token and account identifier into a persistent local OpenShell provider through a scrubbed child environment. Credential values are never command arguments or command output. It then creates a randomly named, digest-pinned, deny-all sandbox; runs one locked, read-only, ephemeral Codex turn using the selected model through the ChatGPT Codex endpoint; requires the exact `dataground-openshell-e2e-ok` response; and verifies that the sandbox was removed.
 
 The bridge is necessary because the upstream OpenShell Codex profile exposes OAuth fields under `CODEX_AUTH_*`, while the pinned Codex `0.117.0` default model provider does not consume those environment variables. The checked smoke command instead fixes the ChatGPT endpoint, account header, Responses wire protocol, and environment placeholders explicitly. It neither stores credentials in the repository nor imports the refresh or identity token. Re-run the command to refresh the local provider from the current authentication file.
 
