@@ -93,6 +93,31 @@ function boundedNumber(value: unknown): string | undefined {
 
 export function presentTimelineEvent(event: TimelineEvent): EventPresentation {
   switch (event.type) {
+    case "lifecycle.accepted":
+      return {
+        detail: "DataGround accepted the invocation for processing.",
+        label: "Invocation accepted",
+        tone: "active",
+      };
+    case "lifecycle.running":
+      return {
+        detail: "DataGround observed the invocation running.",
+        label: "Invocation running",
+        tone: "active",
+      };
+    case "lifecycle.cancellation.requested":
+    case "lifecycle.cancellation-requested":
+      return {
+        detail: "Cancellation was requested. Processing may still be active.",
+        label: "Cancellation requested",
+        tone: "waiting",
+      };
+    case "lifecycle.cancelling":
+      return {
+        detail: "DataGround is reconciling cancellation.",
+        label: "Invocation cancelling",
+        tone: "waiting",
+      };
     case "lifecycle.started":
       return {
         detail: boundedText(event.payload.message, "The runtime started processing."),

@@ -93,6 +93,8 @@ closed.
 
 ## Compatibility and recovery boundary
 
+Durable cancellation requests now emit `lifecycle.cancellation.requested`, following the event contract’s dot-separated names. Retained `lifecycle.cancellation-requested` events remain unchanged and are explicitly accepted by the v1 schema and Workbench replay parser. This compatibility exception does not permit other hyphenated event names or extension keys. The timeline distinguishes acceptance, running, cancellation requested, cancelling and cancelled; pending cancellation never implies that execution has stopped.
+
 SSE `id` values are invocation-local journal sequences. Reconnecting with `Last-Event-ID` replays
 only later records with stable event identities. Identical mutation retries return the first
 response; reuse of the same key with a different body returns `IDEMPOTENCY_KEY_REUSED`.

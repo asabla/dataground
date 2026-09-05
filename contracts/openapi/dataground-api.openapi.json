@@ -1363,7 +1363,11 @@
           "isolationDomainId": { "$ref": "#/components/schemas/IsolationDomainId" },
           "invocationId": { "$ref": "#/components/schemas/InvocationId" },
           "sequence": { "type": "integer", "minimum": 1 },
-          "type": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z0-9]+)+$" },
+          "type": {
+            "type": "string",
+            "pattern": "^(?:[a-z][a-z0-9]*(?:\\.[a-z0-9]+)+|lifecycle\\.cancellation-requested)$",
+            "description": "New event names use dot-separated segments. The exact historical lifecycle.cancellation-requested name remains valid for retained replay; new cancellation requests use lifecycle.cancellation.requested."
+          },
           "occurredAt": { "type": "string", "format": "date-time" },
           "recordedAt": { "type": "string", "format": "date-time" },
           "correlationId": { "type": "string", "minLength": 1, "maxLength": 128 },

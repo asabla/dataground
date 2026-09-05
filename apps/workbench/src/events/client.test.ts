@@ -67,6 +67,39 @@ describe("invocation event replay client", () => {
     }
   });
 
+  it("replays canonical and retained cancellation requests without relaxing extension namespaces", () => {
+    const names = [
+      "lifecycle.accepted",
+      "lifecycle.running",
+      "lifecycle.cancellation-requested",
+      "lifecycle.cancellation.requested",
+      "lifecycle.cancelling",
+      "lifecycle.cancelled",
+    ];
+    const result = parseInvocationEventStream(
+      names.map((type, index) => frame(event(index + 1, type))).join(""),
+      reference,
+    );
+    assert.ok(result.ok);
+    assert.equal(result.cursor, 6);
+    assert.deepEqual(
+      result.events.map((value) => value.type),
+      names,
+    );
+    for (const type of [
+      "lifecycle.other-invalid",
+      "lifecycle.cancellation--requested",
+      "lifecycle.cancellation-requested.extra",
+    ]) {
+      assert.equal(parseInvocationEventStream(frame(event(1, type)), reference).ok, false);
+    }
+    const invalidExtension = {
+      ...event(1),
+      extensions: { "lifecycle.cancellation-requested": {} },
+    };
+    assert.equal(parseInvocationEventStream(frame(invalidExtension), reference).ok, false);
+  });
+
   it("rejects sequence gaps, header mismatches, and cross-scope envelopes", () => {
     const gap = parseInvocationEventStream(frame(event(3)), reference, 1);
     assert.equal(gap.ok, false);

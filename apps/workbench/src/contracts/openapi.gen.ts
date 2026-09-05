@@ -572,6 +572,7 @@ export interface components {
             isolationDomainId: components["schemas"]["IsolationDomainId"];
             invocationId: components["schemas"]["InvocationId"];
             sequence: number;
+            /** @description New event names use dot-separated segments. The exact historical lifecycle.cancellation-requested name remains valid for retained replay; new cancellation requests use lifecycle.cancellation.requested. */
             type: string;
             /** Format: date-time */
             occurredAt: string;
