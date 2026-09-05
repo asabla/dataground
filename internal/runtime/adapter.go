@@ -5,6 +5,9 @@ package runtime
 import (
 	"context"
 	"errors"
+	"time"
+
+	"github.com/asabla/dataground/internal/domain"
 )
 
 var (
@@ -16,6 +19,16 @@ var (
 	ErrApprovalDecision = errors.New("runtime approval decision is invalid")
 	ErrConcurrentTurn   = errors.New("runtime adapter already has an active turn")
 	ErrSandboxMode      = errors.New("runtime sandbox mode is invalid")
+	ErrQuestionMode     = errors.New("runtime question mode or timeout is invalid")
+	ErrQuestionNotFound = errors.New("runtime question not found")
+	ErrQuestionExpired  = errors.New("runtime question expired")
+)
+
+type QuestionMode string
+
+const (
+	QuestionDisabled    QuestionMode = "disabled"
+	QuestionInteractive QuestionMode = "interactive"
 )
 
 type ApprovalMode string
@@ -50,13 +63,15 @@ type ArtifactDeclaration struct {
 }
 
 type StartRequest struct {
-	Prompt       string
-	WorkingDir   string
-	Model        string
-	OutputSchema map[string]any
-	Artifacts    []ArtifactDeclaration
-	ApprovalMode ApprovalMode
-	SandboxMode  SandboxMode
+	Prompt          string
+	WorkingDir      string
+	Model           string
+	OutputSchema    map[string]any
+	Artifacts       []ArtifactDeclaration
+	ApprovalMode    ApprovalMode
+	QuestionMode    QuestionMode
+	QuestionTimeout time.Duration
+	SandboxMode     SandboxMode
 }
 
 // Event is emitted before product identity and persistence fields are attached
@@ -75,4 +90,11 @@ type Turn interface {
 	Interrupt(context.Context) error
 	Wait(context.Context) error
 	Close() error
+}
+
+// QuestionTurn is an optional internal capability. A worker must supply durable
+// question mediation before enabling it; ordinary turns remain unchanged.
+type QuestionTurn interface {
+	Turn
+	AnswerQuestion(context.Context, string, []domain.QuestionAnswer) error
 }

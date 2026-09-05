@@ -701,6 +701,10 @@ func validateInvocationRuntimeRequest(
 	if request.Prompt == "" {
 		return errors.New("invocation runtime prompt is required")
 	}
+	// Questions are disabled until the driver owns durable question mediation.
+	if (request.QuestionMode != "" && request.QuestionMode != dgruntime.QuestionDisabled) || request.QuestionTimeout != 0 {
+		return dgruntime.ErrQuestionMode
+	}
 	if request.ApprovalMode != "" &&
 		request.ApprovalMode != dgruntime.ApprovalLocked &&
 		request.ApprovalMode != dgruntime.ApprovalInteractive {
