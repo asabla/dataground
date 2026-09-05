@@ -45,6 +45,25 @@ describe("EventTimeline", () => {
     assert.match(markup, /reference-runtime/u);
   });
 
+  it("distinguishes durable acceptance, execution and pending cancellation without exposing payload fields", () => {
+    for (const [type, label] of [
+      ["lifecycle.accepted", "Invocation accepted"],
+      ["lifecycle.running", "Invocation running"],
+      ["lifecycle.cancellation.requested", "Cancellation requested"],
+      ["lifecycle.cancellation-requested", "Cancellation requested"],
+      ["lifecycle.cancelling", "Invocation cancelling"],
+    ] as const) {
+      const presentation = presentTimelineEvent({
+        ...baseEvent,
+        type,
+        payload: { message: "must-not-render", state: "succeeded" },
+      });
+      assert.equal(presentation.label, label);
+      assert.notEqual(presentation.tone, "success");
+      assert.doesNotMatch(presentation.detail, /must-not-render|succeeded/);
+    }
+  });
+
   it("preserves unknown event visibility without rendering arbitrary payload data", () => {
     const unknown = {
       ...baseEvent,

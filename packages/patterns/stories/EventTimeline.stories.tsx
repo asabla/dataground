@@ -63,6 +63,27 @@ export const ReferenceSuccess: Story = {
   },
 };
 
+export const DurableCancellation: Story = {
+  args: {
+    events: [
+      event(1, "lifecycle.accepted", { state: "accepted" }),
+      event(2, "lifecycle.running", { state: "running" }),
+      event(3, "lifecycle.cancellation.requested", { state: "cancelling" }),
+      event(4, "lifecycle.cancelling", { state: "cancelling" }),
+      event(5, "lifecycle.cancelled", { state: "cancelled" }),
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Invocation accepted", { exact: true })).toBeVisible();
+    await expect(canvas.getByText("Invocation running", { exact: true })).toBeVisible();
+    await expect(canvas.getByText("Cancellation requested", { exact: true })).toBeVisible();
+    await expect(canvas.getByText("Invocation cancelling", { exact: true })).toBeVisible();
+    await expect(canvas.getByText("Invocation cancelled", { exact: true })).toBeVisible();
+    await expect(canvas.queryByText("Unknown event", { exact: true })).toBeNull();
+  },
+};
+
 export const Loading: Story = {
   args: { connectionState: "loading", events: [], isReplaying: true },
 };

@@ -789,6 +789,10 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	cancellationEvents, err := repository.ListEvents(ctx, domainID, cancelledInvocationID, 0)
+	if err != nil || len(cancellationEvents) != 2 || cancellationEvents[0].Type != "lifecycle.accepted" || cancellationEvents[1].Type != "lifecycle.cancellation.requested" || cancellationEvents[1].Payload["state"] != "cancelling" {
+		t.Fatalf("cancellation journal contract or duplicate handling changed: %+v %v", cancellationEvents, err)
+	}
 	cancellationTarget, err := repository.GetInvocationCancellationTarget(
 		ctx,
 		domainID,

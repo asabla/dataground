@@ -1,6 +1,21 @@
 {
   "fixtures": [
     {
+      "file": "valid/event-cancellation-requested.json",
+      "schema": "EventEnvelope",
+      "valid": true
+    },
+    {
+      "file": "valid/event-legacy-cancellation-requested.json",
+      "schema": "EventEnvelope",
+      "valid": true
+    },
+    {
+      "file": "invalid/event-hyphenated-type.json",
+      "schema": "EventEnvelope",
+      "valid": false
+    },
+    {
       "file": "valid/agent-service.json",
       "schema": "AgentService",
       "valid": true

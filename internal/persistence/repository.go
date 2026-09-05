@@ -733,7 +733,7 @@ func (repository *Repository) AcceptCancellation(
 			return 0, nil, err
 		}
 		if err := writeInvocationEvent(
-			ctx, tx, invocationValue, "lifecycle.cancellation-requested", input.ActorID,
+			ctx, tx, invocationValue, "lifecycle.cancellation.requested", input.ActorID,
 			map[string]any{"state": "cancelling"}, now,
 		); err != nil {
 			return 0, nil, err

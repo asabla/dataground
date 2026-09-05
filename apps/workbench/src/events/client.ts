@@ -84,7 +84,8 @@ function decodeEvent(
     value.invocationId !== reference.invocationId ||
     !Number.isSafeInteger(value.sequence) ||
     (value.sequence as number) < 1 ||
-    !matchesRequiredString(value.type, eventTypePattern) ||
+    (!matchesRequiredString(value.type, eventTypePattern) &&
+      value.type !== "lifecycle.cancellation-requested") ||
     !isTimestamp(value.occurredAt) ||
     !isTimestamp(value.recordedAt) ||
     !matchesRequiredString(value.correlationId) ||
