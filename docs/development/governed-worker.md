@@ -6,6 +6,27 @@ This mode is intentionally limited to one development isolation domain, the pinn
 
 The PostgreSQL schema must be current. The exact service revision must already have an immutable execution plan, enforcement-bundle catalog record and object, installed approval-capable version 3 invocation Cedar policy, and a current `agent-inference` grant for every provider profile in that plan. The configured OpenShell gateway and `codex` provider must already exist. The repository does not yet expose a supported public workflow for provisioning those execution inputs; missing or unavailable inputs fail closed through the durable retry or terminal-failure contracts.
 
+## Install a reviewed execution plan
+
+An operator with administrative database access can install the plan through `go run ./cmd/dataground-execution-plan-install`. This command exposes the existing immutable plan-binding transaction; it does not create a revision, publish enforcement material, grant provider access, or certify a runtime. The revision must already exist in the exact isolation domain with the plan's runtime profile and required capabilities. Complete provisioning of the other inputs above remains required.
+
+Prepare one owner-only regular file containing the normalized `dataground.execution-plan/v1` contract from `internal/execution/plan.go`. Normalize the plan with `execution.NormalizeExecutionPlan`, serialize the returned plan with `json.Marshal`, and append exactly one newline: fields use the declared Go struct order, provider profiles and required capabilities are sorted and deduplicated, and no unknown fields, duplicate properties, additional JSON values, or extra whitespace are accepted. The maximum file size is 64 KiB. The reviewed digest is the lowercase `sha256:` value returned by `execution.DigestExecutionPlan`, which hashes the normalized compact JSON **without** the trailing newline. Review the environment, image, enforcement-bundle, runtime-matrix and provider-profile references against their deployment-owned evidence before installation; a matching digest establishes exact input identity, not certification of those references.
+
+```shell
+DATAGROUND_DATABASE_URL='<administrative-postgresql-url>' \
+go run ./cmd/dataground-execution-plan-install \
+  -plan-file '<owner-only-reviewed-plan.json>' \
+  -plan-digest 'sha256:<reviewed-normalized-plan-digest>' \
+  -isolation-domain '<exact-isolation-domain-id>' \
+  -revision '<exact-service-revision-id>' \
+  -actor '<authorized-operator-id>' \
+  -correlation-id '<stable-installation-correlation-id>'
+```
+
+The command validates file identity, canonical content, explicit scope, attribution and digest before database access, then requires the current schema and uses a bounded database operation. Installation atomically writes the immutable plan and its `execution-plan.bind` audit record. Repeating the same normalized plan succeeds without changing the original attribution or duplicating audit evidence; changing any plan field for an already bound revision fails. If the commit acknowledgement is lost, retry the exact installation to resolve the outcome. The command emits no plan contents or database diagnostics.
+
+No migration is introduced by this command. Removing the command does not remove installed plans; the existing append-only binding and governed effect-time authorization remain authoritative. A replacement plan requires a new service revision. Missing policy, enforcement material, provider grants or accepted runtime certification continues to block governed execution.
+
 ## API dispatch
 
 The durable API can explicitly opt into this worker target without changing the public invocation route. Set `DATAGROUND_GOVERNED_DISPATCH_CONFIG_FILE` to an absolute path containing an owner-controlled regular file such as:

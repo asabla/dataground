@@ -4,8 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -337,7 +340,37 @@ func TestDurableExecutionPlanBindingIsImmutableAuditedAndScoped(t *testing.T) {
 	binding := execution.ExecutionPlanBinding{
 		Plan: plan, ActorID: "worker:resolver", CorrelationID: "correlation-plan-1",
 	}
-	bound, err := store.BindExecutionPlan(ctx, binding)
+	// Exercise the operator boundary in a separate process so a successful
+	// result proves the command owns schema checks and durable installation.
+	normalized, err := execution.NormalizeExecutionPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := json.Marshal(normalized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planPath := filepath.Join(t.TempDir(), "reviewed-plan.json")
+	if err := os.WriteFile(planPath, append(content, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := execution.DigestExecutionPlan(normalized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		command := exec.CommandContext(ctx, "go", "run", "../../cmd/dataground-execution-plan-install",
+			"-plan-file", planPath, "-plan-digest", digest,
+			"-isolation-domain", domainID, "-revision", revisionID,
+			"-actor", binding.ActorID, "-correlation-id", binding.CorrelationID,
+		)
+		command.Env = append(os.Environ(), "DATAGROUND_DATABASE_URL="+databaseURL)
+		output, err := command.CombinedOutput()
+		if err != nil || len(output) != 0 {
+			t.Fatalf("execution plan installer failed or emitted unexpected output: %v", err)
+		}
+	}
+	bound, err := store.GetExecutionPlan(ctx, domainID, revisionID)
 	if err != nil {
 		t.Fatalf("bind execution plan: %v", err)
 	}
