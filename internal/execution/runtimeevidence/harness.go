@@ -24,12 +24,13 @@ type HarnessProvider interface {
 }
 
 type HarnessConfig struct {
-	RunID       string
-	Provenance  Provenance
-	ExecutionID string
-	Store       HarnessStore
-	Provider    HarnessProvider
-	Cleanup     Cleanup
+	diagnosticModel string
+	RunID           string
+	Provenance      Provenance
+	ExecutionID     string
+	Store           HarnessStore
+	Provider        HarnessProvider
+	Cleanup         Cleanup
 }
 
 type Harness struct {
@@ -58,11 +59,12 @@ func newHarness(config HarnessConfig, now func() time.Time) (*Harness, error) {
 		return nil, ErrHarnessConfiguration
 	}
 	runtimeProbes, err := NewCodexProbes(CodexProbeConfig{
-		RunID:       config.RunID,
-		ExecutionID: config.ExecutionID,
-		Store:       config.Store,
-		Provider:    config.Provider,
-		Now:         now,
+		diagnosticModel: config.diagnosticModel,
+		RunID:           config.RunID,
+		ExecutionID:     config.ExecutionID,
+		Store:           config.Store,
+		Provider:        config.Provider,
+		Now:             now,
 	})
 	if err != nil {
 		return nil, ErrHarnessConfiguration
@@ -80,10 +82,11 @@ func newHarness(config HarnessConfig, now func() time.Time) (*Harness, error) {
 		return nil, ErrHarnessConfiguration
 	}
 	run, err := newEvidenceRun(Config{
-		RunID:      config.RunID,
-		Provenance: config.Provenance,
-		Cases:      cases,
-		Cleanup:    config.Cleanup,
+		diagnosticModel: config.diagnosticModel,
+		RunID:           config.RunID,
+		Provenance:      config.Provenance,
+		Cases:           cases,
+		Cleanup:         config.Cleanup,
 	}, now)
 	if err != nil {
 		return nil, ErrHarnessConfiguration
@@ -104,9 +107,7 @@ func (harness *Harness) Run(ctx context.Context) (Result, error) {
 
 func validHarnessConfig(config HarnessConfig) bool {
 	return runIDPattern.MatchString(config.RunID) &&
-		commitPattern.MatchString(config.Provenance.SourceCommit) &&
-		config.Provenance.WorkflowRunID > 0 &&
-		config.Provenance.WorkflowRunID <= maxSafeInteger &&
+		validRunProvenance(config.Provenance, config.diagnosticModel) &&
 		config.ExecutionID != "" &&
 		!isNilHarnessPort(config.Store) &&
 		!isNilHarnessPort(config.Provider) &&

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -14,6 +15,10 @@ import (
 
 func main() {
 	var config runtimeevidence.LauncherConfig
+	var localDiagnostic bool
+	var model string
+	flag.BoolVar(&localDiagnostic, "local-diagnostic", false, "run local diagnostics without producing certification evidence")
+	flag.StringVar(&model, "model", "", "explicit local diagnostic model; unavailable in CI evidence mode")
 	flag.StringVar(
 		&config.RepositoryRoot,
 		"repository-root",
@@ -61,14 +66,29 @@ func main() {
 		config.WorkspaceRoot == "" ||
 		config.CredentialDirectory == "" ||
 		config.Provenance.SourceCommit == "" ||
-		config.Provenance.WorkflowRunID <= 0 {
+		(localDiagnostic && (config.Provenance.WorkflowRunID != 0 || model == "")) ||
+		(!localDiagnostic && (config.Provenance.WorkflowRunID <= 0 || model != "")) {
 		fail()
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	result, err := runtimeevidence.Launch(ctx, config)
+	var result json.Marshaler
+	var err error
+	if localDiagnostic {
+		result, err = runtimeevidence.LaunchLocalDiagnostic(ctx, runtimeevidence.LocalDiagnosticConfig{
+			RepositoryRoot: config.RepositoryRoot, WorkspaceRoot: config.WorkspaceRoot, CredentialDirectory: config.CredentialDirectory,
+			OpenShellBinary: config.OpenShellBinary, DockerBinary: config.DockerBinary, SourceCommit: config.Provenance.SourceCommit, Model: model,
+		})
+	} else {
+		result, err = runtimeevidence.Launch(ctx, config)
+	}
 	if err != nil {
+		var diagnosticFailure *runtimeevidence.LocalDiagnosticError
+		if localDiagnostic && errors.As(err, &diagnosticFailure) {
+			_, _ = fmt.Fprintln(os.Stderr, diagnosticFailure.Error())
+			os.Exit(1)
+		}
 		fail()
 	}
 	encoder := json.NewEncoder(os.Stdout)

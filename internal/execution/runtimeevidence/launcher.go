@@ -26,6 +26,7 @@ var (
 )
 
 type LauncherConfig struct {
+	diagnosticModel     string
 	RepositoryRoot      string
 	WorkspaceRoot       string
 	CredentialDirectory string
@@ -107,10 +108,18 @@ func launch(
 		return Result{}, ErrLauncherConfiguration
 	}
 	state := &launcherState{runID: runID, resources: namesForRun(runID)}
+	phase := "policy"
 	defer func() {
 		if err := state.cleanup(); err != nil {
 			result = Result{}
 			outcome = launcherFailure(ctx, ErrLauncherCleanup)
+			phase = "cleanup"
+		}
+		if outcome != nil && config.diagnosticModel != "" {
+			var failure *LocalDiagnosticError
+			if phase == "cleanup" || !errors.As(outcome, &failure) {
+				outcome = &LocalDiagnosticError{stage: phase}
+			}
 		}
 	}()
 
@@ -120,11 +129,13 @@ func launch(
 	}
 	defer clear(policy)
 
+	phase = "workspace"
 	workspace, err := dependencies.openWorkspace(config.WorkspaceRoot, runID)
 	if err != nil {
 		return Result{}, ErrLauncherConfiguration
 	}
 	state.workspace = workspace
+	phase = "provider-preflight"
 	ports, err := dependencies.openPorts(config.OpenShellBinary, runID, workspace)
 	if err != nil || ports == nil {
 		return Result{}, ErrLauncherConfiguration
@@ -133,6 +144,7 @@ func launch(
 		return Result{}, launcherFailure(ctx, ErrLauncherRun)
 	}
 
+	phase = "topology"
 	topology, err := dependencies.openTopology(DockerTopologyConfig{
 		RunID:          runID,
 		RepositoryRoot: config.RepositoryRoot,
@@ -146,10 +158,12 @@ func launch(
 	if err := topology.Start(ctx); err != nil {
 		return Result{}, launcherFailure(ctx, ErrLauncherRun)
 	}
+	phase = "gateway-registration"
 	if err := ports.Register(ctx, runID); err != nil {
 		return Result{}, launcherFailure(ctx, ErrLauncherRun)
 	}
 
+	phase = "credential-source"
 	source, err := dependencies.openSource(CredentialSourceConfig{
 		Directory: config.CredentialDirectory,
 	})
@@ -157,6 +171,7 @@ func launch(
 		return Result{}, ErrLauncherConfiguration
 	}
 	state.source = source
+	phase = "provider-binding"
 	provider, err := dependencies.newProvider(ctx, runID, source, ports)
 	if err != nil || provider == nil {
 		return Result{}, launcherFailure(ctx, ErrLauncherRun)
@@ -166,6 +181,7 @@ func launch(
 		return Result{}, launcherFailure(ctx, ErrLauncherRun)
 	}
 
+	phase = "execution"
 	creator, err := dependencies.newCreator(runID, policy, ports)
 	if err != nil || creator == nil {
 		return Result{}, launcherFailure(ctx, ErrLauncherRun)
@@ -177,6 +193,7 @@ func launch(
 	}
 	state.executionCreated = true
 
+	phase = "harness"
 	harness, err := dependencies.newHarness(
 		config,
 		runID,
@@ -189,8 +206,13 @@ func launch(
 	if err != nil || harness == nil {
 		return Result{}, launcherFailure(ctx, ErrLauncherRun)
 	}
+	phase = "live-cases"
 	result, err = harness.Run(ctx)
 	if err != nil {
+		var failure *LocalDiagnosticError
+		if config.diagnosticModel != "" && errors.As(err, &failure) {
+			return Result{}, failure
+		}
 		return Result{}, launcherFailure(ctx, ErrLauncherRun)
 	}
 	return result, nil
@@ -218,9 +240,7 @@ func validLauncherConfig(config LauncherConfig) bool {
 	return config.RepositoryRoot != "" &&
 		config.WorkspaceRoot != "" &&
 		config.CredentialDirectory != "" &&
-		commitPattern.MatchString(config.Provenance.SourceCommit) &&
-		config.Provenance.WorkflowRunID > 0 &&
-		config.Provenance.WorkflowRunID <= maxSafeInteger
+		validRunProvenance(config.Provenance, config.diagnosticModel)
 }
 
 func validLauncherDependencies(dependencies launcherDependencies) bool {
@@ -391,11 +411,12 @@ func newRuntimeLauncherHarness(
 		return nil, ErrLauncherConfiguration
 	}
 	return NewHarness(HarnessConfig{
-		RunID:       runID,
-		Provenance:  config.Provenance,
-		ExecutionID: executionValue.ID,
-		Store:       runtimePorts.store,
-		Provider:    runtimePorts.provider,
+		diagnosticModel: config.diagnosticModel,
+		RunID:           runID,
+		Provenance:      config.Provenance,
+		ExecutionID:     executionValue.ID,
+		Store:           runtimePorts.store,
+		Provider:        runtimePorts.provider,
 		Cleanup: Cleanup{
 			Sandbox:         runtimeCreator.Cleanup,
 			ProviderBinding: runtimeProvider.Cleanup,

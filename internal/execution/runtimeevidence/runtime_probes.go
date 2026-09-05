@@ -37,11 +37,12 @@ type CodexProbeProvider interface {
 }
 
 type CodexProbeConfig struct {
-	RunID       string
-	ExecutionID string
-	Store       CodexProbeStore
-	Provider    CodexProbeProvider
-	Now         func() time.Time
+	diagnosticModel string
+	RunID           string
+	ExecutionID     string
+	Store           CodexProbeStore
+	Provider        CodexProbeProvider
+	Now             func() time.Time
 }
 
 type CodexProbes struct {
@@ -49,15 +50,16 @@ type CodexProbes struct {
 }
 
 type codexProbeState struct {
-	mu        sync.Mutex
-	request   ProbeRequest
-	store     CodexProbeStore
-	provider  CodexProbeProvider
-	execution execution.ExecutionRef
-	now       func() time.Time
-	next      int
-	running   bool
-	failed    bool
+	diagnosticModel string
+	mu              sync.Mutex
+	request         ProbeRequest
+	store           CodexProbeStore
+	provider        CodexProbeProvider
+	execution       execution.ExecutionRef
+	now             func() time.Time
+	next            int
+	running         bool
+	failed          bool
 }
 
 type codexProbeObservation struct {
@@ -87,7 +89,8 @@ func NewCodexProbes(config CodexProbeConfig) (*CodexProbes, error) {
 	if !runIDPattern.MatchString(config.RunID) ||
 		config.ExecutionID == "" ||
 		config.Store == nil ||
-		config.Provider == nil {
+		config.Provider == nil ||
+		(config.diagnosticModel != "" && !diagnosticModelPattern.MatchString(config.diagnosticModel)) {
 		return nil, ErrCodexProbeConfiguration
 	}
 	now := config.Now
@@ -95,6 +98,7 @@ func NewCodexProbes(config CodexProbeConfig) (*CodexProbes, error) {
 		now = time.Now
 	}
 	return &CodexProbes{state: &codexProbeState{
+		diagnosticModel: config.diagnosticModel,
 		request: ProbeRequest{
 			RunID:     config.RunID,
 			Resources: namesForRun(config.RunID),
@@ -452,6 +456,9 @@ func (state *codexProbeState) start(
 	if err != nil {
 		_ = trackedSession.Close()
 		return nil, func() error { return nil }, ErrCodexProbeObservation
+	}
+	if state.diagnosticModel != "" {
+		startRequest.Model = state.diagnosticModel
 	}
 	turn, err := client.Start(ctx, startRequest)
 	if err != nil {

@@ -113,10 +113,11 @@ type Cleanup struct {
 }
 
 type Config struct {
-	RunID      string
-	Provenance Provenance
-	Cases      CaseRunner
-	Cleanup    Cleanup
+	diagnosticModel string
+	RunID           string
+	Provenance      Provenance
+	Cases           CaseRunner
+	Cleanup         Cleanup
 }
 
 type EvidenceRun struct {
@@ -131,8 +132,9 @@ type runState struct {
 }
 
 type Result struct {
-	record   record
-	complete bool
+	diagnosticModel string
+	record          record
+	complete        bool
 }
 
 type record struct {
@@ -253,22 +255,28 @@ func (run *EvidenceRun) Execute(ctx context.Context) (Result, error) {
 		return Result{}, errors.Join(ErrRunIncomplete, outcome)
 	}
 
+	schemaVersion := LocalDiagnosticSchemaVersion
+	verifierRecord := verifier{}
+	provenance := provenanceRecord{SourceCommit: state.config.Provenance.SourceCommit}
+	if state.config.diagnosticModel == "" {
+		schemaVersion = SchemaVersion
+		verifierRecord = verifier{Name: VerifierName, Version: VerifierVersion}
+		provenance.Workflow = Workflow
+		provenance.WorkflowRunID = state.config.Provenance.WorkflowRunID
+		provenance.ArtifactName = ArtifactName
+	}
 	return Result{
+		diagnosticModel: state.config.diagnosticModel,
 		record: record{
-			SchemaVersion: SchemaVersion,
+			SchemaVersion: schemaVersion,
 			Profile:       currentProfile(),
 			Run: runRecord{
 				ID:         state.config.RunID,
 				Resources:  resources,
 				StartedAt:  startedAt.Format(time.RFC3339Nano),
 				FinishedAt: finishedAt.Format(time.RFC3339Nano),
-				Verifier:   verifier{Name: VerifierName, Version: VerifierVersion},
-				Provenance: provenanceRecord{
-					SourceCommit:  state.config.Provenance.SourceCommit,
-					Workflow:      Workflow,
-					WorkflowRunID: state.config.Provenance.WorkflowRunID,
-					ArtifactName:  ArtifactName,
-				},
+				Verifier:   verifierRecord,
+				Provenance: provenance,
 			},
 			Checks:       checks,
 			Capabilities: capabilities(),
@@ -284,6 +292,9 @@ func (EvidenceRun) MarshalJSON() ([]byte, error) {
 }
 
 func (result Result) MarshalJSON() ([]byte, error) {
+	if result.diagnosticModel != "" {
+		return nil, ErrSerialization
+	}
 	if !result.complete {
 		return nil, ErrRunIncomplete
 	}
@@ -299,6 +310,9 @@ func runCases(ctx context.Context, config Config, resources Resources) ([]check,
 			Resources: resources,
 		})
 		if err != nil {
+			if config.diagnosticModel != "" {
+				return checks, &LocalDiagnosticError{stage: "case-" + string(name)}
+			}
 			return checks, ErrCase
 		}
 		checks = append(checks, check{
@@ -382,9 +396,7 @@ func cleanupResources(ctx context.Context, config Config, resources Resources) (
 
 func validConfig(config Config) bool {
 	return runIDPattern.MatchString(config.RunID) &&
-		commitPattern.MatchString(config.Provenance.SourceCommit) &&
-		config.Provenance.WorkflowRunID > 0 &&
-		config.Provenance.WorkflowRunID <= maxSafeInteger &&
+		validRunProvenance(config.Provenance, config.diagnosticModel) &&
 		config.Cases != nil &&
 		config.Cleanup.Sandbox != nil &&
 		config.Cleanup.ProviderBinding != nil &&
