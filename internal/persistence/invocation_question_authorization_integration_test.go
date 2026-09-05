@@ -1,14 +1,17 @@
 package persistence_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/asabla/dataground/internal/authz"
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/persistence"
 	"github.com/asabla/dataground/internal/reconcile"
@@ -164,5 +167,76 @@ func TestQuestionPolicyWithdrawalStopsAcceptedAnswerDelivery(t *testing.T) {
 	var decisions int
 	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FROM invocation_question_authorization_decisions WHERE isolation_domain_id=$1`, value.IsolationDomainID).Scan(&decisions); err != nil || decisions != 1 {
 		t.Fatalf("policy lookup failure mislabeled as completed decision: %d, %v", decisions, err)
+	}
+}
+
+func TestQuestionEntityRefreshRemovesDeliveryAuthorityAfterAnswerAcceptance(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	fixture := newRuntimeQuestionFixture(t, ctx)
+	authorizer, policy := installQuestionAuthorizationFixture(t, ctx, fixture, `permit(principal in DataGround::Role::"invoker", action == DataGround::Action::"answer", resource);`)
+	reason := sha256.Sum256([]byte("review question controller membership"))
+	publish := func(number int64, member string) persistence.InvocationAuthorizationEntityActivation {
+		t.Helper()
+		entities := canonicalRefreshEntities(t, member)
+		digest := sha256.Sum256(entities)
+		if err := fixture.repository.PublishInvocationAuthorizationEntityGeneration(ctx, persistence.InvocationAuthorizationEntityGeneration{
+			Contract: persistence.InvocationAuthorizationEntityGenerationContract, IsolationDomainID: policy.IsolationDomainID, ServiceID: policy.ServiceID, RevisionID: policy.RevisionID,
+			Generation: number, Entities: entities, EntityDigest: digest[:], PublishedBy: "operator", CorrelationID: identity.New("cor"), ReasonDigest: reason[:],
+		}); err != nil {
+			t.Fatal(err)
+		}
+		effective := authz.InvocationAuthorizationPolicyV4Digest(policy.Schema, policy.Policies, entities)
+		return persistence.InvocationAuthorizationEntityActivation{
+			Contract: persistence.InvocationAuthorizationEntityActivationContract, IsolationDomainID: policy.IsolationDomainID, ServiceID: policy.ServiceID, RevisionID: policy.RevisionID,
+			Generation: number, InstalledPolicyDigest: policy.Digest[:], EffectivePolicyDigest: effective[:], ActivatedBy: "operator", CorrelationID: identity.New("cor"), ReasonDigest: reason[:],
+		}
+	}
+	first := publish(1, "answerer")
+	if err := fixture.repository.ActivateInvocationAuthorizationEntityGeneration(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	value := fixture.request(t, ctx, 20*time.Second)
+	if _, err := fixture.repository.AnswerInvocationRuntimeQuestion(ctx, questionAnswer(value), authorizer.AuthorizeInvocationQuestion); err != nil {
+		t.Fatalf("current controller could not answer: %v", err)
+	}
+	second := publish(2, "replacement")
+	staged, err := fixture.repository.GetActiveInvocationAuthorizationPolicy(ctx, policy.IsolationDomainID, policy.ServiceID, policy.RevisionID)
+	if err != nil || !bytes.Equal(staged.PolicyDigest, first.EffectivePolicyDigest) {
+		t.Fatalf("publication changed effective membership: %v", err)
+	}
+	if err := fixture.repository.ActivateInvocationAuthorizationEntityGeneration(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.repository.BeginInvocationRuntimeQuestionDelivery(ctx, fixture.claim, fixture.effect, value.ID, authorizer.AuthorizeInvocationQuestion); !errors.Is(err, reconcile.ErrInvocationQuestionDenied) {
+		t.Fatalf("removed controller retained delivery authority: %v", err)
+	}
+	actual, err := fixture.repository.GetInvocationRuntimeQuestion(ctx, value.IsolationDomainID, value.InvocationID, value.ID)
+	if err != nil || actual.State != "answered" || actual.Version != 2 || actual.AnsweredBy != "answerer" {
+		t.Fatalf("denial changed frozen answer or reserved delivery: %s, %v", actual.State, err)
+	}
+	rows, err := fixture.pool.Query(ctx, `SELECT phase,outcome,policy_digest,actor_id FROM invocation_question_authorization_decisions WHERE isolation_domain_id=$1 ORDER BY sequence`, value.IsolationDomainID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for _, want := range []struct {
+		phase, outcome string
+		digest         []byte
+	}{{"entry", "allowed", first.EffectivePolicyDigest}, {"effect", "denied", second.EffectivePolicyDigest}} {
+		if !rows.Next() {
+			t.Fatalf("missing %s decision: %v", want.phase, rows.Err())
+		}
+		var phase, outcome, actor string
+		var digest string
+		if err := rows.Scan(&phase, &outcome, &digest, &actor); err != nil {
+			t.Fatal(err)
+		}
+		if phase != want.phase || outcome != want.outcome || actor != "answerer" || digest != "sha256:"+hex.EncodeToString(want.digest) {
+			t.Fatal("question decision did not retain its exact effective membership provenance")
+		}
+	}
+	if rows.Next() || rows.Err() != nil {
+		t.Fatalf("unexpected additional question decision: %v", rows.Err())
 	}
 }

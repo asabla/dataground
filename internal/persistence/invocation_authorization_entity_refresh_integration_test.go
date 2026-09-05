@@ -18,6 +18,13 @@ import (
 )
 
 func TestInvocationAuthorizationEntityRefreshIsSequentialAndFailClosed(t *testing.T) {
+	for _, contract := range []string{"v2", "v3", "v4"} {
+		t.Run(contract, func(t *testing.T) { testInvocationAuthorizationEntityRefresh(t, contract) })
+	}
+}
+
+func testInvocationAuthorizationEntityRefresh(t *testing.T, contract string) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	databaseURL := testDatabaseURL(t)
@@ -61,12 +68,25 @@ func TestInvocationAuthorizationEntityRefreshIsSequentialAndFailClosed(t *testin
 		t.Fatalf("insert revision: %v", err)
 	}
 	initialEntities := persistenceEntityFixture(t)
-	policy, err := reconcile.NewInvocationAuthorizationPolicyWithEntities(
+	constructor := reconcile.NewInvocationAuthorizationPolicyWithEntities
+	schema := reconcile.CanonicalInvocationCedarEntitySchema()
+	digestFor := authz.InvocationAuthorizationPolicyV2Digest
+	switch contract {
+	case "v3":
+		constructor = reconcile.NewInvocationAuthorizationPolicyWithApprovalEntities
+		schema = reconcile.CanonicalInvocationCedarApprovalSchema()
+		digestFor = authz.InvocationAuthorizationPolicyV3Digest
+	case "v4":
+		constructor = reconcile.NewInvocationAuthorizationPolicyWithQuestionEntities
+		schema = reconcile.CanonicalInvocationCedarQuestionSchema()
+		digestFor = authz.InvocationAuthorizationPolicyV4Digest
+	}
+	policy, err := constructor(
 		reconcile.InvocationAuthorizationPolicyScope{
 			IsolationDomainID: domainID, ServiceID: serviceID, RevisionID: revisionID,
 		},
 		"policy.entity-refresh.integration.v1",
-		reconcile.CanonicalInvocationCedarEntitySchema(),
+		schema,
 		[]byte(`permit(principal in DataGround::Role::"invoker", action, resource);`),
 		initialEntities,
 	)
@@ -159,6 +179,14 @@ func TestInvocationAuthorizationEntityRefreshIsSequentialAndFailClosed(t *testin
 	); !errors.Is(err, persistence.ErrInvocationAuthorizationEntityRefreshConflict) {
 		t.Fatalf("activation gap error = %v", err)
 	}
+	if contract != "v2" {
+		wrongDomain := activation
+		digest := authz.InvocationAuthorizationPolicyV2Digest(policy.Schema, policy.Policies, refreshedEntities)
+		wrongDomain.EffectivePolicyDigest = digest[:]
+		if err := repository.ActivateInvocationAuthorizationEntityGeneration(ctx, wrongDomain); !errors.Is(err, persistence.ErrInvocationAuthorizationEntityRefreshConflict) {
+			t.Fatalf("cross-contract effective digest accepted: %v", err)
+		}
+	}
 	if err := repository.ActivateInvocationAuthorizationEntityGeneration(ctx, activation); err != nil {
 		t.Fatalf("activate generation: %v", err)
 	}
@@ -175,7 +203,7 @@ func TestInvocationAuthorizationEntityRefreshIsSequentialAndFailClosed(t *testin
 	active, err := repository.GetActiveInvocationAuthorizationPolicy(
 		ctx, domainID, serviceID, revisionID,
 	)
-	effectiveDigest := authz.InvocationAuthorizationPolicyV2Digest(
+	effectiveDigest := digestFor(
 		policy.Schema, policy.Policies, refreshedEntities,
 	)
 	if err != nil || !bytes.Equal(active.Entities, refreshedEntities) ||
@@ -196,6 +224,11 @@ func TestInvocationAuthorizationEntityRefreshIsSequentialAndFailClosed(t *testin
 		!bytes.Equal(resolved.Entities, refreshedEntities) {
 		t.Fatalf("resolved refreshed policy = %#v, %v", resolved, err)
 	}
+	assertRefreshedMembership(t, ctx, policy, "actor_1", "actor_2")
+	assertRefreshedMembership(t, ctx, resolved, "actor_2", "actor_1")
+	if resolved.Contract != policy.Contract || !bytes.Equal(resolved.Schema, policy.Schema) || !bytes.Equal(resolved.Policies, policy.Policies) {
+		t.Fatal("entity activation changed installed policy capabilities")
+	}
 	var activationAudit string
 	if err := pool.QueryRow(ctx, `
 		SELECT safe_metadata::text
@@ -211,6 +244,30 @@ func TestInvocationAuthorizationEntityRefreshIsSequentialAndFailClosed(t *testin
 		!strings.Contains(activationAudit, "entityDigest") {
 		t.Fatalf("activation audit metadata = %s", activationAudit)
 	}
+
+	secondActivation := activation
+	secondActivation.Generation = 2
+	secondActivation.CorrelationID = identity.New("cor")
+	wrongInstalled := secondActivation
+	wrongInstalled.InstalledPolicyDigest = effectiveDigest[:]
+	if err := repository.ActivateInvocationAuthorizationEntityGeneration(ctx, wrongInstalled); !errors.Is(err, persistence.ErrInvocationAuthorizationEntityRefreshConflict) {
+		t.Fatalf("effective digest substituted for installed digest: %v", err)
+	}
+	if err := repository.ActivateInvocationAuthorizationEntityGeneration(ctx, secondActivation); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.ActivateInvocationAuthorizationEntityGeneration(ctx, activation); err != nil {
+		t.Fatalf("historical activation replay: %v", err)
+	}
+	restartedSource, err := reconcile.NewDurableInvocationAuthorizationPolicySource(persistence.NewRepository(pool))
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest, err := restartedSource.ResolveInvocationAuthorizationPolicy(ctx, reconcile.InvocationAuthorizationPolicyScope{IsolationDomainID: domainID, ServiceID: serviceID, RevisionID: revisionID})
+	if err != nil || latest.Digest != digestFor(policy.Schema, policy.Policies, stagedEntities) {
+		t.Fatalf("historical replay or source replacement rolled back active membership: %v", err)
+	}
+	assertRefreshedMembership(t, ctx, latest, "actor_3", "actor_2")
 
 	withdrawalReason := sha256.Sum256([]byte("withdraw policy while refresh is active"))
 	if err := repository.WithdrawInvocationAuthorizationPolicy(
@@ -298,4 +355,33 @@ func canonicalRefreshEntities(t *testing.T, actorID string) []byte {
 		t.Fatal(err)
 	}
 	return canonical
+}
+
+func assertRefreshedMembership(t *testing.T, ctx context.Context, policy reconcile.InvocationAuthorizationPolicy, allowed, denied string) {
+	t.Helper()
+	input := reconcile.InvocationCedarInput{
+		Contract:          reconcile.InvocationCedarContract,
+		Principal:         reconcile.InvocationCedarEntityUID{Type: "DataGround::Actor", ID: allowed},
+		Action:            reconcile.InvocationCedarEntityUID{Type: "DataGround::Action", ID: "admit"},
+		Resource:          reconcile.InvocationCedarEntityUID{Type: "DataGround::Invocation", ID: identity.New("inv")},
+		IsolationDomainID: policy.IsolationDomainID, ServiceID: policy.ServiceID, RevisionID: policy.RevisionID,
+		OperationID: identity.New("op"), CorrelationID: identity.New("cor"),
+	}
+	if policy.Contract == reconcile.InvocationAuthorizationPolicyApprovalContract {
+		input.Action.ID = "approve"
+		input.Approval = &reconcile.InvocationApprovalAuthorizationContext{ID: identity.New("apr"), RequestedAction: "process.execute", Decision: "approve", Phase: "effect"}
+	}
+	if policy.Contract == reconcile.InvocationAuthorizationPolicyQuestionContract {
+		input.Contract = reconcile.InvocationCedarQuestionContract
+		input.Action.ID = "answer"
+		input.Question = &reconcile.InvocationQuestionAuthorizationContext{ID: identity.New("qst"), Version: 2, Phase: "effect", QuestionCount: 1, FreeTextCount: 1}
+	}
+	evaluator := reconcile.NewCedarInvocationAuthorizationEvaluator()
+	if err := evaluator.EvaluateInvocationAuthorization(ctx, policy, input); err != nil {
+		t.Fatalf("current role member denied: %v", err)
+	}
+	input.Principal.ID = denied
+	if err := evaluator.EvaluateInvocationAuthorization(ctx, policy, input); !errors.Is(err, reconcile.ErrInvocationAuthorizationDenied) {
+		t.Fatalf("absent role member authorized: %v", err)
+	}
 }

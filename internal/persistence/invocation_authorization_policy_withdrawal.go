@@ -271,7 +271,8 @@ func (repository *Repository) GetActiveInvocationAuthorizationPolicy(
 	}
 	record.PolicyDigest = append([]byte(nil), installedPolicyDigest...)
 	if activatedEntityGeneration > 0 {
-		if record.Contract != "dataground.invocation-authorization-policy/v2" ||
+		_, supported := record.entityPolicyDigest(record.Entities)
+		if !supported ||
 			!bytes.Equal(installedPolicyDigest, activatedInstalledDigest) ||
 			len(activatedEffectiveDigest) != sha256.Size {
 			return InvocationAuthorizationPolicyRecord{}, ErrInvocationAuthorizationPolicyRecordInvalid

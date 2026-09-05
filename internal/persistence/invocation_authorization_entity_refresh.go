@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/asabla/dataground/internal/authz"
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -110,14 +109,11 @@ func (repository *Repository) PublishInvocationAuthorizationEntityGeneration(
 	); err != nil {
 		return err
 	}
-	policy, err := requireRefreshableInvocationAuthorizationPolicy(
+	_, err = requireRefreshableInvocationAuthorizationPolicy(
 		ctx, tx, generation.IsolationDomainID, generation.ServiceID, generation.RevisionID,
 	)
 	if err != nil {
 		return err
-	}
-	if policy.Contract != "dataground.invocation-authorization-policy/v2" {
-		return ErrInvocationAuthorizationEntityRefreshUnavailable
 	}
 	existing, exists, err := readInvocationAuthorizationEntityGeneration(
 		ctx, tx, generation.IsolationDomainID, generation.ServiceID,
@@ -200,8 +196,7 @@ func (repository *Repository) ActivateInvocationAuthorizationEntityGeneration(
 	if err != nil {
 		return err
 	}
-	if policy.Contract != "dataground.invocation-authorization-policy/v2" ||
-		!bytes.Equal(policy.PolicyDigest, activation.InstalledPolicyDigest) {
+	if !bytes.Equal(policy.PolicyDigest, activation.InstalledPolicyDigest) {
 		return ErrInvocationAuthorizationEntityRefreshConflict
 	}
 	generation, exists, err := readInvocationAuthorizationEntityGeneration(
@@ -214,9 +209,10 @@ func (repository *Repository) ActivateInvocationAuthorizationEntityGeneration(
 	if !exists {
 		return ErrInvocationAuthorizationEntityRefreshUnavailable
 	}
-	effectiveDigest := authz.InvocationAuthorizationPolicyV2Digest(
-		policy.Schema, policy.Policies, generation.Entities,
-	)
+	effectiveDigest, supported := policy.entityPolicyDigest(generation.Entities)
+	if !supported {
+		return ErrInvocationAuthorizationEntityRefreshUnavailable
+	}
 	if len(activation.EffectivePolicyDigest) != 0 &&
 		!bytes.Equal(activation.EffectivePolicyDigest, effectiveDigest[:]) {
 		return ErrInvocationAuthorizationEntityRefreshConflict
@@ -316,7 +312,8 @@ func requireRefreshableInvocationAuthorizationPolicy(
 	if err != nil {
 		return InvocationAuthorizationPolicyRecord{}, err
 	}
-	if withdrawn {
+	_, supported := policy.entityPolicyDigest(policy.Entities)
+	if withdrawn || !supported {
 		return InvocationAuthorizationPolicyRecord{}, ErrInvocationAuthorizationEntityRefreshUnavailable
 	}
 	return policy, nil
