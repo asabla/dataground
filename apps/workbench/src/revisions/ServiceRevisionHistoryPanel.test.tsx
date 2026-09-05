@@ -49,6 +49,24 @@ describe("service revision history panel", () => {
     assert.doesNotMatch(unavailable, /No revisions yet/u);
   });
 
+  it("offers retirement only for published revisions when a handler is available", () => {
+    assert.doesNotMatch(render({ revisions: [revision] }), /Retire revision/u);
+    const markup = render({
+      revisions: [
+        revision,
+        {
+          ...revision,
+          metadata: { ...revision.metadata, id: "rev_00000000000000000002" },
+          revisionNumber: 3,
+          state: "retired",
+        },
+      ],
+      onRetire: () => undefined,
+    });
+    assert.match(markup, /Retire revision 2/u);
+    assert.doesNotMatch(markup, /Retire revision 3/u);
+  });
+
   it("renders state text, runtime profile, time, and pagination", () => {
     const markup = render({ nextCursor: "next", revisions: [revision] });
     assert.match(markup, /Revision 2/u);
