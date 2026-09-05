@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/asabla/dataground/internal/execution"
+	"golang.org/x/crypto/ssh"
 )
 
 type runnerCall struct {
@@ -459,9 +460,11 @@ func TestCreateDoesNotRepeatWhenPriorStateCannotBeObserved(t *testing.T) {
 }
 
 func TestStartRuntimeKeepsNativeEndpointInsideAdapter(t *testing.T) {
-	runner := &scriptedRunner{session: inertSession{}, results: []scriptedResult{
+	proxy := newSSHTestProxy(t, func(channel ssh.Channel) { _, _ = io.Copy(io.Discard, channel); finishSSHTest(channel, 0) })
+	runner := &scriptedRunner{session: proxy, results: []scriptedResult{
 		{result: CommandResult{Stdout: []byte("[]")}},
 		{result: CommandResult{}},
+		{result: CommandResult{Stdout: []byte("openshell 0.0.86\n")}},
 	}}
 	provider, _, placement, policy, policyDigest := preparedProvider(t, runner)
 	created, err := provider.Create(context.Background(), createRequest(placement, policy, policyDigest))
@@ -469,13 +472,19 @@ func TestStartRuntimeKeepsNativeEndpointInsideAdapter(t *testing.T) {
 		t.Fatalf("create execution: %v", err)
 	}
 	ref := execution.ExecutionRef{IsolationDomainID: created.IsolationDomainID, ID: created.ID}
+	if err := provider.store.UpdateExecutionState(context.Background(), ref, "ready"); err != nil {
+		t.Fatal(err)
+	}
 	session, err := provider.StartRuntime(context.Background(), ref)
 	if err != nil || session == nil {
 		t.Fatalf("start runtime: %v", err)
 	}
 	call := runner.calls[len(runner.calls)-1]
-	if !call.start || !containsSequence(call.args, "--", "codex", "app-server") || !containsSequence(call.args, "--no-tty") {
+	if !call.start || !reflect.DeepEqual(call.args, []string{"ssh-proxy", "--server", "http://127.0.0.1:8080", "--gateway-name", "gateway-a", "--name", sandboxName(ref.IsolationDomainID, "op-a")}) {
 		t.Fatalf("native stdio transport was not started correctly: %#v", call)
+	}
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
 	}
 	encoded, err := json.Marshal(created)
 	if err != nil {

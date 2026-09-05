@@ -87,9 +87,13 @@ func TestDurableExecutionPlacementAndProviderRecovery(t *testing.T) {
 	gatewayIDs := []string{identity.New("gtw"), identity.New("gtw")}
 	sort.Strings(gatewayIDs)
 	for index, gatewayID := range gatewayIDs {
+		endpoint := "https://gateway-" + string(rune('a'+index)) + ".example.invalid"
+		if index == 0 {
+			endpoint = "http://127.0.0.1:8080"
+		}
 		registration := execution.GatewayRegistration{
 			IsolationDomainID: domainID, ID: gatewayID,
-			Endpoint: "https://gateway-" + string(rune('a'+index)) + ".example.invalid",
+			Endpoint: endpoint,
 			Driver:   "docker", Capabilities: []string{"codex.app-server", "artifact.export", "codex.app-server"},
 		}
 		first, err := store.RegisterGateway(ctx, registration)
@@ -236,13 +240,22 @@ func TestDurableExecutionPlacementAndProviderRecovery(t *testing.T) {
 		t.Fatalf("cross-domain operation lookup = %v, want ErrExecutionMissing", err)
 	}
 	ref := execution.ExecutionRef{IsolationDomainID: domainID, ID: created.ID}
-	restartedRunner := &executionRunner{}
+	if err := store.UpdateExecutionState(ctx, ref, "ready"); err != nil {
+		t.Fatal(err)
+	}
+	restartedRunner := &executionRunner{results: []openshell.CommandResult{{Stdout: []byte("openshell 0.0.86\n")}}}
 	restartedProvider := openshell.New(openshell.Config{ExpectedVersion: "0.0.86", StateStore: executionpostgres.New(pool)}, restartedRunner)
 	session, err := restartedProvider.StartRuntime(ctx, ref)
-	if err != nil || session == nil {
-		t.Fatalf("restore runtime routing after provider restart: %v", err)
+	// This fixture captures routing but supplies no SSH server. Restoring the
+	// durable route must reach the exact proxy, then reject that empty stream.
+	if !errors.Is(err, openshell.ErrRuntimeTransport) || session != nil {
+		t.Fatalf("empty runtime stream accepted after provider restart: %v", err)
 	}
-	if len(restartedRunner.calls) != 1 || !containsIntegrationSequence(restartedRunner.calls[0], "codex", "app-server") {
+	route, err := store.GetExecution(ctx, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(restartedRunner.calls) != 2 || !containsIntegrationSequence(restartedRunner.calls[1], "ssh-proxy", "--server", "http://127.0.0.1:8080", "--gateway-name", created.GatewayID, "--name", route.SandboxName) {
 		t.Fatalf("restart did not recover native runtime route: %#v", restartedRunner.calls)
 	}
 	restartedRunner.results = []openshell.CommandResult{{}}
