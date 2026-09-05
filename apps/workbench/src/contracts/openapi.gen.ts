@@ -77,6 +77,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retire an unrouted and inactive published revision
+         * @description Atomically retires a published revision after checking its expected version, absence of aliases, and absence of nonterminal invocation or publication activity. Retirement prevents new routing and operator repair through this revision. It retains resource history, artifacts and audit; it does not delete content or replace retention policy.
+         */
+        post: operations["retireServiceRevision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/publish": {
         parameters: {
             query?: never;
@@ -541,6 +561,9 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        RetireServiceRevisionRequest: {
+            expectedVersion: number;
+        };
         PublishServiceRevisionRequest: {
             expectedVersion: number;
         };
@@ -750,6 +773,43 @@ export interface operations {
         responses: {
             /** @description Revision draft created. */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceRevision"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            415: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    retireServiceRevision: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque caller key scoped to the isolation domain, HTTP method, and route. Reuse with a different body fails with IDEMPOTENCY_KEY_REUSED. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                revisionId: components["parameters"]["RevisionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetireServiceRevisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Retired revision with retained history. */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

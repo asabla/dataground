@@ -455,6 +455,7 @@ func (repository *Repository) AssignAlias(
 			SELECT service_id, state
 			FROM service_revisions
 			WHERE isolation_domain_id = $1 AND id = $2
+ FOR SHARE
 		`, idempotency.IsolationDomainID, input.RevisionID).Scan(&revisionServiceID, &revisionState); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return 0, nil, &DomainError{Code: "RESOURCE_NOT_FOUND", Message: "Published service revision was not found."}

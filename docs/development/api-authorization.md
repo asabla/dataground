@@ -11,6 +11,7 @@ The request is deliberately closed and non-sensitive. It contains the validated 
 | List service revisions | `listServiceRevisions` | `AgentService` from `serviceId` |
 | Create service revision | `createServiceRevision` | `AgentService` from `serviceId` |
 | Publish service revision | `publishServiceRevision` | `ServiceRevision` from `revisionId` |
+| Retire service revision | `retireServiceRevision` | `ServiceRevision` from `revisionId` |
 | Read service alias | `readServiceAlias` | `AgentService` from `serviceId` |
 | Assign service alias | `assignServiceAlias` | `AgentService` from `serviceId` |
 | Invoke agent service | `invokeAgentService` | `AgentService` from `serviceId` |

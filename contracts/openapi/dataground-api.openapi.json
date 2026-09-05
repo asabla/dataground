@@ -179,6 +179,67 @@
         }
       }
     },
+    "/v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/retire": {
+      "post": {
+        "operationId": "retireServiceRevision",
+        "summary": "Retire an unrouted and inactive published revision",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "$ref": "#/components/parameters/RevisionId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetireServiceRevisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Retired revision with retained history.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceRevision"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "description": "Atomically retires a published revision after checking its expected version, absence of aliases, and absence of nonterminal invocation or publication activity. Retirement prevents new routing and operator repair through this revision. It retains resource history, artifacts and audit; it does not delete content or replace retention policy."
+      }
+    },
     "/v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/publish": {
       "post": {
         "operationId": "publishServiceRevision",
@@ -1191,6 +1252,17 @@
           },
           "inputSchema": { "type": "object", "additionalProperties": true },
           "outputSchema": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "RetireServiceRevisionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedVersion"],
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1
+          }
         }
       },
       "PublishServiceRevisionRequest": {
