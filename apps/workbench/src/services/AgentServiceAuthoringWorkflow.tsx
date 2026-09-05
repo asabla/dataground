@@ -56,6 +56,7 @@ export interface AgentServiceAuthoringWorkflowProps {
   onInspectArtifact: (reference: InvocationArtifactReference) => void;
   onOpenInvocation: (selection: AgentServiceInvocationSelection) => void;
   onOpenRevision: (revision: ServiceRevisionResource) => void;
+  onRevisionPublished?: (revision: PublishedServiceRevisionResource) => void;
   onOpenService: (service: AgentServiceResource) => void;
   observedAlias?: ServiceAliasResource;
   publicationDisabledReason?: string;
@@ -166,6 +167,7 @@ export function AgentServiceAuthoringWorkflow({
   onInspectArtifact,
   onOpenInvocation,
   onOpenRevision,
+  onRevisionPublished,
   onOpenService,
   observedAlias,
   publicationDisabledReason,
@@ -271,6 +273,7 @@ export function AgentServiceAuthoringWorkflow({
             client={client}
             disabledReason={publicationDisabledReason}
             onAssignAlias={onAssignAlias}
+            onPublished={onRevisionPublished}
             revision={selectedRevision}
           />
         ) : (
