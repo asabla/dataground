@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"text/template"
 )
 
 type dockerTopologyCall struct {
@@ -318,4 +319,65 @@ func runtimeTopologyInspection(runID string, containerID string) string {
 		"dg-runtime-gateway-" + runID,
 		"dg-runtime-provider-" + runID,
 	}, "\n") + "\n"
+}
+
+// Docker inspect uses Go templates. Render the actual format argument so this
+// test does not assume delimiters that the CLI was never asked to emit.
+type renderedInspectionRunner struct{ value map[string]any }
+
+func (runner renderedInspectionRunner) Run(_ context.Context, _ []string, _ string, args ...string) ([]byte, error) {
+	if len(args) != 4 || args[0] != "inspect" || args[1] != "--format" {
+		return nil, errors.New("unexpected inspection command")
+	}
+	format, err := template.New("inspect").Parse(args[2])
+	if err != nil {
+		return nil, err
+	}
+	var output strings.Builder
+	if err := format.Execute(&output, runner.value); err != nil {
+		return nil, err
+	}
+	output.WriteByte('\n')
+	return []byte(output.String()), nil
+}
+
+func TestDockerTopologyVerifiesRenderedInspectionTemplate(t *testing.T) {
+	containerID := strings.Repeat("d", 64)
+	for _, changed := range []string{"", "id", "image", "project", "run", "gateway", "provider", "multiline"} {
+		t.Run(changed, func(t *testing.T) {
+			resources := namesForRun(testRunID)
+			labels := map[string]string{
+				"com.docker.compose.project":                  "dg_runtime_" + testRunID,
+				"dataground.dev/runtime-conformance-run":      testRunID,
+				"dataground.dev/runtime-conformance-gateway":  resources.Gateway,
+				"dataground.dev/runtime-conformance-provider": resources.Provider,
+			}
+			config := map[string]any{"Image": gatewayImage, "Labels": labels}
+			value := map[string]any{"Id": containerID, "Config": config}
+			switch changed {
+			case "id":
+				value["Id"] = strings.Repeat("e", 64)
+			case "image":
+				config["Image"] = "untrusted:latest"
+			case "project":
+				labels["com.docker.compose.project"] = "another-project"
+			case "run":
+				labels["dataground.dev/runtime-conformance-run"] = strings.Repeat("f", 32)
+			case "gateway":
+				labels["dataground.dev/runtime-conformance-gateway"] = "another-gateway"
+			case "provider":
+				labels["dataground.dev/runtime-conformance-provider"] = "another-provider"
+			case "multiline":
+				labels["dataground.dev/runtime-conformance-provider"] += "\ninjected"
+			}
+			state := dockerTopologyState{binary: "docker", runner: renderedInspectionRunner{value: value}, project: "dg_runtime_" + testRunID, runID: testRunID, resources: resources}
+			err := state.verifyContainer(context.Background(), containerID)
+			if changed == "" && err != nil {
+				t.Fatalf("exact real-template output was rejected: %v", err)
+			}
+			if changed != "" && !errors.Is(err, ErrDockerTopologyStart) {
+				t.Fatalf("changed identity was accepted: %v", err)
+			}
+		})
+	}
 }

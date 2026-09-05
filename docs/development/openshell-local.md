@@ -63,6 +63,8 @@ openshell --gateway-endpoint http://127.0.0.1:8080 status
 
 The ordinary development command uses `deploy/openshell/local/docker-compose.yml` and the exact digest-pinned images from the checked development profile. Its wrapper requires the exact OpenShell CLI version and creates or validates one persistent Ed25519 gateway-JWT keypair under the current user's owner-only local state directory; key files are never stored in the repository. It runs the gateway as root with access to the Docker socket and retains its SQLite database and extracted supervisor under the Docker host's `/var/lib/openshell`; use it only on a trusted local development machine. This topology is not evidence-producing. The credential and runtime conformance Compose files remain launcher-owned and intentionally reject direct startup without fresh run-scoped state, identity, and JWT inputs.
 
+CI separately starts the checked runtime-conformance gateway, verifies its exact image, container and run labels through Docker's actual inspection template, and observes complete teardown without using provider credentials or producing runtime evidence. On an isolated Linux Docker host with ports 8080 and 8081 free, run `DATAGROUND_TEST_RUNTIME_TOPOLOGY_ROOT="$PWD" go test ./internal/execution/runtimeevidence -run '^TestDockerTopologyLiveIdentityAndCleanup$' -count=1 -timeout=6m`. The test owns a random Compose project and private temporary workspace. The checked host-network topology requires a Linux execution environment; running it directly on a macOS host is unsupported.
+
 The checked-in profile deliberately does not create a provider or run a credential-bearing agent. A deny-all sandbox can be used for lifecycle conformance without provider access:
 
 ```shell

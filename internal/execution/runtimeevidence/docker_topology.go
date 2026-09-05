@@ -353,7 +353,7 @@ func (state *dockerTopologyState) verifyContainer(
 		"{{index .Config.Labels \"dataground.dev/runtime-conformance-run\"}}",
 		"{{index .Config.Labels \"dataground.dev/runtime-conformance-gateway\"}}",
 		"{{index .Config.Labels \"dataground.dev/runtime-conformance-provider\"}}",
-	}, "\\n")
+	}, "\n")
 	output, err := state.runner.Run(
 		ctx,
 		state.environment,
