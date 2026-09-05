@@ -1,9 +1,10 @@
 import type { DataGroundClient } from "../contracts/client";
 import type { components } from "../contracts/openapi.gen";
-import type {
-  ServiceRevisionFailure,
-  ServiceRevisionMetadata,
-  ServiceRevisionResource,
+import {
+  readServiceRevision,
+  type ServiceRevisionFailure,
+  type ServiceRevisionMetadata,
+  type ServiceRevisionResource,
 } from "./client";
 
 type ErrorEnvelope = components["schemas"]["ErrorEnvelope"];
@@ -21,7 +22,8 @@ export interface PublishedServiceRevisionResource {
 }
 
 export type ServiceRevisionPublishResult =
-  | { ok: true; revision: PublishedServiceRevisionResource }
+  | { ok: true; revision: PublishedServiceRevisionResource; operation?: never }
+  | { ok: true; operation: PublicationOperationReference; revision?: never }
   | { error: ServiceRevisionFailure; ok: false };
 
 const publishPath =
@@ -142,6 +144,7 @@ function schemaMatches(actual: unknown, expected: Record<string, unknown> | unde
 function decodePublishedRevision(
   value: unknown,
   draft: ServiceRevisionResource,
+  expectedGeneration = draft.metadata.generation,
 ): PublishedServiceRevisionResource | undefined {
   if (!isRecord(value) || !isRecord(value.metadata)) return undefined;
   const metadata = value.metadata;
@@ -152,7 +155,7 @@ function decodePublishedRevision(
   if (
     metadata.id !== draft.metadata.id ||
     metadata.isolationDomainId !== draft.metadata.isolationDomainId ||
-    metadata.generation !== draft.metadata.generation ||
+    metadata.generation !== expectedGeneration ||
     metadata.version !== draft.metadata.version + 1 ||
     metadata.createdAt !== draft.metadata.createdAt ||
     metadata.createdBy !== draft.metadata.createdBy ||
@@ -182,7 +185,7 @@ function decodePublishedRevision(
     metadata: {
       createdAt: draft.metadata.createdAt,
       createdBy: draft.metadata.createdBy,
-      generation: draft.metadata.generation,
+      generation: expectedGeneration,
       id: draft.metadata.id,
       isolationDomainId: draft.metadata.isolationDomainId,
       updatedAt: metadata.updatedAt,
@@ -244,7 +247,7 @@ function failure(
   message: string,
   retryable = false,
   outcomeUnknown = false,
-): ServiceRevisionPublishResult {
+): Extract<ServiceRevisionPublishResult, { ok: false }> {
   return { error: { code, message, outcomeUnknown, retryable }, ok: false };
 }
 
@@ -272,13 +275,17 @@ export async function publishServiceRevision(
     });
     if (!data) return failedResult(error, response.status);
     if (response.status === 202) {
-      return failure(
-        "WORKBENCH_PUBLICATION_OPERATION_UNBOUND",
-        "DataGround accepted asynchronous publication without a revision-bound operation reference the Workbench can verify.",
-        false,
-        true,
-      );
+      const operation = decodePublicationOperation(data, draft, false);
+      return operation
+        ? { ok: true, operation }
+        : failure(
+            "WORKBENCH_PUBLICATION_OPERATION_UNBOUND",
+            "DataGround accepted asynchronous publication without an operation reference the Workbench can verify.",
+            false,
+            true,
+          );
     }
+    if (response.status !== 200) return failedResult(error, response.status);
     const revision = decodePublishedRevision(data, draft);
     return revision
       ? { ok: true, revision }
@@ -291,6 +298,144 @@ export async function publishServiceRevision(
       "WORKBENCH_PUBLICATION_UNCONFIRMED",
       "The Workbench could not confirm whether DataGround published the revision.",
       true,
+      true,
+    );
+  }
+}
+
+export interface PublicationOperationReference {
+  id: string;
+  isolationDomainId: string;
+  resourceId?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  generation: number;
+  correlationId: string;
+  state: "queued" | "validating" | "applying" | "observing" | "published" | "failed" | "cancelled";
+}
+
+function decodePublicationOperation(
+  value: unknown,
+  draft: ServiceRevisionResource,
+  requireBinding: boolean,
+): PublicationOperationReference | undefined {
+  if (!isRecord(value) || !isRecord(value.metadata)) return undefined;
+  const metadata = value.metadata;
+  const states = [
+    "queued",
+    "validating",
+    "applying",
+    "observing",
+    "published",
+    "failed",
+    "cancelled",
+  ];
+  if (
+    !boundedString(metadata.id, 35, /^op_[0-9a-z]{20,32}$/u) ||
+    metadata.isolationDomainId !== draft.metadata.isolationDomainId ||
+    value.kind !== "service-publication" ||
+    typeof value.command !== "string" ||
+    !["publish", "repair", "cancel"].includes(value.command) ||
+    value.desiredState !== (value.command === "cancel" ? "cancelled" : "published") ||
+    value.stateMachineVersion !== 1 ||
+    !Number.isSafeInteger(value.attempt) ||
+    (value.attempt as number) < 0 ||
+    !isPositiveInteger(metadata.version) ||
+    !isPositiveInteger(metadata.generation) ||
+    !boundedString(metadata.createdBy, 128) ||
+    !isTimestamp(metadata.createdAt) ||
+    !isTimestamp(metadata.updatedAt) ||
+    Date.parse(metadata.updatedAt) < Date.parse(metadata.createdAt) ||
+    !boundedString(value.correlationId, 128) ||
+    typeof value.observedState !== "string" ||
+    !states.includes(value.observedState) ||
+    (value.resourceId !== undefined && value.resourceId !== draft.metadata.id) ||
+    (requireBinding && value.resourceId !== draft.metadata.id)
+  )
+    return undefined;
+  return {
+    id: metadata.id,
+    isolationDomainId: draft.metadata.isolationDomainId,
+    ...(value.resourceId === undefined ? {} : { resourceId: draft.metadata.id }),
+    createdAt: metadata.createdAt,
+    updatedAt: metadata.updatedAt,
+    version: metadata.version,
+    generation: metadata.generation,
+    correlationId: value.correlationId,
+    state: value.observedState as PublicationOperationReference["state"],
+  };
+}
+
+export type PublicationObservationResult =
+  | {
+      ok: true;
+      operation: PublicationOperationReference;
+      revision?: PublishedServiceRevisionResource;
+    }
+  | { ok: false; error: ServiceRevisionFailure };
+
+export async function observeServiceRevisionPublication(
+  client: DataGroundClient,
+  draft: ServiceRevisionResource,
+  accepted: PublicationOperationReference,
+): Promise<PublicationObservationResult> {
+  if (
+    !isPublishableServiceRevision(draft) ||
+    !/^op_[0-9a-z]{20,32}$/u.test(accepted.id) ||
+    !isPositiveInteger(accepted.version) ||
+    !isPositiveInteger(accepted.generation) ||
+    !isTimestamp(accepted.createdAt) ||
+    !isTimestamp(accepted.updatedAt) ||
+    Date.parse(accepted.updatedAt) < Date.parse(accepted.createdAt) ||
+    accepted.isolationDomainId !== draft.metadata.isolationDomainId ||
+    (accepted.resourceId !== undefined && accepted.resourceId !== draft.metadata.id)
+  )
+    return failure(
+      "WORKBENCH_INVALID_PUBLICATION_OBSERVATION",
+      "The publication observation scope is invalid.",
+    );
+  try {
+    const { data, error, response } = await client.GET(
+      "/v1/isolation-domains/{isolationDomainId}/operations/{operationId}",
+      {
+        params: {
+          path: { isolationDomainId: draft.metadata.isolationDomainId, operationId: accepted.id },
+        },
+      },
+    );
+    if (response.status !== 200) return failedResult(error, response.status);
+    const operation = decodePublicationOperation(data, draft, true);
+    if (
+      !operation ||
+      operation.id !== accepted.id ||
+      Date.parse(operation.createdAt) !== Date.parse(accepted.createdAt) ||
+      operation.version < accepted.version ||
+      operation.generation < accepted.generation ||
+      Date.parse(operation.updatedAt) < Date.parse(accepted.updatedAt)
+    )
+      return failure(
+        "WORKBENCH_PUBLICATION_OPERATION_MISMATCH",
+        "DataGround returned an operation outside the expected publication scope or contract.",
+      );
+    if (operation.state !== "published") return { ok: true, operation };
+    const exact = await readServiceRevision(client, {
+      isolationDomainId: draft.metadata.isolationDomainId,
+      serviceId: draft.serviceId,
+      revisionId: draft.metadata.id,
+    });
+    if (!exact.ok) return exact;
+    const revision = decodePublishedRevision(exact.revision, draft, draft.metadata.generation + 1);
+    if (!revision)
+      return failure(
+        "WORKBENCH_PUBLICATION_REVISION_MISMATCH",
+        "The published operation could not be confirmed against the exact revision definition.",
+      );
+    return { ok: true, operation, revision };
+  } catch {
+    return failure(
+      "WORKBENCH_PUBLICATION_OBSERVATION_UNAVAILABLE",
+      "The Workbench could not read current publication state. Check the accepted operation again.",
       true,
     );
   }
