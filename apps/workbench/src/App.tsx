@@ -19,6 +19,7 @@ import {
   type ServiceRevisionHistoryResource,
   type ServiceRevisionResource,
 } from "./revisions";
+import { ServiceRevisionRetireWorkflow } from "./revisions/ServiceRevisionRetireWorkflow";
 import {
   AgentServiceAuthoringWorkflow,
   type AgentServiceFailure,
@@ -153,6 +154,7 @@ export function DevelopmentWorkbench({
   const [openedPublishedRevision, setOpenedPublishedRevision] =
     useState<PublishedServiceRevisionResource>();
   const [openedRevision, setOpenedRevision] = useState<ServiceRevisionResource>();
+  const [retirementRevision, setRetirementRevision] = useState<ServiceRevisionHistoryResource>();
   const [openedService, setOpenedService] = useState<AgentServiceResource>();
   const [revisionHistory, setRevisionHistory] = useState<ServiceRevisionHistoryResource[]>([]);
   const [aliasReadError, setAliasReadError] = useState<ServiceAliasFailure>();
@@ -314,6 +316,7 @@ export function DevelopmentWorkbench({
     setOpenedPublishedRevision(undefined);
     setOpenedRevision(undefined);
     setOpenedService(undefined);
+    setRetirementRevision(undefined);
     setRevisionHistory([]);
     setAliasReadError(undefined);
     setAliasReadLoading(false);
@@ -334,6 +337,7 @@ export function DevelopmentWorkbench({
     setOpenedPublishedRevision(undefined);
     setOpenedRevision(undefined);
     setOpenedService(service);
+    setRetirementRevision(undefined);
     setRevisionHistory([]);
     setAliasReadError(undefined);
     setAliasReadLoading(false);
@@ -656,9 +660,32 @@ export function DevelopmentWorkbench({
                         void loadRevisionPage(openedService, revisionListNextCursor)
                       }
                       onRetry={() => void loadRevisionPage(openedService)}
+                      onRetire={
+                        retirementRevision
+                          ? undefined
+                          : (revision) => setRetirementRevision(revision)
+                      }
                       revisions={revisionHistory}
                     />
                   )}
+                  {retirementRevision &&
+                    openedService &&
+                    retirementRevision.metadata.isolationDomainId === isolationDomainId &&
+                    retirementRevision.serviceId === openedService.metadata.id && (
+                      <ServiceRevisionRetireWorkflow
+                        key={`${retirementRevision.metadata.id}/${retirementRevision.metadata.version}`}
+                        client={client}
+                        revision={retirementRevision}
+                        canRetire
+                        onClose={() => {
+                          openService(openedService);
+                          document.getElementById("revision-history-title")?.focus();
+                        }}
+                        onRetired={(revision) =>
+                          setRevisionHistory((current) => mergeRevisionHistory(current, [revision]))
+                        }
+                      />
+                    )}
                   {openedService && aliasReadLoading && (
                     <section aria-busy="true" className="workbench-empty">
                       <span aria-hidden="true" className="workbench-empty__mark">
@@ -685,9 +712,11 @@ export function DevelopmentWorkbench({
                   revisionHistory.length === 0 &&
                   (revisionListLoading || revisionListError)
                     ? null
-                    : openedService && (aliasReadLoading || aliasReadError)
+                    : retirementRevision
                       ? null
-                      : workflow}
+                      : openedService && (aliasReadLoading || aliasReadError)
+                        ? null
+                        : workflow}
                 </div>
               </div>
             </section>

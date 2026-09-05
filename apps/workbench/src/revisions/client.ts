@@ -65,6 +65,110 @@ export type ServiceRevisionListResult =
   | { ok: true; page: ServiceRevisionPage }
   | { error: ServiceRevisionFailure; ok: false };
 
+export type ServiceRevisionRetireResult =
+  | { ok: true; revision: ServiceRevisionHistoryResource }
+  | { ok: false; error: ServiceRevisionFailure };
+
+export async function retireServiceRevision(
+  client: DataGroundClient,
+  revision: ServiceRevisionHistoryResource,
+  idempotencyKey: string,
+): Promise<ServiceRevisionRetireResult> {
+  const expected = decodeRevisionHistory(
+    revision,
+    revision?.metadata?.isolationDomainId,
+    revision?.serviceId,
+  );
+  if (
+    expected?.state !== "published" ||
+    !patterns.isolationDomainId.test(expected.metadata.isolationDomainId) ||
+    !patterns.serviceId.test(expected.serviceId) ||
+    !patterns.idempotencyKey.test(idempotencyKey)
+  ) {
+    return {
+      ok: false,
+      error: {
+        code: "WORKBENCH_INVALID_RETIREMENT_REQUEST",
+        message: "A published revision and stable retirement request are required.",
+        retryable: false,
+      },
+    };
+  }
+  try {
+    const { data, error, response } = await client.POST(
+      "/v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/actions/retire",
+      {
+        params: {
+          path: {
+            isolationDomainId: expected.metadata.isolationDomainId,
+            revisionId: expected.metadata.id,
+          },
+          header: { "Idempotency-Key": idempotencyKey },
+        },
+        body: { expectedVersion: expected.metadata.version },
+      },
+    );
+    if (!data) {
+      const failed = failedResult(error, response.status);
+      return {
+        ok: false,
+        error: {
+          ...failed.error,
+          ...(response.ok ||
+          response.status >= 500 ||
+          failed.error.code === "WORKBENCH_INVALID_RESPONSE"
+            ? { outcomeUnknown: true, retryable: true }
+            : {}),
+        },
+      };
+    }
+    const retired = decodeRevisionHistory(
+      data,
+      expected.metadata.isolationDomainId,
+      expected.serviceId,
+    );
+    if (
+      retired?.state !== "retired" ||
+      retired.metadata.id !== expected.metadata.id ||
+      retired.metadata.version !== expected.metadata.version + 1 ||
+      retired.metadata.generation !== expected.metadata.generation + 1 ||
+      retired.metadata.createdAt !== expected.metadata.createdAt ||
+      retired.metadata.createdBy !== expected.metadata.createdBy ||
+      Date.parse(retired.metadata.updatedAt) < Date.parse(expected.metadata.updatedAt) ||
+      retired.publishedAt !== expected.publishedAt ||
+      retired.revisionNumber !== expected.revisionNumber ||
+      retired.runtimeProfile !== expected.runtimeProfile ||
+      canonicalJSON(retired.requiredCapabilities) !==
+        canonicalJSON(expected.requiredCapabilities) ||
+      !schemaMatches(retired.inputSchema, expected.inputSchema) ||
+      !schemaMatches(retired.outputSchema, expected.outputSchema)
+    ) {
+      return {
+        ok: false,
+        error: {
+          code: "WORKBENCH_RETIREMENT_UNCONFIRMED",
+          message:
+            "DataGround returned retirement state that could not be confirmed. Recover the same request before starting another.",
+          outcomeUnknown: true,
+          retryable: true,
+        },
+      };
+    }
+    return { ok: true, revision: retired };
+  } catch {
+    return {
+      ok: false,
+      error: {
+        code: "WORKBENCH_RETIREMENT_UNCONFIRMED",
+        message:
+          "The Workbench could not confirm whether DataGround retired the revision. Recover the same request.",
+        outcomeUnknown: true,
+        retryable: true,
+      },
+    };
+  }
+}
+
 const createPath = "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions";
 const maximumRequestBytes = 1 << 20;
 const patterns = {

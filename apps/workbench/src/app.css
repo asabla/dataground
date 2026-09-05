@@ -466,6 +466,7 @@ p {
 .workbench-interaction {
   min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--dg-density-section-gap);
 }
 
@@ -498,7 +499,7 @@ p {
 
 .revision-history__heading > span,
 .revision-history__state,
-.revision-history__list li > span:last-child {
+.revision-history__updated {
   color: var(--dg-color-text-muted);
   font-size: var(--dg-font-size-caption);
 }
@@ -581,6 +582,8 @@ p {
 
 .product-workflow__inspection {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  overflow-wrap: anywhere;
   gap: var(--dg-space-4);
   padding: var(--dg-density-panel-padding);
   border: var(--dg-border-default) solid var(--dg-color-border-default);
@@ -643,7 +646,7 @@ p {
   }
 
   .revision-history__list code,
-  .revision-history__list li > span:last-child {
+  .revision-history__updated {
     grid-column: 1 / -1;
   }
 
@@ -662,7 +665,7 @@ p {
   }
 
   .workbench-flow-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .workbench-stepper ol {
@@ -786,4 +789,9 @@ p {
   max-width: 100%;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+.revision-history__retire {
+  grid-column: 1 / -1;
+  justify-self: start;
 }

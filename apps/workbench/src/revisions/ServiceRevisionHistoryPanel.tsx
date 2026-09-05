@@ -8,6 +8,7 @@ export interface ServiceRevisionHistoryPanelProps {
   nextCursor?: string;
   onLoadMore: () => void;
   onRetry: () => void;
+  onRetire?: (revision: ServiceRevisionHistoryResource) => void;
   revisions: ServiceRevisionHistoryResource[];
 }
 
@@ -24,6 +25,7 @@ export function ServiceRevisionHistoryPanel({
   nextCursor,
   onLoadMore,
   onRetry,
+  onRetire,
   revisions,
 }: ServiceRevisionHistoryPanelProps) {
   return (
@@ -31,7 +33,9 @@ export function ServiceRevisionHistoryPanel({
       <div className="revision-history__heading">
         <div>
           <p className="workbench-kicker">Authoritative history</p>
-          <h2 id="revision-history-title">Service revisions</h2>
+          <h2 id="revision-history-title" tabIndex={-1}>
+            Service revisions
+          </h2>
         </div>
         {revisions.length > 0 && <span>{revisions.length} loaded</span>}
       </div>
@@ -61,10 +65,19 @@ export function ServiceRevisionHistoryPanel({
                 <span className="revision-history__number">Revision {revision.revisionNumber}</span>
                 <StatusBadge tone={revisionTone(revision.state)}>{revision.state}</StatusBadge>
                 <code>{revision.runtimeProfile}</code>
-                <span>
+                <span className="revision-history__updated">
                   Updated{" "}
                   <time dateTime={revision.metadata.updatedAt}>{revision.metadata.updatedAt}</time>
                 </span>
+                {onRetire && revision.state === "published" && (
+                  <Button
+                    className="revision-history__retire"
+                    variant="quiet"
+                    onPress={() => onRetire(revision)}
+                  >
+                    Retire revision {revision.revisionNumber}
+                  </Button>
+                )}
               </li>
             ))}
           </ol>
