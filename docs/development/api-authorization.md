@@ -14,6 +14,7 @@ The request is deliberately closed and non-sensitive. It contains the validated 
 | Read service alias | `readServiceAlias` | `AgentService` from `serviceId` |
 | Assign service alias | `assignServiceAlias` | `AgentService` from `serviceId` |
 | Invoke agent service | `invokeAgentService` | `AgentService` from `serviceId` |
+| List invocation summaries | `listInvocations` | `AgentService` from `serviceId` |
 | Read invocation | `readInvocation` | `Invocation` from `invocationId` |
 | Read operation | `readOperation` | `Operation` from `operationId` |
 | Cancel invocation | `cancelInvocation` | `Invocation` from `invocationId` |
@@ -23,6 +24,8 @@ The request is deliberately closed and non-sensitive. It contains the validated 
 | Read invocation artifact | `readInvocationArtifact` | `Artifact` from `artifactId` |
 
 An explicit denial returns the stable `ACTION_FORBIDDEN` response. Invalid policy input, evaluation diagnostics, unavailable authorization, or a failed required audit write return `AUTHORIZATION_UNAVAILABLE`; Cedar details and policy identifiers are not exposed. A missing or typed-nil authorizer prevents handler construction.
+
+Invocation discovery authorizes only bounded lifecycle summaries for the exact service. It does not authorize invocation input/result, event, approval, or artifact reads. Continuation cursors bind the isolation domain and service and do not replace authorization on subsequent pages.
 
 `cmd/dataground-api` composes a static development Cedar policy only after confirming an explicit loopback listener. That policy is bound to the configured development human principal and one isolation domain and can permit only the closed action/resource combinations above. It is not a production policy service, policy store, entity loader, or dynamic reload mechanism.
 
