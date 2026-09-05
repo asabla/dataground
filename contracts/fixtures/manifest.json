@@ -1,6 +1,16 @@
 {
   "fixtures": [
     {
+      "file": "valid/event-runtime-origin.json",
+      "schema": "EventEnvelope",
+      "valid": true
+    },
+    {
+      "file": "invalid/event-invalid-origin.json",
+      "schema": "EventEnvelope",
+      "valid": false
+    },
+    {
       "file": "valid/event-cancellation-requested.json",
       "schema": "EventEnvelope",
       "valid": true

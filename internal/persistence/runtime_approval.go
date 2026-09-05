@@ -574,6 +574,7 @@ func (repository *Repository) recordInvocationRuntimeApprovalEvent(
 	}
 	now := repository.now()
 	value := domain.EventEnvelope{
+		Source:            "runtime",
 		SchemaVersion:     "dataground.event/v1",
 		ID:                identity.Derived("evt", target.InvocationID+":runtime:"+strconv.FormatUint(approval.SourceSequence, 10)),
 		IsolationDomainID: target.IsolationDomainID,

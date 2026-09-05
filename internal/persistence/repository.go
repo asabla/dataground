@@ -776,7 +776,7 @@ func (repository *Repository) ListEvents(
 ) ([]domain.EventEnvelope, error) {
 	rows, err := repository.pool.Query(ctx, `
 		SELECT schema_version, id, isolation_domain_id, invocation_id, sequence,
-		       event_type, occurred_at, recorded_at, correlation_id, actor_id,
+		       event_type, COALESCE(source_kind, 'platform'), occurred_at, recorded_at, correlation_id, actor_id,
 		       service_id, revision_id, payload, extensions
 		FROM invocation_events
 		WHERE isolation_domain_id = $1 AND invocation_id = $2 AND sequence > $3
@@ -792,7 +792,7 @@ func (repository *Repository) ListEvents(
 		var payload, extensions []byte
 		if err := rows.Scan(
 			&event.SchemaVersion, &event.ID, &event.IsolationDomainID, &event.InvocationID,
-			&event.Sequence, &event.Type, &event.OccurredAt, &event.RecordedAt,
+			&event.Sequence, &event.Type, &event.Source, &event.OccurredAt, &event.RecordedAt,
 			&event.CorrelationID, &event.ActorID, &event.ServiceID, &event.RevisionID,
 			&payload, &extensions,
 		); err != nil {

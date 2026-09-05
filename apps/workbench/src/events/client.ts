@@ -79,6 +79,7 @@ function decodeEvent(
   if (
     !isRecord(value) ||
     value.schemaVersion !== "dataground.event/v1" ||
+    (value.source !== undefined && value.source !== "platform" && value.source !== "runtime") ||
     !matchesRequiredString(value.id, eventIdPattern) ||
     value.isolationDomainId !== reference.isolationDomainId ||
     value.invocationId !== reference.invocationId ||

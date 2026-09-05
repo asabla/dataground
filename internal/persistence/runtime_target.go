@@ -256,6 +256,7 @@ func (repository *Repository) RecordInvocationRuntimeEvent(
 
 	now := repository.now()
 	value := domain.EventEnvelope{
+		Source:            "runtime",
 		SchemaVersion:     "dataground.event/v1",
 		ID:                identity.Derived("evt", target.InvocationID+":runtime:"+strconv.FormatUint(event.SourceSequence, 10)),
 		IsolationDomainID: target.IsolationDomainID,
@@ -368,7 +369,7 @@ func getInvocationRuntimeEvent(
 	invocationID string,
 	sourceSequence uint64,
 ) (domain.EventEnvelope, bool, error) {
-	var value domain.EventEnvelope
+	value := domain.EventEnvelope{Source: "runtime"}
 	var encodedPayload, encodedExtensions []byte
 	err := querier.QueryRow(ctx, `
 		SELECT schema_version, id, isolation_domain_id, invocation_id, sequence,

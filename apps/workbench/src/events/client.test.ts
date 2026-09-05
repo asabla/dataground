@@ -100,6 +100,19 @@ describe("invocation event replay client", () => {
     assert.equal(parseInvocationEventStream(frame(invalidExtension), reference).ok, false);
   });
 
+  it("preserves trusted event origin and refuses malformed origin instead of treating it as platform work", () => {
+    for (const source of [undefined, "platform", "runtime"] as const) {
+      const value = { ...event(1, "lifecycle.succeeded"), source };
+      const result = parseInvocationEventStream(frame(value), reference);
+      assert.ok(result.ok);
+      assert.equal(result.events[0]?.source, source);
+    }
+    for (const source of [null, "", "native-endpoint", 42]) {
+      const value = { ...event(1), source } as unknown as InvocationEvent;
+      assert.equal(parseInvocationEventStream(frame(value), reference).ok, false);
+    }
+  });
+
   it("rejects sequence gaps, header mismatches, and cross-scope envelopes", () => {
     const gap = parseInvocationEventStream(frame(event(3)), reference, 1);
     assert.equal(gap.ok, false);

@@ -12,6 +12,7 @@ export interface TimelineEvent {
   recordedAt: string;
   revisionId: string;
   schemaVersion: string;
+  source?: "platform" | "runtime";
   sequence: number;
   serviceId: string;
   type: string;
@@ -92,6 +93,50 @@ function boundedNumber(value: unknown): string | undefined {
 }
 
 export function presentTimelineEvent(event: TimelineEvent): EventPresentation {
+  if (event.source === "runtime" && event.type.startsWith("lifecycle.")) {
+    switch (event.type) {
+      case "lifecycle.started":
+        return {
+          label: "Runtime turn started",
+          detail: "The runtime began processing a turn.",
+          tone: "active",
+        };
+      case "lifecycle.waiting":
+        return {
+          label: "Runtime turn waiting",
+          detail: "The runtime is waiting for an external response.",
+          tone: "waiting",
+        };
+      case "lifecycle.succeeded":
+        return {
+          label: "Runtime turn completed",
+          detail:
+            "The runtime reported completion. Output validation and platform finalization may still be pending.",
+          tone: "active",
+        };
+      case "lifecycle.failed":
+        return {
+          label: "Runtime turn failed",
+          detail:
+            "The runtime reported failure. Refresh invocation state for the platform outcome.",
+          tone: "critical",
+        };
+      case "lifecycle.cancelled":
+        return {
+          label: "Runtime turn cancelled",
+          detail:
+            "The runtime reported cancellation. Platform cancellation may still be reconciling.",
+          tone: "warning",
+        };
+      default:
+        return {
+          label: "Runtime lifecycle event",
+          detail:
+            "The runtime reported a lifecycle event. Refresh invocation state for the platform outcome.",
+          tone: "neutral",
+        };
+    }
+  }
   switch (event.type) {
     case "lifecycle.accepted":
       return {

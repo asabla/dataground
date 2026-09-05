@@ -628,6 +628,7 @@ func (server *Server) invokeAgentService(response http.ResponseWriter, request *
 				payload = map[string]any{"artifactId": artifact.Metadata.ID, "descriptor": artifact}
 			}
 			journal = append(journal, EventEnvelope{
+				Source:            "platform",
 				SchemaVersion:     "dataground.event/v1",
 				ID:                derivedID("evt", invocationID+":"+runtimeEvent.Key),
 				IsolationDomainID: domainID,
@@ -747,6 +748,7 @@ func (server *Server) cancelInvocation(response http.ResponseWriter, request *ht
 		operation.Metadata.UpdatedAt = now
 		server.operations[resourceKey(domainID, invocation.OperationID)] = operation
 		server.events[key] = append(server.events[key], EventEnvelope{
+			Source:            "platform",
 			SchemaVersion:     "dataground.event/v1",
 			ID:                derivedID("evt", invocation.Metadata.ID+":cancel:"+strconv.FormatUint(sequence, 10)),
 			IsolationDomainID: domainID,
