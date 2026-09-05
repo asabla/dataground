@@ -28,7 +28,7 @@
     "openshell:local:up": "node scripts/openshell-local.mjs up",
     "openshell:profile:check": "node scripts/check-openshell-profile.mjs",
     "s3:profile:check": "node scripts/check-s3-conformance-profile.mjs",
-    "test": "node scripts/run-go-tests.mjs && pnpm run test:tools && pnpm --filter @dataground/tokens test && pnpm --filter @dataground/ui test && pnpm --filter @dataground/patterns test && pnpm --filter @dataground/ui test:stories && pnpm --filter @dataground/workbench test",
+    "test": "node scripts/run-go-tests.mjs && pnpm run test:tools && pnpm --filter @dataground/tokens test && pnpm --filter @dataground/ui test && pnpm --filter @dataground/patterns test && pnpm --filter @dataground/ui test:stories && pnpm --filter @dataground/workbench test && pnpm --filter @dataground/workbench test:browser",
     "test:tools": "node --test scripts/*.test.mjs",
     "tokens:check": "pnpm --filter @dataground/tokens check",
     "tokens:generate": "pnpm --filter @dataground/tokens build",
