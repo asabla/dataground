@@ -4,7 +4,7 @@ import { expect, it } from "vitest";
 import { DevelopmentWorkbench } from "../App";
 import type { DataGroundClient } from "../contracts/client";
 
-it("opens a service, withdraws its last alias, rediscovers routing, and retires the revision", async () => {
+it.each(["stable", "canary"])("withdraws %s before retirement", async (name) => {
   (
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -37,7 +37,7 @@ it("opens a service, withdraws its last alias, rediscovers routing, and retires 
     },
   };
   const alias = {
-    name: "stable",
+    name,
     serviceId: service.metadata.id,
     revisionId: revision.metadata.id,
     metadata: { ...metadata, id: "als_00000000000000000001" },
@@ -52,9 +52,14 @@ it("opens a service, withdraws its last alias, rediscovers routing, and retires 
         return { data: { items: [service] }, response: new Response(null, { status: 200 }) };
       if (path.endsWith("/revisions"))
         return { data: { items: [revision] }, response: new Response(null, { status: 200 }) };
+      if (path.endsWith("/aliases"))
+        return {
+          data: { items: withdrawn ? [] : [alias] },
+          response: new Response(null, { status: 200 }),
+        };
       if (path.endsWith("/aliases/{alias}")) {
         aliasReads++;
-        return withdrawn
+        return withdrawn || name !== "stable"
           ? {
               error: {
                 error: {
@@ -125,14 +130,14 @@ it("opens a service, withdraws its last alias, rediscovers routing, and retires 
     await click("Withdrawal journey", true);
     expect(aliasReads).toBe(1);
     expect(commands).toHaveLength(0);
-    await click("Withdraw stable alias");
+    await click(`Withdraw ${name} alias`);
     expect(commands).toHaveLength(0);
     await click("Confirm alias withdrawal");
     expect(withdrawn).toBe(true);
     expect(host.textContent).toContain("Alias withdrawn");
     await click("Back to service");
     expect(aliasReads).toBe(2);
-    expect(host.textContent).not.toContain("Withdraw stable alias");
+    expect(host.textContent).not.toContain(`Withdraw ${name} alias`);
     await click("Retire revision 1");
     await click("Confirm retirement");
     expect(retired).toBe(true);
