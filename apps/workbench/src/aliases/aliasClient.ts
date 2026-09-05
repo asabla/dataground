@@ -473,3 +473,70 @@ export async function withdrawServiceAlias(
     );
   }
 }
+
+export type ServiceAliasListResult =
+  | { ok: true; page: { items: ServiceAliasResource[]; nextCursor?: string } }
+  | { ok: false; error: ServiceAliasFailure };
+
+export async function listServiceAliases(
+  client: DataGroundClient,
+  scope: ServiceAliasReadScope,
+  cursor?: string,
+): Promise<ServiceAliasListResult> {
+  if (
+    !patterns.isolationDomainId.test(scope.isolationDomainId) ||
+    !patterns.serviceId.test(scope.serviceId) ||
+    (cursor !== undefined && !boundedString(cursor, 512, /^[A-Za-z0-9_-]+$/u))
+  ) {
+    return failure(
+      "WORKBENCH_INVALID_ALIAS_LIST_REQUEST",
+      "The service scope or route cursor is invalid.",
+    );
+  }
+  try {
+    const { data, error, response } = await client.GET(
+      "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases",
+      {
+        params: { path: scope, query: { limit: 50, ...(cursor === undefined ? {} : { cursor }) } },
+      },
+    );
+    if (response.status !== 200)
+      return { ok: false, error: responseFailure(error, response.status) };
+    const invalid = () =>
+      failure(
+        "WORKBENCH_INVALID_ALIAS_LIST_RESPONSE",
+        "DataGround returned a route page outside the requested scope or contract.",
+      );
+    if (
+      !isRecord(data) ||
+      !Array.isArray(data.items) ||
+      data.items.length > 50 ||
+      (data.nextCursor !== undefined &&
+        (!boundedString(data.nextCursor, 512, /^[A-Za-z0-9_-]+$/u) ||
+          data.nextCursor === cursor ||
+          data.items.length === 0))
+    )
+      return invalid();
+    const items: ServiceAliasResource[] = [];
+    const ids = new Set<string>();
+    for (const value of data.items) {
+      if (!isRecord(value) || !boundedString(value.name, 63, patterns.aliasName)) return invalid();
+      const alias = decodeObservedAlias(value, scope, value.name);
+      const previous = items.at(-1);
+      if (!alias || ids.has(alias.metadata.id) || (previous && previous.name >= alias.name))
+        return invalid();
+      ids.add(alias.metadata.id);
+      items.push(alias);
+    }
+    return {
+      ok: true,
+      page: { items, ...(data.nextCursor === undefined ? {} : { nextCursor: data.nextCursor }) },
+    };
+  } catch {
+    return failure(
+      "WORKBENCH_ALIAS_LIST_UNAVAILABLE",
+      "The Workbench could not reach DataGround to discover service routes.",
+      true,
+    );
+  }
+}

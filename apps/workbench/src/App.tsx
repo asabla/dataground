@@ -7,6 +7,7 @@ import {
   type ServiceAliasResource,
 } from "./aliases";
 import { ServiceAliasWithdrawWorkflow } from "./aliases/ServiceAliasWithdrawWorkflow";
+import { ServiceRouteDiscovery } from "./aliases/ServiceRouteDiscovery";
 import type { InvocationApprovalReference } from "./approvals";
 import type { InvocationArtifactReference } from "./artifacts";
 import { createDataGroundClient, type DataGroundClient } from "./contracts/client";
@@ -672,35 +673,14 @@ export function DevelopmentWorkbench({
                       revisions={revisionHistory}
                     />
                   )}
-                  {observedAlias &&
-                  openedService &&
-                  !retirementRevision &&
-                  !withdrawalAlias &&
-                  !aliasReadLoading &&
-                  !aliasReadError &&
-                  observedAlias.metadata.isolationDomainId === isolationDomainId &&
-                  observedAlias.serviceId === openedService.metadata.id ? (
-                    <section
-                      className="product-workflow__inspection"
-                      aria-label="Current service route"
-                    >
-                      <p>
-                        Alias <strong>{observedAlias.name}</strong> · Version{" "}
-                        {observedAlias.metadata.version}
-                      </p>
-                      <Button
-                        onPress={() =>
-                          setWithdrawalAlias({
-                            ...observedAlias,
-                            metadata: { ...observedAlias.metadata },
-                          })
-                        }
-                        variant="quiet"
-                      >
-                        Withdraw {observedAlias.name} alias
-                      </Button>
-                    </section>
-                  ) : null}
+                  {openedService && !retirementRevision && !withdrawalAlias && (
+                    <ServiceRouteDiscovery
+                      client={client}
+                      scope={{ isolationDomainId, serviceId: openedService.metadata.id }}
+                      canWithdraw
+                      onWithdraw={setWithdrawalAlias}
+                    />
+                  )}
                   {withdrawalAlias &&
                   openedService &&
                   withdrawalAlias.metadata.isolationDomainId === isolationDomainId &&

@@ -52,3 +52,5 @@ Storybook toolbar controls exercise every component across four themes and three
 Add a foundation token only when multiple semantic roles need the value. Add a semantic token when the role is stable across components and themes. Add a component token only when semantic roles cannot express a verified need. One-off product values remain local until evidence supports promotion.
 
 Do not add a primitive only to complete an inventory. Introduce it with a real consumer, its contract surface, interaction evidence, and tests. Product patterns must preserve requested versus observed state, typed events, explainable authority, provenance, recovery, and unknown states from the platform specification.
+
+The Workbench service-route list uses semantic headings and lists with shared buttons. Refresh keeps keyboard focus; completion returns focus to the section heading only when a removed pagination or retry control would otherwise strand focus on the page body. Observation omits withdrawal controls. Pending or failed route reads disable mutation controls, while the server independently authorizes each read and command.
