@@ -41,6 +41,8 @@ func TestDevelopmentCedarAuthorizerBindsPrincipalDomainAndClosedActions(t *testi
 		request(principal, authz.ReadInvocation, authz.Invocation, "inv_00000000000000000001"),
 		request(principal, authz.ReadOperation, authz.Operation, "op_00000000000000000001"),
 		request(principal, authz.CancelInvocation, authz.Invocation, "inv_00000000000000000001"),
+		request(principal, authz.ReadInvocationQuestion, authz.InvocationQuestion, "qst_00000000000000000001"),
+		request(principal, authz.AnswerInvocationQuestion, authz.InvocationQuestion, "qst_00000000000000000001"),
 		request(principal, authz.ReadInvocationApproval, authz.InvocationApproval, "apr_00000000000000000001"),
 		request(principal, authz.ResolveInvocationApproval, authz.InvocationApproval, "apr_00000000000000000001"),
 		request(principal, authz.ReadInvocationEvents, authz.Invocation, "inv_00000000000000000001"),

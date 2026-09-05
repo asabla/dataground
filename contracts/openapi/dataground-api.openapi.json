@@ -701,6 +701,134 @@
         }
       }
     },
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/questions/{questionId}": {
+      "get": {
+        "operationId": "getInvocationQuestion",
+        "summary": "Retrieve authoritative invocation question state",
+        "description": "Returns the exact invocation-scoped bounded question bundle and durable state without stored answers or native handles. Text is untrusted plain text. A pending record can be past expiresAt until its expiry owner persists the transition; clients must disable answering at that boundary.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "$ref": "#/components/parameters/InvocationId"
+          },
+          {
+            "$ref": "#/components/parameters/QuestionId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current question state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvocationQuestion"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                },
+                "description": "Question content must not be cached."
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/questions/{questionId}/answers": {
+      "post": {
+        "operationId": "answerInvocationQuestion",
+        "summary": "Answer a pending invocation question",
+        "description": "Commits all answers to one question bundle under API and exact-revision invocation policy authorization. An expectedVersion of 1 is required. The answer is immutable and runtime delivery is separate. Exact receipt replay rechecks the answering actor, answer and current invocation policy, then returns the original response without repeating delivery. Answers remain absent from public responses. Requests are bounded to 32768 bytes; answer content is further bounded by the runtime question contract.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "$ref": "#/components/parameters/InvocationId"
+          },
+          {
+            "$ref": "#/components/parameters/QuestionId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerInvocationQuestionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Answer committed; native delivery may still be pending.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvocationQuestion"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                },
+                "description": "Question content must not be cached."
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          },
+          "410": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/approvals/{approvalId}": {
       "get": {
         "operationId": "getInvocationApproval",
@@ -867,6 +995,14 @@
         "in": "path",
         "required": true,
         "schema": { "$ref": "#/components/schemas/InvocationId" }
+      },
+      "QuestionId": {
+        "name": "questionId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/QuestionId"
+        }
       },
       "ApprovalId": {
         "name": "approvalId",
@@ -1319,6 +1455,341 @@
             "items": { "$ref": "#/components/schemas/ArtifactId" }
           },
           "completedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "QuestionId": {
+        "type": "string",
+        "pattern": "^qst_[0-9a-z]{20,32}$"
+      },
+      "QuestionOption": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "description"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Untrusted plain text; maximum 256 UTF-8 bytes. Control characters other than newline and tab are rejected."
+          },
+          "description": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 1024,
+            "description": "Untrusted plain text; maximum 1024 UTF-8 bytes. Control characters other than newline and tab are rejected."
+          }
+        }
+      },
+      "QuestionPrompt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "prompt", "multiple", "allowFreeText"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Untrusted plain text; maximum 128 UTF-8 bytes. Control characters other than newline and tab are rejected."
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "description": "Untrusted plain text; maximum 2048 UTF-8 bytes. Control characters other than newline and tab are rejected."
+          },
+          "options": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/components/schemas/QuestionOption"
+            }
+          },
+          "multiple": {
+            "type": "boolean"
+          },
+          "allowFreeText": {
+            "type": "boolean"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "not": {
+                "required": ["options"]
+              }
+            },
+            "then": {
+              "properties": {
+                "multiple": {
+                  "const": false
+                },
+                "allowFreeText": {
+                  "const": true
+                }
+              }
+            }
+          }
+        ]
+      },
+      "QuestionAnswer": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["questionId"],
+        "properties": {
+          "questionId": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "description": "The item ID within the normalized question bundle."
+          },
+          "optionIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,63}$"
+            }
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "Untrusted plain text; maximum 4096 UTF-8 bytes. Control characters other than newline and tab are rejected."
+          }
+        },
+        "oneOf": [
+          {
+            "required": ["optionIds"],
+            "not": {
+              "required": ["text"]
+            }
+          },
+          {
+            "required": ["text"],
+            "not": {
+              "required": ["optionIds"]
+            }
+          }
+        ]
+      },
+      "InvocationQuestion": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "id",
+          "isolationDomainId",
+          "invocationId",
+          "serviceId",
+          "revisionId",
+          "questions",
+          "state",
+          "version",
+          "expiresAt",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "const": "dataground.invocation-question/v1"
+          },
+          "id": {
+            "$ref": "#/components/schemas/QuestionId"
+          },
+          "isolationDomainId": {
+            "$ref": "#/components/schemas/IsolationDomainId"
+          },
+          "invocationId": {
+            "$ref": "#/components/schemas/InvocationId"
+          },
+          "serviceId": {
+            "$ref": "#/components/schemas/ServiceId"
+          },
+          "revisionId": {
+            "$ref": "#/components/schemas/RevisionId"
+          },
+          "questions": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "items": {
+              "$ref": "#/components/schemas/QuestionPrompt"
+            }
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "answered",
+              "delivering",
+              "delivered",
+              "expired",
+              "closed",
+              "delivery_unknown"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "answeredBy": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "answeredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "closedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "closeReason": {
+            "enum": [
+              "expired",
+              "runtime-request-cleared",
+              "cancelled",
+              "runtime-ended",
+              "delivery-ambiguous"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "pending"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "version": {
+                  "const": 1
+                }
+              },
+              "not": {
+                "anyOf": [
+                  {
+                    "required": ["answeredBy"]
+                  },
+                  {
+                    "required": ["answeredAt"]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": ["answered", "delivering", "delivered", "delivery_unknown"]
+                }
+              }
+            },
+            "then": {
+              "required": ["answeredBy", "answeredAt"]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": ["expired", "closed", "delivery_unknown"]
+                }
+              }
+            },
+            "then": {
+              "required": ["closedAt", "closeReason"]
+            },
+            "else": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": ["closedAt"]
+                  },
+                  {
+                    "required": ["closeReason"]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "expired"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "closeReason": {
+                  "const": "expired"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": ["answeredBy"]
+            },
+            "then": {
+              "required": ["answeredAt"]
+            }
+          },
+          {
+            "if": {
+              "required": ["answeredAt"]
+            },
+            "then": {
+              "required": ["answeredBy"]
+            }
+          }
+        ]
+      },
+      "AnswerInvocationQuestionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedVersion", "answers"],
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "const": 1
+          },
+          "answers": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "items": {
+              "$ref": "#/components/schemas/QuestionAnswer"
+            }
+          }
         }
       },
       "InvocationApproval": {

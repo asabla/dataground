@@ -1,0 +1,10 @@
+{
+  "expectedVersion": 1,
+  "answers": [
+    {
+      "questionId": "item_1",
+      "optionIds": ["option_2"],
+      "text": "ambiguous"
+    }
+  ]
+}
