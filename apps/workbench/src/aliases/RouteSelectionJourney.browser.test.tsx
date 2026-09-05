@@ -271,62 +271,114 @@ it("rechecks a draft or retired revision when opening history instead of trustin
   expect(host.textContent).not.toContain("Review publication");
 });
 
-it("creates and publishes another revision for the existing service without moving its route implicitly", async () => {
-  const draft = {
-    ...newer,
-    metadata: { ...newer.metadata, id: "rev_00000000000000000081", version: 1, generation: 1 },
-    revisionNumber: 81,
-    state: "draft",
-    publishedAt: undefined,
-    inputSchema: undefined,
-  };
-  const publication = {
-    ...draft,
-    state: "published",
-    publishedAt: "2026-09-05T12:02:00Z",
-    metadata: { ...draft.metadata, version: 2, generation: 1, updatedAt: "2026-09-05T12:02:00Z" },
-  };
-  const commands: string[] = [];
-  const { client } = fixture((path, options) =>
-    path.endsWith("/aliases/{alias}")
-      ? ok(stable)
-      : ok(options.params.path.revisionId === draft.metadata.id ? publication : older),
-  );
-  const authoring = {
-    ...client,
-    POST: async (
-      path: string,
-      options: {
-        params: { path: { serviceId?: string; revisionId?: string } };
-        body: { expectedVersion?: number };
+it.each([200, 202])(
+  "updates publication history after a %s receipt without moving the route or accepting stale history",
+  async (status) => {
+    const draft = {
+      ...newer,
+      metadata: { ...newer.metadata, id: "rev_00000000000000000081", version: 1, generation: 1 },
+      revisionNumber: 81,
+      state: "draft",
+      publishedAt: undefined,
+      inputSchema: undefined,
+    };
+    const publication = {
+      ...draft,
+      state: "published",
+      publishedAt: "2026-09-05T12:02:00Z",
+      metadata: {
+        ...draft.metadata,
+        version: 2,
+        generation: status === 202 ? 2 : 1,
+        updatedAt: "2026-09-05T12:02:00Z",
       },
-    ) => {
-      commands.push(path);
-      if (path.endsWith("/revisions")) {
-        expect(options.params.path.serviceId).toBe(service.metadata.id);
-        return { data: draft, response: new Response(null, { status: 201 }) };
-      }
-      if (path.endsWith("/actions/publish")) {
-        expect(options.params.path.revisionId).toBe(draft.metadata.id);
-        expect(options.body.expectedVersion).toBe(1);
-        return ok(publication);
-      }
-      throw new Error("unexpected mutation");
-    },
-    PUT: async () => {
-      throw new Error("route moved without confirmation");
-    },
-  } as unknown as DataGroundClient;
-  await open(authoring);
-  await click("New revision");
-  expect(commands).toHaveLength(0);
-  await click("Create revision draft");
-  await click("Open revision");
-  await click("Review publication");
-  expect(commands).toHaveLength(1);
-  await click("Confirm publication");
-  await click("Assign alias");
-  expect(commands).toHaveLength(2);
-  expect(host.textContent).toContain("Move service alias");
-  expect(host.textContent).not.toContain("Start invocation");
-});
+    };
+    const operation = {
+      metadata: { ...draft.metadata, id: "op_00000000000000000001" },
+      resourceId: draft.metadata.id,
+      kind: "service-publication",
+      command: "publish",
+      desiredState: "published",
+      observedState: "queued",
+      stateMachineVersion: 1,
+      attempt: 0,
+      correlationId: "cor_publication",
+    };
+    let resolveHistory: ((value: unknown) => void) | undefined;
+    let delayHistory = false;
+    const commands: string[] = [];
+    const { client } = fixture((path, options) =>
+      path.endsWith("/aliases/{alias}")
+        ? ok(stable)
+        : ok(options.params.path.revisionId === draft.metadata.id ? publication : older),
+    );
+    const authoring = {
+      ...client,
+      GET: async (path: string, options: ReadOptions) => {
+        if (path.endsWith("/revisions") && delayHistory)
+          return new Promise((done) => {
+            resolveHistory = done;
+          });
+        if (path.includes("/operations/")) return ok({ ...operation, observedState: "published" });
+        return (client.GET as unknown as (path: string, options: ReadOptions) => unknown)(
+          path,
+          options,
+        );
+      },
+      POST: async (
+        path: string,
+        options: {
+          params: { path: { serviceId?: string; revisionId?: string } };
+          body: { expectedVersion?: number };
+        },
+      ) => {
+        commands.push(path);
+        if (path.endsWith("/revisions")) {
+          expect(options.params.path.serviceId).toBe(service.metadata.id);
+          return { data: draft, response: new Response(null, { status: 201 }) };
+        }
+        if (path.endsWith("/actions/publish")) {
+          expect(options.params.path.revisionId).toBe(draft.metadata.id);
+          expect(options.body.expectedVersion).toBe(1);
+          return status === 202
+            ? { data: operation, response: new Response(null, { status: 202 }) }
+            : ok(publication);
+        }
+        throw new Error("unexpected mutation");
+      },
+      PUT: async () => {
+        throw new Error("route moved without confirmation");
+      },
+    } as unknown as DataGroundClient;
+    await open(authoring);
+    await click("New revision");
+    expect(commands).toHaveLength(0);
+    await click("Create revision draft");
+    await click("Open revision");
+    await click("Review publication");
+    expect(commands).toHaveLength(1);
+    const historyRow = () =>
+      [...host.querySelectorAll(".revision-history__list li")].find((row) =>
+        row.textContent?.includes("Revision 81"),
+      );
+    expect(historyRow()?.textContent).toContain("draft");
+    delayHistory = true;
+    await click("Load more revisions");
+    await click("Confirm publication");
+    if (status === 202) {
+      expect(historyRow()?.textContent).toContain("draft");
+      expect(host.textContent).not.toContain("Assign alias");
+      await click("Check publication");
+    }
+    expect(historyRow()?.textContent).toContain("published");
+    expect(historyRow()?.textContent).not.toContain("draft");
+    await act(async () => resolveHistory?.(ok({ items: [draft] })));
+    expect(historyRow()?.textContent).toContain("published");
+    expect(historyRow()?.textContent).not.toContain("draft");
+    expect(host.textContent).not.toContain("Loading more revisions…");
+    await click("Assign alias");
+    expect(commands).toHaveLength(2);
+    expect(host.textContent).toContain("Move service alias");
+    expect(host.textContent).not.toContain("Start invocation");
+  },
+);

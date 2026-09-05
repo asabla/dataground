@@ -520,6 +520,18 @@ export function DevelopmentWorkbench({
         openService(service);
         void loadServicePage();
       }}
+      onRevisionPublished={(revision) => {
+        if (
+          revision.metadata.isolationDomainId !== isolationDomainId ||
+          revision.serviceId !== openedService?.metadata.id ||
+          revision.metadata.id !== openedRevision?.metadata.id
+        )
+          return;
+        revisionListGeneration.current++;
+        setRevisionListLoading(false);
+        setRevisionListLoadingMore(false);
+        setRevisionHistory((current) => mergeRevisionHistory(current, [revision]));
+      }}
       observedAlias={observedAlias}
       selectedAlias={openedAlias}
       selectedApproval={openedApproval}
