@@ -66,7 +66,7 @@ Run the complete local and CI baseline:
 pnpm verify
 ```
 
-The verification command runs Biome formatting and lint checks, `gofmt`, `go vet`, OpenAPI and JSON Schema fixture and compatibility checks, generated contract and token drift checks, TypeScript type checking, Go and Node tests, Playwright-backed Storybook interaction and accessibility tests, the Storybook production build, and production builds for the API and workbench.
+The verification command runs Biome formatting and lint checks, `gofmt`, `go vet`, OpenAPI and JSON Schema fixture and compatibility checks, generated contract and token drift checks, TypeScript type checking, Go and Node tests, Playwright-backed Storybook interaction and accessibility tests, Workbench React lifecycle tests in Chromium, the Storybook production build, and production builds for the API and workbench.
 
 The Go test wrapper resolves the operating system's temporary directory to its canonical path before running `go test ./...`. On macOS it uses the short canonical `/private/tmp` root, avoiding both the `/var` symlink alias and Darwin's Unix-socket path limit for security-sensitive fixtures; runtime path validation remains unchanged and fail closed.
 
@@ -88,6 +88,7 @@ pnpm dev:api
 pnpm dev:workbench
 pnpm dev:design-system
 pnpm --filter @dataground/ui test:stories
+pnpm --filter @dataground/workbench test:browser
 ```
 
 The API listens on `127.0.0.1:8082` by default. Ports `8080` and `8081` remain reserved for the pinned OpenShell gateway and readiness listeners, so the API, workbench proxy, and OpenShell profile can run together without rebinding a checked topology. Process-local mode refuses any other binding and exposes the in-memory reference agent-service lifecycle described in [reference runtime guidance](reference-runtime.md). Every `/v1` request must use the configured development bearer token. The startup credential is removed from the API process environment and represented only by its digest after assembly. This static single-domain verifier and its exact-principal Cedar action policy are local boundaries, not production identity or policy services. Process-local mode has no durable decision audit. See [API action authorization](api-authorization.md) for the closed route mapping, audit boundary, and failure semantics. The workbench uses Vite's development server. Storybook documents shared component contracts and is not a product application.

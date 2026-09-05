@@ -309,7 +309,7 @@ function failure(
   message: string,
   retryable = false,
   outcomeUnknown = false,
-): InvocationStatusResult {
+): Extract<InvocationStatusResult, { ok: false }> {
   return { error: { code, message, outcomeUnknown, retryable }, ok: false };
 }
 
@@ -678,6 +678,102 @@ export async function cancelInvocation(
       "WORKBENCH_CANCELLATION_UNCONFIRMED",
       "The Workbench could not confirm whether DataGround accepted the cancellation.",
       true,
+      true,
+    );
+  }
+}
+
+export interface InvocationResultReference extends InvocationReference {
+  serviceId: string;
+  revisionId: string;
+}
+
+export type InvocationResultRead =
+  | { ok: true; text: string }
+  | { ok: false; error: InvocationFailure };
+
+function formatInvocationResult(value: unknown): string | undefined {
+  let nodes = 0;
+  function valid(entry: unknown, depth: number): boolean {
+    if (++nodes > 4096 || depth > 16) return false;
+    if (entry === null || typeof entry === "boolean") return true;
+    if (typeof entry === "string") return entry.length <= 192 * 1024;
+    if (typeof entry === "number") return Number.isFinite(entry);
+    if (Array.isArray(entry))
+      return entry.length <= 4096 && entry.every((item) => valid(item, depth + 1));
+    if (!isRecord(entry)) return false;
+    const entries = Object.entries(entry);
+    return (
+      entries.length <= 4096 &&
+      entries.every(([key, item]) => key.length <= 4096 && valid(item, depth + 1))
+    );
+  }
+  if (!isRecord(value) || !valid(value, 0)) return undefined;
+  const encoded = JSON.stringify(value);
+  if (new TextEncoder().encode(encoded).byteLength > 192 * 1024) return undefined;
+  // Keep directional controls visible in the JSON representation rather than
+  // allowing result content to reorder the surrounding presentation.
+  return JSON.stringify(value, null, 2).replace(
+    /[\u202a-\u202e\u2066-\u2069]/gu,
+    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
+// Result content is fetched only after an explicit request. Routine status
+// reads continue to discard input, result, and native operation payloads.
+export async function readInvocationResult(
+  client: DataGroundClient,
+  reference: InvocationResultReference,
+): Promise<InvocationResultRead> {
+  if (
+    !validReference(reference) ||
+    !patterns.serviceId.test(reference.serviceId) ||
+    !patterns.revisionId.test(reference.revisionId)
+  ) {
+    return failure("WORKBENCH_INVALID_REFERENCE", "The invocation result reference is invalid.");
+  }
+  try {
+    const { data, error, response } = await client.GET(invocationPath, {
+      params: {
+        path: {
+          invocationId: reference.invocationId,
+          isolationDomainId: reference.isolationDomainId,
+        },
+      },
+    });
+    if (!response.ok || !data)
+      return failedResult(
+        error,
+        response.status,
+        "DataGround did not return an invocation result.",
+      );
+    const invocation = decodeInvocation(data, reference);
+    if (
+      !invocation ||
+      invocation.serviceId !== reference.serviceId ||
+      invocation.revisionId !== reference.revisionId
+    ) {
+      return failure(
+        "WORKBENCH_INVOCATION_SCOPE_MISMATCH",
+        "DataGround returned a result outside the requested invocation scope.",
+      );
+    }
+    if (invocation.state !== "succeeded")
+      return failure(
+        "WORKBENCH_INVOCATION_RESULT_UNAVAILABLE",
+        "A successful invocation result is not available.",
+      );
+    const text = formatInvocationResult(data.result);
+    return text === undefined
+      ? failure(
+          "WORKBENCH_INVOCATION_RESULT_UNAVAILABLE",
+          "The result is missing or exceeds the Workbench display limits.",
+        )
+      : { ok: true, text };
+  } catch {
+    return failure(
+      "WORKBENCH_NETWORK_UNAVAILABLE",
+      "The Workbench could not read the invocation result.",
       true,
     );
   }

@@ -13,6 +13,8 @@ import {
   readInvocationStatus,
 } from "./client";
 
+import { InvocationResultWorkflow } from "./InvocationResultWorkflow";
+
 interface CancellationAttempt {
   idempotencyKey: string;
 }
@@ -317,32 +319,44 @@ export function InvocationWorkflow({
   }
 
   return (
-    <InvocationStatus
-      canCancel={canCancel && (stateConfirmed || cancellationRecovery)}
-      cancellationConfirmationVisible={
-        stateMatchesReference && state.cancellationConfirmationVisible
-      }
-      cancellationRecovery={cancellationRecovery}
-      disabledReason={effectiveDisabledReason}
-      error={stateMatchesReference ? state.error : undefined}
-      invocation={visibleInvocation}
-      isCancelling={stateMatchesReference && state.cancelling}
-      isLoading={!stateMatchesReference || state.loading}
-      onConfirmCancellation={() => void submitCancellation()}
-      onDismissCancellation={() =>
-        dispatch({ referenceKey: currentReferenceKey, type: "cancellation-dismissed" })
-      }
-      onInspectArtifact={
-        onInspectArtifact
-          ? (artifactId) => onInspectArtifact({ ...stableReference, artifactId })
-          : undefined
-      }
-      onRefresh={() => void refresh()}
-      onRequestCancellation={() =>
-        dispatch({ referenceKey: currentReferenceKey, type: "cancellation-requested" })
-      }
-      operation={visibleOperation}
-      reference={reference}
-    />
+    <>
+      <InvocationStatus
+        canCancel={canCancel && (stateConfirmed || cancellationRecovery)}
+        cancellationConfirmationVisible={
+          stateMatchesReference && state.cancellationConfirmationVisible
+        }
+        cancellationRecovery={cancellationRecovery}
+        disabledReason={effectiveDisabledReason}
+        error={stateMatchesReference ? state.error : undefined}
+        invocation={visibleInvocation}
+        isCancelling={stateMatchesReference && state.cancelling}
+        isLoading={!stateMatchesReference || state.loading}
+        onConfirmCancellation={() => void submitCancellation()}
+        onDismissCancellation={() =>
+          dispatch({ referenceKey: currentReferenceKey, type: "cancellation-dismissed" })
+        }
+        onInspectArtifact={
+          onInspectArtifact
+            ? (artifactId) => onInspectArtifact({ ...stableReference, artifactId })
+            : undefined
+        }
+        onRefresh={() => void refresh()}
+        onRequestCancellation={() =>
+          dispatch({ referenceKey: currentReferenceKey, type: "cancellation-requested" })
+        }
+        operation={visibleOperation}
+        reference={reference}
+      />
+      {visibleInvocation?.state === "succeeded" && !state.loading && !state.error ? (
+        <InvocationResultWorkflow
+          client={client}
+          reference={{
+            ...stableReference,
+            serviceId: visibleInvocation.serviceId,
+            revisionId: visibleInvocation.revisionId,
+          }}
+        />
+      ) : null}
+    </>
   );
 }

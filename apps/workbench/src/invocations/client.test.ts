@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import type { DataGroundClient } from "../contracts/client";
-import { cancelInvocation, invokeAgentService, readInvocationStatus } from "./client";
+import {
+  cancelInvocation,
+  invokeAgentService,
+  readInvocationResult,
+  readInvocationStatus,
+} from "./client";
 
 const reference = {
   invocationId: "inv_00000000000000000001",
@@ -432,5 +437,95 @@ describe("invocation status client", () => {
       assert.equal(malformed.error.code, "WORKBENCH_INVALID_RESPONSE");
       assert.equal(invalidKey.error.code, "WORKBENCH_INVALID_REFERENCE");
     }
+  });
+});
+
+describe("explicit invocation result reads", () => {
+  const resultReference = {
+    ...reference,
+    serviceId: invocation.serviceId,
+    revisionId: invocation.revisionId,
+  };
+  it("requests exact scope and returns only result JSON after success", async () => {
+    let request: unknown;
+    const client = {
+      GET: async (_path: string, options: unknown) => {
+        request = options;
+        return {
+          data: {
+            ...invocation,
+            state: "succeeded",
+            result: { output: { count: 0, enabled: false, text: "<script>untrusted</script>" } },
+          },
+          response: new Response(null, { status: 200 }),
+        };
+      },
+    } as unknown as DataGroundClient;
+    const result = await readInvocationResult(client, resultReference);
+    assert.deepEqual(request, { params: { path: reference } });
+    assert.ok(result.ok);
+    assert.deepEqual(JSON.parse(result.text), {
+      output: { count: 0, enabled: false, text: "<script>untrusted</script>" },
+    });
+    assert.doesNotMatch(result.text, /must not reach|nativeEndpoint|reference-runtime/);
+  });
+  it("rejects mismatched scope, incomplete runs, missing results and oversized or deeply nested data", async () => {
+    let nested: unknown = null;
+    for (let index = 0; index < 20; index++) nested = { child: nested };
+    for (const override of [
+      { metadata: { ...invocation.metadata, isolationDomainId: "iso_00000000000000000002" } },
+      { serviceId: "svc_00000000000000000002" },
+      { revisionId: "rev_00000000000000000002" },
+      { state: "running" },
+      { state: "failed" },
+      { result: undefined },
+      { result: { text: "😀".repeat(100000) } },
+      { result: { nested } },
+      { result: { values: Array.from({ length: 4097 }, () => 0) } },
+    ]) {
+      const result = await readInvocationResult(
+        successClient({
+          ...invocation,
+          state: "succeeded",
+          result: { message: "private-result" },
+          ...override,
+        }),
+        resultReference,
+      );
+      assert.equal(result.ok, false);
+      assert.doesNotMatch(JSON.stringify(result), /private-result|😀/);
+    }
+  });
+  it("does not retain content from denied or failed reads", async () => {
+    const denied = await readInvocationResult(
+      {
+        GET: async () => ({
+          data: { ...invocation, state: "succeeded", result: { secret: "private-result" } },
+          response: new Response(null, { status: 403 }),
+        }),
+      } as unknown as DataGroundClient,
+      resultReference,
+    );
+    assert.equal(denied.ok, false);
+    assert.doesNotMatch(JSON.stringify(denied), /private-result/);
+    const unavailable = await readInvocationResult(
+      {
+        GET: async () => {
+          throw new Error("private-token");
+        },
+      } as unknown as DataGroundClient,
+      resultReference,
+    );
+    assert.equal(unavailable.ok, false);
+    assert.doesNotMatch(JSON.stringify(unavailable), /private-token/);
+  });
+  it("makes directional controls visible without interpreting output as markup", async () => {
+    const result = await readInvocationResult(
+      successClient({ ...invocation, state: "succeeded", result: { text: "before\u202eafter" } }),
+      resultReference,
+    );
+    assert.ok(result.ok);
+    assert.equal(result.text.includes("\u202e"), false);
+    assert.equal(result.text.includes("\\u202e"), true);
   });
 });

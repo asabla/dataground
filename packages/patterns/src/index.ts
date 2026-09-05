@@ -40,6 +40,7 @@ export {
   type InvocationComposerProps,
   type InvocationComposerSchema,
 } from "./InvocationComposer";
+export { InvocationResult, type InvocationResultProps } from "./InvocationResult";
 export {
   type InvocationDomainError,
   type InvocationOperationResource,
