@@ -1,5 +1,26 @@
 {
   "fixtures": [
+    { "file": "valid/invocation-question.json", "schema": "InvocationQuestion", "valid": true },
+    {
+      "file": "valid/answer-invocation-question.json",
+      "schema": "AnswerInvocationQuestionRequest",
+      "valid": true
+    },
+    {
+      "file": "invalid/invocation-question-answer-leak.json",
+      "schema": "InvocationQuestion",
+      "valid": false
+    },
+    {
+      "file": "invalid/answer-invocation-question-mixed.json",
+      "schema": "AnswerInvocationQuestionRequest",
+      "valid": false
+    },
+    {
+      "file": "invalid/invocation-question-native-id.json",
+      "schema": "InvocationQuestion",
+      "valid": false
+    },
     {
       "file": "valid/event-runtime-origin.json",
       "schema": "EventEnvelope",

@@ -185,6 +185,8 @@ func (server *Server) handler(
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel", protected(
 		authz.CancelInvocation, authz.Invocation, "invocationId", server.cancelInvocation,
 	))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/questions/{questionId}", protected(authz.ReadInvocationQuestion, authz.InvocationQuestion, "questionId", server.getInvocationQuestion))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/questions/{questionId}/answers", protected(authz.AnswerInvocationQuestion, authz.InvocationQuestion, "questionId", server.answerInvocationQuestion))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/approvals/{approvalId}", protected(
 		authz.ReadInvocationApproval, authz.InvocationApproval, "approvalId", server.getInvocationApproval,
 	))

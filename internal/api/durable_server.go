@@ -24,10 +24,12 @@ import (
 const durableOperationDeadline = 15 * time.Minute
 
 type DurableServer struct {
-	repository     *persistence.Repository
-	dispatchTarget *persistence.InvocationDispatchTarget
-	approvals      durableInvocationApprovalResolver
-	approvalReader durableInvocationApprovalReader
+	repository         *persistence.Repository
+	dispatchTarget     *persistence.InvocationDispatchTarget
+	approvals          durableInvocationApprovalResolver
+	approvalReader     durableInvocationApprovalReader
+	questions          durableInvocationQuestionStore
+	questionAuthorizer persistence.InvocationRuntimeQuestionAuthorizer
 }
 
 type durableInvocationApprovalResolver interface {
@@ -142,6 +144,7 @@ func newDurableHandler(
 	server := &DurableServer{
 		repository: repository, dispatchTarget: dispatchTarget,
 		approvals: approvalResolver, approvalReader: repository,
+		questions: repository, questionAuthorizer: invocationAuthorizer.AuthorizeInvocationQuestion,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", healthHandler)
@@ -191,6 +194,8 @@ func newDurableHandler(
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel", protected(
 		authz.CancelInvocation, authz.Invocation, "invocationId", server.cancelInvocation,
 	))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/questions/{questionId}", protected(authz.ReadInvocationQuestion, authz.InvocationQuestion, "questionId", server.getInvocationQuestion))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/questions/{questionId}/answers", protected(authz.AnswerInvocationQuestion, authz.InvocationQuestion, "questionId", server.answerInvocationQuestion))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/approvals/{approvalId}", protected(
 		authz.ReadInvocationApproval, authz.InvocationApproval, "approvalId", server.getInvocationApproval,
 	))
@@ -699,12 +704,14 @@ func (server *DurableServer) writeCommandError(response http.ResponseWriter, err
 		if problem.Code == "RESOURCE_NOT_FOUND" {
 			status = http.StatusNotFound
 		} else if problem.Code == "COMMAND_IN_PROGRESS" ||
-			problem.Code == "INVOCATION_APPROVAL_UNAVAILABLE" {
+			problem.Code == "INVOCATION_APPROVAL_UNAVAILABLE" || problem.Code == "INVOCATION_QUESTION_UNAVAILABLE" {
 			status = http.StatusServiceUnavailable
-		} else if problem.Code == "INVOCATION_APPROVAL_FORBIDDEN" {
+		} else if problem.Code == "INVOCATION_APPROVAL_FORBIDDEN" || problem.Code == "INVOCATION_QUESTION_FORBIDDEN" {
 			status = http.StatusForbidden
-		} else if problem.Code == "INVALID_INVOCATION_APPROVAL" || problem.Code == "INVOCATION_INPUT_INVALID" {
+		} else if problem.Code == "INVALID_INVOCATION_APPROVAL" || problem.Code == "INVALID_INVOCATION_QUESTION" || problem.Code == "INVOCATION_INPUT_INVALID" {
 			status = http.StatusBadRequest
+		} else if problem.Code == "INVOCATION_QUESTION_EXPIRED" {
+			status = http.StatusGone
 		}
 		writeJSON(response, status, ErrorEnvelope{Error: APIError{
 			Code: problem.Code, Message: problem.Message, CorrelationID: correlationID, Retryable: problem.Retryable,

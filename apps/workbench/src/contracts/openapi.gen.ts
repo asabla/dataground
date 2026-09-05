@@ -270,6 +270,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/questions/{questionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Retrieve authoritative invocation question state
+         * @description Returns the exact invocation-scoped bounded question bundle and durable state without stored answers or native handles. Text is untrusted plain text. A pending record can be past expiresAt until its expiry owner persists the transition; clients must disable answering at that boundary.
+         */
+        get: operations["getInvocationQuestion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/questions/{questionId}/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer a pending invocation question
+         * @description Commits all answers to one question bundle under API and exact-revision invocation policy authorization. An expectedVersion of 1 is required. The answer is immutable and runtime delivery is separate. Exact receipt replay rechecks the answering actor, answer and current invocation policy, then returns the original response without repeating delivery. Answers remain absent from public responses. Requests are bounded to 32768 bytes; answer content is further bounded by the runtime question contract.
+         */
+        post: operations["answerInvocationQuestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/approvals/{approvalId}": {
         parameters: {
             query?: never;
@@ -542,6 +582,62 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        QuestionId: string;
+        QuestionOption: {
+            id: string;
+            /** @description Untrusted plain text; maximum 256 UTF-8 bytes. Control characters other than newline and tab are rejected. */
+            label: string;
+            /** @description Untrusted plain text; maximum 1024 UTF-8 bytes. Control characters other than newline and tab are rejected. */
+            description: string;
+        };
+        QuestionPrompt: {
+            id: string;
+            /** @description Untrusted plain text; maximum 128 UTF-8 bytes. Control characters other than newline and tab are rejected. */
+            title: string;
+            /** @description Untrusted plain text; maximum 2048 UTF-8 bytes. Control characters other than newline and tab are rejected. */
+            prompt: string;
+            options?: components["schemas"]["QuestionOption"][];
+            multiple: boolean;
+            allowFreeText: boolean;
+        } & unknown;
+        QuestionAnswer: {
+            /** @description The item ID within the normalized question bundle. */
+            questionId: string;
+            optionIds?: string[];
+            /** @description Untrusted plain text; maximum 4096 UTF-8 bytes. Control characters other than newline and tab are rejected. */
+            text?: string;
+        } & (unknown | unknown);
+        InvocationQuestion: {
+            /** @constant */
+            schemaVersion: "dataground.invocation-question/v1";
+            id: components["schemas"]["QuestionId"];
+            isolationDomainId: components["schemas"]["IsolationDomainId"];
+            invocationId: components["schemas"]["InvocationId"];
+            serviceId: components["schemas"]["ServiceId"];
+            revisionId: components["schemas"]["RevisionId"];
+            questions: components["schemas"]["QuestionPrompt"][];
+            /** @enum {unknown} */
+            state: "pending" | "answered" | "delivering" | "delivered" | "expired" | "closed" | "delivery_unknown";
+            version: number;
+            /** Format: date-time */
+            expiresAt: string;
+            answeredBy?: string;
+            /** Format: date-time */
+            answeredAt?: string;
+            /** Format: date-time */
+            closedAt?: string;
+            /** @enum {unknown} */
+            closeReason?: "expired" | "runtime-request-cleared" | "cancelled" | "runtime-ended" | "delivery-ambiguous";
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        } & (unknown & unknown & unknown & unknown & unknown & unknown);
+        AnswerInvocationQuestionRequest: {
+            /** @constant */
+            expectedVersion: 1;
+            answers: components["schemas"]["QuestionAnswer"][];
+        };
         InvocationApproval: {
             /** @constant */
             schemaVersion: "dataground.invocation-approval/v1";
@@ -688,6 +784,7 @@ export interface components {
         ServiceId: components["schemas"]["ServiceId"];
         RevisionId: components["schemas"]["RevisionId"];
         InvocationId: components["schemas"]["InvocationId"];
+        QuestionId: components["schemas"]["QuestionId"];
         ApprovalId: components["schemas"]["ApprovalId"];
         OperationId: components["schemas"]["OperationId"];
         ArtifactId: components["schemas"]["ArtifactId"];
@@ -1285,6 +1382,78 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+            415: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    getInvocationQuestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                invocationId: components["parameters"]["InvocationId"];
+                questionId: components["parameters"]["QuestionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current question state. */
+            200: {
+                headers: {
+                    /** @description Question content must not be cached. */
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvocationQuestion"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    answerInvocationQuestion: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque caller key scoped to the isolation domain, HTTP method, and route. Reuse with a different body fails with IDEMPOTENCY_KEY_REUSED. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                invocationId: components["parameters"]["InvocationId"];
+                questionId: components["parameters"]["QuestionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnswerInvocationQuestionRequest"];
+            };
+        };
+        responses: {
+            /** @description Answer committed; native delivery may still be pending. */
+            200: {
+                headers: {
+                    /** @description Question content must not be cached. */
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvocationQuestion"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            410: components["responses"]["Error"];
             415: components["responses"]["Error"];
             503: components["responses"]["Error"];
         };

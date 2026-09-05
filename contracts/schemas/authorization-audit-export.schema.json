@@ -159,6 +159,8 @@
             "readInvocation",
             "readOperation",
             "cancelInvocation",
+            "readInvocationQuestion",
+            "answerInvocationQuestion",
             "readInvocationApproval",
             "resolveInvocationApproval",
             "readInvocationEvents",
@@ -172,6 +174,7 @@
             "DataGround::ServiceRevision",
             "DataGround::Invocation",
             "DataGround::InvocationApproval",
+            "DataGround::InvocationQuestion",
             "DataGround::Operation",
             "DataGround::Artifact"
           ]

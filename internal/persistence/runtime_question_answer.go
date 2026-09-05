@@ -11,7 +11,7 @@ import (
 )
 
 func (repository *Repository) AnswerInvocationRuntimeQuestion(ctx context.Context, answer InvocationRuntimeQuestionAnswer, authorize InvocationRuntimeQuestionAuthorizer) (InvocationRuntimeQuestion, error) {
-	if repository == nil || repository.pool == nil || ctx == nil || authorize == nil || !questionScopePattern.MatchString(answer.IsolationDomainID) || !approvalInvocationPattern.MatchString(answer.InvocationID) || !questionIDPattern.MatchString(answer.QuestionID) || answer.ExpectedVersion < 1 || !validInvocationRuntimeApprovalActor(answer.ActorID) || !approvalCorrelationPattern.MatchString(answer.CorrelationID) {
+	if repository == nil || repository.pool == nil || ctx == nil || authorize == nil || !validInvocationRuntimeQuestionAnswer(answer) {
 		return InvocationRuntimeQuestion{}, ErrInvocationRuntimeQuestionInvalid
 	}
 	tx, err := repository.pool.Begin(ctx)
@@ -53,7 +53,9 @@ func answerInvocationRuntimeQuestion(ctx context.Context, tx pgx.Tx, answer Invo
 		if value.AnsweredBy != answer.ActorID || answer.ExpectedVersion != 1 || !sameQuestionJSON(value.Answers, answer.Answers) {
 			return InvocationRuntimeQuestion{}, ErrInvocationRuntimeQuestionConflict
 		}
-		if err := authorize(ctx, value, InvocationQuestionEntry); err != nil {
+		replay := value
+		replay.AnswerCorrelationID = answer.CorrelationID
+		if err := authorize(ctx, replay, InvocationQuestionEntry); err != nil {
 			return InvocationRuntimeQuestion{}, err
 		}
 		return value, nil

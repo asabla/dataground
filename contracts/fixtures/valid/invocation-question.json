@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "dataground.invocation-question/v1",
+  "id": "qst_00000000000000000001",
+  "isolationDomainId": "iso_00000000000000000001",
+  "invocationId": "inv_00000000000000000001",
+  "serviceId": "svc_00000000000000000001",
+  "revisionId": "rev_00000000000000000001",
+  "questions": [
+    {
+      "id": "item_1",
+      "title": "Target",
+      "prompt": "Which target should be used?",
+      "options": [
+        {
+          "id": "option_1",
+          "label": "First",
+          "description": "The first target"
+        },
+        {
+          "id": "option_2",
+          "label": "Second",
+          "description": "The second target"
+        }
+      ],
+      "multiple": false,
+      "allowFreeText": true
+    }
+  ],
+  "state": "pending",
+  "version": 1,
+  "expiresAt": "2026-09-06T10:15:00Z",
+  "createdAt": "2026-09-06T10:00:00Z",
+  "updatedAt": "2026-09-06T10:00:00Z"
+}
