@@ -28,9 +28,11 @@ export {
   type TimelineConnectionState,
   type TimelineError,
   type TimelineEvent,
+  type TimelineQuestionReference,
   type TimelineReference,
   timelineApprovalReference,
   timelineArtifactReference,
+  timelineQuestionReference,
 } from "./EventTimeline";
 export {
   type AcceptedInvocation,
@@ -52,6 +54,12 @@ export {
   type InvocationStatusResource,
   isInvocationCancellable,
 } from "./InvocationStatus";
+export {
+  type QuestionDraft,
+  type QuestionItem,
+  QuestionRequest,
+  type QuestionRequestProps,
+} from "./QuestionRequest";
 export {
   type AssignedServiceAlias,
   ServiceAliasAssign,

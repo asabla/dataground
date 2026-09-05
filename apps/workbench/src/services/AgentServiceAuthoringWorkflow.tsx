@@ -13,6 +13,7 @@ import {
   InvocationInspectionWorkflow,
   type InvocationReference,
 } from "../invocations";
+import type { InvocationQuestionReference } from "../questions";
 import {
   isPublishableServiceRevision,
   isPublishedServiceRevisionForDraft,
@@ -43,15 +44,18 @@ export interface AgentServiceAuthoringWorkflowProps {
   canCreateService: boolean;
   canInvokeService: boolean;
   canPublishRevision: boolean;
+  canAnswerQuestion?: boolean;
   canResolveApproval: boolean;
   client: DataGroundClient;
   cancellationDisabledReason?: string;
   isolationDomainId: string;
   invocationDisabledReason?: string;
   onAssignAlias: (revision: PublishedServiceRevisionResource) => void;
+  onCloseQuestion?: () => void;
   onCloseApproval: () => void;
   onCloseArtifact: () => void;
   onComposeInvocation: (alias: ServiceAliasResource) => void;
+  onInspectQuestion?: (reference: InvocationQuestionReference) => void;
   onInspectApproval: (reference: InvocationApprovalReference) => void;
   onInspectArtifact: (reference: InvocationArtifactReference) => void;
   onOpenInvocation: (selection: AgentServiceInvocationSelection) => void;
@@ -62,6 +66,7 @@ export interface AgentServiceAuthoringWorkflowProps {
   publicationDisabledReason?: string;
   revisionDisabledReason?: string;
   selectedAlias?: ServiceAliasResource;
+  selectedQuestion?: InvocationQuestionReference;
   selectedApproval?: InvocationApprovalReference;
   selectedArtifact?: InvocationArtifactReference;
   selectedInvocation?: AgentServiceInvocationSelection;
@@ -154,15 +159,18 @@ export function AgentServiceAuthoringWorkflow({
   canCreateService,
   canInvokeService,
   canPublishRevision,
+  canAnswerQuestion = false,
   canResolveApproval,
   cancellationDisabledReason,
   client,
   isolationDomainId,
   invocationDisabledReason,
   onAssignAlias,
+  onCloseQuestion,
   onCloseApproval,
   onCloseArtifact,
   onComposeInvocation,
+  onInspectQuestion,
   onInspectApproval,
   onInspectArtifact,
   onOpenInvocation,
@@ -173,6 +181,7 @@ export function AgentServiceAuthoringWorkflow({
   publicationDisabledReason,
   revisionDisabledReason,
   selectedAlias,
+  selectedQuestion,
   selectedApproval,
   selectedArtifact,
   selectedInvocation,
@@ -360,6 +369,10 @@ export function AgentServiceAuthoringWorkflow({
         aliasInScope &&
         isInvocationSelectedForAlias(selectedInvocation, selectedAlias, isolationDomainId) ? (
           <InvocationInspectionWorkflow
+            selectedQuestion={selectedQuestion}
+            onInspectQuestion={onInspectQuestion}
+            onCloseQuestion={onCloseQuestion}
+            canAnswerQuestion={canAnswerQuestion}
             canCancelInvocation={canCancelInvocation}
             canResolveApproval={canResolveApproval}
             cancellationDisabledReason={cancellationDisabledReason}

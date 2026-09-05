@@ -3,6 +3,7 @@ import {
   type TimelineApprovalReference,
   type TimelineArtifactReference,
   type TimelineEvent,
+  type TimelineQuestionReference,
 } from "@dataground/patterns";
 import "@dataground/patterns/styles.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -33,6 +34,7 @@ type EventTimelineAction =
 
 export interface EventTimelineWorkflowProps {
   client: DataGroundClient;
+  onInspectQuestion?: (reference: TimelineQuestionReference) => void;
   onInspectApproval?: (reference: TimelineApprovalReference) => void;
   onInspectArtifact?: (reference: TimelineArtifactReference) => void;
   reference: InvocationEventReference;
@@ -160,6 +162,7 @@ export function eventTimelineReducer(
 
 export function EventTimelineWorkflow({
   client,
+  onInspectQuestion,
   onInspectApproval,
   onInspectArtifact,
   reference,
@@ -228,6 +231,7 @@ export function EventTimelineWorkflow({
       hiddenEventCount={stateMatchesReference ? state.hiddenEventCount : 0}
       hasMore={stateMatchesReference && state.hasMore}
       isReplaying={!stateMatchesReference || state.loading}
+      onInspectQuestion={onInspectQuestion}
       onInspectApproval={onInspectApproval}
       onInspectArtifact={onInspectArtifact}
       onReplay={() => void loadReplay(stateMatchesReference ? state.cursor : 0)}

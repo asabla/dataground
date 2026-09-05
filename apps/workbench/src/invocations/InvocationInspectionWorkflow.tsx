@@ -4,6 +4,7 @@ import { ApprovalWorkflow, type InvocationApprovalReference } from "../approvals
 import { ArtifactWorkflow, type InvocationArtifactReference } from "../artifacts";
 import type { DataGroundClient } from "../contracts/client";
 import { EventTimelineWorkflow } from "../events";
+import { type InvocationQuestionReference, QuestionWorkflow } from "../questions";
 import type { InvocationReference } from "./client";
 import { InvocationWorkflow } from "./InvocationWorkflow";
 
@@ -14,16 +15,33 @@ const artifactIdPattern = /^art_[0-9a-z]{20,32}$/u;
 
 export interface InvocationInspectionWorkflowProps {
   canCancelInvocation: boolean;
+  canAnswerQuestion?: boolean;
   canResolveApproval: boolean;
   cancellationDisabledReason?: string;
   client: DataGroundClient;
+  onCloseQuestion?: () => void;
   onCloseApproval: () => void;
   onCloseArtifact: () => void;
+  onInspectQuestion?: (reference: InvocationQuestionReference) => void;
   onInspectApproval: (reference: InvocationApprovalReference) => void;
   onInspectArtifact: (reference: InvocationArtifactReference) => void;
   reference: InvocationReference;
+  selectedQuestion?: InvocationQuestionReference;
   selectedApproval?: InvocationApprovalReference;
   selectedArtifact?: InvocationArtifactReference;
+}
+
+export function isQuestionSelectedForInvocation(
+  question: InvocationQuestionReference,
+  invocation: InvocationReference,
+): boolean {
+  return (
+    isolationDomainIdPattern.test(invocation.isolationDomainId) &&
+    invocationIdPattern.test(invocation.invocationId) &&
+    /^qst_[0-9a-z]{20,32}$/u.test(question.questionId) &&
+    question.isolationDomainId === invocation.isolationDomainId &&
+    question.invocationId === invocation.invocationId
+  );
 }
 
 export function isArtifactSelectedForInvocation(
@@ -54,14 +72,18 @@ export function isApprovalSelectedForInvocation(
 
 export function InvocationInspectionWorkflow({
   canCancelInvocation,
+  canAnswerQuestion = false,
   canResolveApproval,
   cancellationDisabledReason,
   client,
+  onCloseQuestion,
   onCloseApproval,
   onCloseArtifact,
+  onInspectQuestion,
   onInspectApproval,
   onInspectArtifact,
   reference,
+  selectedQuestion,
   selectedApproval,
   selectedArtifact,
 }: InvocationInspectionWorkflowProps) {
@@ -80,10 +102,32 @@ export function InvocationInspectionWorkflow({
       />
       <EventTimelineWorkflow
         client={client}
+        onInspectQuestion={onInspectQuestion}
         onInspectApproval={onInspectApproval}
         onInspectArtifact={onInspectArtifact}
         reference={reference}
       />
+      {selectedQuestion &&
+        (isQuestionSelectedForInvocation(selectedQuestion, reference) ? (
+          <section className="product-workflow__inspection" aria-label="Question inspection">
+            <Button onPress={onCloseQuestion} variant="quiet">
+              Close questions
+            </Button>
+            <QuestionWorkflow
+              client={client}
+              reference={selectedQuestion}
+              canAnswer={canAnswerQuestion}
+            />
+          </section>
+        ) : (
+          <section className="product-workflow__blocked" role="alert">
+            <StatusBadge tone="critical">Scope mismatch</StatusBadge>
+            <p>
+              The selected question does not belong to the active invocation. Reopen it from the
+              confirmed event timeline.
+            </p>
+          </section>
+        ))}
       {selectedApproval &&
         (isApprovalSelectedForInvocation(selectedApproval, reference) ? (
           <section
