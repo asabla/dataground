@@ -21,6 +21,7 @@ const (
 	InvocationRun     InvocationAction = "run"
 	InvocationCancel  InvocationAction = "cancel"
 	InvocationApprove InvocationAction = "approve"
+	InvocationAnswer  InvocationAction = "answer"
 )
 
 type InvocationDecisionRecord struct {
@@ -38,13 +39,16 @@ type InvocationDecisionRecord struct {
 }
 
 func (record InvocationDecisionRecord) Valid() bool {
+	return record.validContext() && validInvocationAction(record.Action)
+}
+
+func (record InvocationDecisionRecord) validContext() bool {
 	return validInvocationActorID(record.ActorID) &&
 		domainIDPattern.MatchString(record.IsolationDomainID) &&
 		invocationAuditOperationIDPattern.MatchString(record.OperationID) &&
 		invocationAuditInvocationIDPattern.MatchString(record.InvocationID) &&
 		invocationAuditServiceIDPattern.MatchString(record.ServiceID) &&
 		invocationAuditRevisionIDPattern.MatchString(record.RevisionID) &&
-		validInvocationAction(record.Action) &&
 		validOutcome(record.Outcome) &&
 		validPolicyDescriptor(PolicyDescriptor{
 			PolicySetID: record.PolicySetID,

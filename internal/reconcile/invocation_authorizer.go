@@ -16,6 +16,7 @@ const (
 	InvocationAuthorizationRun     InvocationAuthorizationAction = "run"
 	InvocationAuthorizationCancel  InvocationAuthorizationAction = "cancel"
 	InvocationAuthorizationApprove InvocationAuthorizationAction = "approve"
+	InvocationAuthorizationAnswer  InvocationAuthorizationAction = "answer"
 )
 
 var (
@@ -34,6 +35,7 @@ type InvocationAuthorizationRequest struct {
 	CorrelationID     string
 	Runtime           *dgruntime.StartRequest
 	Approval          *InvocationApprovalAuthorizationContext
+	Question          *InvocationQuestionAuthorizationContext
 }
 
 type InvocationAuthorizationDecision interface {
@@ -175,16 +177,20 @@ func (authorizer *InvocationAuthorizer) authorize(
 func validInvocationAuthorizationRequest(request InvocationAuthorizationRequest) bool {
 	switch request.Action {
 	case InvocationAuthorizationAdmit, InvocationAuthorizationCancel:
-		if request.Runtime != nil || request.Approval != nil {
+		if request.Runtime != nil || request.Approval != nil || request.Question != nil {
 			return false
 		}
 	case InvocationAuthorizationRun:
-		if request.Runtime == nil || request.Approval != nil {
+		if request.Runtime == nil || request.Approval != nil || request.Question != nil || !validInvocationRuntimeQuestionMode(*request.Runtime) {
 			return false
 		}
 	case InvocationAuthorizationApprove:
-		if request.Runtime != nil || request.Approval == nil ||
+		if request.Runtime != nil || request.Question != nil || request.Approval == nil ||
 			!request.Approval.Valid() {
+			return false
+		}
+	case InvocationAuthorizationAnswer:
+		if request.Runtime != nil || request.Approval != nil || request.Question == nil || !request.Question.Valid() {
 			return false
 		}
 	default:

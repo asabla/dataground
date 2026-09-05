@@ -4,11 +4,15 @@ import (
 	"errors"
 	"regexp"
 	"slices"
+	"time"
+
+	dgruntime "github.com/asabla/dataground/internal/runtime"
 )
 
 var approvalIDPattern = regexp.MustCompile(`^apr_[0-9a-z]{20,32}$`)
 
 const InvocationCedarContract = "dataground.invocation-authorization-cedar/v1"
+const InvocationCedarQuestionContract = "dataground.invocation-authorization-cedar/v2"
 
 const (
 	invocationCedarPrincipalType = "DataGround::Actor"
@@ -36,11 +40,12 @@ func (value InvocationApprovalAuthorizationContext) Valid() bool {
 }
 
 type InvocationCedarRuntimeContext struct {
-	ApprovalMode    string
-	SandboxMode     string
-	HasOutputSchema bool
-	ArtifactCount   int
-	ArtifactKinds   []string
+	ApprovalMode          string
+	SandboxMode           string
+	HasOutputSchema       bool
+	ArtifactCount         int
+	ArtifactKinds         []string
+	QuestionTimeoutMillis int64
 }
 
 type InvocationCedarInput struct {
@@ -55,6 +60,7 @@ type InvocationCedarInput struct {
 	CorrelationID     string
 	Runtime           *InvocationCedarRuntimeContext
 	Approval          *InvocationApprovalAuthorizationContext
+	Question          *InvocationQuestionAuthorizationContext
 }
 
 func mapInvocationCedarInput(request InvocationAuthorizationRequest) (InvocationCedarInput, error) {
@@ -81,6 +87,12 @@ func mapInvocationCedarInput(request InvocationAuthorizationRequest) (Invocation
 		RevisionID:        request.RevisionID,
 		CorrelationID:     request.CorrelationID,
 	}
+	if request.Question != nil {
+		question := *request.Question
+		input.Question = &question
+		input.Contract = InvocationCedarQuestionContract
+		return input, nil
+	}
 	if request.Approval != nil {
 		approval := *request.Approval
 		input.Approval = &approval
@@ -102,6 +114,10 @@ func mapInvocationCedarInput(request InvocationAuthorizationRequest) (Invocation
 		ArtifactCount:   len(request.Runtime.Artifacts),
 		ArtifactKinds:   kinds,
 	}
+	if request.Runtime.QuestionMode == dgruntime.QuestionInteractive {
+		input.Contract = InvocationCedarQuestionContract
+		input.Runtime.QuestionTimeoutMillis = request.Runtime.QuestionTimeout.Milliseconds()
+	}
 	return input, nil
 }
 
@@ -119,11 +135,15 @@ func cloneInvocationCedarInput(input InvocationCedarInput) (InvocationCedarInput
 		approval := *input.Approval
 		cloned.Approval = &approval
 	}
+	if input.Question != nil {
+		question := *input.Question
+		cloned.Question = &question
+	}
 	return cloned, nil
 }
 
 func validInvocationCedarInput(input InvocationCedarInput) bool {
-	if input.Contract != InvocationCedarContract ||
+	if (input.Contract != InvocationCedarContract && input.Contract != InvocationCedarQuestionContract) ||
 		input.Principal.Type != invocationCedarPrincipalType ||
 		input.Principal.ID == "" ||
 		input.Action.Type != invocationCedarActionType ||
@@ -138,13 +158,19 @@ func validInvocationCedarInput(input InvocationCedarInput) bool {
 	}
 	switch input.Action.ID {
 	case string(InvocationAuthorizationAdmit), string(InvocationAuthorizationCancel):
-		return input.Runtime == nil && input.Approval == nil
+		return input.Contract == InvocationCedarContract && input.Runtime == nil && input.Approval == nil && input.Question == nil
 	case string(InvocationAuthorizationRun):
-		if input.Runtime == nil || input.Approval != nil ||
+		if input.Runtime == nil || input.Approval != nil || input.Question != nil ||
 			input.Runtime.ApprovalMode == "" ||
 			input.Runtime.SandboxMode == "" ||
 			input.Runtime.ArtifactCount < 0 ||
 			input.Runtime.ArtifactCount < len(input.Runtime.ArtifactKinds) {
+			return false
+		}
+		if input.Contract == InvocationCedarContract && input.Runtime.QuestionTimeoutMillis != 0 {
+			return false
+		}
+		if input.Contract == InvocationCedarQuestionContract && (input.Runtime.QuestionTimeoutMillis <= 0 || input.Runtime.QuestionTimeoutMillis > (15*time.Minute).Milliseconds()) {
 			return false
 		}
 		for index, kind := range input.Runtime.ArtifactKinds {
@@ -154,7 +180,9 @@ func validInvocationCedarInput(input InvocationCedarInput) bool {
 		}
 		return true
 	case string(InvocationAuthorizationApprove):
-		return input.Runtime == nil && input.Approval != nil && input.Approval.Valid()
+		return input.Contract == InvocationCedarContract && input.Runtime == nil && input.Question == nil && input.Approval != nil && input.Approval.Valid()
+	case string(InvocationAuthorizationAnswer):
+		return input.Contract == InvocationCedarQuestionContract && input.Runtime == nil && input.Approval == nil && input.Question != nil && input.Question.Valid()
 	default:
 		return false
 	}

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -43,5 +45,11 @@ func TestReadPolicyFileRejectsUnsafeInputs(t *testing.T) {
 				t.Fatal("unsafe policy input was accepted")
 			}
 		})
+	}
+}
+
+func TestPolicyInstallRejectsAmbiguousInteractiveContract(t *testing.T) {
+	if err := run(context.Background(), []string{"--approval-capable", "--question-capable"}); err == nil || !strings.Contains(err.Error(), "select only one interactive policy contract") {
+		t.Fatalf("ambiguous policy selection: %v", err)
 	}
 }

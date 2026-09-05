@@ -20,6 +20,7 @@ const maximumInvocationCedarEntities = 4096
 const (
 	invocationAuthorizationPolicyV2DigestDomain = "dataground.invocation-authorization-policy/v2\x00"
 	invocationAuthorizationPolicyV3DigestDomain = "dataground.invocation-authorization-policy/v3\x00"
+	invocationAuthorizationPolicyV4DigestDomain = "dataground.invocation-authorization-policy/v4\x00"
 )
 
 const maximumInvocationCedarEntityIDBytes = 256
@@ -120,6 +121,16 @@ func InvocationAuthorizationPolicyV3Digest(
 ) [sha256.Size]byte {
 	return invocationAuthorizationPolicyEntityDigest(
 		invocationAuthorizationPolicyV3DigestDomain, schema, policies, entities,
+	)
+}
+
+func InvocationAuthorizationPolicyV4Digest(
+	schema []byte,
+	policies []byte,
+	entities []byte,
+) [sha256.Size]byte {
+	return invocationAuthorizationPolicyEntityDigest(
+		invocationAuthorizationPolicyV4DigestDomain, schema, policies, entities,
 	)
 }
 
