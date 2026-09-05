@@ -213,7 +213,7 @@ describe("revision retirement", () => {
     assert.match(markup, /Confirm retirement/);
     assert.match(markup, /rev_00000000000000000001/);
     assert.match(markup, /Version 2/);
-    assert.match(markup, /Move every alias away/);
+    assert.match(markup, /Move or withdraw every alias/);
     assert.doesNotMatch(render(false), /Confirm retirement/);
     assert.match(render(false), /role="alert"/);
   });

@@ -4,6 +4,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: { include: ["openapi-fetch"] },
   test: {
     attachmentsDir: "../../.cache/workbench-browser-attachments",
     include: ["src/**/*.browser.test.tsx"],

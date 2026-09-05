@@ -280,7 +280,7 @@ function failure(
   message: string,
   retryable = false,
   outcomeUnknown = false,
-): ServiceAliasAssignResult {
+): Extract<ServiceAliasAssignResult, { ok: false }> {
   return { error: { code, message, outcomeUnknown, retryable }, ok: false };
 }
 
@@ -389,5 +389,87 @@ export async function readServiceAlias(
       },
       ok: false,
     };
+  }
+}
+
+export interface WithdrawnServiceAliasResource extends ServiceAliasResource {
+  withdrawnAt: string;
+}
+export type ServiceAliasWithdrawalResult =
+  | { ok: true; alias: WithdrawnServiceAliasResource }
+  | { ok: false; error: ServiceAliasFailure };
+
+export async function withdrawServiceAlias(
+  client: DataGroundClient,
+  expected: ServiceAliasResource,
+  idempotencyKey: string,
+): Promise<ServiceAliasWithdrawalResult> {
+  const scope = {
+    isolationDomainId: expected.metadata.isolationDomainId,
+    serviceId: expected.serviceId,
+  };
+  if (
+    !patterns.isolationDomainId.test(scope.isolationDomainId) ||
+    !patterns.serviceId.test(scope.serviceId) ||
+    !boundedString(expected.name, 63, patterns.aliasName) ||
+    !decodeObservedAlias(expected, scope, expected.name) ||
+    !patterns.idempotencyKey.test(idempotencyKey)
+  ) {
+    return failure(
+      "WORKBENCH_INVALID_ALIAS_REQUEST",
+      "The alias scope, version, or request identifier is invalid.",
+    );
+  }
+  try {
+    const { data, error, response } = await client.POST(
+      "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}/actions/withdraw",
+      {
+        body: { expectedVersion: expected.metadata.version },
+        params: {
+          path: { ...scope, alias: expected.name },
+          header: { "Idempotency-Key": idempotencyKey },
+        },
+      },
+    );
+    if (response.status !== 200 || !data) {
+      const problem = responseFailure(error, response.status);
+      return {
+        ok: false,
+        error: {
+          ...problem,
+          ...(response.ok || response.status >= 500 || problem.code === "WORKBENCH_INVALID_RESPONSE"
+            ? { outcomeUnknown: true, retryable: true }
+            : {}),
+        },
+      };
+    }
+    const alias = decodeObservedAlias({ ...data, withdrawnAt: undefined }, scope, expected.name);
+    if (
+      !alias ||
+      !isTimestamp(data.withdrawnAt) ||
+      alias.metadata.id !== expected.metadata.id ||
+      alias.revisionId !== expected.revisionId ||
+      alias.metadata.version !== expected.metadata.version + 1 ||
+      alias.metadata.generation !== expected.metadata.generation + 1 ||
+      alias.metadata.createdBy !== expected.metadata.createdBy ||
+      Date.parse(alias.metadata.createdAt) !== Date.parse(expected.metadata.createdAt) ||
+      Date.parse(alias.metadata.updatedAt) < Date.parse(expected.metadata.updatedAt) ||
+      Date.parse(data.withdrawnAt) !== Date.parse(alias.metadata.updatedAt)
+    ) {
+      return failure(
+        "WORKBENCH_ALIAS_WITHDRAWAL_UNCONFIRMED",
+        "DataGround returned an unconfirmed withdrawal receipt. Recover the original request before changing the route.",
+        true,
+        true,
+      );
+    }
+    return { ok: true, alias: { ...alias, withdrawnAt: data.withdrawnAt } };
+  } catch {
+    return failure(
+      "WORKBENCH_ALIAS_WITHDRAWAL_UNCONFIRMED",
+      "The Workbench could not confirm whether DataGround withdrew the alias. Recover the original request before changing the route.",
+      true,
+      true,
+    );
   }
 }
