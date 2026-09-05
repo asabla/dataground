@@ -795,6 +795,12 @@ func (server *Server) streamInvocationEvents(response http.ResponseWriter, reque
 		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: *apiError})
 		return
 	}
+	limit, err := parseEventReplayLimit(request.URL.RawQuery)
+	if err != nil {
+		status, body := invalidField("query", "Event replay limit must be an integer from 1 to 500.")
+		writeJSON(response, status, body)
+		return
+	}
 	cursor, err := parseCursor(request.Header.Get("Last-Event-ID"))
 	if err != nil {
 		status, body := invalidField("Last-Event-ID", "Event cursor must be a non-negative integer.")
@@ -803,7 +809,21 @@ func (server *Server) streamInvocationEvents(response http.ResponseWriter, reque
 	}
 	server.mu.RLock()
 	journal, exists := server.events[resourceKey(domainID, request.PathValue("invocationId"))]
-	journal = append([]EventEnvelope(nil), journal...)
+	if limit == 0 {
+		journal = append([]EventEnvelope(nil), journal...)
+	} else {
+		selected := make([]EventEnvelope, 0, limit+1)
+		for _, event := range journal {
+			if event.Sequence <= cursor {
+				continue
+			}
+			selected = append(selected, event)
+			if len(selected) == limit+1 {
+				break
+			}
+		}
+		journal = selected
+	}
 	server.mu.RUnlock()
 	if !exists {
 		status, body := notFound("Invocation was not found.")
@@ -811,21 +831,7 @@ func (server *Server) streamInvocationEvents(response http.ResponseWriter, reque
 		return
 	}
 
-	response.Header().Set("Cache-Control", "no-store")
-	response.Header().Set("Content-Type", "text/event-stream")
-	response.Header().Set("X-Accel-Buffering", "no")
-	response.Header().Set("X-Content-Type-Options", "nosniff")
-	response.WriteHeader(http.StatusOK)
-	for _, event := range journal {
-		if event.Sequence <= cursor {
-			continue
-		}
-		encoded, err := json.Marshal(event)
-		if err != nil {
-			return
-		}
-		_, _ = fmt.Fprintf(response, "id: %d\nevent: %s\ndata: %s\n\n", event.Sequence, event.Type, encoded)
-	}
+	writeInvocationEventReplay(response, journal, cursor, limit)
 }
 
 func (server *Server) getInvocationArtifact(response http.ResponseWriter, request *http.Request) {
