@@ -577,8 +577,9 @@ func (repository *Repository) AcceptInvocation(
 			return 0, nil, invocationDispatchMismatch()
 		}
 		var revisionID, runtimeProfile string
+		var inputSchemaJSON []byte
 		if err := tx.QueryRow(ctx, `
-			SELECT alias.revision_id, revision.runtime_profile
+			SELECT alias.revision_id, revision.runtime_profile, revision.input_schema
 			FROM service_aliases AS alias
 			JOIN service_revisions AS revision
 			  ON revision.isolation_domain_id = alias.isolation_domain_id
@@ -589,7 +590,7 @@ func (repository *Repository) AcceptInvocation(
 			  AND alias.name = $3
 			  AND revision.state = 'published'
 			FOR SHARE OF alias, revision
-		`, idempotency.IsolationDomainID, input.ServiceID, input.Alias).Scan(&revisionID, &runtimeProfile); err != nil {
+		`, idempotency.IsolationDomainID, input.ServiceID, input.Alias).Scan(&revisionID, &runtimeProfile, &inputSchemaJSON); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return 0, nil, &DomainError{Code: "RESOURCE_NOT_FOUND", Message: "Published service alias was not found."}
 			}
@@ -599,6 +600,13 @@ func (repository *Repository) AcceptInvocation(
 			(revisionID != input.DispatchTarget.RevisionID ||
 				runtimeProfile != input.DispatchTarget.RuntimeProfile) {
 			return 0, nil, invocationDispatchMismatch()
+		}
+		var inputSchema map[string]any
+		if len(inputSchemaJSON) > 0 && json.Unmarshal(inputSchemaJSON, &inputSchema) != nil {
+			return 0, nil, &DomainError{Code: "REVISION_INPUT_SCHEMA_INVALID", Message: "The service revision input contract cannot be validated."}
+		}
+		if problem := domain.ValidateInvocationInput(inputSchema, input.Input); problem != nil {
+			return 0, nil, &DomainError{Code: problem.Code, Message: problem.Message}
 		}
 		encodedInput, err := json.Marshal(input.Input)
 		if err != nil {
