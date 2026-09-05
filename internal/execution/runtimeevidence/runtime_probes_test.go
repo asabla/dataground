@@ -456,7 +456,9 @@ func (server *codexProbeServer) write(value any) {
 	}
 }
 
-func (server *codexProbeServer) start() {
+func (server *codexProbeServer) start() { server.startModel("") }
+
+func (server *codexProbeServer) startModel(model string) {
 	initialize := server.read()
 	if initialize.Method != "initialize" {
 		panic("expected initialize")
@@ -468,6 +470,13 @@ func (server *codexProbeServer) start() {
 	thread := server.read()
 	if thread.Method != "thread/start" {
 		panic("expected thread/start")
+	}
+	var params map[string]any
+	if err := json.Unmarshal(thread.Params, &params); err != nil {
+		panic(err)
+	}
+	if model == "" && params["model"] != nil || model != "" && params["model"] != model {
+		panic("unexpected probe model")
 	}
 	server.respond(thread.ID, map[string]any{"thread": map[string]any{"id": "native-thread"}})
 	turn := server.read()
@@ -576,5 +585,25 @@ func approvalScript(method string) func(*codexProbeServer) {
 			panic("expected declined approval")
 		}
 		server.interrupt()
+	}
+}
+
+func TestLocalDiagnosticProbePinsSelectedModel(t *testing.T) {
+	fixture := newCodexProbeFixture(func(server *codexProbeServer) {
+		server.startModel("selected-model.v1")
+		server.interrupt()
+	})
+	config := fixture.config()
+	config.diagnosticModel = "selected-model.v1"
+	probes, err := NewCodexProbes(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := probes.Initialize(context.Background(), testProbeRequest()); err != nil {
+		t.Fatal(err)
+	}
+	config.diagnosticModel = "unsafe/model"
+	if _, err := NewCodexProbes(config); !errors.Is(err, ErrCodexProbeConfiguration) {
+		t.Fatal("invalid model accepted")
 	}
 }
