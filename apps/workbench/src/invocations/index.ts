@@ -29,3 +29,5 @@ export {
   type InvocationComposerSchemaResult,
   normalizeInvocationComposerSchema,
 } from "./composerSchema";
+
+export { InvocationInspectionWorkflow } from "./InvocationInspectionWorkflow";
