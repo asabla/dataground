@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import type { DataGroundClient } from "../contracts/client";
 import type { PublishedServiceRevisionResource } from "../revisions/publicationClient";
-import { assignServiceAlias, readServiceAlias, type ServiceAliasResource } from "./aliasClient";
+import {
+  assignServiceAlias,
+  readServiceAlias,
+  type ServiceAliasResource,
+  withdrawServiceAlias,
+} from "./aliasClient";
 
 const revision: PublishedServiceRevisionResource = {
   metadata: {
@@ -399,5 +404,131 @@ describe("service alias client", () => {
       assert.equal(result.error.retryable, true);
       assert.doesNotMatch(result.error.message, /secret|upstream/u);
     }
+  });
+});
+
+describe("alias withdrawal client", () => {
+  const withdrawnAt = "2026-08-14T17:00:00Z";
+  const receipt = {
+    ...current,
+    withdrawnAt,
+    metadata: { ...current.metadata, version: 5, generation: 5, updatedAt: withdrawnAt },
+  };
+  it("binds the alias, service, expected version, and original request key", async () => {
+    let sent: unknown;
+    const result = await withdrawServiceAlias(
+      {
+        POST: async (path: string, options: unknown) => {
+          sent = { path, options };
+          return {
+            data: { ...receipt, nativeEndpoint: "must be stripped" },
+            response: new Response(null, { status: 200 }),
+          };
+        },
+      } as unknown as DataGroundClient,
+      current,
+      "withdraw:request0001",
+    );
+    assert.equal(result.ok, true);
+    assert.deepEqual(sent, {
+      path: "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/aliases/{alias}/actions/withdraw",
+      options: {
+        body: { expectedVersion: 4 },
+        params: {
+          path: {
+            isolationDomainId: current.metadata.isolationDomainId,
+            serviceId: current.serviceId,
+            alias: "stable",
+          },
+          header: { "Idempotency-Key": "withdraw:request0001" },
+        },
+      },
+    });
+    assert.doesNotMatch(JSON.stringify(result), /nativeEndpoint|must be stripped/);
+  });
+  it("treats substituted or incomplete receipts as recoverable uncertainty", async () => {
+    for (const override of [
+      { withdrawnAt: undefined },
+      { withdrawnAt: "invalid" },
+      { name: "other" },
+      { serviceId: "svc_00000000000000000002" },
+      { revisionId: revision.metadata.id },
+      { metadata: { ...receipt.metadata, id: createdAlias.metadata.id } },
+      { metadata: { ...receipt.metadata, isolationDomainId: "iso_00000000000000000002" } },
+      { metadata: { ...receipt.metadata, version: 4 } },
+      { metadata: { ...receipt.metadata, generation: 6 } },
+      { metadata: { ...receipt.metadata, createdBy: "other" } },
+      { metadata: { ...receipt.metadata, updatedAt: current.metadata.updatedAt } },
+    ]) {
+      const result = await withdrawServiceAlias(
+        {
+          POST: async () => ({
+            data: { ...receipt, ...override },
+            response: new Response(null, { status: 200 }),
+          }),
+        } as unknown as DataGroundClient,
+        current,
+        "withdraw:request0002",
+      );
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.equal(result.error.outcomeUnknown, true);
+        assert.equal(result.error.retryable, true);
+      }
+    }
+  });
+  it("separates authoritative denials from unconfirmed transport outcomes", async () => {
+    for (const status of [403, 409, 503]) {
+      const result = await withdrawServiceAlias(
+        {
+          POST: async () => ({
+            error: {
+              error: {
+                code: "REQUEST_DENIED",
+                message: "Request denied.",
+                correlationId: "cor_request",
+                retryable: false,
+              },
+            },
+            response: new Response(null, { status }),
+          }),
+        } as unknown as DataGroundClient,
+        current,
+        "withdraw:request0003",
+      );
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.equal(result.error.outcomeUnknown === true, status === 503);
+        assert.equal(result.error.retryable, status === 503);
+      }
+    }
+    const result = await withdrawServiceAlias(
+      {
+        POST: async () => {
+          throw new Error("private-token");
+        },
+      } as unknown as DataGroundClient,
+      current,
+      "withdraw:request0004",
+    );
+    assert.equal(result.ok, false);
+    assert.doesNotMatch(JSON.stringify(result), /private-token/);
+    if (!result.ok) assert.equal(result.error.outcomeUnknown, true);
+  });
+  it("does not send invalid scope, withdrawn state, or version preconditions", async () => {
+    let calls = 0;
+    const client = {
+      POST: async () => {
+        calls++;
+      },
+    } as unknown as DataGroundClient;
+    for (const alias of [
+      { ...current, name: "INVALID" },
+      { ...current, metadata: { ...current.metadata, version: 0 } },
+      { ...current, withdrawnAt },
+    ]) {
+      assert.equal((await withdrawServiceAlias(client, alias, "withdraw:request0005")).ok, false);
+    }
+    assert.equal(calls, 0);
   });
 });

@@ -6,6 +6,7 @@ import {
   type ServiceAliasFailure,
   type ServiceAliasResource,
 } from "./aliases";
+import { ServiceAliasWithdrawWorkflow } from "./aliases/ServiceAliasWithdrawWorkflow";
 import type { InvocationApprovalReference } from "./approvals";
 import type { InvocationArtifactReference } from "./artifacts";
 import { createDataGroundClient, type DataGroundClient } from "./contracts/client";
@@ -154,6 +155,7 @@ export function DevelopmentWorkbench({
   const [openedPublishedRevision, setOpenedPublishedRevision] =
     useState<PublishedServiceRevisionResource>();
   const [openedRevision, setOpenedRevision] = useState<ServiceRevisionResource>();
+  const [withdrawalAlias, setWithdrawalAlias] = useState<ServiceAliasResource>();
   const [retirementRevision, setRetirementRevision] = useState<ServiceRevisionHistoryResource>();
   const [openedService, setOpenedService] = useState<AgentServiceResource>();
   const [revisionHistory, setRevisionHistory] = useState<ServiceRevisionHistoryResource[]>([]);
@@ -317,6 +319,7 @@ export function DevelopmentWorkbench({
     setOpenedRevision(undefined);
     setOpenedService(undefined);
     setRetirementRevision(undefined);
+    setWithdrawalAlias(undefined);
     setRevisionHistory([]);
     setAliasReadError(undefined);
     setAliasReadLoading(false);
@@ -338,6 +341,7 @@ export function DevelopmentWorkbench({
     setOpenedRevision(undefined);
     setOpenedService(service);
     setRetirementRevision(undefined);
+    setWithdrawalAlias(undefined);
     setRevisionHistory([]);
     setAliasReadError(undefined);
     setAliasReadLoading(false);
@@ -661,13 +665,63 @@ export function DevelopmentWorkbench({
                       }
                       onRetry={() => void loadRevisionPage(openedService)}
                       onRetire={
-                        retirementRevision
+                        retirementRevision || withdrawalAlias
                           ? undefined
                           : (revision) => setRetirementRevision(revision)
                       }
                       revisions={revisionHistory}
                     />
                   )}
+                  {observedAlias &&
+                  openedService &&
+                  !retirementRevision &&
+                  !withdrawalAlias &&
+                  !aliasReadLoading &&
+                  !aliasReadError &&
+                  observedAlias.metadata.isolationDomainId === isolationDomainId &&
+                  observedAlias.serviceId === openedService.metadata.id ? (
+                    <section
+                      className="product-workflow__inspection"
+                      aria-label="Current service route"
+                    >
+                      <p>
+                        Alias <strong>{observedAlias.name}</strong> · Version{" "}
+                        {observedAlias.metadata.version}
+                      </p>
+                      <Button
+                        onPress={() =>
+                          setWithdrawalAlias({
+                            ...observedAlias,
+                            metadata: { ...observedAlias.metadata },
+                          })
+                        }
+                        variant="quiet"
+                      >
+                        Withdraw {observedAlias.name} alias
+                      </Button>
+                    </section>
+                  ) : null}
+                  {withdrawalAlias &&
+                  openedService &&
+                  withdrawalAlias.metadata.isolationDomainId === isolationDomainId &&
+                  withdrawalAlias.serviceId === openedService.metadata.id ? (
+                    <ServiceAliasWithdrawWorkflow
+                      alias={withdrawalAlias}
+                      canWithdraw
+                      client={client}
+                      onClose={() => {
+                        openService(openedService);
+                        document.getElementById("revision-history-title")?.focus();
+                      }}
+                      onWithdrawn={() => {
+                        aliasReadGeneration.current++;
+                        setAliasReadLoading(false);
+                        setAliasReadError(undefined);
+                        setObservedAlias(undefined);
+                        setOpenedAlias(undefined);
+                      }}
+                    />
+                  ) : null}
                   {retirementRevision &&
                     openedService &&
                     retirementRevision.metadata.isolationDomainId === isolationDomainId &&
@@ -712,7 +766,7 @@ export function DevelopmentWorkbench({
                   revisionHistory.length === 0 &&
                   (revisionListLoading || revisionListError)
                     ? null
-                    : retirementRevision
+                    : retirementRevision || withdrawalAlias
                       ? null
                       : openedService && (aliasReadLoading || aliasReadError)
                         ? null

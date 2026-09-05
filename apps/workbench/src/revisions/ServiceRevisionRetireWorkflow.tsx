@@ -120,8 +120,8 @@ export function ServiceRevisionRetireWorkflow({
       </p>
       {!retired && (
         <p>
-          Move every alias away and finish or cancel active work first. DataGround checks these
-          conditions when the command commits.
+          Move or withdraw every alias and finish or cancel active work first. DataGround checks
+          these conditions when the command commits.
         </p>
       )}
       {retired ? (
