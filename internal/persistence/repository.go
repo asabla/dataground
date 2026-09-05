@@ -1163,7 +1163,7 @@ func getPublicationOperation(
 		SELECT isolation_domain_id, id, command, desired_state, observed_state,
 		       state_machine_version, generation, attempt, lease_owner, lease_token,
 		       lease_expires_at, due_at, deadline_at, error_classification, error,
-		       terminal_result, correlation_id, actor_id, created_at, updated_at
+		       terminal_result, correlation_id, actor_id, created_at, updated_at, revision_id
 		FROM service_publication_operations
 		WHERE isolation_domain_id = $1 AND id = $2
 	`, isolationDomainID, operationID), "service-publication")
@@ -1179,7 +1179,7 @@ func getInvocationOperation(
 		SELECT isolation_domain_id, id, command, desired_state, observed_state,
 		       state_machine_version, generation, attempt, lease_owner, lease_token,
 		       lease_expires_at, due_at, deadline_at, error_classification, error,
-		       terminal_result, correlation_id, actor_id, created_at, updated_at
+		       terminal_result, correlation_id, actor_id, created_at, updated_at, invocation_id
 		FROM invocation_execution_operations
 		WHERE isolation_domain_id = $1 AND id = $2
 	`, isolationDomainID, operationID), "invocation-execution")
@@ -1214,6 +1214,7 @@ func scanOperation(row rowScanner, kind string) (domain.Operation, error) {
 		&actorID,
 		&value.Metadata.CreatedAt,
 		&value.Metadata.UpdatedAt,
+		&value.ResourceID,
 	)
 	if err != nil {
 		return domain.Operation{}, err

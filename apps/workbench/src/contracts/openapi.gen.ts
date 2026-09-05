@@ -396,6 +396,8 @@ export interface components {
         Operation: {
             metadata: components["schemas"]["ResourceMetadata"];
             kind: string;
+            /** @description The exact affected resource in metadata.isolationDomainId: a revision for service-publication or an invocation for invocation-execution. Present on current operation reads and newly accepted publication receipts. Historical idempotent receipts may omit it; clients must obtain an authorized operation read and validate its resource binding before relying on those receipts. */
+            resourceId?: string;
             command: string;
             desiredState: string;
             observedState: string;

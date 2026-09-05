@@ -645,6 +645,7 @@ func (server *Server) invokeAgentService(response http.ResponseWriter, request *
 		server.operations[resourceKey(domainID, operationID)] = Operation{
 			Metadata:            newMetadata(operationID, domainID, actorID, now),
 			Kind:                "invocation-execution",
+			ResourceID:          invocationID,
 			Command:             "invoke",
 			DesiredState:        "succeeded",
 			ObservedState:       operationState,

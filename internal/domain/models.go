@@ -52,6 +52,7 @@ type Operation struct {
 	Metadata            ResourceMetadata `json:"metadata"`
 	Kind                string           `json:"kind"`
 	Command             string           `json:"command"`
+	ResourceID          string           `json:"resourceId,omitempty"`
 	DesiredState        string           `json:"desiredState"`
 	ObservedState       string           `json:"observedState"`
 	StateMachineVersion int              `json:"stateMachineVersion"`
