@@ -14,6 +14,7 @@ PostgreSQL 18 is required for durable integration tests and durable control-plan
 | `cmd/dataground-worker` | Replaceable publication and invocation reconciler |
 | `cmd/dataground-migrate` | PostgreSQL schema migration and compatibility check |
 | `cmd/dataground-repair` | Audited failed-operation repair command |
+| `cmd/dataground-execution-plan-install` | Reviewed immutable revision execution-plan installer |
 | `cmd/dataground-policy-install` | Audited immutable invocation-policy installer |
 | `cmd/dataground-policy-withdraw` | Audited exact-digest invocation-policy withdrawal |
 | `cmd/dataground-auth-rate-limit-policy` | Audited authentication admission-policy activator |
