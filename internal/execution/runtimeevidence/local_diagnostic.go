@@ -10,7 +10,7 @@ import (
 const localDiagnosticTimeout = 10 * time.Minute
 
 const LocalDiagnosticSchemaVersion = "dataground.dev.openshell-runtime-diagnostic/v1"
-const CandidateDiagnosticSchemaVersion = "dataground.dev.openshell-runtime-diagnostic/v2"
+const CandidateDiagnosticSchemaVersion = "dataground.dev.openshell-runtime-diagnostic/v3"
 
 var diagnosticModelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
@@ -82,6 +82,7 @@ func (result LocalDiagnosticResult) MarshalJSON() ([]byte, error) {
 		schema, credentialCheck = CandidateDiagnosticSchemaVersion, "passed"
 		expectedProfile.SandboxImage = value.candidateImage
 		expectedProfile.CredentialEvidenceSHA256 = ""
+		expectedProfile.RuntimePolicySHA256 = candidateRuntimePolicySHA256
 	}
 	if value.record.Profile != expectedProfile {
 		return nil, ErrRunIncomplete

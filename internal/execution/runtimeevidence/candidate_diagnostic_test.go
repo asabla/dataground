@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/asabla/dataground/internal/execution"
 )
+
+const candidateRuntimeTestPolicy = "version: 1\n\n# Proxy-mode baseline paths omit the null device used for child standard I/O.\n# Grant this device explicitly; do not grant the containing /dev directory.\nfilesystem_policy:\n  read_write:\n    - /dev/null\n"
 
 func TestCandidateDiagnosticRejectsMixedProvenanceAndMutableImages(t *testing.T) {
 	for _, image := range []string{"candidate:latest", "sha256:" + strings.Repeat("a", 63)} {
@@ -103,6 +106,13 @@ func TestCandidateDiagnosticBindsActualImageWithoutStockCredentialEvidence(t *te
 	if _, err := json.Marshal(result.result); !errors.Is(err, ErrSerialization) {
 		t.Fatal("candidate result serialized as CI evidence")
 	}
+	for _, digest := range []string{"", strings.Repeat("0", 64), runtimePolicySHA256} {
+		changed := result
+		changed.result.record.Profile.RuntimePolicySHA256 = digest
+		if _, err := json.Marshal(changed); !errors.Is(err, ErrRunIncomplete) {
+			t.Fatal("substituted runtime policy was accepted")
+		}
+	}
 	result.result.record.Profile.CredentialEvidenceSHA256 = credentialEvidenceSHA256
 	if _, err := json.Marshal(result); !errors.Is(err, ErrRunIncomplete) {
 		t.Fatal("stock credential evidence was accepted for candidate")
@@ -123,6 +133,7 @@ func TestCandidateCreatorUsesDedicatedLocalImageOperation(t *testing.T) {
 	fixture := newExecutionCreatorFixture()
 	config := fixture.config()
 	config.diagnosticImage = "sha256:" + strings.Repeat("a", 64)
+	config.Policy = []byte(candidateRuntimeTestPolicy)
 	if _, err := newExecutionCreator(config, fixture.poll); !errors.Is(err, ErrExecutionCreationConfiguration) {
 		t.Fatal("provider without diagnostic operation was accepted")
 	}
@@ -135,7 +146,7 @@ func TestCandidateCreatorUsesDedicatedLocalImageOperation(t *testing.T) {
 	if _, err := creator.Create(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if provider.diagnosticCalls != 1 || provider.createRequest.Image != config.diagnosticImage || provider.createRequest.PolicyDigest != "sha256:"+runtimePolicySHA256 {
+	if provider.diagnosticCalls != 1 || provider.createRequest.Image != config.diagnosticImage || provider.createRequest.PolicyDigest != "sha256:"+candidateRuntimePolicySHA256 {
 		t.Fatal("candidate creation lost its image, operation or policy binding")
 	}
 	if err := creator.Cleanup(context.Background(), CleanupRequest{RunID: testRunID, ResourceKind: "sandbox", ResourceName: namesForRun(testRunID).Sandbox}); err != nil {
@@ -189,5 +200,39 @@ func TestLocalNormalizationFailureSurvivesCompleteEvidenceComposition(t *testing
 	}
 	if _, err := json.Marshal(result); !errors.Is(err, ErrRunIncomplete) {
 		t.Fatal("failed diagnostic released evidence")
+	}
+}
+
+func TestCandidatePolicySelectionAndDrift(t *testing.T) {
+	root, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range []bool{false, true} {
+		config := LauncherConfig{RepositoryRoot: root}
+		want := executionCreatorTestPolicy
+		if candidate {
+			config.candidateImage = "sha256:" + strings.Repeat("a", 64)
+			want = candidateRuntimeTestPolicy
+		}
+		policy, err := readRuntimeLauncherPolicy(config)
+		if err != nil || string(policy) != want {
+			t.Fatal("launcher selected a different policy")
+		}
+	}
+	fixture := newExecutionCreatorFixture()
+	config := fixture.config()
+	config.Provider = &candidateCreatorProvider{executionCreatorProvider: fixture.provider}
+	config.diagnosticImage = "sha256:" + strings.Repeat("a", 64)
+	for _, policy := range []string{executionCreatorTestPolicy, strings.ReplaceAll(candidateRuntimeTestPolicy, "/dev/null", "/dev"), candidateRuntimeTestPolicy + "\n"} {
+		config.Policy = []byte(policy)
+		if _, err := newExecutionCreator(config, fixture.poll); !errors.Is(err, ErrExecutionCreationConfiguration) {
+			t.Fatal("candidate accepted policy drift")
+		}
+	}
+	config.diagnosticImage = ""
+	config.Policy = []byte(candidateRuntimeTestPolicy)
+	if _, err := newExecutionCreator(config, fixture.poll); !errors.Is(err, ErrExecutionCreationConfiguration) {
+		t.Fatal("default execution accepted the candidate policy")
 	}
 }

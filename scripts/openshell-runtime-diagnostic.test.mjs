@@ -115,8 +115,10 @@ test("local diagnostic reports have a closed shape and cannot be CI evidence", (
 
 function candidateDiagnostic() {
   const value = diagnostic();
-  value.schemaVersion = "dataground.dev.openshell-runtime-diagnostic/v2";
+  value.schemaVersion = "dataground.dev.openshell-runtime-diagnostic/v3";
   value.candidateCredentialCheck = "passed";
+  value.profile.runtimePolicySHA256 =
+    "d7f510e5332068cea5106de5351973dc60f15e22e970fa9352a75d3bbd32b95d";
   value.profile.sandboxImage = `sha256:${"a".repeat(64)}`;
   delete value.profile.credentialEvidenceSHA256;
   return value;
@@ -128,6 +130,15 @@ test("candidate reports require exact local image and scan without stock certifi
   assert.equal(validate(value), false);
   assert.equal(validateEvidence(value), false);
   for (const mutate of [
+    (value) => {
+      delete value.profile.runtimePolicySHA256;
+    },
+    (value) => {
+      value.profile.runtimePolicySHA256 = "0".repeat(64);
+    },
+    (value) => {
+      value.schemaVersion = "dataground.dev.openshell-runtime-diagnostic/v2";
+    },
     (value) => {
       value.profile.sandboxImage = "candidate:latest";
     },

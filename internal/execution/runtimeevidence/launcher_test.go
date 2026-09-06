@@ -202,8 +202,11 @@ func (fixture *launcherFixture) dependencies() launcherDependencies {
 			fixture.events = append(fixture.events, "run-id")
 			return testRunID, nil
 		},
-		readPolicy: func(string) ([]byte, error) {
+		readPolicy: func(config LauncherConfig) ([]byte, error) {
 			fixture.events = append(fixture.events, "policy")
+			if config.candidateImage != "" {
+				return []byte(candidateRuntimeTestPolicy), nil
+			}
 			return []byte(executionCreatorTestPolicy), nil
 		},
 		openWorkspace: func(string, string) (launcherWorkspace, error) {

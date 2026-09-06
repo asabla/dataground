@@ -79,3 +79,13 @@ jobs:
           go test ./internal/security/canarylauncher
           -run '^TestCandidateCredentialNonExposure$'
           -count=1 -timeout=12m -v
+
+      - name: Verify provider-bound child execution and denials
+        env:
+          DATAGROUND_TEST_CODEX_COMPATIBILITY_IMAGE: ${{ steps.candidate.outputs.image }}
+          DATAGROUND_TEST_RUNTIME_TOPOLOGY_ROOT: ${{ github.workspace }}
+          DATAGROUND_TEST_OPENSHELL_BINARY: ${{ steps.openshell.outputs.cli }}
+        run: >-
+          go test ./internal/execution/runtimeevidence
+          -run '^TestCodexProviderBoundSandboxCompatibility$'
+          -count=1 -timeout=10m -v

@@ -13,6 +13,7 @@ import (
 )
 
 const (
+	candidateRuntimePolicySHA256   = "d7f510e5332068cea5106de5351973dc60f15e22e970fa9352a75d3bbd32b95d"
 	runtimePolicySHA256            = "a193c3421b98a1640aa099d91b528beaee91af2a14980ba423ac3050c40649a9"
 	runtimeExecutionReadyTimeout   = 5 * time.Minute
 	runtimeExecutionPollInterval   = time.Second
@@ -47,21 +48,22 @@ type ExecutionCreator struct {
 }
 
 type executionCreationState struct {
-	image     string
-	create    func(context.Context, execution.CreateRequest) (execution.Execution, error)
-	mu        sync.Mutex
-	runID     string
-	resources Resources
-	store     HarnessStore
-	provider  ExecutionCreationProvider
-	policy    []byte
-	ref       execution.ExecutionRef
-	poll      func(context.Context) error
-	started   bool
-	created   bool
-	cleaning  bool
-	cleaned   bool
-	failed    bool
+	policyDigest string
+	image        string
+	create       func(context.Context, execution.CreateRequest) (execution.Execution, error)
+	mu           sync.Mutex
+	runID        string
+	resources    Resources
+	store        HarnessStore
+	provider     ExecutionCreationProvider
+	policy       []byte
+	ref          execution.ExecutionRef
+	poll         func(context.Context) error
+	started      bool
+	created      bool
+	cleaning     bool
+	cleaned      bool
+	failed       bool
 }
 
 // NewExecutionCreator owns the immutable OpenShell execution inputs used by
@@ -75,6 +77,10 @@ func newExecutionCreator(
 	config ExecutionCreationConfig,
 	poll func(context.Context) error,
 ) (*ExecutionCreator, error) {
+	policyDigest := runtimePolicySHA256
+	if config.diagnosticImage != "" {
+		policyDigest = candidateRuntimePolicySHA256
+	}
 	if !runIDPattern.MatchString(config.RunID) ||
 		len(config.Policy) == 0 ||
 		isNilHarnessPort(config.Store) ||
@@ -82,7 +88,7 @@ func newExecutionCreator(
 		poll == nil ||
 		execution.VerifyEnforcementPolicy(
 			config.Policy,
-			"sha256:"+runtimePolicySHA256,
+			"sha256:"+policyDigest,
 		) != nil {
 		return nil, ErrExecutionCreationConfiguration
 	}
@@ -99,7 +105,7 @@ func newExecutionCreator(
 	}
 	isolationDomainID := runtimeIsolationDomain(config.RunID)
 	return &ExecutionCreator{state: &executionCreationState{
-		image: image, create: create,
+		image: image, create: create, policyDigest: "sha256:" + policyDigest,
 		runID:     config.RunID,
 		resources: namesForRun(config.RunID),
 		store:     config.Store,
@@ -186,7 +192,7 @@ func (creator *ExecutionCreator) Create(ctx context.Context) (execution.Executio
 		OperationID:       runtimeOperationID(state.runID),
 		Image:             state.image,
 		Policy:            requestPolicy,
-		PolicyDigest:      "sha256:" + runtimePolicySHA256,
+		PolicyDigest:      state.policyDigest,
 		ProviderProfiles:  []string{state.resources.Provider},
 	})
 	clear(requestPolicy)
