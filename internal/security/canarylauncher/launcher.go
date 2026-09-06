@@ -108,7 +108,11 @@ type Config struct {
 // wraps the exact Codex session, and releases evidence only after every owned
 // resource and the run-scoped gateway volume have been removed.
 func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
-	if ctx == nil {
+	return run(ctx, config, "")
+}
+
+func run(ctx context.Context, config Config, diagnosticImage string) (canaryevidence.Result, error) {
+	if ctx == nil || (diagnosticImage != "" && !candidateImagePattern.MatchString(diagnosticImage)) {
 		return canaryevidence.Result{}, ErrInvalidConfiguration
 	}
 	if err := ctx.Err(); err != nil {
@@ -271,11 +275,19 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 	if err != nil {
 		return canaryevidence.Result{}, launchError(ctx, FailureStagePlacement)
 	}
-	executionValue, err := provider.Create(ctx, execution.CreateRequest{
+	sandboxImage := canaryprofile.SandboxImage
+	if diagnosticImage != "" {
+		sandboxImage = diagnosticImage
+	}
+	create := provider.Create
+	if diagnosticImage != "" {
+		create = provider.CreateLocalDiagnostic
+	}
+	executionValue, err := create(ctx, execution.CreateRequest{
 		Placement:         placement,
 		IsolationDomainID: isolationDomainID,
 		OperationID:       operationID,
-		Image:             canaryprofile.SandboxImage,
+		Image:             sandboxImage,
 		Policy:            policy,
 		PolicyDigest:      "sha256:" + canaryprofile.PolicySHA256,
 		ProviderProfiles:  []string{names.Provider},
@@ -359,14 +371,15 @@ func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
 		return canaryevidence.Result{}, launchError(ctx, FailureStageDockerSourceBinding)
 	}
 	harness, err := canaryharness.New(canaryharness.Config{
-		RunID:       runID,
-		Provider:    provider,
-		Provisioned: provisioned,
-		Execution:   executionValue,
-		Workspace:   workspace,
-		OpenShell:   openShellSources,
-		Docker:      dockerSources,
-		Runtime:     runtimeSources,
+		DiagnosticImage: diagnosticImage,
+		RunID:           runID,
+		Provider:        provider,
+		Provisioned:     provisioned,
+		Execution:       executionValue,
+		Workspace:       workspace,
+		OpenShell:       openShellSources,
+		Docker:          dockerSources,
+		Runtime:         runtimeSources,
 	})
 	if err != nil {
 		return canaryevidence.Result{}, launchError(ctx, FailureStageHarnessComposition)

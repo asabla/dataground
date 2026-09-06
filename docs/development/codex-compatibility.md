@@ -22,4 +22,18 @@ go test ./internal/execution/runtimeevidence \
 
 The test creates and removes its own checked loopback gateway and labelled sandbox. It attaches no provider, prevents automatic provider discovery, uses a private empty CLI home, and owns a bounded subprocess lifetime. It compares the stock and experimental native helper and app-server `command/exec` paths, then repeats the app-server cases through the normal `codex app-server` launch without command-line feature overrides. Read-only must deny both workspace and outside writes; workspace-write must allow only the selected workspace. Both modes must deny INET and raw sockets and user-namespace creation. A separate inherited filter denies the alternative installation interface; when both interfaces are unavailable, the candidate must fail before executing its command. Cleanup independently checks that the labelled sandbox has disappeared before removing the gateway.
 
-The credential-free `Codex compatibility candidate` workflow performs the same build and comparison on relevant pull requests or manual dispatch. The original explicit-path comparison passed on local ARM64 and CI Linux AMD64 in PR #256; normal-launch activation requires its own comparison on both architectures. Inference, command and file approval mediation, artifacts, cancellation, credential non-exposure for this new image, full live conformance, release-image publication and any change to the accepted runtime profile remain separate requirements. The candidate explicitly records `certificationEligible: false`; existing release checkers and the default runtime remain unchanged.
+The credential-free `Codex compatibility candidate` workflow performs the same build and comparison on relevant pull requests or manual dispatch. The original explicit-path comparison passed on local ARM64 and CI Linux AMD64 in PR #256, and the normal-launch comparison passed on both architectures in PR #257.
+
+The workflow also scans the exact built image with the existing synthetic provider credential checker. This separate opt-in test covers sandbox process state, environment, readable filesystem, provider arguments, gateway logs, sandbox logs and the actual app-server error stream. It requires the expected candidate source label, non-certifying label and `sandbox` image user before provisioning. A dedicated internal `CreateLocalDiagnostic` operation permits an exact local Docker image ID only in the pinned loopback topology; ordinary execution creation continues to require a registry digest. Both paths use the same placement, policy, provider selection and recovery checks. Candidate scan results retain the actual image identity internally and cannot serialize as accepted credential evidence.
+
+Run this scan after the native comparison on the same disposable Linux host, with the same environment variables and image digest:
+
+```shell
+DATAGROUND_TEST_CODEX_COMPATIBILITY_IMAGE="$candidate_image" \
+DATAGROUND_TEST_RUNTIME_TOPOLOGY_ROOT="$PWD" \
+DATAGROUND_TEST_OPENSHELL_BINARY='<absolute-pinned-cli-path>' \
+go test ./internal/security/canarylauncher \
+  -run '^TestCandidateCredentialNonExposure$' -count=1 -timeout=12m -v
+```
+
+The candidate scan has passed locally on ARM64. Its workflow result must independently establish AMD64 coverage. It uses only generated synthetic credentials, and all seven scans plus resource cleanup must succeed. Inference, command and file approval mediation, artifacts, cancellation, full live conformance, release-image publication and any change to the accepted runtime profile remain separate requirements. The candidate explicitly records `certificationEligible: false`; existing release checkers and the default runtime remain unchanged.

@@ -295,6 +295,20 @@ func dockerEnvironment(
 	groupID int,
 	dockerGroupID int,
 ) []string {
+	return append(
+		dockerClientEnvironment(),
+		"DATAGROUND_CREDENTIAL_EVIDENCE_RUN_ID="+runID,
+		"DATAGROUND_CREDENTIAL_EVIDENCE_GATEWAY="+names.Gateway,
+		"DATAGROUND_CREDENTIAL_EVIDENCE_PROVIDER="+names.Provider,
+		"DATAGROUND_CREDENTIAL_EVIDENCE_STATE_PATH="+statePath,
+		"DATAGROUND_CREDENTIAL_EVIDENCE_JWT_PATH="+jwtPath,
+		"DATAGROUND_CREDENTIAL_EVIDENCE_UID="+strconv.Itoa(userID),
+		"DATAGROUND_CREDENTIAL_EVIDENCE_GID="+strconv.Itoa(groupID),
+		"DATAGROUND_CREDENTIAL_EVIDENCE_DOCKER_GID="+strconv.Itoa(dockerGroupID),
+	)
+}
+
+func dockerClientEnvironment() []string {
 	keys := [...]string{
 		"DOCKER_CERT_PATH",
 		"DOCKER_CONFIG",
@@ -305,23 +319,13 @@ func dockerEnvironment(
 		"PATH",
 		"XDG_CONFIG_HOME",
 	}
-	environment := make([]string, 0, len(keys)+7)
+	environment := make([]string, 0, len(keys))
 	for _, key := range keys {
 		if value, exists := os.LookupEnv(key); exists {
 			environment = append(environment, key+"="+value)
 		}
 	}
-	return append(
-		environment,
-		"DATAGROUND_CREDENTIAL_EVIDENCE_RUN_ID="+runID,
-		"DATAGROUND_CREDENTIAL_EVIDENCE_GATEWAY="+names.Gateway,
-		"DATAGROUND_CREDENTIAL_EVIDENCE_PROVIDER="+names.Provider,
-		"DATAGROUND_CREDENTIAL_EVIDENCE_STATE_PATH="+statePath,
-		"DATAGROUND_CREDENTIAL_EVIDENCE_JWT_PATH="+jwtPath,
-		"DATAGROUND_CREDENTIAL_EVIDENCE_UID="+strconv.Itoa(userID),
-		"DATAGROUND_CREDENTIAL_EVIDENCE_GID="+strconv.Itoa(groupID),
-		"DATAGROUND_CREDENTIAL_EVIDENCE_DOCKER_GID="+strconv.Itoa(dockerGroupID),
-	)
+	return environment
 }
 
 func dockerProcessIdentity() (int, int, int, error) {

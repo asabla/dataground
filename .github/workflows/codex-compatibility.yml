@@ -7,6 +7,9 @@ on:
       - .github/workflows/codex-compatibility.yml
       - deploy/openshell/**
       - internal/execution/runtimeevidence/**
+      - internal/execution/openshell/**
+      - internal/runtime/codex/**
+      - internal/security/canary*/**
       - .go-version
       - go.mod
       - go.sum
@@ -66,3 +69,13 @@ jobs:
           go test ./internal/execution/runtimeevidence
           -run '^TestCodexNativeSandboxCompatibility$'
           -count=1 -timeout=6m -v
+
+      - name: Scan the candidate for synthetic provider credential exposure
+        env:
+          DATAGROUND_TEST_CODEX_COMPATIBILITY_IMAGE: ${{ steps.candidate.outputs.image }}
+          DATAGROUND_TEST_RUNTIME_TOPOLOGY_ROOT: ${{ github.workspace }}
+          DATAGROUND_TEST_OPENSHELL_BINARY: ${{ steps.openshell.outputs.cli }}
+        run: >-
+          go test ./internal/security/canarylauncher
+          -run '^TestCandidateCredentialNonExposure$'
+          -count=1 -timeout=12m -v

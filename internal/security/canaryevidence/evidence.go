@@ -19,12 +19,14 @@ const (
 )
 
 var (
-	ErrInvalidConfiguration = errors.New("invalid credential evidence run configuration")
-	ErrCollection           = errors.New("credential evidence collection failed")
-	ErrCleanup              = errors.New("credential evidence cleanup failed")
-	ErrRunIncomplete        = errors.New("credential evidence run is incomplete")
-	ErrClock                = errors.New("credential evidence run clock moved backwards")
-	resourceNamePattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
+	ErrInvalidConfiguration    = errors.New("invalid credential evidence run configuration")
+	ErrCollection              = errors.New("credential evidence collection failed")
+	ErrCleanup                 = errors.New("credential evidence cleanup failed")
+	ErrRunIncomplete           = errors.New("credential evidence run is incomplete")
+	ErrClock                   = errors.New("credential evidence run clock moved backwards")
+	ErrDiagnosticSerialization = errors.New("candidate credential checks cannot produce certification evidence")
+	resourceNamePattern        = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
+	diagnosticImagePattern     = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 )
 
 type Resources struct {
@@ -50,6 +52,9 @@ type Cleanup struct {
 }
 
 type Config struct {
+	// DiagnosticImage binds an experimental local image and permanently disables
+	// serialization of the result as accepted credential evidence.
+	DiagnosticImage  string
 	RunID            string
 	CanaryCommitment string
 	Resources        Resources
@@ -60,8 +65,9 @@ type Config struct {
 // Result is an opaque final evidence record. Failed collection, uncertain
 // cleanup, or clock regression prevents its JSON representation.
 type Result struct {
-	evidence evidence
-	complete bool
+	evidence   evidence
+	complete   bool
+	diagnostic bool
 }
 
 type evidence struct {
@@ -148,7 +154,11 @@ func runEvidence(ctx context.Context, config Config, now func() time.Time) (Resu
 	}
 
 	profileIdentity := canaryprofile.Current()
+	if config.DiagnosticImage != "" {
+		profileIdentity.SandboxImage = config.DiagnosticImage
+	}
 	return Result{
+		diagnostic: config.DiagnosticImage != "",
 		evidence: evidence{
 			SchemaVersion: canaryprofile.SchemaVersion,
 			Profile: profile{
@@ -180,6 +190,9 @@ func runEvidence(ctx context.Context, config Config, now func() time.Time) (Resu
 }
 
 func (result Result) MarshalJSON() ([]byte, error) {
+	if result.diagnostic {
+		return nil, ErrDiagnosticSerialization
+	}
 	if !result.complete {
 		return nil, ErrRunIncomplete
 	}
@@ -187,7 +200,8 @@ func (result Result) MarshalJSON() ([]byte, error) {
 }
 
 func validate(config Config) error {
-	if config.Cleanup.Sandbox == nil ||
+	if (config.DiagnosticImage != "" && !diagnosticImagePattern.MatchString(config.DiagnosticImage)) ||
+		config.Cleanup.Sandbox == nil ||
 		config.Cleanup.ProviderBinding == nil ||
 		config.Cleanup.Workspace == nil ||
 		!resourceNamePattern.MatchString(config.Resources.Workspace) ||
