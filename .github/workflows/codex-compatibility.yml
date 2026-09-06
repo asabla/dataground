@@ -171,9 +171,8 @@ jobs:
           REGISTRY_TOKEN: ${{ github.token }}
           REGISTRY_USER: ${{ github.actor }}
           CANDIDATE_ARCH: ${{ inputs.architecture }}
-          DOCKER_CONFIG: ${{ runner.temp }}/candidate-registry-auth
         run: |
-          install --directory --mode 0700 "$DOCKER_CONFIG"
+          # The pinned attestation action reads ~/.docker/config.json directly.
           printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$REGISTRY_USER" --password-stdin
           unset REGISTRY_TOKEN
           python3 deploy/openshell/codex-compatibility/publication.py publish \
@@ -183,8 +182,6 @@ jobs:
 
       - name: Attest the published candidate provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        env:
-          DOCKER_CONFIG: ${{ runner.temp }}/candidate-registry-auth
         with:
           subject-name: ghcr.io/asabla/dataground-codex-candidate
           subject-digest: ${{ steps.published.outputs.digest }}
@@ -192,6 +189,4 @@ jobs:
 
       - name: Remove ephemeral registry authentication
         if: always()
-        env:
-          DOCKER_CONFIG: ${{ runner.temp }}/candidate-registry-auth
-        run: rm -rf -- "$DOCKER_CONFIG"
+        run: docker logout ghcr.io
