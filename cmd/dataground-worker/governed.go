@@ -34,6 +34,7 @@ const (
 	governedProviderProfile        = "codex"
 	governedGatewayEndpoint        = "http://127.0.0.1:8080"
 	governedSandboxImage           = "ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e"
+	governedEnforcementDigest      = "sha256:a193c3421b98a1640aa099d91b528beaee91af2a14980ba423ac3050c40649a9"
 	governedRuntimeLeaseDuration   = 30 * time.Second
 	governedRuntimeRenewInterval   = 10 * time.Second
 	maximumConfiguredArtifactBytes = 1 << 30
@@ -146,6 +147,7 @@ func (store governedExecutionPlanStore) GetExecutionPlan(
 func validGovernedDevelopmentPlan(plan execution.ExecutionPlan) bool {
 	return plan.RuntimeProfile == reconcile.CodexAppServerRuntimeProfileV1 &&
 		plan.ImageReference == governedSandboxImage &&
+		plan.EnforcementBundleDigest == governedEnforcementDigest &&
 		slices.Equal(plan.ProviderProfiles, []string{governedProviderProfile}) &&
 		slices.Equal(plan.RequiredCapabilities, []string{reconcile.CodexAppServerRuntimeProfileV1})
 }
