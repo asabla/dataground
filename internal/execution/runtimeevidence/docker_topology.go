@@ -60,6 +60,7 @@ type DockerTopology struct {
 }
 
 type dockerTopologyState struct {
+	candidate   candidateTopologyBinding
 	mu          sync.Mutex
 	runID       string
 	resources   Resources
@@ -147,12 +148,15 @@ func newDockerTopology(
 		return nil, err
 	}
 	defer clear(gateway)
+	var candidate candidateTopologyBinding
 	if config.supervisorCandidateImage != "" {
 		gateway, err = selectRuntimeSupervisorCandidate(config, dependencies.runner, binary, gateway)
 		if err != nil {
 			return nil, err
 		}
 		defer clear(gateway)
+		digest := sha256.Sum256(gateway)
+		candidate = candidateTopologyBinding{image: config.supervisorCandidateImage, gatewaySHA256: hex.EncodeToString(digest[:])}
 	}
 	workspace, err := openRuntimeTopologyWorkspace(
 		workspaceRoot,
@@ -170,6 +174,7 @@ func newDockerTopology(
 	}
 	resources := namesForRun(config.RunID)
 	return &DockerTopology{state: &dockerTopologyState{
+		candidate: candidate,
 		runID:     config.RunID,
 		resources: resources,
 		runner:    dependencies.runner,

@@ -28,15 +28,17 @@ var (
 )
 
 type LauncherConfig struct {
-	diagnosticModel     string
-	candidateImage      string
-	policyProfile       string
-	RepositoryRoot      string
-	WorkspaceRoot       string
-	CredentialDirectory string
-	OpenShellBinary     string
-	DockerBinary        string
-	Provenance          Provenance
+	diagnosticModel          string
+	candidateImage           string
+	policyProfile            string
+	supervisorCandidateImage string
+	candidateGatewaySHA256   string
+	RepositoryRoot           string
+	WorkspaceRoot            string
+	CredentialDirectory      string
+	OpenShellBinary          string
+	DockerBinary             string
+	Provenance               Provenance
 }
 
 type launcherTopology interface {
@@ -158,10 +160,11 @@ func launch(
 
 	phase = "topology"
 	topology, err := dependencies.openTopology(DockerTopologyConfig{
-		RunID:          runID,
-		RepositoryRoot: config.RepositoryRoot,
-		WorkspaceRoot:  config.WorkspaceRoot,
-		DockerBinary:   config.DockerBinary,
+		supervisorCandidateImage: config.supervisorCandidateImage,
+		RunID:                    runID,
+		RepositoryRoot:           config.RepositoryRoot,
+		WorkspaceRoot:            config.WorkspaceRoot,
+		DockerBinary:             config.DockerBinary,
 	})
 	if err != nil || topology == nil {
 		return Result{}, ErrLauncherConfiguration
@@ -169,6 +172,20 @@ func launch(
 	state.topology = topology
 	if err := topology.Start(ctx); err != nil {
 		return Result{}, launcherFailure(ctx, ErrLauncherRun)
+	}
+	if config.supervisorCandidateImage != "" {
+		phase = "topology-profile"
+		bound, ok := topology.(interface {
+			candidateProfile() (candidateTopologyBinding, error)
+		})
+		if !ok {
+			return Result{}, ErrLauncherRun
+		}
+		binding, err := bound.candidateProfile()
+		if err != nil || binding.image != config.supervisorCandidateImage || !commitmentPattern.MatchString("sha256:"+binding.gatewaySHA256) {
+			return Result{}, ErrLauncherRun
+		}
+		config.candidateGatewaySHA256 = binding.gatewaySHA256
 	}
 	phase = "gateway-registration"
 	if err := ports.Register(ctx, runID); err != nil {
@@ -233,10 +250,14 @@ func launch(
 func defaultLauncherDependencies() launcherDependencies {
 	return launcherDependencies{
 		checkCandidate: func(ctx context.Context, config LauncherConfig) error {
-			return canarylauncher.CheckCandidate(ctx, canarylauncher.Config{
+			selection := canarylauncher.Config{
 				RepositoryRoot: config.RepositoryRoot, WorkspaceRoot: config.WorkspaceRoot,
 				OpenShellBinary: config.OpenShellBinary, DockerBinary: config.DockerBinary,
-			}, config.candidateImage)
+			}
+			if config.supervisorCandidateImage != "" {
+				return canarylauncher.CheckSupervisorCandidate(ctx, selection, config.candidateImage, config.supervisorCandidateImage)
+			}
+			return canarylauncher.CheckCandidate(ctx, selection, config.candidateImage)
 		},
 		newRunID:      newRuntimeLauncherRunID,
 		readPolicy:    readRuntimeLauncherPolicy,
@@ -255,7 +276,7 @@ func defaultLauncherDependencies() launcherDependencies {
 }
 
 func validLauncherConfig(config LauncherConfig) bool {
-	return validDiagnosticPolicy(config.policyProfile, config.candidateImage, config.diagnosticModel) && config.RepositoryRoot != "" &&
+	return validSupervisorSelection(config.supervisorCandidateImage, config.policyProfile, config.candidateImage, config.diagnosticModel) && config.candidateGatewaySHA256 == "" && config.RepositoryRoot != "" &&
 		config.WorkspaceRoot != "" &&
 		config.CredentialDirectory != "" &&
 		validRunProvenance(config.Provenance, config.diagnosticModel)
@@ -436,14 +457,16 @@ func newRuntimeLauncherHarness(
 		return nil, ErrLauncherConfiguration
 	}
 	return NewHarness(HarnessConfig{
-		diagnosticModel: config.diagnosticModel,
-		candidateImage:  config.candidateImage,
-		policyProfile:   config.policyProfile,
-		RunID:           runID,
-		Provenance:      config.Provenance,
-		ExecutionID:     executionValue.ID,
-		Store:           runtimePorts.store,
-		Provider:        runtimePorts.provider,
+		diagnosticModel:          config.diagnosticModel,
+		candidateImage:           config.candidateImage,
+		policyProfile:            config.policyProfile,
+		supervisorCandidateImage: config.supervisorCandidateImage,
+		candidateGatewaySHA256:   config.candidateGatewaySHA256,
+		RunID:                    runID,
+		Provenance:               config.Provenance,
+		ExecutionID:              executionValue.ID,
+		Store:                    runtimePorts.store,
+		Provider:                 runtimePorts.provider,
 		Cleanup: Cleanup{
 			Sandbox:         runtimeCreator.Cleanup,
 			ProviderBinding: runtimeProvider.Cleanup,

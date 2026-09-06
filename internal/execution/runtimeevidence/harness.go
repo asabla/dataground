@@ -24,15 +24,17 @@ type HarnessProvider interface {
 }
 
 type HarnessConfig struct {
-	diagnosticModel string
-	candidateImage  string
-	policyProfile   string
-	RunID           string
-	Provenance      Provenance
-	ExecutionID     string
-	Store           HarnessStore
-	Provider        HarnessProvider
-	Cleanup         Cleanup
+	diagnosticModel          string
+	candidateImage           string
+	policyProfile            string
+	supervisorCandidateImage string
+	candidateGatewaySHA256   string
+	RunID                    string
+	Provenance               Provenance
+	ExecutionID              string
+	Store                    HarnessStore
+	Provider                 HarnessProvider
+	Cleanup                  Cleanup
 }
 
 type Harness struct {
@@ -86,13 +88,15 @@ func newHarness(config HarnessConfig, now func() time.Time) (*Harness, error) {
 		return nil, ErrHarnessConfiguration
 	}
 	run, err := newEvidenceRun(Config{
-		diagnosticModel: config.diagnosticModel,
-		candidateImage:  config.candidateImage,
-		policyProfile:   config.policyProfile,
-		RunID:           config.RunID,
-		Provenance:      config.Provenance,
-		Cases:           cases,
-		Cleanup:         config.Cleanup,
+		diagnosticModel:          config.diagnosticModel,
+		candidateImage:           config.candidateImage,
+		policyProfile:            config.policyProfile,
+		supervisorCandidateImage: config.supervisorCandidateImage,
+		candidateGatewaySHA256:   config.candidateGatewaySHA256,
+		RunID:                    config.RunID,
+		Provenance:               config.Provenance,
+		Cases:                    cases,
+		Cleanup:                  config.Cleanup,
 	}, now)
 	if err != nil {
 		return nil, ErrHarnessConfiguration
@@ -112,7 +116,7 @@ func (harness *Harness) Run(ctx context.Context) (Result, error) {
 }
 
 func validHarnessConfig(config HarnessConfig) bool {
-	return validDiagnosticPolicy(config.policyProfile, config.candidateImage, config.diagnosticModel) && runIDPattern.MatchString(config.RunID) &&
+	return validSupervisorEvidence(config.supervisorCandidateImage, config.candidateGatewaySHA256, config.policyProfile, config.candidateImage, config.diagnosticModel) && runIDPattern.MatchString(config.RunID) &&
 		validRunProvenance(config.Provenance, config.diagnosticModel) &&
 		config.ExecutionID != "" &&
 		!isNilHarnessPort(config.Store) &&

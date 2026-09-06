@@ -161,3 +161,63 @@ test("Rosetta diagnostics bind a separate policy, compiler input and closed vers
     assert.notEqual(verifyDiagnostic(changed, expected).length, 0);
   }
 });
+
+test("supervisor diagnostics require independent image and realized topology bindings", async () => {
+  const value = structuredClone(record);
+  const supervisorImage = `sha256:${"b".repeat(64)}`;
+  value.schemaVersion = "dataground.dev.openshell-runtime-diagnostic/v5";
+  value.profile.runtimePolicySHA256 =
+    "a1d56c0470c3264c4c37183352d783ebb67911d92ef2eb6ec5f7c76c61f69f39";
+  value.policySource = {
+    profile: "rosetta-development/v1",
+    compilerSourceCommit: "320158f1e4a4eea378d82c1527f4a7af5fb9855b",
+    inputSHA256: "b2895b9172c50ba7a5fdf574cebdf6789258cc8ce9f90ce5ad8f2b1ff0a825ab",
+  };
+  value.supervisorCandidate = {
+    profile: "openshell-supervisor-candidate/v1",
+    sourceCommit: "d556748771c41cbbd4e4dd7cd9030c798afe2b7d",
+    patchSHA256: "5e97724dd9d9e7fad9abed8a46b9a4d6e06979119998c411daf34b2423056057",
+  };
+  const template = await readFile(
+    new URL("../deploy/openshell/runtime-conformance/gateway.toml", import.meta.url),
+    "utf8",
+  );
+  value.profile.gatewayConfigSHA256 = createHash("sha256")
+    .update(template.replace(value.profile.supervisorImage, supervisorImage))
+    .digest("hex");
+  value.profile.supervisorImage = supervisorImage;
+  const selected = { ...expected, supervisorImage };
+  assert.deepEqual(verifyDiagnostic(value, selected), []);
+  assert.notEqual(verifyDiagnostic(value, expected).length, 0);
+  assert.notEqual(verifyDiagnostic(record, selected).length, 0);
+  for (const mutate of [
+    (v) => {
+      v.profile.supervisorImage = `sha256:${"c".repeat(64)}`;
+    },
+    (v) => {
+      v.profile.gatewayConfigSHA256 = record.profile.gatewayConfigSHA256;
+    },
+    (v) => {
+      v.supervisorCandidate.patchSHA256 = "0".repeat(64);
+    },
+    (v) => {
+      v.supervisorCandidate.sourceCommit = "0".repeat(40);
+    },
+    (v) => {
+      delete v.supervisorCandidate;
+    },
+    (v) => {
+      v.schemaVersion = "dataground.dev.openshell-runtime-diagnostic/v4";
+    },
+    (v) => {
+      v.checks.pop();
+    },
+    (v) => {
+      v.certificationEligible = true;
+    },
+  ]) {
+    const changed = structuredClone(value);
+    mutate(changed);
+    assert.notEqual(verifyDiagnostic(changed, selected).length, 0);
+  }
+});

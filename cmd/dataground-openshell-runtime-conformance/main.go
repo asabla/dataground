@@ -19,6 +19,8 @@ func main() {
 	var model string
 	var candidateImage string
 	var policyProfile string
+	var supervisorCandidateImage string
+	flag.StringVar(&supervisorCandidateImage, "supervisor-candidate-image", "", "exact experimental supervisor image ID; only with local Rosetta diagnostics")
 	flag.StringVar(&policyProfile, "policy-profile", "", "explicit candidate diagnostic policy profile; only with --local-diagnostic")
 	flag.BoolVar(&localDiagnostic, "local-diagnostic", false, "run local diagnostics without producing certification evidence")
 	flag.StringVar(&model, "model", "", "explicit local diagnostic model; unavailable in CI evidence mode")
@@ -71,7 +73,7 @@ func main() {
 		config.CredentialDirectory == "" ||
 		config.Provenance.SourceCommit == "" ||
 		(localDiagnostic && (config.Provenance.WorkflowRunID != 0 || model == "")) ||
-		(!localDiagnostic && (config.Provenance.WorkflowRunID <= 0 || model != "" || candidateImage != "" || policyProfile != "")) {
+		(!localDiagnostic && (config.Provenance.WorkflowRunID <= 0 || model != "" || candidateImage != "" || policyProfile != "" || supervisorCandidateImage != "")) {
 		fail()
 	}
 
@@ -83,8 +85,9 @@ func main() {
 		result, err = runtimeevidence.LaunchLocalDiagnostic(ctx, runtimeevidence.LocalDiagnosticConfig{
 			RepositoryRoot: config.RepositoryRoot, WorkspaceRoot: config.WorkspaceRoot, CredentialDirectory: config.CredentialDirectory,
 			OpenShellBinary: config.OpenShellBinary, DockerBinary: config.DockerBinary, SourceCommit: config.Provenance.SourceCommit, Model: model,
-			CandidateImage: candidateImage,
-			PolicyProfile:  policyProfile,
+			CandidateImage:           candidateImage,
+			PolicyProfile:            policyProfile,
+			SupervisorCandidateImage: supervisorCandidateImage,
 		})
 	} else {
 		result, err = runtimeevidence.Launch(ctx, config)

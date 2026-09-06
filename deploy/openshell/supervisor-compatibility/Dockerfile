@@ -21,4 +21,5 @@ COPY --from=build --chmod=0555 /output/openshell-sandbox /openshell-sandbox
 COPY --from=build /source/LICENSE /source/candidate-source.json /source/build-packages.txt /source/candidate-binary.sha256 /usr/local/share/dataground-supervisor-compatibility/
 LABEL org.opencontainers.image.source="https://github.com/asabla/dataground" \
       dataground.dev.supervisor-compatibility-source="d556748771c41cbbd4e4dd7cd9030c798afe2b7d" \
+      dataground.dev.supervisor-compatibility-patch="5e97724dd9d9e7fad9abed8a46b9a4d6e06979119998c411daf34b2423056057" \
       dataground.dev.certification-eligible="false"

@@ -59,7 +59,7 @@ class PreparationTests(unittest.TestCase):
         profile = json.loads((self.candidate / "source.json").read_bytes())
         dockerfile = (self.candidate / "Dockerfile").read_text()
         self.assertEqual(hashlib.sha256((self.candidate / "strict-file-rights.patch").read_bytes()).hexdigest(), profile["patchSHA256"])
-        for value in (profile["rustImage"], profile["baseImage"], profile["sourceRepository"], profile["sourceCommit"]):
+        for value in (profile["rustImage"], profile["baseImage"], profile["sourceRepository"], profile["sourceCommit"], profile["patchSHA256"]):
             self.assertIn(value, dockerfile)
         self.assertIs(profile["certificationEligible"], False)
 

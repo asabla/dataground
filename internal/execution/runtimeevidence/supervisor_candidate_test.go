@@ -12,7 +12,7 @@ func TestSupervisorCandidateSelectionIsExactAndCredentialFree(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "must-not-cross")
 	t.Setenv("CODEX_ACCESS_TOKEN", "must-not-cross")
 	image := "sha256:" + strings.Repeat("a", 64)
-	inspection := `{"id":"` + image + `","os":"linux","source":"d556748771c41cbbd4e4dd7cd9030c798afe2b7d","certification":"false"}`
+	inspection := `{"id":"` + image + `","os":"linux","source":"d556748771c41cbbd4e4dd7cd9030c798afe2b7d","patch":"5e97724dd9d9e7fad9abed8a46b9a4d6e06979119998c411daf34b2423056057","certification":"false"}`
 	gateway := []byte("before\nsupervisor_image = \"" + supervisorImage + "\"\nafter\n")
 	runner := &fakeDockerTopologyRunner{results: []dockerTopologyResult{{output: inspection}}}
 	value, err := selectRuntimeSupervisorCandidate(DockerTopologyConfig{supervisorCandidateImage: image}, runner, "/docker", gateway)
@@ -31,6 +31,7 @@ func TestSupervisorCandidateSelectionIsExactAndCredentialFree(t *testing.T) {
 		"", inspection + "{}", strings.Repeat("a", 4097),
 		strings.Replace(inspection, image, "sha256:"+strings.Repeat("b", 64), 1),
 		strings.Replace(inspection, "linux", "other", 1),
+		strings.Replace(inspection, "5e97724dd9d9e7fad9abed8a46b9a4d6e06979119998c411daf34b2423056057", strings.Repeat("0", 64), 1),
 		strings.Replace(inspection, "d556748771c41cbbd4e4dd7cd9030c798afe2b7d", strings.Repeat("0", 40), 1),
 		strings.Replace(inspection, `"false"`, `"true"`, 1),
 		strings.Replace(inspection, `"certification":"false"`, `"extra":"false"`, 1),

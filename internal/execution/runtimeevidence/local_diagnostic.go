@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"regexp"
 	"time"
+
+	"github.com/asabla/dataground/internal/execution/openshell"
 )
 
 const localDiagnosticTimeout = 10 * time.Minute
@@ -17,15 +19,16 @@ var diagnosticModelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,12
 // LocalDiagnosticConfig deliberately has no workflow identity or acceptance
 // fields. A local run cannot produce the CI evidence used for certification.
 type LocalDiagnosticConfig struct {
-	RepositoryRoot      string
-	WorkspaceRoot       string
-	CredentialDirectory string
-	OpenShellBinary     string
-	DockerBinary        string
-	SourceCommit        string
-	Model               string
-	CandidateImage      string
-	PolicyProfile       string
+	SupervisorCandidateImage string
+	RepositoryRoot           string
+	WorkspaceRoot            string
+	CredentialDirectory      string
+	OpenShellBinary          string
+	DockerBinary             string
+	SourceCommit             string
+	Model                    string
+	CandidateImage           string
+	PolicyProfile            string
 }
 
 type LocalDiagnosticResult struct{ result Result }
@@ -37,7 +40,7 @@ func LaunchLocalDiagnostic(ctx context.Context, config LocalDiagnosticConfig) (L
 }
 
 func launchLocalDiagnostic(ctx context.Context, config LocalDiagnosticConfig, dependencies launcherDependencies) (LocalDiagnosticResult, error) {
-	if ctx == nil || !diagnosticModelPattern.MatchString(config.Model) || !validDiagnosticPolicy(config.PolicyProfile, config.CandidateImage, config.Model) {
+	if ctx == nil || !diagnosticModelPattern.MatchString(config.Model) || !validSupervisorSelection(config.SupervisorCandidateImage, config.PolicyProfile, config.CandidateImage, config.Model) {
 		return LocalDiagnosticResult{}, ErrLauncherConfiguration
 	}
 	runCtx, cancel := context.WithTimeout(ctx, localDiagnosticTimeout)
@@ -46,14 +49,15 @@ func launchLocalDiagnostic(ctx context.Context, config LocalDiagnosticConfig, de
 		RepositoryRoot: config.RepositoryRoot, WorkspaceRoot: config.WorkspaceRoot,
 		CredentialDirectory: config.CredentialDirectory, OpenShellBinary: config.OpenShellBinary,
 		DockerBinary: config.DockerBinary, Provenance: Provenance{SourceCommit: config.SourceCommit},
-		diagnosticModel: config.Model,
-		candidateImage:  config.CandidateImage,
-		policyProfile:   config.PolicyProfile,
+		diagnosticModel:          config.Model,
+		candidateImage:           config.CandidateImage,
+		policyProfile:            config.PolicyProfile,
+		supervisorCandidateImage: config.SupervisorCandidateImage,
 	}, dependencies)
 	if err != nil {
 		return LocalDiagnosticResult{}, err
 	}
-	if !result.complete || result.diagnosticModel != config.Model || result.candidateImage != config.CandidateImage || result.policyProfile != config.PolicyProfile || result.record.Run.Provenance.WorkflowRunID != 0 || result.record.Run.Provenance.Workflow != "" || result.record.Run.Provenance.ArtifactName != "" {
+	if !result.complete || result.diagnosticModel != config.Model || result.candidateImage != config.CandidateImage || result.policyProfile != config.PolicyProfile || result.supervisorCandidateImage != config.SupervisorCandidateImage || result.record.Run.Provenance.WorkflowRunID != 0 || result.record.Run.Provenance.Workflow != "" || result.record.Run.Provenance.ArtifactName != "" {
 		return LocalDiagnosticResult{}, ErrLauncherRun
 	}
 	return LocalDiagnosticResult{result: result}, nil
@@ -75,7 +79,7 @@ func validRunProvenance(provenance Provenance, diagnosticModel string) bool {
 
 func (result LocalDiagnosticResult) MarshalJSON() ([]byte, error) {
 	value := result.result
-	if !value.complete || !diagnosticModelPattern.MatchString(value.diagnosticModel) || !validDiagnosticPolicy(value.policyProfile, value.candidateImage, value.diagnosticModel) || value.record.Run.Provenance.WorkflowRunID != 0 || value.record.Run.Provenance.Workflow != "" || value.record.Run.Provenance.ArtifactName != "" {
+	if !value.complete || !diagnosticModelPattern.MatchString(value.diagnosticModel) || !validSupervisorEvidence(value.supervisorCandidateImage, value.candidateGatewaySHA256, value.policyProfile, value.candidateImage, value.diagnosticModel) || value.record.Run.Provenance.WorkflowRunID != 0 || value.record.Run.Provenance.Workflow != "" || value.record.Run.Provenance.ArtifactName != "" {
 		return nil, ErrRunIncomplete
 	}
 	schema, credentialCheck := LocalDiagnosticSchemaVersion, ""
@@ -86,6 +90,10 @@ func (result LocalDiagnosticResult) MarshalJSON() ([]byte, error) {
 		expectedProfile.CredentialEvidenceSHA256 = ""
 		expectedProfile.RuntimePolicySHA256 = diagnosticPolicyDigest(value.policyProfile)
 	}
+	if value.supervisorCandidateImage != "" {
+		expectedProfile.SupervisorImage = value.supervisorCandidateImage
+		expectedProfile.GatewayConfigSHA256 = value.candidateGatewaySHA256
+	}
 	if value.record.Profile != expectedProfile {
 		return nil, ErrRunIncomplete
 	}
@@ -94,9 +102,15 @@ func (result LocalDiagnosticResult) MarshalJSON() ([]byte, error) {
 		schema = rosettaDiagnosticSchemaVersion
 		policySource = &diagnosticPolicySource{Profile: RosettaRuntimePolicyProfile, CompilerSourceCommit: rosettaRuntimeSourceCommit, InputSHA256: rosettaRuntimeInputSHA256}
 	}
+	var supervisorCandidate *diagnosticSupervisorCandidate
+	if value.supervisorCandidateImage != "" {
+		schema = supervisorDiagnosticSchemaVersion
+		supervisorCandidate = &diagnosticSupervisorCandidate{Profile: "openshell-supervisor-candidate/v1", SourceCommit: openShellCommit, PatchSHA256: openshell.SupervisorCandidatePatchSHA256}
+	}
 	// Use a closed local shape rather than serializing and editing CI evidence.
 	return json.Marshal(localDiagnosticRecord{
-		PolicySource: policySource, SchemaVersion: schema, Profile: value.record.Profile, CandidateCredentialCheck: credentialCheck,
+		SupervisorCandidate: supervisorCandidate,
+		PolicySource:        policySource, SchemaVersion: schema, Profile: value.record.Profile, CandidateCredentialCheck: credentialCheck,
 		Run: localDiagnosticRun{ID: value.record.Run.ID, Resources: value.record.Run.Resources,
 			StartedAt: value.record.Run.StartedAt, FinishedAt: value.record.Run.FinishedAt,
 			Origin: "local", SourceCommit: value.record.Run.Provenance.SourceCommit, Model: value.diagnosticModel},
@@ -105,15 +119,16 @@ func (result LocalDiagnosticResult) MarshalJSON() ([]byte, error) {
 }
 
 type localDiagnosticRecord struct {
-	PolicySource             *diagnosticPolicySource `json:"policySource,omitempty"`
-	CandidateCredentialCheck string                  `json:"candidateCredentialCheck,omitempty"`
-	SchemaVersion            string                  `json:"schemaVersion"`
-	CertificationEligible    bool                    `json:"certificationEligible"`
-	Profile                  profile                 `json:"profile"`
-	Run                      localDiagnosticRun      `json:"run"`
-	Checks                   []check                 `json:"checks"`
-	Cleanup                  cleanup                 `json:"cleanup"`
-	Result                   string                  `json:"result"`
+	SupervisorCandidate      *diagnosticSupervisorCandidate `json:"supervisorCandidate,omitempty"`
+	PolicySource             *diagnosticPolicySource        `json:"policySource,omitempty"`
+	CandidateCredentialCheck string                         `json:"candidateCredentialCheck,omitempty"`
+	SchemaVersion            string                         `json:"schemaVersion"`
+	CertificationEligible    bool                           `json:"certificationEligible"`
+	Profile                  profile                        `json:"profile"`
+	Run                      localDiagnosticRun             `json:"run"`
+	Checks                   []check                        `json:"checks"`
+	Cleanup                  cleanup                        `json:"cleanup"`
+	Result                   string                         `json:"result"`
 }
 type localDiagnosticRun struct {
 	ID           string    `json:"id"`
