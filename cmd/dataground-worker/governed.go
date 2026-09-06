@@ -55,6 +55,7 @@ type workerConfig struct {
 	s3RequestTimeout     time.Duration
 	maximumArtifactBytes int64
 	certification        runtimeCertificationConfig
+	localAcceptance      *localRuntimeAcceptanceConfig
 }
 
 type workerResources struct {
@@ -66,12 +67,14 @@ type workerResources struct {
 
 type governedExecutionPlanStore struct {
 	execution.ExecutionPlanStore
-	readiness runtimeCertificationReadiness
-	target    runtimeCertificationTarget
+	readiness      runtimeCertificationReadiness
+	target         runtimeCertificationTarget
+	candidateImage string
 }
 
 type governedCodexRuntimeRequestBuilder struct {
 	delegate reconcile.CodexInvocationRuntimeRequestBuilder
+	model    string
 }
 
 func (builder governedCodexRuntimeRequestBuilder) BuildInvocationRuntimeRequest(
@@ -92,6 +95,7 @@ func (builder governedCodexRuntimeRequestBuilder) BuildInvocationRuntimeRequest(
 		request.WorkingDir = "/sandbox"
 	}
 	request.ApprovalMode = dgruntime.ApprovalInteractive
+	request.Model = builder.model
 	return request, nil
 }
 
@@ -138,16 +142,23 @@ func (store governedExecutionPlanStore) GetExecutionPlan(
 	if err != nil {
 		return execution.ExecutionPlan{}, err
 	}
-	if !validGovernedDevelopmentPlan(plan) {
+	if !validGovernedDevelopmentPlan(plan, store.candidateImage) {
 		return execution.ExecutionPlan{}, execution.ErrExecutionPlanRevisionMismatch
 	}
 	return plan, nil
 }
 
-func validGovernedDevelopmentPlan(plan execution.ExecutionPlan) bool {
+func validGovernedDevelopmentPlan(plan execution.ExecutionPlan, candidateImage string) bool {
+	image, enforcement := governedSandboxImage, governedEnforcementDigest
+	if candidateImage != "" {
+		if !localCandidateImagePattern.MatchString(candidateImage) {
+			return false
+		}
+		image, enforcement = candidateImage, localEnforcementDigest
+	}
 	return plan.RuntimeProfile == reconcile.CodexAppServerRuntimeProfileV1 &&
-		plan.ImageReference == governedSandboxImage &&
-		plan.EnforcementBundleDigest == governedEnforcementDigest &&
+		plan.ImageReference == image &&
+		plan.EnforcementBundleDigest == enforcement &&
 		slices.Equal(plan.ProviderProfiles, []string{governedProviderProfile}) &&
 		slices.Equal(plan.RequiredCapabilities, []string{reconcile.CodexAppServerRuntimeProfileV1})
 }
@@ -220,7 +231,7 @@ func workerReconcileStore(
 	if config.mode == workerModeGovernedDevelopment {
 		return &isolationScopedReconcileStore{
 			scopedReconcileStore: repository,
-			target:               config.certification.target,
+			target:               config.runtimeTarget(),
 		}
 	}
 	return &referenceScopedReconcileStore{scopedReconcileStore: repository}
@@ -265,11 +276,19 @@ func loadWorkerConfig(lookup environmentLookup) (workerConfig, error) {
 	if config.isolationDomainID, err = requiredEnvironment(lookup, "DATAGROUND_DEVELOPMENT_ISOLATION_DOMAIN_ID"); err != nil {
 		return workerConfig{}, err
 	}
-	config.certification, err = loadRuntimeCertificationConfig(lookup)
+	profile, found := lookup("DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE")
+	switch {
+	case !found || profile == governedCertificationProfile:
+		config.certification, err = loadRuntimeCertificationConfig(lookup)
+	case profile == localRuntimeProfile:
+		config.localAcceptance, err = loadLocalRuntimeAcceptanceConfig(lookup)
+	default:
+		return workerConfig{}, errors.New("unsupported development runtime profile")
+	}
 	if err != nil {
 		return workerConfig{}, err
 	}
-	if config.certification.target.isolationDomainID != config.isolationDomainID {
+	if config.runtimeTarget().isolationDomainID != config.isolationDomainID {
 		return workerConfig{}, ErrRuntimeCertificationScopeMismatch
 	}
 	if config.gatewayID, err = requiredEnvironment(lookup, "DATAGROUND_OPENSHELL_GATEWAY_ID"); err != nil {
@@ -387,12 +406,20 @@ func composeWorkerDriver(
 		return nil, nil, errors.New("governed worker configuration and durable dependencies are required")
 	}
 
-	checker, err := newRuntimeCertificationChecker(
-		config.certification,
-		nodeRuntimeCertificationVerifier{},
-	)
-	if err != nil {
-		return nil, nil, err
+	var checker runtimeCertificationReadiness
+	var candidateImage, model string
+	var err error
+	if config.localAcceptance != nil {
+		if !config.localAcceptance.valid() {
+			return nil, nil, ErrRuntimeCertificationUnavailable
+		}
+		checker = &localRuntimeAcceptanceChecker{config: *config.localAcceptance}
+		candidateImage, model = config.localAcceptance.image, config.localAcceptance.model
+	} else {
+		checker, err = newRuntimeCertificationChecker(config.certification, nodeRuntimeCertificationVerifier{})
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 	if err := checker.Check(ctx); err != nil {
 		return nil, nil, err
@@ -405,8 +432,8 @@ func composeWorkerDriver(
 		  AND service_id = $2
 		  AND id = $3
 		  AND state = 'published'
-	`, config.certification.target.isolationDomainID, config.certification.target.serviceID,
-		config.certification.target.revisionID).Scan(&runtimeProfile); err != nil ||
+	`, config.runtimeTarget().isolationDomainID, config.runtimeTarget().serviceID,
+		config.runtimeTarget().revisionID).Scan(&runtimeProfile); err != nil ||
 		runtimeProfile != reconcile.CodexAppServerRuntimeProfileV1 {
 		return nil, nil, ErrRuntimeCertificationScopeMismatch
 	}
@@ -479,7 +506,7 @@ func composeWorkerDriver(
 	provider := &certifiedExecutionProvider{
 		ExecutionProvider: openShellProvider,
 		readiness:         readiness,
-		target:            config.certification.target,
+		target:            config.runtimeTarget(),
 	}
 
 	bundles, err := execution.NewObjectEnforcementBundleSource(executionStore, objectStore)
@@ -489,8 +516,9 @@ func composeWorkerDriver(
 	admission, err := execution.NewCredentialMediatedAdmission(
 		governedExecutionPlanStore{
 			ExecutionPlanStore: executionStore,
+			candidateImage:     candidateImage,
 			readiness:          readiness,
-			target:             config.certification.target,
+			target:             config.runtimeTarget(),
 		},
 		bundles,
 		provider,
@@ -506,9 +534,9 @@ func composeWorkerDriver(
 	activePolicy, err := policySource.ResolveInvocationAuthorizationPolicy(
 		ctx,
 		reconcile.InvocationAuthorizationPolicyScope{
-			IsolationDomainID: config.certification.target.isolationDomainID,
-			ServiceID:         config.certification.target.serviceID,
-			RevisionID:        config.certification.target.revisionID,
+			IsolationDomainID: config.runtimeTarget().isolationDomainID,
+			ServiceID:         config.runtimeTarget().serviceID,
+			RevisionID:        config.runtimeTarget().revisionID,
 		},
 	)
 	if err != nil {
@@ -522,7 +550,7 @@ func composeWorkerDriver(
 		return fail(err)
 	}
 	authorizer := &certifiedInvocationAuthorizer{
-		delegate: baseAuthorizer, readiness: readiness, target: config.certification.target,
+		delegate: baseAuthorizer, readiness: readiness, target: config.runtimeTarget(),
 	}
 	admissionDriver, err := reconcile.NewInvocationAdmissionDriver(
 		repository,
@@ -536,7 +564,7 @@ func composeWorkerDriver(
 	runtimeDriver, err := reconcile.NewInvocationRuntimeDriver(
 		repository,
 		authorizer,
-		governedCodexRuntimeRequestBuilder{},
+		governedCodexRuntimeRequestBuilder{model: model},
 		executionStore,
 		provider,
 		reconcile.CodexInvocationRuntimeAdapterFactory{},
@@ -571,7 +599,7 @@ func composeWorkerDriver(
 		return fail(err)
 	}
 	driver := &certificationBoundDriver{
-		delegate: routed, readiness: readiness, target: config.certification.target,
+		delegate: routed, readiness: readiness, target: config.runtimeTarget(),
 	}
 	if err := readiness.Check(ctx); err != nil {
 		return fail(err)
