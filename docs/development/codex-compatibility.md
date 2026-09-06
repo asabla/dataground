@@ -58,7 +58,7 @@ pnpm openshell:runtime-diagnostic:check \
   --candidate-image sha256:703abdf5d88c6298423ba25cb11340990169b4f535b1b75ecc9fb4b730165573
 ```
 
-This verifier checks recorded observations; it does not independently rerun the sandbox or authenticate an operator attestation. The record has local origin and `certificationEligible: false`, and the CI evidence schema rejects it. It contains no credentials, prompts, native transcript, or exported content. It establishes this local ARM64 run only: reviewed image publication, an explicit local-evidence acceptance contract, accepted credential/runtime evidence, scoped activation, and production certification remain outstanding. Default execution and release checkers are unchanged.
+This verifier checks recorded observations; it does not independently rerun the sandbox or authenticate an operator attestation. The record has local origin and `certificationEligible: false`, and the CI evidence schema rejects it. It contains no credentials, prompts, native transcript, or exported content. It establishes this local ARM64 run only and does not itself establish image publication. An explicit local-evidence acceptance contract, accepted credential/runtime evidence, scoped activation, and production certification remain outstanding. Default execution and release checkers are unchanged.
 
 
 ## Experimental image publication
@@ -80,3 +80,21 @@ pnpm codex:candidate:check \
 The command verifies GitHub/Sigstore provenance through `gh attestation verify`, pins the repository identity, workflow, issuer, main ref, source and signer revisions, hosted runner and exact invocation, then checks that the same workflow attempt and both jobs completed successfully. A signature issued before a later workflow failure is rejected. Only afterward does Docker pull the exact registry digest and verify its architecture, local image ID, `sandbox` user and candidate labels. The command uses existing local GitHub access when required and acquires no model credentials. Upstream command output is withheld on failure.
 
 Successful output records the registry digest, local image ID, source, architecture and invocation with `certificationEligible: false`. This output is a verification summary, not a signed acceptance record; rerun verification before use. It does not accept local runtime evidence or activate governed execution.
+
+## Published ARM64 candidate diagnostic
+
+[Publication run 34025809311, attempt 1](https://github.com/asabla/dataground/actions/runs/34025809311/attempts/1) completed successfully from reviewed source `e7a0839bfcaa6a9d95540224a63c02be45bb89e1`. Its ARM64 native, synthetic credential, and provider-bound/export checks passed before publishing `ghcr.io/asabla/dataground-codex-candidate@sha256:9fff9875097a3608fce25e0d401cacc70ad10113237683fe907e45d94e4b24a1`. GitHub/Sigstore provenance was uploaded to both the repository and registry, and registry logout completed. The local publication verifier then checked the exact signed invocation and successful jobs, pulled the digest, and verified its ARM64 architecture, `sandbox` user and candidate labels. The downloaded manifest and signed bundle also passed offline provenance verification with the authenticated trust roots.
+
+The [published-image local diagnostic](../../deploy/openshell/diagnostics/codex-published-candidate-arm64-20260906.json) passed all twelve cases using that image, the same frozen DataGround source and local model `gpt-6-astra`. The run lasted from `2026-09-06T10:14:04.051999581Z` to `2026-09-06T10:14:45.542614448Z`; its exact producer bytes have SHA-256 `f9fa0ab4183cc3d6d588160da3ec9523c6858c4da0955d97b0e2abb83f59f7aa`. The synthetic scan preceded credential use. The local bundle and live resources were removed; only the synthetic precheck's empty policy-workspace lock remained. No model credentials were supplied to GitHub.
+
+```sh
+pnpm codex:candidate:check \
+  sha256:9fff9875097a3608fce25e0d401cacc70ad10113237683fe907e45d94e4b24a1 \
+  e7a0839bfcaa6a9d95540224a63c02be45bb89e1 34025809311 1 arm64
+pnpm openshell:runtime-diagnostic:check \
+  deploy/openshell/diagnostics/codex-published-candidate-arm64-20260906.json \
+  --source-commit e7a0839bfcaa6a9d95540224a63c02be45bb89e1 \
+  --candidate-image sha256:9fff9875097a3608fce25e0d401cacc70ad10113237683fe907e45d94e4b24a1
+```
+
+This establishes a verified publication and one local conformance run of that exact image. The diagnostic remains local and non-certifying. It does not satisfy the existing CI runtime-evidence contract, activate the governed worker, or certify the complete Developer, Team, or Production deployment profile.

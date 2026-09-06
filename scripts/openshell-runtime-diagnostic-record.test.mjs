@@ -22,6 +22,28 @@ test("the archived ARM64 run retains its exact diagnostic bytes and profile", ()
   assert.equal(record.certificationEligible, false);
 });
 
+test("the published ARM64 candidate retains its exact local conformance record", async () => {
+  const publishedBytes = await readFile(
+    new URL(
+      "../deploy/openshell/diagnostics/codex-published-candidate-arm64-20260906.json",
+      import.meta.url,
+    ),
+  );
+  assert.equal(
+    createHash("sha256").update(publishedBytes).digest("hex"),
+    "f9fa0ab4183cc3d6d588160da3ec9523c6858c4da0955d97b0e2abb83f59f7aa",
+  );
+  const published = JSON.parse(publishedBytes.toString("utf8"));
+  assert.deepEqual(
+    verifyDiagnostic(published, {
+      sourceCommit: "e7a0839bfcaa6a9d95540224a63c02be45bb89e1",
+      candidateImage: "sha256:9fff9875097a3608fce25e0d401cacc70ad10113237683fe907e45d94e4b24a1",
+    }),
+    [],
+  );
+  assert.equal(published.certificationEligible, false);
+});
+
 test("candidate diagnostic verification rejects substitution, replay and certification claims", () => {
   const mutations = [
     (v) => {
