@@ -123,6 +123,7 @@ function validateBindings(statement, trustBytes, artifacts, expected) {
     throw new Error("Acceptance evidence digest does not match.");
   const diagnostic = JSON.parse(artifacts.diagnostic.toString("utf8"));
   if (
+    diagnostic.schemaVersion !== "dataground.dev.openshell-runtime-diagnostic/v3" ||
     verifyDiagnostic(diagnostic, {
       sourceCommit: statement.sourceRevision,
       candidateImage: statement.localImageId,

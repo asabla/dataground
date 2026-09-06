@@ -30,6 +30,7 @@ var (
 type LauncherConfig struct {
 	diagnosticModel     string
 	candidateImage      string
+	policyProfile       string
 	RepositoryRoot      string
 	WorkspaceRoot       string
 	CredentialDirectory string
@@ -254,7 +255,7 @@ func defaultLauncherDependencies() launcherDependencies {
 }
 
 func validLauncherConfig(config LauncherConfig) bool {
-	return validCandidateSelection(config.candidateImage, config.diagnosticModel) && config.RepositoryRoot != "" &&
+	return validDiagnosticPolicy(config.policyProfile, config.candidateImage, config.diagnosticModel) && config.RepositoryRoot != "" &&
 		config.WorkspaceRoot != "" &&
 		config.CredentialDirectory != "" &&
 		validRunProvenance(config.Provenance, config.diagnosticModel)
@@ -290,7 +291,10 @@ func readRuntimeLauncherPolicy(config LauncherConfig) ([]byte, error) {
 	}
 	path, digest := runtimeLauncherPolicyPath, runtimePolicySHA256
 	if config.candidateImage != "" {
-		path, digest = candidateRuntimePolicyPath, candidateRuntimePolicySHA256
+		path, digest = candidateRuntimePolicyPath, diagnosticPolicyDigest(config.policyProfile)
+		if config.policyProfile == RosettaRuntimePolicyProfile {
+			path = rosettaRuntimePolicyPath
+		}
 	}
 	return readRuntimeTopologyFile(filepath.Join(root, filepath.FromSlash(path)), digest)
 }
@@ -407,6 +411,7 @@ func newRuntimeLauncherCreator(
 	}
 	return NewExecutionCreator(ExecutionCreationConfig{
 		diagnosticImage: config.candidateImage,
+		policyProfile:   config.policyProfile,
 		RunID:           runID,
 		Policy:          policy,
 		Store:           runtimePorts.store,
@@ -433,6 +438,7 @@ func newRuntimeLauncherHarness(
 	return NewHarness(HarnessConfig{
 		diagnosticModel: config.diagnosticModel,
 		candidateImage:  config.candidateImage,
+		policyProfile:   config.policyProfile,
 		RunID:           runID,
 		Provenance:      config.Provenance,
 		ExecutionID:     executionValue.ID,

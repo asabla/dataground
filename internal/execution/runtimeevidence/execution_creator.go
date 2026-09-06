@@ -37,6 +37,7 @@ type ExecutionCreationProvider interface {
 
 type ExecutionCreationConfig struct {
 	diagnosticImage string
+	policyProfile   string
 	RunID           string
 	Policy          []byte
 	Store           HarnessStore
@@ -79,9 +80,9 @@ func newExecutionCreator(
 ) (*ExecutionCreator, error) {
 	policyDigest := runtimePolicySHA256
 	if config.diagnosticImage != "" {
-		policyDigest = candidateRuntimePolicySHA256
+		policyDigest = diagnosticPolicyDigest(config.policyProfile)
 	}
-	if !runIDPattern.MatchString(config.RunID) ||
+	if (config.policyProfile != "" && (config.policyProfile != RosettaRuntimePolicyProfile || config.diagnosticImage == "")) || !runIDPattern.MatchString(config.RunID) ||
 		len(config.Policy) == 0 ||
 		isNilHarnessPort(config.Store) ||
 		isNilHarnessPort(config.Provider) ||
