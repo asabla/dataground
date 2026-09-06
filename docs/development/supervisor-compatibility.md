@@ -25,6 +25,29 @@ The supervisor workflow can publish an ARM64 candidate only through an explicit 
 
 The publication job alone receives ephemeral registry and signing permissions. It attests the exact published digest through the pinned GitHub/Sigstore action and always logs out of GHCR. The shared helper at `deploy/openshell/candidate-publication.py` accepts only the two fixed Codex and supervisor profiles; their transfer contracts, metadata and registry destinations cannot be interchanged. For example, `prepare --candidate supervisor --architecture arm64 --source-commit <reviewed-sha> --image sha256:<local-id> --directory <new-private-directory>` selects the supervisor boundary. Publication is disabled by default and cannot run from a PR. A push or signature alone is insufficient: consumers must independently verify the signed invocation and successful completion of the exact workflow attempt. This change incorporates no published supervisor digest, signed acceptance, or production certification.
 
+Verify a supervisor publication with GitHub CLI 2.98.0 and Docker available locally:
+
+```sh
+pnpm openshell:supervisor:candidate:check \
+  "sha256:$SUPERVISOR_DIGEST" "$REVIEWED_SOURCE_COMMIT" \
+  "$PUBLICATION_RUN_ID" "$PUBLICATION_RUN_ATTEMPT" arm64
+```
+
+The verifier requires the supervisor repository and workflow, exact source and signer revisions, hosted-runner identity, main ref, and signed run/attempt. It independently checks successful completion of that exact attempt and both `strict-landlock` and `publish-candidate` jobs before pulling the digest. The pulled Linux ARM64 image must retain the expected supervisor user setting, source and patch labels, repository digest, and non-certification metadata. Codex signatures, workflow jobs, and image metadata cannot substitute for the supervisor profile.
+
+Offline verification accepts the exact raw manifest, attestation bundle, and independently acquired trust roots. The acquisition, owner-only file requirements, and independent trust-root pin follow the [Codex candidate procedure](codex-compatibility.md). Add the raw configuration blob addressed by the signed manifest to verify its architecture and execution metadata:
+
+```sh
+pnpm openshell:supervisor:candidate:attestation:check \
+  "sha256:$SUPERVISOR_DIGEST" "$REVIEWED_SOURCE_COMMIT" \
+  "$PUBLICATION_RUN_ID" "$PUBLICATION_RUN_ATTEMPT" \
+  /absolute/private/manifest.json /absolute/private/bundle.jsonl \
+  /absolute/private/trusted-root.jsonl "$REVIEWED_TRUST_ROOT_SHA256" \
+  arm64 /absolute/private/image-config.json
+```
+
+The architecture and configuration arguments can be omitted together for signature-only verification. Offline verification freezes bounded private snapshots and invokes `gh` with isolated state and no inherited credentials. It cannot establish workflow completion or filesystem-layer contents. Both commands identify `openshell-supervisor-candidate/v1` and remain non-certifying; neither accepts a runtime diagnostic nor activates a governed worker.
+
 The explicit local runtime launcher can select the image with `--supervisor-candidate-image sha256:<verified-local-supervisor-id>` together with `--local-diagnostic --policy-profile rosetta-development/v1 --candidate-image sha256:<verified-local-runtime-id> --model <available-model-id>` and the existing private workspace, credential-bundle and frozen-source arguments. It first runs the complete strict synthetic scan, starts the exact candidate topology, and checks its frozen gateway bytes before consuming the local credential bundle. The returned v5 diagnostic records both image identities, the realized gateway-configuration digest, the Rosetta compiler/input/policy identity and the supervisor source/patch metadata. All twelve runtime cases and cleanup gates still apply.
 
 Verify such a record with `pnpm openshell:runtime-diagnostic:check <record.json> --source-commit <exact-commit> --candidate-image sha256:<runtime-id> --supervisor-candidate-image sha256:<supervisor-id>`. Both images must be supplied independently; the verifier recomputes the realized gateway digest from the checked template and exact selected supervisor. A missing binding, changed template, substituted image, patch drift or downgrade to an older record version fails. The v5 record remains non-certifying, and the existing signed v3 acceptance/worker profile cannot consume it. No successful v5 runtime record is incorporated by this launcher change.

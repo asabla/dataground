@@ -1,11 +1,8 @@
 import { execFileSync } from "node:child_process";
+import { candidateImageConfiguration, candidateProfile } from "./candidate-publication-profile.mjs";
 
 const repository = "asabla/dataground";
 const repositoryURL = `https://github.com/${repository}`;
-const imageRepository = "ghcr.io/asabla/dataground-codex-candidate";
-const workflow = ".github/workflows/codex-compatibility.yml";
-const signer = `${repositoryURL}/${workflow}@refs/heads/main`;
-const upstreamCommit = "4c70bff480af37b1bf1a9b352b8341060fe55755";
 const digestPattern = /^sha256:[a-f0-9]{64}$/;
 
 function requireCondition(condition, message) {
@@ -41,7 +38,9 @@ function commands(run) {
 
 // Verification results are consumed only from a successful gh invocation, never
 // from caller-supplied JSON that could impersonate signature verification.
-export function verifyCandidateAttestation(scope, run = execute, files) {
+export function verifyCandidateAttestation(scope, run = execute, files, candidate = "codex") {
+  const { imageRepository, workflow } = candidateProfile(candidate);
+  const signer = `${repositoryURL}/${workflow}@refs/heads/main`;
   const { digest, sourceCommit, runId, runAttempt } = scope;
   requireCondition(
     digestPattern.test(digest ?? "") &&
@@ -113,13 +112,14 @@ export function verifyCandidateAttestation(scope, run = execute, files) {
   return invocation;
 }
 
-export function verifyPublication(scope, run = execute) {
+export function verifyPublication(scope, run = execute, candidate = "codex") {
+  const { imageRepository, workflow, buildJob, architectures } = candidateProfile(candidate);
   const { digest, sourceCommit, runId, runAttempt, architecture } = scope;
   requireCondition(
-    ["amd64", "arm64"].includes(architecture),
+    architectures.includes(architecture),
     "Exact candidate architecture is required.",
   );
-  const invocation = verifyCandidateAttestation(scope, run);
+  const invocation = verifyCandidateAttestation(scope, run, undefined, candidate);
   const { invoke, parse } = commands(run);
 
   // Signing happens before the job finishes: a valid signature can belong to a
@@ -144,7 +144,7 @@ export function verifyPublication(scope, run = execute) {
   requireCondition(
     jobs.total_count === 2 &&
       jobs.jobs?.length === 2 &&
-      ["native-sandbox", "publish-candidate"].every(
+      [buildJob, "publish-candidate"].every(
         (name) =>
           jobs.jobs.filter(
             (job) =>
@@ -171,14 +171,14 @@ export function verifyPublication(scope, run = execute) {
     digestPattern.test(image?.Id ?? "") &&
       image.Os === "linux" &&
       image.Architecture === architecture &&
-      image.Config?.User === "sandbox" &&
       image.RepoDigests?.includes(`${imageRepository}@${digest}`) &&
-      image.Config.Labels?.["org.opencontainers.image.source"] === repositoryURL &&
-      image.Config.Labels?.["dataground.dev.codex-compatibility-source"] === upstreamCommit &&
-      image.Config.Labels?.["dataground.dev.certification-eligible"] === "false",
+      candidateImageConfiguration(image.Config, candidate),
     "Pulled candidate image does not match the required architecture and isolation metadata.",
   );
   return {
+    ...(candidate === "supervisor"
+      ? { candidateProfile: "openshell-supervisor-candidate/v1" }
+      : {}),
     image: `${imageRepository}@${digest}`,
     imageId: image.Id,
     architecture,

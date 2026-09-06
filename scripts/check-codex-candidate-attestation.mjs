@@ -12,13 +12,15 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, normalize } from "node:path";
+import { candidateImageConfiguration, candidateProfile } from "./candidate-publication-profile.mjs";
 import { verifyCandidateAttestation } from "./check-codex-candidate-publication.mjs";
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-function verifyImageConfiguration(manifestBytes, configBytes, architecture) {
+function verifyImageConfiguration(manifestBytes, configBytes, architecture, candidate) {
+  const profile = candidateProfile(candidate);
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
   const config = JSON.parse(configBytes.toString("utf8"));
   const mediaTypes = {
@@ -28,7 +30,7 @@ function verifyImageConfiguration(manifestBytes, configBytes, architecture) {
   };
   const configDigest = `sha256:${sha256(configBytes)}`;
   if (
-    !["amd64", "arm64"].includes(architecture) ||
+    !profile.architectures.includes(architecture) ||
     manifest?.schemaVersion !== 2 ||
     !Object.hasOwn(mediaTypes, manifest.mediaType ?? "") ||
     manifest.config?.mediaType !== mediaTypes[manifest.mediaType] ||
@@ -36,16 +38,11 @@ function verifyImageConfiguration(manifestBytes, configBytes, architecture) {
     manifest.config.size !== configBytes.length ||
     config?.architecture !== architecture ||
     config.os !== "linux" ||
-    config.config?.User !== "sandbox" ||
-    config.config.Labels?.["org.opencontainers.image.source"] !==
-      "https://github.com/asabla/dataground" ||
-    config.config.Labels?.["dataground.dev.codex-compatibility-source"] !==
-      "4c70bff480af37b1bf1a9b352b8341060fe55755" ||
-    config.config.Labels?.["dataground.dev.certification-eligible"] !== "false"
+    !candidateImageConfiguration(config.config, candidate)
   ) {
     throw new Error("Candidate configuration does not match the signed image and profile.");
   }
-  return { configDigest, architecture, os: "linux", user: "sandbox" };
+  return { configDigest, architecture, os: "linux", user: profile.user };
 }
 
 export function readPrivateSnapshot(file, maximumBytes) {
@@ -86,7 +83,8 @@ export function readPrivateSnapshot(file, maximumBytes) {
   }
 }
 
-export function verifyOfflineAttestation(scope, inputs, run = execFileSync) {
+export function verifyOfflineAttestation(scope, inputs, run = execFileSync, candidate = "codex") {
+  candidateProfile(candidate);
   return verifyOfflineAttestationSnapshots(
     scope,
     {
@@ -99,12 +97,19 @@ export function verifyOfflineAttestation(scope, inputs, run = execFileSync) {
         : { imageConfig: readPrivateSnapshot(inputs.imageConfig, 1 << 20) }),
     },
     run,
+    candidate,
   );
 }
 
 // In-process consumers can compose verification over the same acquired bytes.
 // No command accepts a caller's signature-verification result as evidence.
-export function verifyOfflineAttestationSnapshots(scope, inputs, run = execFileSync) {
+export function verifyOfflineAttestationSnapshots(
+  scope,
+  inputs,
+  run = execFileSync,
+  candidate = "codex",
+) {
+  candidateProfile(candidate);
   if (!/^[a-f0-9]{64}$/.test(inputs.trustedRootSHA256 ?? "")) {
     throw new Error("An independently pinned trusted-root digest is required.");
   }
@@ -131,7 +136,7 @@ export function verifyOfflineAttestationSnapshots(scope, inputs, run = execFileS
   const image =
     inputs.imageConfig === undefined
       ? undefined
-      : verifyImageConfiguration(manifest, inputs.imageConfig, scope.architecture);
+      : verifyImageConfiguration(manifest, inputs.imageConfig, scope.architecture, candidate);
   const directory = mkdtempSync(join(tmpdir(), "dataground-candidate-attestation-"));
   try {
     const files = {
@@ -164,8 +169,12 @@ export function verifyOfflineAttestationSnapshots(scope, inputs, run = execFileS
           },
         }),
       files,
+      candidate,
     );
     return {
+      ...(candidate === "supervisor"
+        ? { candidateProfile: "openshell-supervisor-candidate/v1" }
+        : {}),
       imageDigest: scope.digest,
       sourceCommit: scope.sourceCommit,
       invocation,
