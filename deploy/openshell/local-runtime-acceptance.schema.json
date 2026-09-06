@@ -1,0 +1,266 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dataground.dev/schemas/local-runtime-acceptance-v1.json",
+  "title": "Explicit local candidate development acceptance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "statement",
+    "signature"
+  ],
+  "properties": {
+    "contract": {
+      "const": "dataground.local-runtime-acceptance-envelope/v1"
+    },
+    "statement": {
+      "$ref": "#/$defs/statement"
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "keyId",
+        "value"
+      ],
+      "properties": {
+        "keyId": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{2,63}$"
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]{86}==$"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "statement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "acceptanceId",
+        "generation",
+        "scope",
+        "profile",
+        "sourceRevision",
+        "publication",
+        "model",
+        "localImageId",
+        "profileSHA256",
+        "diagnosticSHA256",
+        "configSHA256",
+        "bundleSHA256",
+        "trustProfileSHA256",
+        "issuedAt",
+        "expiresAt",
+        "reviewerId",
+        "reason",
+        "publicationCompletionChecked",
+        "certificationEligible",
+        "deploymentScope"
+      ],
+      "properties": {
+        "contract": {
+          "const": "dataground.local-runtime-acceptance-statement/v1"
+        },
+        "acceptanceId": {
+          "type": "string",
+          "pattern": "^rtlocal_[0-9a-z]{20,32}$"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "isolationDomainId",
+            "serviceId",
+            "revisionId"
+          ],
+          "properties": {
+            "isolationDomainId": {
+              "type": "string",
+              "pattern": "^iso_[0-9a-z]{20,32}$"
+            },
+            "serviceId": {
+              "type": "string",
+              "pattern": "^svc_[0-9a-z]{20,32}$"
+            },
+            "revisionId": {
+              "type": "string",
+              "pattern": "^rev_[0-9a-z]{20,32}$"
+            }
+          }
+        },
+        "profile": {
+          "const": "openshell-codex-candidate-development/v1"
+        },
+        "sourceRevision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "publication": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "digest",
+            "sourceCommit",
+            "runId",
+            "runAttempt",
+            "architecture"
+          ],
+          "properties": {
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "sourceCommit": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            },
+            "runId": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,14}$"
+            },
+            "runAttempt": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,8}$"
+            },
+            "architecture": {
+              "enum": [
+                "amd64",
+                "arm64"
+              ]
+            }
+          }
+        },
+        "model": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "localImageId": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "profileSHA256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "diagnosticSHA256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "configSHA256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "bundleSHA256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "trustProfileSHA256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "issuedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "reviewerId": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{2,63}$"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "publicationCompletionChecked": {
+          "const": true
+        },
+        "certificationEligible": {
+          "const": false
+        },
+        "deploymentScope": {
+          "const": "loopback-development-only"
+        }
+      }
+    },
+    "trust": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "scope",
+        "reviewerId",
+        "keyId",
+        "publicKey",
+        "trustedRootSHA256",
+        "notBefore",
+        "notAfter"
+      ],
+      "properties": {
+        "contract": {
+          "const": "dataground.local-runtime-acceptance-trust/v1"
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "isolationDomainId",
+            "serviceId",
+            "revisionId"
+          ],
+          "properties": {
+            "isolationDomainId": {
+              "type": "string",
+              "pattern": "^iso_[0-9a-z]{20,32}$"
+            },
+            "serviceId": {
+              "type": "string",
+              "pattern": "^svc_[0-9a-z]{20,32}$"
+            },
+            "revisionId": {
+              "type": "string",
+              "pattern": "^rev_[0-9a-z]{20,32}$"
+            }
+          }
+        },
+        "reviewerId": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{2,63}$"
+        },
+        "keyId": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{2,63}$"
+        },
+        "publicKey": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]{43}=$"
+        },
+        "trustedRootSHA256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "notBefore": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "notAfter": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}
