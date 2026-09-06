@@ -80,6 +80,16 @@ func (builder governedCodexRuntimeRequestBuilder) BuildInvocationRuntimeRequest(
 	if err != nil {
 		return dgruntime.StartRequest{}, err
 	}
+	for _, artifact := range request.Artifacts {
+		if !strings.HasPrefix(artifact.SandboxPath, "/sandbox/") {
+			return dgruntime.StartRequest{}, reconcile.ErrInvocationRuntimeInputInvalid
+		}
+	}
+	if len(request.Artifacts) > 0 {
+		// OpenShell exports only beneath /sandbox; Codex must use that same
+		// workspace for its native workspace-write permission boundary.
+		request.WorkingDir = "/sandbox"
+	}
 	request.ApprovalMode = dgruntime.ApprovalInteractive
 	return request, nil
 }
