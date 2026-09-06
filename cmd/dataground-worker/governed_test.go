@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"slices"
 	"testing"
 	"time"
@@ -112,10 +113,11 @@ func TestGovernedDevelopmentPlanRequiresExactPinnedProfile(t *testing.T) {
 	t.Parallel()
 
 	plan := execution.ExecutionPlan{
-		RuntimeProfile:       reconcile.CodexAppServerRuntimeProfileV1,
-		ImageReference:       governedSandboxImage,
-		ProviderProfiles:     []string{governedProviderProfile},
-		RequiredCapabilities: []string{reconcile.CodexAppServerRuntimeProfileV1},
+		RuntimeProfile:          reconcile.CodexAppServerRuntimeProfileV1,
+		ImageReference:          governedSandboxImage,
+		EnforcementBundleDigest: governedEnforcementDigest,
+		ProviderProfiles:        []string{governedProviderProfile},
+		RequiredCapabilities:    []string{reconcile.CodexAppServerRuntimeProfileV1},
 	}
 	if !validGovernedDevelopmentPlan(plan) {
 		t.Fatal("exact governed development plan was rejected")
@@ -126,6 +128,10 @@ func TestGovernedDevelopmentPlanRequiresExactPinnedProfile(t *testing.T) {
 	}{
 		{name: "runtime", mutate: func(value *execution.ExecutionPlan) { value.RuntimeProfile = "reference/v1" }},
 		{name: "image", mutate: func(value *execution.ExecutionPlan) { value.ImageReference += "-other" }},
+		{name: "missing enforcement", mutate: func(value *execution.ExecutionPlan) { value.EnforcementBundleDigest = "" }},
+		{name: "different enforcement", mutate: func(value *execution.ExecutionPlan) {
+			value.EnforcementBundleDigest = "sha256:d7f510e5332068cea5106de5351973dc60f15e22e970fa9352a75d3bbd32b95d"
+		}},
 		{name: "provider", mutate: func(value *execution.ExecutionPlan) { value.ProviderProfiles = nil }},
 		{name: "capability", mutate: func(value *execution.ExecutionPlan) { value.RequiredCapabilities = nil }},
 	}
@@ -140,6 +146,16 @@ func TestGovernedDevelopmentPlanRequiresExactPinnedProfile(t *testing.T) {
 				t.Fatal("profile drift was accepted")
 			}
 		})
+	}
+}
+
+func TestGovernedEnforcementDigestMatchesTheCertifiedFixture(t *testing.T) {
+	policy, err := os.ReadFile("../../deploy/openshell/policies/deny-all.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := execution.VerifyEnforcementPolicy(policy, governedEnforcementDigest); err != nil {
+		t.Fatal("governed admission does not bind the checked deny-all fixture")
 	}
 }
 
