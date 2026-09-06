@@ -238,7 +238,7 @@ func TestInvocationRuntimeQuestionsRejectSubstitutionAndUndurableEvents(t *testi
 	if handled, err := questions.record(context.Background(), claim, event, false); !handled || !errors.Is(err, dgruntime.ErrQuestionMode) {
 		t.Fatal("disabled question reached persistence")
 	}
-	if _, err := questions.driver.recordRuntimeEvent(context.Background(), claim, questions.effect, questions.target, questions.turn, event); !errors.Is(err, dgruntime.ErrQuestionMode) {
+	if err := questions.driver.recordRuntimeEvent(context.Background(), claim, event); !errors.Is(err, dgruntime.ErrQuestionMode) {
 		t.Fatal("raw question payload entered ordinary journal path")
 	}
 }

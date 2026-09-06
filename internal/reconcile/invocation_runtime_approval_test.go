@@ -3,9 +3,11 @@ package reconcile
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/persistence"
 	dgruntime "github.com/asabla/dataground/internal/runtime"
 )
@@ -30,6 +32,7 @@ type runtimeApprovalStoreStub struct {
 	onBegin           func()
 	keepPending       bool
 	lifetime          time.Duration
+	recordCalls       int
 }
 
 func (store *runtimeApprovalStoreStub) RecordInvocationRuntimeApprovalRequest(
@@ -39,13 +42,14 @@ func (store *runtimeApprovalStoreStub) RecordInvocationRuntimeApprovalRequest(
 	target persistence.InvocationRuntimeTarget,
 	request persistence.InvocationRuntimeApprovalRequest,
 ) (persistence.InvocationRuntimeApproval, error) {
+	store.recordCalls++
 	store.approval = persistence.InvocationRuntimeApproval{
 		Contract:          persistence.InvocationRuntimeApprovalContract,
 		CreatedAt:         time.Now().UTC().Truncate(time.Microsecond),
 		ExpiresAt:         claim.DeadlineAt,
 		EffectID:          effect.EffectID,
 		IsolationDomainID: target.IsolationDomainID,
-		ID:                "apr_00000000000000000001",
+		ID:                identity.Derived("apr", target.IsolationDomainID+":"+target.OperationID+":"+strconv.FormatUint(request.SourceSequence, 10)),
 		OperationID:       target.OperationID,
 		InvocationID:      target.InvocationID,
 		ServiceID:         target.ServiceID,
@@ -54,6 +58,9 @@ func (store *runtimeApprovalStoreStub) RecordInvocationRuntimeApprovalRequest(
 		SourceSequence:    request.SourceSequence,
 		State:             "pending",
 		Version:           1,
+	}
+	if maximum := store.approval.CreatedAt.Add(15 * time.Minute); store.approval.ExpiresAt.After(maximum) {
+		store.approval.ExpiresAt = maximum
 	}
 	if store.lifetime > 0 {
 		store.approval.ExpiresAt = store.approval.CreatedAt.Add(store.lifetime)
@@ -86,6 +93,7 @@ func (store *runtimeApprovalStoreStub) GetInvocationRuntimeApproval(
 	store.approval.Decision = "approve"
 	store.approval.ResolvedBy = "actual-controller"
 	store.approval.ResolutionCorrelationID = "cor_00000000000000000002"
+	store.approval.ResolvedAt = time.Now()
 	return store.approval, nil
 }
 
@@ -101,6 +109,7 @@ func (store *runtimeApprovalStoreStub) BeginInvocationRuntimeApprovalDelivery(
 	}
 	store.effectiveDecision = effectiveDecision
 	store.approval.State = "delivering"
+	store.approval.Version = 3
 	store.approval.EffectiveDecision = effectiveDecision
 	return store.approval, nil
 }
@@ -113,6 +122,7 @@ func (store *runtimeApprovalStoreStub) CompleteInvocationRuntimeApprovalDelivery
 ) (persistence.InvocationRuntimeApproval, error) {
 	store.completed = true
 	store.approval.State = "delivered"
+	store.approval.Version = 4
 	return store.approval, nil
 }
 
@@ -122,6 +132,10 @@ type approvalTurnStub struct {
 	err        error
 	deadline   time.Time
 	onResolve  func(context.Context)
+}
+
+func (*approvalTurnStub) ApprovalPending(ctx context.Context, _ string) (bool, error) {
+	return true, ctx.Err()
 }
 
 func (*approvalTurnStub) Events() <-chan dgruntime.Event {
@@ -234,7 +248,7 @@ func TestInvocationRuntimeApprovalDeliveryReauthorizesAndUsesPlatformIdentity(t 
 				RevisionID:        "rev_00000000000000000001",
 			}
 			turn := &approvalTurnStub{err: test.deliveryErr}
-			_, err := driver.recordRuntimeEvent(
+			_, err := driveRuntimeApprovalForTest(driver,
 				context.Background(),
 				claim,
 				effect,
@@ -312,7 +326,7 @@ func TestInvocationRuntimeApprovalDeliveryRechecksReadinessAtEffectBoundaries(t 
 					return nil
 				},
 			}
-			_, err := driver.recordRuntimeEvent(context.Background(), claim, effect, target, turn, dgruntime.Event{Sequence: 1, Type: "interaction.approval.requested", Payload: map[string]any{"approvalId": "approval-1", "action": "process.execute"}})
+			_, err := driveRuntimeApprovalForTest(driver, context.Background(), claim, effect, target, turn, dgruntime.Event{Sequence: 1, Type: "interaction.approval.requested", Payload: map[string]any{"approvalId": "approval-1", "action": "process.execute"}})
 			if !errors.Is(err, unavailable) || store.completed {
 				t.Fatalf("readiness boundary completed delivery: %v", err)
 			}
@@ -369,7 +383,7 @@ func TestInvocationRuntimeApprovalDeliveryCannotOutliveItsClaim(t *testing.T) {
 				wantErr = context.Canceled
 			}
 			driver := &InvocationRuntimeDriver{store: &approvalRuntimeStore{}, approvalStore: store, approvalAuthorizer: &approvalAuthorizerStub{}, leaseDuration: time.Minute, renewInterval: time.Millisecond}
-			_, err := driver.recordRuntimeEvent(ctx, claim, effect, target, turn, dgruntime.Event{Sequence: 1, Type: "interaction.approval.requested", Payload: map[string]any{"approvalId": "approval-1", "action": "process.execute"}})
+			_, err := driveRuntimeApprovalForTest(driver, ctx, claim, effect, target, turn, dgruntime.Event{Sequence: 1, Type: "interaction.approval.requested", Payload: map[string]any{"approvalId": "approval-1", "action": "process.execute"}})
 			if !errors.Is(err, wantErr) || store.completed || turn.decisionID != "" {
 				t.Fatalf("expired authority delivered an approval: %v", err)
 			}
@@ -381,4 +395,30 @@ func TestInvocationRuntimeApprovalDeliveryCannotOutliveItsClaim(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Existing effect-boundary cases drive the same incremental mediator used by
+// runTurn. Stream and terminal behavior is covered by full turn tests.
+func driveRuntimeApprovalForTest(driver *InvocationRuntimeDriver, ctx context.Context, claim persistence.OperationClaim, effect persistence.EffectRecord, target persistence.InvocationRuntimeTarget, turn dgruntime.ApprovalTurn, event dgruntime.Event) (result persistence.OperationClaim, runErr error) {
+	approvals := &invocationRuntimeApprovals{driver: driver, target: target, effect: effect, turn: turn}
+	defer func() { runErr = errors.Join(runErr, approvals.close(context.Background(), claim, "runtime-ended")) }()
+	if _, err := approvals.record(ctx, claim, event, false); err != nil {
+		return claim, err
+	}
+	ticker := time.NewTicker(driver.renewInterval)
+	defer ticker.Stop()
+	for approvals.pending != nil {
+		if err := approvals.poll(ctx, claim); err != nil {
+			return claim, err
+		}
+		if approvals.pending == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return claim, ctx.Err()
+		case <-ticker.C:
+		}
+	}
+	return claim, nil
 }
