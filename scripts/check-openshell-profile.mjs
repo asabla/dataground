@@ -580,7 +580,12 @@ if (
   !canaryLauncherSource.includes("state.topology.Cleanup(ctx)") ||
   !canaryLauncherSource.includes("openshell.ExecRunner{Environment: openShellEnvironment()}") ||
   !canaryLauncherSource.includes("canaryprovider.Provision(") ||
-  !canaryLauncherSource.includes("provider.Create(") ||
+  !canaryLauncherSource.includes('return run(ctx, config, "")') ||
+  !canaryLauncherSource.includes("create := provider.Create") ||
+  !canaryLauncherSource.includes("create(ctx, execution.CreateRequest{") ||
+  !canaryLauncherSource.includes("create = provider.CreateLocalDiagnostic") ||
+  !canaryEvidenceSource.includes("if result.diagnostic") ||
+  !canaryEvidenceSource.includes("ErrDiagnosticSerialization") ||
   !canaryLauncherSource.includes("provider.StartRuntime(") ||
   !canaryLauncherSource.includes("codex.New(runtimeSources)") ||
   !canaryLauncherSource.includes("canaryharness.New(") ||

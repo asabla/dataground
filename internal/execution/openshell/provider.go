@@ -320,10 +320,14 @@ func (provider *Provider) SelectGateway(ctx context.Context, request execution.P
 }
 
 func (provider *Provider) Create(ctx context.Context, request execution.CreateRequest) (execution.Execution, error) {
+	return provider.create(ctx, request, false)
+}
+
+func (provider *Provider) create(ctx context.Context, request execution.CreateRequest, localDiagnostic bool) (execution.Execution, error) {
 	if request.Placement.ID == "" || request.Placement.GatewayID == "" || request.IsolationDomainID == "" || request.OperationID == "" {
 		return execution.Execution{}, errors.New("placement, isolation domain, and operation are required")
 	}
-	if !isDigestPinned(request.Image) {
+	if !isDigestPinned(request.Image) && !(localDiagnostic && localDiagnosticImagePattern.MatchString(request.Image)) {
 		return execution.Execution{}, errors.New("sandbox image must be pinned by sha256 digest")
 	}
 	if err := provider.validatePlacement(ctx, request); err != nil {

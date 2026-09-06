@@ -62,14 +62,15 @@ func NamesForRun(runID string) (ResourceNames, error) {
 // they already created. New derives every portable name from RunID and refuses
 // to compose identities from different runs or gateways.
 type Config struct {
-	RunID       string
-	Provider    *openshell.Provider
-	Provisioned *canaryprovider.Provisioned
-	Execution   execution.Execution
-	Workspace   *canaryworkspace.Workspace
-	OpenShell   *openshell.CredentialEvidenceSources
-	Docker      *canarydocker.Sources
-	Runtime     *canaryruntime.Sources
+	DiagnosticImage string
+	RunID           string
+	Provider        *openshell.Provider
+	Provisioned     *canaryprovider.Provisioned
+	Execution       execution.Execution
+	Workspace       *canaryworkspace.Workspace
+	OpenShell       *openshell.CredentialEvidenceSources
+	Docker          *canarydocker.Sources
+	Runtime         *canaryruntime.Sources
 }
 
 // Harness binds one complete evidence plan. Copies share the same irreversible
@@ -176,6 +177,7 @@ func New(config Config) (*Harness, error) {
 
 	harness := &Harness{state: &state{
 		config: canaryevidence.Config{
+			DiagnosticImage:  config.DiagnosticImage,
 			RunID:            config.RunID,
 			CanaryCommitment: commitment,
 			Resources: canaryevidence.Resources{

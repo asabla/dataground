@@ -96,6 +96,62 @@ func TestRunOwnsFinalEvidenceAndCleanup(t *testing.T) {
 	}
 }
 
+func TestCandidateRunCollectsEverySurfaceAndCannotSerializeCertification(t *testing.T) {
+	backend := &sourceBackend{}
+	cleanups := 0
+	config := validConfigWithBackend(func(context.Context, CleanupRequest) error { cleanups++; return nil }, backend)
+	config.DiagnosticImage = "sha256:" + strings.Repeat("a", 64)
+	result, err := Run(context.Background(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if backend.acquisitions != 7 || cleanups != 3 || result.evidence.Profile.SandboxImage != config.DiagnosticImage {
+		t.Fatalf("candidate scan lost coverage, cleanup or actual image binding: sources=%d cleanup=%d", backend.acquisitions, cleanups)
+	}
+	if _, err := json.Marshal(result); !errors.Is(err, ErrDiagnosticSerialization) {
+		t.Fatalf("candidate produced certification evidence: %v", err)
+	}
+}
+
+func TestCandidateRunRetainsLeakAndCleanupDenials(t *testing.T) {
+	for _, failure := range []string{"exposure", "cleanup", "image"} {
+		t.Run(failure, func(t *testing.T) {
+			backend := &sourceBackend{}
+			cleanups := 0
+			config := validConfigWithBackend(func(context.Context, CleanupRequest) error {
+				cleanups++
+				if failure == "cleanup" {
+					return errors.New("private cleanup failure")
+				}
+				return nil
+			}, backend)
+			config.DiagnosticImage = "sha256:" + strings.Repeat("a", 64)
+			if failure == "exposure" {
+				backend.open = func(canarysource.Request) (io.ReadCloser, error) {
+					return io.NopCloser(strings.NewReader("dataground-canary-v1:" + strings.Repeat("a", 43))), nil
+				}
+			}
+			if failure == "image" {
+				config.DiagnosticImage = "candidate:latest"
+			}
+			result, err := Run(context.Background(), config)
+			if err == nil {
+				t.Fatal("candidate scan accepted a failed boundary")
+			}
+			if _, err := json.Marshal(result); err == nil {
+				t.Fatal("failed candidate produced evidence")
+			}
+			if failure == "image" {
+				if backend.acquisitions != 0 || cleanups != 0 {
+					t.Fatal("malformed image reached collection")
+				}
+			} else if cleanups != 3 {
+				t.Fatalf("cleanup calls = %d", cleanups)
+			}
+		})
+	}
+}
+
 func TestRunCleansUpAfterCollectionFailureAndStaysOpaque(t *testing.T) {
 	t.Parallel()
 
@@ -274,7 +330,7 @@ func validConfigWithBackend(cleanup CleanupFunc, backend *sourceBackend) Config 
 		Runtime:   "runtime-invocation",
 		Workspace: "dg-canary-0123456789abcdef0123456789abcdef",
 	}
-	digest := sha256.Sum256([]byte("test canary"))
+	digest := sha256.Sum256([]byte("dataground-canary-v1:" + strings.Repeat("a", 43)))
 	commitment := "sha256:" + hex.EncodeToString(digest[:])
 	sources, err := canarysource.New(canarysource.Config{
 		RunID:            "0123456789abcdef0123456789abcdef",
