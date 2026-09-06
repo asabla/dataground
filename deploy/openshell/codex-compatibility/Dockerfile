@@ -14,6 +14,12 @@ FROM ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea
 COPY --from=build /source/codex-rs/target/debug/codex /opt/dataground-compatibility/codex
 COPY --from=build /source/codex-rs/target/debug/codex-linux-sandbox /opt/dataground-compatibility/codex-linux-sandbox
 COPY --from=build /source/LICENSE /source/NOTICE /source/candidate-source.json /source/build-packages.txt /source/candidate-binaries.sha256 /usr/local/share/dataground-codex-compatibility/
+COPY activate-runtime.py activate-runtime_test.py source.json /tmp/dataground-candidate-activation/
+USER root
+RUN PYTHONDONTWRITEBYTECODE=1 python3 /tmp/dataground-candidate-activation/activate-runtime_test.py && \
+    python3 /tmp/dataground-candidate-activation/activate-runtime.py /tmp/dataground-candidate-activation/source.json && \
+    rm -rf /tmp/dataground-candidate-activation
+USER sandbox
 LABEL org.opencontainers.image.source="https://github.com/asabla/dataground" \
       dataground.dev.codex-compatibility-source="4c70bff480af37b1bf1a9b352b8341060fe55755" \
       dataground.dev.certification-eligible="false"
