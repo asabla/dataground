@@ -1598,7 +1598,7 @@ const runtimeEvidenceWorkflow = await readFile(
 );
 const expectedRuntimeEvidenceWorkflowBindings = [
   "runs-on: ubuntu-24.04",
-  "if: github.ref == 'refs/heads/main'",
+  "if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'",
   "environment: openshell-runtime-conformance",
   "permissions:\n  contents: read",
   "cancel-in-progress: false",
@@ -1649,8 +1649,7 @@ if (
   expectedRuntimeEvidenceWorkflowBindings.some(
     (binding) => !runtimeEvidenceWorkflow.includes(binding),
   ) ||
-  !runtimeEvidenceWorkflow.includes("workflow_dispatch:\n  push:") ||
-  !runtimeEvidenceWorkflow.includes("branches:\n      - main") ||
+  !runtimeEvidenceWorkflow.includes("on:\n  workflow_dispatch:\n\npermissions:") ||
   runtimeEvidenceWorkflow.includes("pull_request:") ||
   runtimeEvidenceWorkflow.includes("pull_request_target:") ||
   runtimeEvidenceWorkflow.includes("contents: write") ||

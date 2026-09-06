@@ -2,22 +2,6 @@ name: OpenShell runtime conformance
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/openshell-runtime-conformance.yml"
-      - "cmd/dataground-openshell-runtime-conformance/**"
-      - "deploy/openshell/**"
-      - "internal/execution/**"
-      - "internal/runtime/codex/**"
-      - "scripts/check-openshell*.mjs"
-      - ".go-version"
-      - ".nvmrc"
-      - "go.mod"
-      - "go.sum"
-      - "package.json"
-      - "pnpm-lock.yaml"
 
 permissions:
   contents: read
@@ -28,7 +12,7 @@ concurrency:
 
 jobs:
   runtime-conformance:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: openshell-runtime-conformance
