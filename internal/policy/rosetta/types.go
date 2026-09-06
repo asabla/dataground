@@ -104,6 +104,9 @@ type compileRequest struct {
 
 type targetOptions struct {
 	OpenShell OpenShellOptions `json:"openShell,omitempty"`
+	// Rosetta v1 hashes the complete options value, including this empty
+	// non-pointer struct when compiling an OpenShell target.
+	Codex struct{} `json:"codex,omitempty"`
 }
 
 type compileResponse struct {

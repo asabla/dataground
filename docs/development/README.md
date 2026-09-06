@@ -4,7 +4,7 @@
 
 DataGround currently uses Go 1.26.5, Node.js 24 LTS, and pnpm 11.15.0. Version managers may read `.go-version` and `.nvmrc`; Corepack or another pnpm installation must honor the exact `packageManager` field in `package.json`.
 
-PostgreSQL 18 is required for durable integration tests and durable control-plane operation. The ordinary local verification command skips database integration tests when `DATAGROUND_TEST_DATABASE_URL` is absent; CI requires them. The OpenShell CLI is required for the opt-in local execution profile described in [local OpenShell guidance](openshell-local.md). Docker also runs the isolated live topology and enforcement checks in CI; neither dependency is required by the ordinary reference runtime. Kubernetes and Rosetta are not runtime dependencies.
+PostgreSQL 18 is required for durable integration tests and durable control-plane operation. The ordinary local verification command skips database integration tests when `DATAGROUND_TEST_DATABASE_URL` is absent; CI requires them. The OpenShell CLI is required for the opt-in local execution profile described in [local OpenShell guidance](openshell-local.md). Docker also runs the isolated live topology and enforcement checks in CI; neither dependency is required by the ordinary reference runtime. Kubernetes and Rosetta are not reference-runtime dependencies. CI separately builds the pinned Rosetta candidate for the loopback HTTP adapter conformance described in [OpenShell development](openshell-local.md).
 
 ## Repository layout
 

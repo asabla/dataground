@@ -66,6 +66,49 @@ jobs:
       - name: Verify repository
         run: pnpm verify
 
+  rosetta-http-conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
+
+      - name: Check out pinned Rosetta candidate
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          repository: asabla/rosetta
+          ref: 320158f1e4a4eea378d82c1527f4a7af5fb9855b
+          path: .cache/rosetta
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: .go-version
+
+      - name: Build pinned compiler service
+        run: |
+          test "$(git -C .cache/rosetta rev-parse HEAD)" = '320158f1e4a4eea378d82c1527f4a7af5fb9855b'
+          GOTOOLCHAIN=go1.25.12 go -C .cache/rosetta build -o "$RUNNER_TEMP/rosetta-server" ./cmd/rosetta-server
+
+      - name: Verify real compiler contract on loopback
+        env:
+          DATAGROUND_ROSETTA_CONFORMANCE_ENDPOINT: http://127.0.0.1:18089
+        run: |
+          ROSETTA_ADDR=127.0.0.1:18089 "$RUNNER_TEMP/rosetta-server" > "$RUNNER_TEMP/rosetta.log" 2>&1 &
+          rosetta_pid=$!
+          trap 'kill "$rosetta_pid" 2>/dev/null || true; wait "$rosetta_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 50); do
+            if curl --silent --fail --max-time 1 --output /dev/null "$DATAGROUND_ROSETTA_CONFORMANCE_ENDPOINT/v1/capabilities"; then
+              break
+            fi
+            kill -0 "$rosetta_pid"
+            sleep 0.1
+          done
+          go test ./internal/policy/rosetta -run 'TestPinnedRosetta' -count=1 -timeout=1m
+
   openshell-runtime-topology:
     runs-on: ubuntu-latest
     timeout-minutes: 10
