@@ -251,6 +251,19 @@ func (client *Client) Interrupt(ctx context.Context) error {
 	return client.request(ctx, "turn/interrupt", map[string]string{"threadId": threadID, "turnId": turnID}, &response)
 }
 
+func (client *Client) ApprovalPending(ctx context.Context, approvalID string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	client.stateMu.Lock()
+	defer client.stateMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	pending, exists := client.approvals[approvalID]
+	return exists && !client.interactionsClosed && !pending.resolving, nil
+}
+
 func (client *Client) ResolveApproval(ctx context.Context, approvalID string, decision dgruntime.ApprovalDecision) error {
 	if decision != dgruntime.ApprovalApprove && decision != dgruntime.ApprovalDeny {
 		return dgruntime.ErrApprovalDecision

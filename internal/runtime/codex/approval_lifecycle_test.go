@@ -36,6 +36,9 @@ func TestApprovalHandlesExpireBeforeTerminalEventsAreObserved(t *testing.T) {
 				t.Fatal(err)
 			}
 			event := waitForEvent(t, turn.Events(), "interaction.approval.requested")
+			if pending, err := turn.(dgruntime.ApprovalTurn).ApprovalPending(ctx, event.Payload["approvalId"].(string)); err != nil || !pending {
+				t.Fatalf("live approval was not pending: %v", err)
+			}
 			close(finish)
 			terminal := "lifecycle.succeeded"
 			if status == "interrupted" {
@@ -45,6 +48,9 @@ func TestApprovalHandlesExpireBeforeTerminalEventsAreObserved(t *testing.T) {
 				terminal = "lifecycle.failed"
 			}
 			waitForEvent(t, turn.Events(), terminal)
+			if pending, err := turn.(dgruntime.ApprovalTurn).ApprovalPending(ctx, event.Payload["approvalId"].(string)); err != nil || pending {
+				t.Fatalf("terminal approval remained pending: %v", err)
+			}
 			if err := turn.ResolveApproval(ctx, event.Payload["approvalId"].(string), dgruntime.ApprovalApprove); !errors.Is(err, dgruntime.ErrApprovalNotFound) {
 				t.Fatalf("terminal approval remained actionable: %v", err)
 			}
@@ -161,6 +167,12 @@ func TestNativeRequestClearanceRetiresOnlyTheExactApproval(t *testing.T) {
 	first := waitForEvent(t, turn.Events(), "interaction.approval.requested")
 	second := waitForEvent(t, turn.Events(), "interaction.approval.requested")
 	waitForEvent(t, turn.Events(), "output.text.delta")
+	if pending, err := turn.(dgruntime.ApprovalTurn).ApprovalPending(ctx, first.Payload["approvalId"].(string)); err != nil || pending {
+		t.Fatalf("cleared request remained pending: %v", err)
+	}
+	if pending, err := turn.(dgruntime.ApprovalTurn).ApprovalPending(ctx, second.Payload["approvalId"].(string)); err != nil || !pending {
+		t.Fatalf("unrelated request was cleared: %v", err)
+	}
 	if err := turn.ResolveApproval(ctx, first.Payload["approvalId"].(string), dgruntime.ApprovalApprove); !errors.Is(err, dgruntime.ErrApprovalNotFound) {
 		t.Fatalf("cleared native approval remained actionable: %v", err)
 	}

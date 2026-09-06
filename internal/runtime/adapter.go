@@ -92,6 +92,13 @@ type Turn interface {
 	Close() error
 }
 
+// ApprovalTurn exposes only adapter-local request liveness. Durable approval
+// authority remains with the worker and its platform ledger.
+type ApprovalTurn interface {
+	Turn
+	ApprovalPending(context.Context, string) (bool, error)
+}
+
 // QuestionTurn is an optional internal capability. A worker must supply durable
 // question mediation before enabling it; ordinary turns remain unchanged.
 type QuestionTurn interface {

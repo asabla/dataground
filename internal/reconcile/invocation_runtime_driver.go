@@ -374,6 +374,22 @@ func (driver *InvocationRuntimeDriver) runTurn(
 		return nil, errors.Join(ErrAmbiguousEffect, dgruntime.ErrQuestionMode)
 	}
 	questions := &invocationRuntimeQuestions{driver: driver, target: target, effect: effect, turn: questionTurn, enabled: questionsEnabled, timeout: questionTimeout}
+	approvalTurn, _ := turn.(dgruntime.ApprovalTurn)
+	approvals := &invocationRuntimeApprovalSet{template: invocationRuntimeApprovals{driver: driver, target: target, effect: effect, turn: approvalTurn}}
+	defer func() {
+		if len(approvals.pending) == 0 {
+			return
+		}
+		cleanup, stop := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		defer stop()
+		reason := "runtime-ended"
+		if errors.Is(runErr, context.Canceled) {
+			reason = "cancelled"
+		}
+		if err := approvals.close(cleanup, claim, reason); err != nil {
+			runErr = errors.Join(runErr, ErrAmbiguousEffect, err)
+		}
+	}()
 	defer func() {
 		if questions.pending == nil {
 			return
@@ -389,27 +405,20 @@ func (driver *InvocationRuntimeDriver) runTurn(
 		if handled, err := questions.record(runCtx, claim, event, ended); handled {
 			return err
 		}
-		if event.Type == "interaction.approval.requested" && questions.pending != nil {
-			if err := questions.poll(runCtx, claim); err != nil {
-				return err
-			}
-			if questions.pending != nil {
-				return persistence.ErrInvocationRuntimeQuestionConflict
-			}
-		}
-		renewed, err := driver.recordRuntimeEvent(runCtx, claim, effect, target, turn, event)
-		if err != nil {
+		if handled, err := approvals.record(runCtx, claim, event, ended); handled {
 			return err
 		}
-		claim = renewed
+		if err := driver.recordRuntimeEvent(runCtx, claim, event); err != nil {
+			return err
+		}
 		output.Observe(event)
 		return nil
 	}
-	var questionPoll <-chan time.Time
-	if questionsEnabled {
+	var interactionPoll <-chan time.Time
+	if questionsEnabled || !governedInvocationDependencyMissing(driver.approvalStore) {
 		poller := time.NewTicker(invocationQuestionPollInterval)
 		defer poller.Stop()
-		questionPoll = poller.C
+		interactionPoll = poller.C
 	}
 	waited := make(chan error, 1)
 	go func() { waited <- turn.Wait(runCtx) }()
@@ -424,17 +433,24 @@ func (driver *InvocationRuntimeDriver) runTurn(
 				continue
 			}
 			if err := consume(event); err != nil {
-				_ = turn.Interrupt(context.Background())
+				interruptInvocationRuntimeTurn(runCtx, turn)
 				return nil, errors.Join(ErrAmbiguousEffect, err)
 			}
-		case <-questionPoll:
+		case <-interactionPoll:
+			if err := approvals.poll(runCtx, claim); err != nil {
+				interruptInvocationRuntimeTurn(runCtx, turn)
+				return nil, errors.Join(ErrAmbiguousEffect, err)
+			}
 			if err := questions.poll(runCtx, claim); err != nil {
-				_ = turn.Interrupt(context.Background())
+				interruptInvocationRuntimeTurn(runCtx, turn)
 				return nil, errors.Join(ErrAmbiguousEffect, err)
 			}
 		case waitErr := <-waited:
 			ended = true
 			if err := questions.close(runCtx, claim, "runtime-ended"); err != nil {
+				return nil, errors.Join(ErrAmbiguousEffect, err)
+			}
+			if err := approvals.close(runCtx, claim, "runtime-ended"); err != nil {
 				return nil, errors.Join(ErrAmbiguousEffect, err)
 			}
 			if err := driver.ready(runCtx); err != nil {
@@ -444,6 +460,9 @@ func (driver *InvocationRuntimeDriver) runTurn(
 				return nil, errors.Join(ErrAmbiguousEffect, err)
 			}
 			if err := questions.close(runCtx, claim, "runtime-ended"); err != nil {
+				return nil, errors.Join(ErrAmbiguousEffect, err)
+			}
+			if err := approvals.close(runCtx, claim, "runtime-ended"); err != nil {
 				return nil, errors.Join(ErrAmbiguousEffect, err)
 			}
 			if waitErr != nil {
@@ -500,20 +519,30 @@ func (driver *InvocationRuntimeDriver) runTurn(
 			return result, nil
 		case <-ticker.C:
 			if err := driver.ready(runCtx); err != nil {
-				_ = turn.Interrupt(context.Background())
+				interruptInvocationRuntimeTurn(runCtx, turn)
 				return nil, errors.Join(ErrAmbiguousEffect, err)
 			}
 			renewed, err := driver.store.RenewLease(runCtx, claim, driver.leaseDuration)
 			if err != nil {
-				_ = turn.Interrupt(context.Background())
+				interruptInvocationRuntimeTurn(runCtx, turn)
 				return nil, errors.Join(ErrAmbiguousEffect, err)
 			}
 			claim = renewed
 		case <-runCtx.Done():
-			_ = turn.Interrupt(context.Background())
+			interruptInvocationRuntimeTurn(runCtx, turn)
 			return nil, errors.Join(ErrAmbiguousEffect, runCtx.Err())
 		}
 	}
+}
+
+const invocationRuntimeInterruptTimeout = 2 * time.Second
+
+func interruptInvocationRuntimeTurn(ctx context.Context, turn dgruntime.Turn) {
+	// Native acknowledgement is best effort. It must not prevent the turn owner
+	// from closing durable requests and releasing its runtime after authority ends.
+	bounded, cancel := context.WithTimeout(context.WithoutCancel(ctx), invocationRuntimeInterruptTimeout)
+	defer cancel()
+	_ = turn.Interrupt(bounded)
 }
 
 func (driver *InvocationRuntimeDriver) publishInvocationArtifacts(
@@ -613,146 +642,15 @@ func drainRuntimeEvents(
 	return nil
 }
 
-func (driver *InvocationRuntimeDriver) recordRuntimeEvent(
-	ctx context.Context,
-	claim persistence.OperationClaim,
-	effect persistence.EffectRecord,
-	target persistence.InvocationRuntimeTarget,
-	turn dgruntime.Turn,
-	event dgruntime.Event,
-) (resultClaim persistence.OperationClaim, resultErr error) {
+func (driver *InvocationRuntimeDriver) recordRuntimeEvent(ctx context.Context, claim persistence.OperationClaim, event dgruntime.Event) error {
 	if strings.HasPrefix(event.Type, "interaction.question.") {
-		return claim, dgruntime.ErrQuestionMode
+		return dgruntime.ErrQuestionMode
 	}
-	if event.Type != "interaction.approval.requested" {
-		_, err := driver.store.RecordInvocationRuntimeEvent(ctx, claim, persistence.InvocationRuntimeEvent{
-			SourceSequence: event.Sequence,
-			Type:           event.Type,
-			Payload:        event.Payload,
-		})
-		return claim, err
+	if strings.HasPrefix(event.Type, "interaction.approval.") {
+		return ErrInvocationApprovalUnavailable
 	}
-	if governedInvocationDependencyMissing(driver.approvalStore) ||
-		governedInvocationDependencyMissing(driver.approvalAuthorizer) {
-		return claim, ErrInvocationApprovalUnavailable
-	}
-	ctx, cancel := context.WithDeadline(ctx, claim.DeadlineAt)
-	defer cancel()
-	if err := driver.ready(ctx); err != nil {
-		return claim, err
-	}
-	adapterApprovalID, idOK := event.Payload["approvalId"].(string)
-	requestedAction, actionOK := event.Payload["action"].(string)
-	if !idOK || adapterApprovalID == "" || !actionOK || len(event.Payload) != 2 {
-		return claim, ErrInvocationApprovalInvalid
-	}
-	approval, err := driver.approvalStore.RecordInvocationRuntimeApprovalRequest(
-		ctx, claim, effect, target, persistence.InvocationRuntimeApprovalRequest{
-			SourceSequence: event.Sequence, RequestedAction: requestedAction,
-		},
-	)
-	if err != nil {
-		return claim, err
-	}
-	if approval.Contract != persistence.InvocationRuntimeApprovalContract || approval.ID == "" || approval.IsolationDomainID != target.IsolationDomainID || approval.OperationID != claim.ID || approval.InvocationID != target.InvocationID || approval.ServiceID != target.ServiceID || approval.RevisionID != target.RevisionID || approval.EffectID != effect.EffectID || approval.SourceSequence != event.Sequence || approval.RequestedAction != requestedAction || approval.State != "pending" || approval.Version != 1 || !approval.ExpiresAt.After(approval.CreatedAt) || approval.ExpiresAt.After(approval.CreatedAt.Add(15*time.Minute)) || approval.ExpiresAt.After(claim.DeadlineAt) {
-		return claim, persistence.ErrInvocationRuntimeApprovalConflict
-	}
-	original := approval
-	delivered := false
-	defer func() {
-		if delivered {
-			return
-		}
-		cleanup, stop := context.WithTimeout(context.Background(), 2*time.Second)
-		defer stop()
-		reason := "runtime-ended"
-		if errors.Is(resultErr, context.Canceled) {
-			reason = "cancelled"
-		}
-		_, closeErr := driver.approvalStore.CloseInvocationRuntimeApproval(cleanup, claim, effect, original.ID, reason)
-		resultErr = errors.Join(resultErr, closeErr)
-	}()
-	ctx, stopExpiry := context.WithDeadline(ctx, original.ExpiresAt)
-	defer stopExpiry()
-	// The durable approval store atomically publishes the sanitized platform
-	// event with the pending record. The adapter-local identifier stays only
-	// in this stack frame for the eventual single-use delivery.
-	ticker := time.NewTicker(driver.renewInterval)
-	defer ticker.Stop()
-	for {
-		if err := driver.ready(ctx); err != nil {
-			return claim, err
-		}
-		approval, err = driver.approvalStore.GetInvocationRuntimeApproval(
-			ctx, approval.IsolationDomainID, approval.ID,
-		)
-		if err != nil {
-			return claim, err
-		}
-		if approval.Contract != original.Contract || approval.ID != original.ID || approval.IsolationDomainID != original.IsolationDomainID || approval.OperationID != original.OperationID || approval.InvocationID != original.InvocationID || approval.ServiceID != original.ServiceID || approval.RevisionID != original.RevisionID || approval.EffectID != original.EffectID || approval.SourceSequence != original.SourceSequence || approval.RequestedAction != original.RequestedAction || !approval.CreatedAt.Equal(original.CreatedAt) || !approval.ExpiresAt.Equal(original.ExpiresAt) {
-			return claim, persistence.ErrInvocationRuntimeApprovalConflict
-		}
-		switch approval.State {
-		case "pending":
-		case "resolved":
-			effectiveDecision := approval.Decision
-			authorizationErr := driver.approvalAuthorizer.AuthorizeInvocationApproval(
-				ctx, approval, InvocationApprovalPhaseEffect,
-			)
-			if errors.Is(authorizationErr, ErrInvocationApprovalDenied) {
-				effectiveDecision = string(dgruntime.ApprovalDeny)
-			} else if authorizationErr != nil {
-				return claim, authorizationErr
-			}
-			if err := driver.ready(ctx); err != nil {
-				return claim, err
-			}
-			if _, err := driver.approvalStore.BeginInvocationRuntimeApprovalDelivery(
-				ctx, claim, effect, approval.ID, effectiveDecision,
-			); err != nil {
-				return claim, err
-			}
-			// The reservation is single-use even if readiness or the claim expires
-			// before the native write. Keep ambiguous delivery reserved for recovery.
-			deliveryCtx, stopDelivery := context.WithDeadline(ctx, claim.LeaseExpiresAt)
-			deliveryErr := driver.ready(deliveryCtx)
-			if deliveryErr == nil {
-				deliveryErr = turn.ResolveApproval(deliveryCtx, adapterApprovalID, dgruntime.ApprovalDecision(effectiveDecision))
-			}
-			stopDelivery()
-			if deliveryErr != nil {
-				return claim, deliveryErr
-			}
-			if err := driver.ready(ctx); err != nil {
-				return claim, err
-			}
-			if _, err := driver.approvalStore.CompleteInvocationRuntimeApprovalDelivery(
-				ctx, claim, effect, approval.ID,
-			); err != nil {
-				return claim, err
-			}
-			delivered = true
-			return claim, nil
-		case "closed", "expired":
-			return claim, persistence.ErrInvocationRuntimeApprovalExpired
-		case "delivering", "delivery_unknown":
-			return claim, persistence.ErrInvocationRuntimeApprovalDeliveryAmbiguous
-		case "delivered":
-			return claim, persistence.ErrInvocationRuntimeApprovalConflict
-		default:
-			return claim, ErrInvocationApprovalInvalid
-		}
-		select {
-		case <-ctx.Done():
-			return claim, ctx.Err()
-		case <-ticker.C:
-			renewed, err := driver.store.RenewLease(ctx, claim, driver.leaseDuration)
-			if err != nil {
-				return claim, err
-			}
-			claim = renewed
-		}
-	}
+	_, err := driver.store.RecordInvocationRuntimeEvent(ctx, claim, persistence.InvocationRuntimeEvent{SourceSequence: event.Sequence, Type: event.Type, Payload: event.Payload})
+	return err
 }
 
 func invocationRuntimeEffectMatchesClaim(
