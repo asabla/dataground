@@ -62,7 +62,7 @@ func main() {
 		}
 	}()
 	worker := reconcile.New(workerReconcileStore(repository, config), driver, workerID)
-	dispatcher := outbox.New(repository, outbox.AcknowledgePublisher{}, workerID)
+	dispatcher := outbox.New(workerOutboxStore(repository, config), outbox.AcknowledgePublisher{}, workerID)
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
