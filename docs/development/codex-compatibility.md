@@ -81,6 +81,18 @@ The command verifies GitHub/Sigstore provenance through `gh attestation verify`,
 
 Successful output records the registry digest, local image ID, source, architecture and invocation with `certificationEligible: false`. This output is a verification summary, not a signed acceptance record; rerun verification before use. It does not accept local runtime evidence or activate governed execution.
 
+For offline signature verification, retain the exact raw manifest from `docker buildx imagetools inspect --raw`, its bundle from `gh attestation download`, and trust roots acquired through `gh attestation trusted-root`. Pin the trust-root SHA-256 independently at that authenticated acquisition boundary; a digest supplied alongside untrusted roots does not make those roots trustworthy. Store the three files as owner-only regular files, then run:
+
+```sh
+pnpm codex:candidate:attestation:check \
+  "sha256:$CANDIDATE_DIGEST" "$REVIEWED_SOURCE_COMMIT" \
+  "$PUBLICATION_RUN_ID" "$PUBLICATION_RUN_ATTEMPT" \
+  /absolute/private/manifest.json /absolute/private/bundle.jsonl \
+  /absolute/private/trusted-root.jsonl "$REVIEWED_TRUST_ROOT_SHA256"
+```
+
+This command requires GitHub CLI 2.98.0 and checks the same exact certificate and subject bindings as the online publication verifier. It reads bounded, owner-held non-symlink files, checks the manifest and trust-root digests, freezes private copies, and runs the verifier with an isolated configuration/state directory and no inherited credentials. The child receives explicit offline inputs and HTTP(S) proxy settings pointing to loopback port 9; it acquires no remote evidence. Temporary inputs and CLI state are removed after success or failure. Offline verification establishes the signed image digest and invocation only: it does not inspect image architecture or isolation metadata, check workflow completion, accept a runtime diagnostic, or enable governed execution. Its output explicitly retains `publicationCompletionChecked: false` and `certificationEligible: false`.
+
 ## Published ARM64 candidate diagnostic
 
 [Publication run 34025809311, attempt 1](https://github.com/asabla/dataground/actions/runs/34025809311/attempts/1) completed successfully from reviewed source `e7a0839bfcaa6a9d95540224a63c02be45bb89e1`. Its ARM64 native, synthetic credential, and provider-bound/export checks passed before publishing `ghcr.io/asabla/dataground-codex-candidate@sha256:9fff9875097a3608fce25e0d401cacc70ad10113237683fe907e45d94e4b24a1`. GitHub/Sigstore provenance was uploaded to both the repository and registry, and registry logout completed. The local publication verifier then checked the exact signed invocation and successful jobs, pulled the digest, and verified its ARM64 architecture, `sandbox` user and candidate labels. The downloaded manifest and signed bundle also passed offline provenance verification with the authenticated trust roots.
