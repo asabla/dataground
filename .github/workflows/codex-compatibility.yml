@@ -55,7 +55,7 @@ jobs:
       - name: Verify candidate publication boundaries
         env:
           PYTHONDONTWRITEBYTECODE: "1"
-        run: python3 deploy/openshell/codex-compatibility/publication_test.py
+        run: python3 deploy/openshell/candidate-publication_test.py
 
       - name: Build the source-pinned experimental candidate
         id: candidate
@@ -117,7 +117,7 @@ jobs:
           CANDIDATE_IMAGE: ${{ steps.candidate.outputs.image }}
           CANDIDATE_ARCH: ${{ inputs.architecture }}
         run: |
-          python3 deploy/openshell/codex-compatibility/publication.py prepare \
+          python3 deploy/openshell/candidate-publication.py prepare \
             --directory "$RUNNER_TEMP/candidate-publication" \
             --image "$CANDIDATE_IMAGE" --architecture "$CANDIDATE_ARCH" \
             --source-commit "$GITHUB_SHA"
@@ -161,7 +161,7 @@ jobs:
         env:
           CANDIDATE_ARCH: ${{ inputs.architecture }}
         run: |
-          python3 deploy/openshell/codex-compatibility/publication.py load \
+          python3 deploy/openshell/candidate-publication.py load \
             --directory "$RUNNER_TEMP/candidate-publication" \
             --architecture "$CANDIDATE_ARCH" --source-commit "$GITHUB_SHA"
 
@@ -175,7 +175,7 @@ jobs:
           # The pinned attestation action reads ~/.docker/config.json directly.
           printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$REGISTRY_USER" --password-stdin
           unset REGISTRY_TOKEN
-          python3 deploy/openshell/codex-compatibility/publication.py publish \
+          python3 deploy/openshell/candidate-publication.py publish \
             --directory "$RUNNER_TEMP/candidate-publication" \
             --architecture "$CANDIDATE_ARCH" --source-commit "$GITHUB_SHA" \
             --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT"
