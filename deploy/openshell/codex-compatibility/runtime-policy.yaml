@@ -1,0 +1,7 @@
+version: 1
+
+# Proxy-mode baseline paths omit the null device used for child standard I/O.
+# Grant this device explicitly; do not grant the containing /dev directory.
+filesystem_policy:
+  read_write:
+    - /dev/null

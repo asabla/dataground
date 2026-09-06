@@ -16,6 +16,7 @@ import (
 
 const (
 	runtimeLauncherOpenShellVersion = "0.0.86"
+	candidateRuntimePolicyPath      = "deploy/openshell/codex-compatibility/runtime-policy.yaml"
 	runtimeLauncherPolicyPath       = "deploy/openshell/policies/deny-all.yaml"
 	runtimeLauncherCleanupTimeout   = 4 * time.Minute
 )
@@ -68,7 +69,7 @@ type launcherPorts interface {
 type launcherDependencies struct {
 	checkCandidate func(context.Context, LauncherConfig) error
 	newRunID       func() (string, error)
-	readPolicy     func(string) ([]byte, error)
+	readPolicy     func(LauncherConfig) ([]byte, error)
 	openWorkspace  func(string, string) (launcherWorkspace, error)
 	openPorts      func(string, string, launcherWorkspace) (launcherPorts, error)
 	openTopology   func(DockerTopologyConfig) (launcherTopology, error)
@@ -133,7 +134,7 @@ func launch(
 		}
 	}
 	phase = "policy"
-	policy, err := dependencies.readPolicy(config.RepositoryRoot)
+	policy, err := dependencies.readPolicy(config)
 	if err != nil {
 		return Result{}, ErrLauncherConfiguration
 	}
@@ -282,15 +283,16 @@ func newRuntimeLauncherRunID() (string, error) {
 	return runID, nil
 }
 
-func readRuntimeLauncherPolicy(repositoryRoot string) ([]byte, error) {
-	root, err := resolveRuntimeTopologyDirectory(repositoryRoot, false)
+func readRuntimeLauncherPolicy(config LauncherConfig) ([]byte, error) {
+	root, err := resolveRuntimeTopologyDirectory(config.RepositoryRoot, false)
 	if err != nil {
 		return nil, ErrLauncherConfiguration
 	}
-	return readRuntimeTopologyFile(
-		filepath.Join(root, filepath.FromSlash(runtimeLauncherPolicyPath)),
-		runtimePolicySHA256,
-	)
+	path, digest := runtimeLauncherPolicyPath, runtimePolicySHA256
+	if config.candidateImage != "" {
+		path, digest = candidateRuntimePolicyPath, candidateRuntimePolicySHA256
+	}
+	return readRuntimeTopologyFile(filepath.Join(root, filepath.FromSlash(path)), digest)
 }
 
 type runtimeLauncherPorts struct {

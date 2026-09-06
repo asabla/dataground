@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v2.json",
+  "$id": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v3.json",
   "title": "DataGround local candidate OpenShell runtime diagnostic",
   "type": "object",
   "additionalProperties": false,
@@ -16,7 +16,7 @@
   ],
   "properties": {
     "schemaVersion": {
-      "const": "dataground.dev.openshell-runtime-diagnostic/v2"
+      "const": "dataground.dev.openshell-runtime-diagnostic/v3"
     },
     "certificationEligible": {
       "const": false
@@ -34,7 +34,8 @@
         "gatewayEndpoint",
         "driver",
         "composeSHA256",
-        "gatewayConfigSHA256"
+        "gatewayConfigSHA256",
+        "runtimePolicySHA256"
       ],
       "properties": {
         "openshellCommit": {
@@ -68,6 +69,9 @@
         },
         "gatewayConfigSHA256": {
           "$ref": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json#/$defs/sha256"
+        },
+        "runtimePolicySHA256": {
+          "const": "d7f510e5332068cea5106de5351973dc60f15e22e970fa9352a75d3bbd32b95d"
         }
       }
     },

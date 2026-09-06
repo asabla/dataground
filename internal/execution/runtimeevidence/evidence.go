@@ -271,6 +271,7 @@ func (run *EvidenceRun) Execute(ctx context.Context) (Result, error) {
 	if state.config.candidateImage != "" {
 		profile.SandboxImage = state.config.candidateImage
 		profile.CredentialEvidenceSHA256 = ""
+		profile.RuntimePolicySHA256 = candidateRuntimePolicySHA256
 	}
 	return Result{
 		diagnosticModel: state.config.diagnosticModel,

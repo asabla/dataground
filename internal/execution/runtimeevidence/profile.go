@@ -21,6 +21,7 @@ const (
 )
 
 type profile struct {
+	RuntimePolicySHA256          string `json:"runtimePolicySHA256,omitempty"`
 	OpenShellCommit              string `json:"openshellCommit"`
 	GatewayImage                 string `json:"gatewayImage"`
 	SupervisorImage              string `json:"supervisorImage"`
