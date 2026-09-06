@@ -43,3 +43,35 @@ func runtimeInteractionLockUnavailable(err error) bool {
 	var databaseError *pgconn.PgError
 	return errors.As(err, &databaseError) && databaseError.Code == "55P03"
 }
+
+func activeRuntimeInteraction(ctx context.Context, tx pgx.Tx, scope, operation, invocation, effect string) error {
+	var active bool
+	err := tx.QueryRow(ctx, `SELECT true FROM invocation_execution_operations operation JOIN invocation_runtime_attempts attempt
+ ON attempt.isolation_domain_id=operation.isolation_domain_id AND attempt.operation_id=operation.id
+ WHERE operation.isolation_domain_id=$1 AND operation.id=$2 AND operation.invocation_id=$3
+ AND operation.observed_state='running' AND operation.lease_owner IS NOT NULL AND operation.lease_expires_at>clock_timestamp() AND operation.deadline_at>clock_timestamp()
+ AND operation.command IN ('invoke','repair')
+ AND attempt.effect_id=$4 AND attempt.status='reserved' AND attempt.lease_owner=operation.lease_owner AND attempt.fencing_token=operation.lease_token
+ FOR UPDATE OF operation NOWAIT`, scope, operation, invocation, effect).Scan(&active)
+	if errors.Is(err, pgx.ErrNoRows) || runtimeInteractionLockUnavailable(err) {
+		return ErrLeaseLost
+	}
+	if err != nil {
+		return err
+	}
+	if !active {
+		return ErrLeaseLost
+	}
+	return nil
+}
+
+// Re-evaluate time at the write itself; operation locks alone cannot keep a
+// previously live lease or deadline from expiring during authorization.
+const runtimeInteractionLiveAttemptSQL = `EXISTS (
+ SELECT 1 FROM invocation_execution_operations operation
+ JOIN invocation_runtime_attempts attempt ON attempt.isolation_domain_id=operation.isolation_domain_id AND attempt.operation_id=operation.id
+ WHERE operation.isolation_domain_id=interaction.isolation_domain_id AND operation.id=interaction.operation_id
+ AND operation.invocation_id=interaction.invocation_id AND operation.command IN ('invoke','repair') AND operation.observed_state='running'
+ AND operation.lease_owner IS NOT NULL AND operation.lease_expires_at>clock_timestamp() AND operation.deadline_at>clock_timestamp()
+ AND attempt.effect_id=interaction.effect_id AND attempt.status='reserved'
+ AND attempt.lease_owner=operation.lease_owner AND attempt.fencing_token=operation.lease_token)`

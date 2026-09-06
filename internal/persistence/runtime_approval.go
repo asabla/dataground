@@ -270,6 +270,16 @@ func resolveInvocationRuntimeApproval(
 	now time.Time,
 	authorize InvocationRuntimeApprovalEntryAuthorizer,
 ) (InvocationRuntimeApproval, error) {
+	// Serialize journal allocation with runtime events and lifecycle commands
+	// before locking the approval; different approvals share one invocation cursor.
+	var exists bool
+	err := tx.QueryRow(ctx, `SELECT true FROM invocations WHERE isolation_domain_id=$1 AND id=$2 FOR UPDATE`, resolution.IsolationDomainID, resolution.InvocationID).Scan(&exists)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalMissing
+	}
+	if err != nil {
+		return InvocationRuntimeApproval{}, err
+	}
 	approval, found, err := getInvocationRuntimeApproval(
 		ctx, tx, resolution.IsolationDomainID, resolution.ApprovalID, true,
 	)
@@ -312,55 +322,38 @@ func resolveInvocationRuntimeApproval(
 	if approval.Version != resolution.ExpectedVersion {
 		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalConflict
 	}
-	var active bool
-	if err := tx.QueryRow(ctx, `
-		SELECT true
-		FROM invocation_execution_operations AS operation
-		JOIN invocation_runtime_attempts AS attempt
-		  ON attempt.isolation_domain_id = operation.isolation_domain_id
-		 AND attempt.operation_id = operation.id
-		WHERE operation.isolation_domain_id = $1
-		  AND operation.id = $2
-		  AND operation.invocation_id = $3
-		  AND operation.observed_state = 'running'
-		  AND operation.lease_owner IS NOT NULL
-		  AND operation.lease_expires_at > clock_timestamp()
-		  AND operation.deadline_at > clock_timestamp()
-		  AND attempt.effect_id = $4
-		  AND attempt.status = 'reserved'
-	`, approval.IsolationDomainID, approval.OperationID,
-		approval.InvocationID, approval.EffectID).Scan(&active); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalConflict
-		}
-		return InvocationRuntimeApproval{}, fmt.Errorf("validate invocation runtime approval target: %w", err)
-	}
-	if !active {
-		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalConflict
+	if err := activeRuntimeApproval(ctx, tx, approval); err != nil {
+		return InvocationRuntimeApproval{}, err
 	}
 	if authorize != nil {
 		if err := authorize(ctx, candidate); err != nil {
 			return InvocationRuntimeApproval{}, err
 		}
 	}
+	if err := activeRuntimeApproval(ctx, tx, approval); err != nil {
+		return InvocationRuntimeApproval{}, err
+	}
 	if err := tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
 		return InvocationRuntimeApproval{}, err
 	}
 	result, err := tx.Exec(ctx, `
-		UPDATE invocation_runtime_approvals
+		UPDATE invocation_runtime_approvals AS interaction
 		SET state = 'resolved', version = version + 1, decision = $3,
 		    resolved_by = $4, resolution_correlation_id = $5,
 		    resolved_at = $6, updated_at = $6
 		WHERE isolation_domain_id = $1 AND id = $2
 		  AND state = 'pending' AND version = $7
 		  AND (expires_at IS NULL OR expires_at > clock_timestamp())
-	`, resolution.IsolationDomainID, resolution.ApprovalID,
+		  AND `+runtimeInteractionLiveAttemptSQL, resolution.IsolationDomainID, resolution.ApprovalID,
 		resolution.Decision, resolution.ActorID, resolution.CorrelationID,
 		now, resolution.ExpectedVersion)
 	if err != nil {
 		return InvocationRuntimeApproval{}, fmt.Errorf("resolve invocation runtime approval: %w", err)
 	}
 	if result.RowsAffected() != 1 {
+		if err := activeRuntimeApproval(ctx, tx, approval); err != nil {
+			return InvocationRuntimeApproval{}, err
+		}
 		if !approval.ExpiresAt.IsZero() {
 			return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalExpired
 		}
@@ -446,16 +439,19 @@ func (repository *Repository) BeginInvocationRuntimeApprovalDelivery(
 		return InvocationRuntimeApproval{}, err
 	}
 	result, err := tx.Exec(ctx, `
-		UPDATE invocation_runtime_approvals
+		UPDATE invocation_runtime_approvals AS interaction
 		SET state = 'delivering', version = version + 1,
 		    effective_decision = $3, updated_at = $4
 		WHERE isolation_domain_id = $1 AND id = $2 AND state = 'resolved'
 		  AND (expires_at IS NULL OR expires_at > clock_timestamp())
-	`, claim.IsolationDomainID, approvalID, effectiveDecision, now)
+		  AND `+runtimeInteractionLiveAttemptSQL, claim.IsolationDomainID, approvalID, effectiveDecision, now)
 	if err != nil {
 		return InvocationRuntimeApproval{}, fmt.Errorf("reserve invocation runtime approval delivery: %w", err)
 	}
 	if result.RowsAffected() != 1 {
+		if err := activeRuntimeApproval(ctx, tx, approval); err != nil {
+			return InvocationRuntimeApproval{}, err
+		}
 		if !approval.ExpiresAt.IsZero() {
 			return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalExpired
 		}
@@ -519,16 +515,19 @@ func (repository *Repository) CompleteInvocationRuntimeApprovalDelivery(
 		return InvocationRuntimeApproval{}, err
 	}
 	result, err := tx.Exec(ctx, `
-		UPDATE invocation_runtime_approvals
+		UPDATE invocation_runtime_approvals AS interaction
 		SET state = 'delivered', version = version + 1,
 		    delivered_at = $3, updated_at = $3
 		WHERE isolation_domain_id = $1 AND id = $2 AND state = 'delivering'
 		  AND (expires_at IS NULL OR expires_at > clock_timestamp())
-	`, claim.IsolationDomainID, approvalID, now)
+		  AND `+runtimeInteractionLiveAttemptSQL, claim.IsolationDomainID, approvalID, now)
 	if err != nil {
 		return InvocationRuntimeApproval{}, fmt.Errorf("complete invocation runtime approval delivery: %w", err)
 	}
 	if result.RowsAffected() != 1 {
+		if err := activeRuntimeApproval(ctx, tx, approval); err != nil {
+			return InvocationRuntimeApproval{}, err
+		}
 		if !approval.ExpiresAt.IsZero() {
 			return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalExpired
 		}
@@ -904,4 +903,12 @@ func sameInvocationRuntimeApprovalResolution(
 	return approval.Decision == resolution.Decision &&
 		approval.ResolvedBy == resolution.ActorID &&
 		approval.ResolutionCorrelationID == resolution.CorrelationID
+}
+
+func activeRuntimeApproval(ctx context.Context, tx pgx.Tx, value InvocationRuntimeApproval) error {
+	err := activeRuntimeInteraction(ctx, tx, value.IsolationDomainID, value.OperationID, value.InvocationID, value.EffectID)
+	if errors.Is(err, ErrLeaseLost) {
+		return ErrInvocationRuntimeApprovalConflict
+	}
+	return err
 }
