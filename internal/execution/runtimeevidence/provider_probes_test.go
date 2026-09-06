@@ -216,6 +216,7 @@ func TestOpenShellProbesFailClosed(t *testing.T) {
 }
 
 type openShellProbeFixture struct {
+	runtime  *codexProbeProvider
 	store    *probeStore
 	provider *probeProvider
 	clock    *probeClock
@@ -257,6 +258,7 @@ func newOpenShellProbeFixture() *openShellProbeFixture {
 		exportContent: runtimeArtifactContent(testRunID),
 	}
 	return &openShellProbeFixture{
+		runtime:  &codexProbeProvider{scripts: []func(*codexProbeServer){artifactProductionScript}},
 		store:    store,
 		provider: provider,
 		clock:    clock,
@@ -265,6 +267,7 @@ func newOpenShellProbeFixture() *openShellProbeFixture {
 
 func (fixture *openShellProbeFixture) config() OpenShellProbeConfig {
 	return OpenShellProbeConfig{
+		Runtime:     fixture.runtime,
 		RunID:       testRunID,
 		ExecutionID: fixture.store.execution.Execution.ID,
 		Store:       fixture.store,
@@ -311,6 +314,7 @@ func (store *probeStore) GetExecution(
 }
 
 type probeProvider struct {
+	exportCalls   int
 	store         *probeStore
 	clock         *probeClock
 	exportContent []byte
@@ -343,6 +347,7 @@ func (provider *probeProvider) Export(
 	context.Context,
 	execution.ExportRequest,
 ) (execution.ExportResult, error) {
+	provider.exportCalls++
 	return execution.ExportResult{
 		IsolationDomainID: provider.store.execution.Execution.IsolationDomainID,
 		ExecutionID:       provider.store.execution.Execution.ID,

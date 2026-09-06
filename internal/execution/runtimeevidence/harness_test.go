@@ -13,7 +13,7 @@ func TestHarnessOwnsCompleteRuntimeEvidenceChain(t *testing.T) {
 	t.Parallel()
 
 	providerFixture := newOpenShellProbeFixture()
-	runtimeFixture := newCodexProbeFixture(codexProbeScripts(testRunID)...)
+	runtimeFixture := newCodexProbeFixture(append(codexProbeScripts(testRunID), artifactProductionScript)...)
 	provider := &harnessTestProvider{
 		probeProvider:      providerFixture.provider,
 		codexProbeProvider: runtimeFixture.provider,
@@ -67,8 +67,8 @@ func TestHarnessOwnsCompleteRuntimeEvidenceChain(t *testing.T) {
 			t.Fatalf("check %d = %q, want %q", index, check.Name, requiredChecks[index])
 		}
 	}
-	if runtimeFixture.provider.opened != len(codexProbeOrder) {
-		t.Fatalf("opened runtime sessions = %d, want %d", runtimeFixture.provider.opened, len(codexProbeOrder))
+	if runtimeFixture.provider.opened != len(codexProbeOrder)+1 {
+		t.Fatalf("opened runtime sessions = %d, want %d", runtimeFixture.provider.opened, len(codexProbeOrder)+1)
 	}
 	if !providerFixture.provider.terminated {
 		t.Fatal("provider probes did not terminate the sandbox")
@@ -87,7 +87,7 @@ func TestHarnessSanitizesFailureAndCompletesCleanup(t *testing.T) {
 	t.Parallel()
 
 	providerFixture := newOpenShellProbeFixture()
-	runtimeFixture := newCodexProbeFixture(codexProbeScripts(testRunID)...)
+	runtimeFixture := newCodexProbeFixture(append(codexProbeScripts(testRunID), artifactProductionScript)...)
 	privateErr := errors.New("private native endpoint failed")
 	runtimeFixture.provider.openErr = privateErr
 	provider := &harnessTestProvider{
@@ -137,7 +137,7 @@ func TestHarnessIsClosedAndSingleUse(t *testing.T) {
 	t.Parallel()
 
 	providerFixture := newOpenShellProbeFixture()
-	runtimeFixture := newCodexProbeFixture(codexProbeScripts(testRunID)...)
+	runtimeFixture := newCodexProbeFixture(append(codexProbeScripts(testRunID), artifactProductionScript)...)
 	provider := &harnessTestProvider{
 		probeProvider:      providerFixture.provider,
 		codexProbeProvider: runtimeFixture.provider,
@@ -179,7 +179,7 @@ func TestNewHarnessRejectsInvalidComposition(t *testing.T) {
 	t.Parallel()
 
 	providerFixture := newOpenShellProbeFixture()
-	runtimeFixture := newCodexProbeFixture(codexProbeScripts(testRunID)...)
+	runtimeFixture := newCodexProbeFixture(append(codexProbeScripts(testRunID), artifactProductionScript)...)
 	provider := &harnessTestProvider{
 		probeProvider:      providerFixture.provider,
 		codexProbeProvider: runtimeFixture.provider,

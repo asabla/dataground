@@ -2,6 +2,7 @@ package runtimeevidence
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/asabla/dataground/internal/execution"
+	"github.com/asabla/dataground/internal/execution/openshell"
 	"github.com/asabla/dataground/internal/security/canarylauncher"
 )
 
@@ -202,6 +204,9 @@ func TestCodexProviderBoundSandboxCompatibility(t *testing.T) {
 					}
 				}
 			}
+			if candidate {
+				verifyCandidateArtifactExport(t, ctx, &rpc, ports.provider, ref, runID)
+			}
 		})
 	}
 }
@@ -260,3 +265,25 @@ value=lib.unshare(0x10000000)
 results["userNamespace"]="denied" if value==-1 and ctypes.get_errno() in (1,13) else "allowed"
 print(json.dumps(results))
 `
+
+func verifyCandidateArtifactExport(t *testing.T, ctx context.Context, rpc *candidatePolicyRPC, provider *openshell.Provider, ref execution.ExecutionRef, runID string) {
+	t.Helper()
+	response := rpc.call("command/exec", map[string]any{
+		"command": []string{"python3", "-c", "import os,sys; fd=os.open(sys.argv[1],os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600); os.write(fd,sys.argv[2].encode()); os.close(fd)", runtimeArtifactPath(runID), string(runtimeArtifactContent(runID))},
+		"cwd":     "/sandbox", "sandboxPolicy": map[string]any{"type": "workspaceWrite", "writableRoots": []string{"/sandbox"}, "networkAccess": false}, "timeoutMs": 10000, "outputBytesCap": 4096,
+	})
+	var result struct {
+		ExitCode int `json:"exitCode"`
+	}
+	if response.Error != nil || json.Unmarshal(response.Result, &result) != nil || result.ExitCode != 0 {
+		t.Fatal("native artifact production failed")
+	}
+	exported, err := provider.Export(ctx, execution.ExportRequest{IsolationDomainID: ref.IsolationDomainID, ExecutionID: ref.ID, SandboxPath: runtimeArtifactPath(runID)})
+	defer clear(exported.Content)
+	if err != nil {
+		t.Fatalf("synthetic artifact export failed: %v", err)
+	}
+	if exported.IsolationDomainID != ref.IsolationDomainID || exported.ExecutionID != ref.ID || !bytes.Equal(exported.Content, runtimeArtifactContent(runID)) {
+		t.Fatal("artifact export substituted content or scope")
+	}
+}

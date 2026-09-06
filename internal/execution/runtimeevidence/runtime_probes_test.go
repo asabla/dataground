@@ -459,8 +459,10 @@ type codexProbeFrame struct {
 }
 
 type codexProbeServer struct {
-	reader *bufio.Reader
-	writer io.Writer
+	threadParams json.RawMessage
+	turnParams   json.RawMessage
+	reader       *bufio.Reader
+	writer       io.Writer
 }
 
 func (server *codexProbeServer) read() codexProbeFrame {
@@ -520,6 +522,7 @@ func (server *codexProbeServer) startWithModel(model, provider string) {
 	if thread.Method != "thread/start" {
 		panic("expected thread/start")
 	}
+	server.threadParams = thread.Params
 	var params map[string]any
 	if err := json.Unmarshal(thread.Params, &params); err != nil {
 		panic(err)
@@ -541,6 +544,7 @@ func (server *codexProbeServer) startWithModel(model, provider string) {
 	if turn.Method != "turn/start" {
 		panic("expected turn/start")
 	}
+	server.turnParams = turn.Params
 	server.notify("turn/started", map[string]any{
 		"threadId": "native-thread",
 		"turn":     map[string]any{"id": "native-turn", "status": "inProgress", "items": []any{}},
