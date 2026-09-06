@@ -2,7 +2,6 @@
 import json
 import os
 from pathlib import Path
-import platform
 import selectors
 import subprocess
 import tempfile
@@ -13,14 +12,8 @@ WORKSPACE = ROOT / "workspace"
 OUTSIDE = ROOT / "outside"
 WORKSPACE.mkdir()
 OUTSIDE.mkdir()
-TRIPLE = {
-    "aarch64": "aarch64-unknown-linux-musl",
-    "x86_64": "x86_64-unknown-linux-musl",
-}[platform.machine()]
-stock = list(Path("/usr/lib/node_modules").glob("**/" + TRIPLE + "/codex/codex"))
-if len(stock) != 1:
-    raise RuntimeError("expected one pinned native executable")
 CANDIDATE = Path("/opt/dataground-compatibility")
+stock = CANDIDATE / "stock-codex"
 records = []
 
 PROBE = r'''
@@ -73,7 +66,7 @@ def helper_arguments(mode, name):
             "--", *probe_command(name)]
 
 
-for candidate, binary in [("pinned", stock[0]), ("experimental", CANDIDATE / "codex-linux-sandbox")]:
+for candidate, binary in [("pinned", stock), ("experimental", CANDIDATE / "codex-linux-sandbox")]:
     for mode in ["read-only", "workspace-write"]:
         result = subprocess.run(helper_arguments(mode, candidate + "-" + mode),
                                 executable=str(binary), cwd=str(WORKSPACE),
@@ -84,11 +77,15 @@ for candidate, binary in [("pinned", stock[0]), ("experimental", CANDIDATE / "co
                 "observations": observations})
 
 
-for candidate, binary in [("pinned", stock[0]), ("experimental", CANDIDATE / "codex")]:
+for candidate, command in [
+    ("pinned", [str(stock), "-c", "features.use_legacy_landlock=true", "app-server"]),
+    ("experimental", [str(CANDIDATE / "codex"), "-c", "features.use_legacy_landlock=true", "app-server"]),
+    ("runtime-launch", ["codex", "app-server"]),
+]:
     home = ROOT / ("home-" + candidate)
     home.mkdir(mode=0o700)
     environment = dict(os.environ, CODEX_HOME=str(home))
-    server = subprocess.Popen([str(binary), "-c", "features.use_legacy_landlock=true", "app-server"],
+    server = subprocess.Popen(command,
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                               stderr=subprocess.DEVNULL, text=True, env=environment,
                               cwd=str(WORKSPACE))
@@ -145,7 +142,7 @@ for candidate, binary in [("pinned", stock[0]), ("experimental", CANDIDATE / "co
             server.kill()
             server.wait()
 
-if len(records) != 8:
+if len(records) != 10:
     raise RuntimeError("expected all native-helper and app-server comparisons")
 for value in records:
     if value["candidate"] == "pinned":
