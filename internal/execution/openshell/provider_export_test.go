@@ -46,7 +46,7 @@ func TestExportReturnsBoundedContentWithoutHostPath(t *testing.T) {
 	result, err := provider.Export(context.Background(), execution.ExportRequest{
 		IsolationDomainID: created.IsolationDomainID,
 		ExecutionID:       created.ID,
-		SandboxPath:       "/workspace/result.json",
+		SandboxPath:       "/sandbox/result.json",
 	})
 	if err != nil {
 		t.Fatalf("export content: %v", err)
@@ -83,7 +83,7 @@ func TestExportFailsClosedForMissingWorkspaceUnsafePathAndOversize(t *testing.T)
 	request := execution.ExportRequest{
 		IsolationDomainID: created.IsolationDomainID,
 		ExecutionID:       created.ID,
-		SandboxPath:       "/workspace/result.json",
+		SandboxPath:       "/sandbox/result.json",
 	}
 	if _, err := provider.Export(context.Background(), request); !errors.Is(err, ErrExportWorkspaceUnavailable) {
 		t.Fatalf("missing workspace = %v, want unavailable", err)
@@ -94,14 +94,24 @@ func TestExportFailsClosedForMissingWorkspaceUnsafePathAndOversize(t *testing.T)
 	}
 	t.Cleanup(func() { _ = workspace.Close() })
 	provider.exports = workspace
-	request.SandboxPath = "../host"
-	if _, err := provider.Export(context.Background(), request); err == nil {
-		t.Fatal("relative sandbox path accepted")
+	for _, invalid := range []string{
+		"", "../host", "/tmp/result", "/workspace/result.json", "/sandbox",
+		"/sandbox-other/result", "/sandbox/../etc/passwd", "/sandbox//result",
+		"/sandbox/result/", "/sandbox/result\x00",
+	} {
+		request.SandboxPath = invalid
+		if _, err := provider.Export(context.Background(), request); !errors.Is(err, ErrExportPathInvalid) {
+			t.Fatalf("invalid artifact path did not fail at the path boundary: %v", err)
+		}
 	}
 	if len(runner.calls) != 2 {
-		t.Fatalf("unsafe export reached provider: %#v", runner.calls)
+		t.Fatal("invalid artifact path reached OpenShell")
 	}
-	request.SandboxPath = "/workspace/result.json"
+	entries, err := os.ReadDir(workspace.root)
+	if err != nil || len(entries) != 1 || entries[0].Name() != exportWorkspaceLock {
+		t.Fatal("invalid path allocated an export destination")
+	}
+	request.SandboxPath = "/sandbox/result.json"
 	runner.results = []scriptedResult{{result: CommandResult{}}}
 	runner.runHook = func(args []string) {
 		if containsSequence(args, "sandbox", "download") {
@@ -111,7 +121,7 @@ func TestExportFailsClosedForMissingWorkspaceUnsafePathAndOversize(t *testing.T)
 	if _, err := provider.Export(context.Background(), request); !errors.Is(err, ErrExportTooLarge) {
 		t.Fatalf("oversized export = %v, want too large", err)
 	}
-	entries, err := os.ReadDir(workspace.root)
+	entries, err = os.ReadDir(workspace.root)
 	if err != nil {
 		t.Fatalf("read export workspace: %v", err)
 	}
