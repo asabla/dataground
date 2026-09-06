@@ -217,6 +217,10 @@ func (scenario *ConcreteScenario) run(
 	result, err := probe(ctx, state)
 	if err != nil {
 		state.fail()
+		var diagnosticFailure *LocalDiagnosticError
+		if errors.As(err, &diagnosticFailure) {
+			return LiveReceipt{}, diagnosticFailure
+		}
 		if contextErr := ctx.Err(); contextErr != nil {
 			return LiveReceipt{}, errors.Join(ErrScenarioProbe, contextErr)
 		}

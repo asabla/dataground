@@ -6,16 +6,18 @@ import addFormats from "ajv-formats";
 
 const readJSON = async (name) =>
   JSON.parse(await readFile(new URL(`../deploy/openshell/${name}`, import.meta.url), "utf8"));
-const [schema, evidence, profile] = await Promise.all([
+const [schema, evidence, profile, candidateSchema] = await Promise.all([
   readJSON("runtime-diagnostic.schema.json"),
   readJSON("runtime-conformance-evidence.schema.json"),
   readJSON("development-profile.json"),
+  readJSON("runtime-candidate-diagnostic.schema.json"),
 ]);
 const ajv = new Ajv2020({ strict: true, allErrors: true });
 addFormats(ajv);
 ajv.addSchema(evidence);
 const validate = ajv.compile(schema);
 const validateEvidence = ajv.getSchema(evidence.$id);
+const validateCandidate = ajv.compile(candidateSchema);
 const runID = "1".repeat(32);
 const time = "2026-09-05T12:00:00Z";
 const topology = profile.runtime.conformance.topology;
@@ -108,5 +110,51 @@ test("local diagnostic reports have a closed shape and cannot be CI evidence", (
     const invalid = diagnostic();
     mutate(invalid);
     assert.equal(validate(invalid), false);
+  }
+});
+
+function candidateDiagnostic() {
+  const value = diagnostic();
+  value.schemaVersion = "dataground.dev.openshell-runtime-diagnostic/v2";
+  value.candidateCredentialCheck = "passed";
+  value.profile.sandboxImage = `sha256:${"a".repeat(64)}`;
+  delete value.profile.credentialEvidenceSHA256;
+  return value;
+}
+
+test("candidate reports require exact local image and scan without stock certification claims", () => {
+  const value = candidateDiagnostic();
+  assert.equal(validateCandidate(value), true, JSON.stringify(validateCandidate.errors));
+  assert.equal(validate(value), false);
+  assert.equal(validateEvidence(value), false);
+  for (const mutate of [
+    (value) => {
+      value.profile.sandboxImage = "candidate:latest";
+    },
+    (value) => {
+      value.profile.credentialEvidenceSHA256 = "1".repeat(64);
+    },
+    (value) => {
+      delete value.candidateCredentialCheck;
+    },
+    (value) => {
+      value.candidateCredentialCheck = "skipped";
+    },
+    (value) => {
+      value.certificationEligible = true;
+    },
+    (value) => {
+      value.run.workflowRunID = 42;
+    },
+    (value) => {
+      value.checks.pop();
+    },
+    (value) => {
+      value.cleanup.sandbox.status = "unknown";
+    },
+  ]) {
+    const invalid = candidateDiagnostic();
+    mutate(invalid);
+    assert.equal(validateCandidate(invalid), false);
   }
 });

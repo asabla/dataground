@@ -17,8 +17,10 @@ func main() {
 	var config runtimeevidence.LauncherConfig
 	var localDiagnostic bool
 	var model string
+	var candidateImage string
 	flag.BoolVar(&localDiagnostic, "local-diagnostic", false, "run local diagnostics without producing certification evidence")
 	flag.StringVar(&model, "model", "", "explicit local diagnostic model; unavailable in CI evidence mode")
+	flag.StringVar(&candidateImage, "candidate-image", "", "exact experimental local image ID; only with --local-diagnostic")
 	flag.StringVar(
 		&config.RepositoryRoot,
 		"repository-root",
@@ -67,7 +69,7 @@ func main() {
 		config.CredentialDirectory == "" ||
 		config.Provenance.SourceCommit == "" ||
 		(localDiagnostic && (config.Provenance.WorkflowRunID != 0 || model == "")) ||
-		(!localDiagnostic && (config.Provenance.WorkflowRunID <= 0 || model != "")) {
+		(!localDiagnostic && (config.Provenance.WorkflowRunID <= 0 || model != "" || candidateImage != "")) {
 		fail()
 	}
 
@@ -79,6 +81,7 @@ func main() {
 		result, err = runtimeevidence.LaunchLocalDiagnostic(ctx, runtimeevidence.LocalDiagnosticConfig{
 			RepositoryRoot: config.RepositoryRoot, WorkspaceRoot: config.WorkspaceRoot, CredentialDirectory: config.CredentialDirectory,
 			OpenShellBinary: config.OpenShellBinary, DockerBinary: config.DockerBinary, SourceCommit: config.Provenance.SourceCommit, Model: model,
+			CandidateImage: candidateImage,
 		})
 	} else {
 		result, err = runtimeevidence.Launch(ctx, config)

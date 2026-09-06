@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v2.json",
+  "title": "DataGround local candidate OpenShell runtime diagnostic",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "certificationEligible",
+    "profile",
+    "run",
+    "checks",
+    "cleanup",
+    "result",
+    "candidateCredentialCheck"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "dataground.dev.openshell-runtime-diagnostic/v2"
+    },
+    "certificationEligible": {
+      "const": false
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "openshellCommit",
+        "gatewayImage",
+        "supervisorImage",
+        "sandboxImage",
+        "runtimeVersion",
+        "runtimeSchemaCanonicalSHA256",
+        "gatewayEndpoint",
+        "driver",
+        "composeSHA256",
+        "gatewayConfigSHA256"
+      ],
+      "properties": {
+        "openshellCommit": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json#/$defs/commit"
+        },
+        "gatewayImage": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json#/$defs/imageDigest"
+        },
+        "supervisorImage": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json#/$defs/imageDigest"
+        },
+        "sandboxImage": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "runtimeVersion": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "runtimeSchemaCanonicalSHA256": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json#/$defs/sha256"
+        },
+        "gatewayEndpoint": {
+          "const": "http://127.0.0.1:8080"
+        },
+        "driver": {
+          "const": "docker"
+        },
+        "composeSHA256": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json#/$defs/sha256"
+        },
+        "gatewayConfigSHA256": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json#/$defs/sha256"
+        }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "resources", "startedAt", "finishedAt", "origin", "sourceCommit", "model"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "resources": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json#/properties/run/properties/resources"
+        },
+        "startedAt": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json#/$defs/timestamp"
+        },
+        "finishedAt": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json#/$defs/timestamp"
+        },
+        "origin": {
+          "const": "local"
+        },
+        "sourceCommit": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json#/$defs/commit"
+        },
+        "model": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        }
+      }
+    },
+    "checks": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json#/properties/checks"
+    },
+    "cleanup": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json#/properties/cleanup"
+    },
+    "result": {
+      "const": "passed"
+    },
+    "candidateCredentialCheck": {
+      "const": "passed"
+    }
+  }
+}

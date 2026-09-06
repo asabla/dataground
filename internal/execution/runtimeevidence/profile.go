@@ -27,7 +27,7 @@ type profile struct {
 	SandboxImage                 string `json:"sandboxImage"`
 	RuntimeVersion               string `json:"runtimeVersion"`
 	RuntimeSchemaCanonicalSHA256 string `json:"runtimeSchemaCanonicalSHA256"`
-	CredentialEvidenceSHA256     string `json:"credentialEvidenceSHA256"`
+	CredentialEvidenceSHA256     string `json:"credentialEvidenceSHA256,omitempty"`
 	GatewayEndpoint              string `json:"gatewayEndpoint"`
 	Driver                       string `json:"driver"`
 	ComposeSHA256                string `json:"composeSHA256"`

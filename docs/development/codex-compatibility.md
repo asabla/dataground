@@ -37,3 +37,5 @@ go test ./internal/security/canarylauncher \
 ```
 
 The candidate scan has passed locally on ARM64. Its workflow result must independently establish AMD64 coverage. It uses only generated synthetic credentials, and all seven scans plus resource cleanup must succeed. Inference, command and file approval mediation, artifacts, cancellation, full live conformance, release-image publication and any change to the accepted runtime profile remain separate requirements. The candidate explicitly records `certificationEligible: false`; existing release checkers and the default runtime remain unchanged.
+
+The [local runtime diagnostic](openshell-local.md#exact-runtime-certification-manifests) accepts this image through `--candidate-image sha256:<exact-local-image-id>` only with `--local-diagnostic` and an explicit model. It reruns the synthetic scan before opening local credentials, then exercises the existing twelve live cases against the selected image. Its separate v2 diagnostic report records that actual image and omits the stock credential-evidence digest. This command acquires no credentials from GitHub and cannot generate accepted CI evidence.

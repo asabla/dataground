@@ -35,10 +35,11 @@ type ExecutionCreationProvider interface {
 }
 
 type ExecutionCreationConfig struct {
-	RunID    string
-	Policy   []byte
-	Store    HarnessStore
-	Provider ExecutionCreationProvider
+	diagnosticImage string
+	RunID           string
+	Policy          []byte
+	Store           HarnessStore
+	Provider        ExecutionCreationProvider
 }
 
 type ExecutionCreator struct {
@@ -46,6 +47,8 @@ type ExecutionCreator struct {
 }
 
 type executionCreationState struct {
+	image     string
+	create    func(context.Context, execution.CreateRequest) (execution.Execution, error)
 	mu        sync.Mutex
 	runID     string
 	resources Resources
@@ -83,8 +86,20 @@ func newExecutionCreator(
 		) != nil {
 		return nil, ErrExecutionCreationConfiguration
 	}
+	image := sandboxImage
+	create := config.Provider.Create
+	if config.diagnosticImage != "" {
+		provider, ok := config.Provider.(interface {
+			CreateLocalDiagnostic(context.Context, execution.CreateRequest) (execution.Execution, error)
+		})
+		if !ok || !commitmentPattern.MatchString(config.diagnosticImage) {
+			return nil, ErrExecutionCreationConfiguration
+		}
+		image, create = config.diagnosticImage, provider.CreateLocalDiagnostic
+	}
 	isolationDomainID := runtimeIsolationDomain(config.RunID)
 	return &ExecutionCreator{state: &executionCreationState{
+		image: image, create: create,
 		runID:     config.RunID,
 		resources: namesForRun(config.RunID),
 		store:     config.Store,
@@ -165,11 +180,11 @@ func (creator *ExecutionCreator) Create(ctx context.Context) (execution.Executio
 
 	requestPolicy := slices.Clone(policy)
 	creationStartedAt := time.Now().UTC()
-	value, createErr := state.provider.Create(readyCtx, execution.CreateRequest{
+	value, createErr := state.create(readyCtx, execution.CreateRequest{
 		Placement:         placement,
 		IsolationDomainID: state.ref.IsolationDomainID,
 		OperationID:       runtimeOperationID(state.runID),
-		Image:             sandboxImage,
+		Image:             state.image,
 		Policy:            requestPolicy,
 		PolicyDigest:      "sha256:" + runtimePolicySHA256,
 		ProviderProfiles:  []string{state.resources.Provider},

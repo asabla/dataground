@@ -231,7 +231,7 @@ func (fixture *launcherFixture) dependencies() launcherDependencies {
 			fixture.events = append(fixture.events, "provider-open")
 			return fixture.provider, nil
 		},
-		newCreator: func(string, []byte, launcherPorts) (launcherExecutionCreator, error) {
+		newCreator: func(LauncherConfig, string, []byte, launcherPorts) (launcherExecutionCreator, error) {
 			fixture.events = append(fixture.events, "creator-open")
 			return fixture.creator, nil
 		},

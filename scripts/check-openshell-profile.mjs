@@ -1445,7 +1445,9 @@ if (
   !runtimeExecutionCreatorSource.includes("state.store.GetGateway(") ||
   !runtimeExecutionCreatorSource.includes("state.provider.EnableProviderProfiles(") ||
   !runtimeExecutionCreatorSource.includes("state.provider.SelectGateway(") ||
-  !runtimeExecutionCreatorSource.includes("state.provider.Create(") ||
+  !runtimeExecutionCreatorSource.includes("create := config.Provider.Create") ||
+  !runtimeExecutionCreatorSource.includes("provider.CreateLocalDiagnostic") ||
+  !runtimeExecutionCreatorSource.includes("state.create(") ||
   !runtimeExecutionCreatorSource.includes("state.waitForReady(") ||
   !runtimeExecutionCreatorSource.includes("context.WithoutCancel(ctx)") ||
   !runtimeExecutionCreatorSource.includes("state.cleanupPersisted(") ||
