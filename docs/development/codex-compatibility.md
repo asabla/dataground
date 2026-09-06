@@ -59,3 +59,12 @@ pnpm openshell:runtime-diagnostic:check \
 ```
 
 This verifier checks recorded observations; it does not independently rerun the sandbox or authenticate an operator attestation. The record has local origin and `certificationEligible: false`, and the CI evidence schema rejects it. It contains no credentials, prompts, native transcript, or exported content. It establishes this local ARM64 run only: reviewed image publication, an explicit local-evidence acceptance contract, accepted credential/runtime evidence, scoped activation, and production certification remain outstanding. Default execution and release checkers are unchanged.
+
+
+## Experimental image publication
+
+The candidate workflow can test native `amd64` or `arm64` on explicit dispatch; pull requests retain the AMD64 regression. Dispatch with `architecture: arm64` and `publish: true` from `main` to publish that architecture after all three native, synthetic credential, and provider-bound/export checks pass. Publication requests from another branch or repository fail. No model credentials are available to either job.
+
+The build job retains read-only repository permissions and packages the exact tested local image with its source revision, architecture and archive digest. A separate job consumes that immutable workflow artifact, verifies the archive and the loaded image’s identity, `sandbox` user and non-certifying source labels, then publishes to `ghcr.io/asabla/dataground-codex-candidate` using a run-and-attempt-specific candidate tag. Consumers must pin the returned registry digest. The job uses only its ephemeral GitHub registry token and removes the private Docker authentication directory afterward. The published digest receives GitHub/Sigstore build provenance from the pinned official attestation action.
+
+A pushed image whose attestation or workflow later fails is not a completed publication. The workflow must complete successfully, and consumers must verify its repository/workflow provenance before using the image. Publication remains experimental and architecture-specific: it neither promotes the accepted development profile nor supplies inference conformance or production certification. The publication helper’s denial tests run before every candidate build.
