@@ -209,16 +209,27 @@ func (probes *CodexProbes) EventNormalization(
 			fmt.Sprintf("Run printf %q, then reply with exactly %s.", marker, marker),
 		))
 		if err != nil {
-			return codexProbeObservation{}, err
+			return codexProbeObservation{}, state.normalizationFailure("turn-start")
 		}
 		defer func() { _ = closeTurn() }()
 		events, err := observeTurn(ctx, turn, nil, "lifecycle.succeeded")
-		if err != nil || turn.Wait(ctx) != nil ||
-			!hasEvent(events, "activity.process.started", "command") ||
-			!hasEvent(events, "activity.process.completed", "command") ||
-			!strings.Contains(textOutput(events), marker) ||
-			closeTurn() != nil {
-			return codexProbeObservation{}, ErrCodexProbeObservation
+		if err != nil {
+			return codexProbeObservation{}, state.normalizationFailure("event-stream")
+		}
+		if turn.Wait(ctx) != nil {
+			return codexProbeObservation{}, state.normalizationFailure("turn-completion")
+		}
+		if !hasEvent(events, "activity.process.started", "command") {
+			return codexProbeObservation{}, state.normalizationFailure("command-start")
+		}
+		if !hasEvent(events, "activity.process.completed", "command") {
+			return codexProbeObservation{}, state.normalizationFailure("command-completion")
+		}
+		if !strings.Contains(textOutput(events), marker) {
+			return codexProbeObservation{}, state.normalizationFailure("marker")
+		}
+		if closeTurn() != nil {
+			return codexProbeObservation{}, state.normalizationFailure("transport-close")
 		}
 		return codexProbeObservation{events: events, outcome: "normalized"}, nil
 	})
@@ -354,6 +365,18 @@ func (probes *CodexProbes) approval(
 
 type codexProbeCall func(context.Context, *codexProbeState) (codexProbeObservation, error)
 
+func (state *codexProbeState) normalizationFailure(stage string) error {
+	switch stage {
+	case "turn-start", "event-stream", "turn-completion", "command-start", "command-completion", "marker", "transport-close":
+	default:
+		return ErrCodexProbeObservation
+	}
+	if state.diagnosticModel != "" {
+		return &LocalDiagnosticError{stage: "case-event-normalization-" + stage}
+	}
+	return ErrCodexProbeObservation
+}
+
 func (probes *CodexProbes) run(
 	ctx context.Context,
 	request ProbeRequest,
@@ -369,6 +392,10 @@ func (probes *CodexProbes) run(
 	if err != nil || ctx.Err() != nil || !validNormalizedEvents(observation.events) ||
 		startedAt.IsZero() || !finishedAt.After(startedAt) {
 		state.fail()
+		var diagnosticFailure *LocalDiagnosticError
+		if state.diagnosticModel != "" && errors.As(err, &diagnosticFailure) {
+			return ProbeResult{}, diagnosticFailure
+		}
 		return ProbeResult{}, state.observationError(ctx)
 	}
 	encodedEvents, err := json.Marshal(observation.events)

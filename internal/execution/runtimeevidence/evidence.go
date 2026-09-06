@@ -114,6 +114,7 @@ type Cleanup struct {
 
 type Config struct {
 	diagnosticModel string
+	candidateImage  string
 	RunID           string
 	Provenance      Provenance
 	Cases           CaseRunner
@@ -133,6 +134,7 @@ type runState struct {
 
 type Result struct {
 	diagnosticModel string
+	candidateImage  string
 	record          record
 	complete        bool
 }
@@ -265,11 +267,17 @@ func (run *EvidenceRun) Execute(ctx context.Context) (Result, error) {
 		provenance.WorkflowRunID = state.config.Provenance.WorkflowRunID
 		provenance.ArtifactName = ArtifactName
 	}
+	profile := currentProfile()
+	if state.config.candidateImage != "" {
+		profile.SandboxImage = state.config.candidateImage
+		profile.CredentialEvidenceSHA256 = ""
+	}
 	return Result{
 		diagnosticModel: state.config.diagnosticModel,
+		candidateImage:  state.config.candidateImage,
 		record: record{
 			SchemaVersion: schemaVersion,
-			Profile:       currentProfile(),
+			Profile:       profile,
 			Run: runRecord{
 				ID:         state.config.RunID,
 				Resources:  resources,
@@ -311,6 +319,10 @@ func runCases(ctx context.Context, config Config, resources Resources) ([]check,
 		})
 		if err != nil {
 			if config.diagnosticModel != "" {
+				var diagnosticFailure *LocalDiagnosticError
+				if errors.As(err, &diagnosticFailure) {
+					return checks, diagnosticFailure
+				}
 				return checks, &LocalDiagnosticError{stage: "case-" + string(name)}
 			}
 			return checks, ErrCase
@@ -395,7 +407,7 @@ func cleanupResources(ctx context.Context, config Config, resources Resources) (
 }
 
 func validConfig(config Config) bool {
-	return runIDPattern.MatchString(config.RunID) &&
+	return validCandidateSelection(config.candidateImage, config.diagnosticModel) && runIDPattern.MatchString(config.RunID) &&
 		validRunProvenance(config.Provenance, config.diagnosticModel) &&
 		config.Cases != nil &&
 		config.Cleanup.Sandbox != nil &&

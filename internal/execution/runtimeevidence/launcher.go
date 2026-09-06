@@ -11,6 +11,7 @@ import (
 
 	"github.com/asabla/dataground/internal/execution"
 	"github.com/asabla/dataground/internal/execution/openshell"
+	"github.com/asabla/dataground/internal/security/canarylauncher"
 )
 
 const (
@@ -27,6 +28,7 @@ var (
 
 type LauncherConfig struct {
 	diagnosticModel     string
+	candidateImage      string
 	RepositoryRoot      string
 	WorkspaceRoot       string
 	CredentialDirectory string
@@ -64,15 +66,16 @@ type launcherPorts interface {
 }
 
 type launcherDependencies struct {
-	newRunID      func() (string, error)
-	readPolicy    func(string) ([]byte, error)
-	openWorkspace func(string, string) (launcherWorkspace, error)
-	openPorts     func(string, string, launcherWorkspace) (launcherPorts, error)
-	openTopology  func(DockerTopologyConfig) (launcherTopology, error)
-	openSource    func(CredentialSourceConfig) (launcherCredentialSource, error)
-	newProvider   func(context.Context, string, launcherCredentialSource, launcherPorts) (launcherProviderBinding, error)
-	newCreator    func(string, []byte, launcherPorts) (launcherExecutionCreator, error)
-	newHarness    func(LauncherConfig, string, execution.Execution, launcherPorts, launcherProviderBinding, launcherExecutionCreator, launcherWorkspace) (launcherHarness, error)
+	checkCandidate func(context.Context, LauncherConfig) error
+	newRunID       func() (string, error)
+	readPolicy     func(string) ([]byte, error)
+	openWorkspace  func(string, string) (launcherWorkspace, error)
+	openPorts      func(string, string, launcherWorkspace) (launcherPorts, error)
+	openTopology   func(DockerTopologyConfig) (launcherTopology, error)
+	openSource     func(CredentialSourceConfig) (launcherCredentialSource, error)
+	newProvider    func(context.Context, string, launcherCredentialSource, launcherPorts) (launcherProviderBinding, error)
+	newCreator     func(LauncherConfig, string, []byte, launcherPorts) (launcherExecutionCreator, error)
+	newHarness     func(LauncherConfig, string, execution.Execution, launcherPorts, launcherProviderBinding, launcherExecutionCreator, launcherWorkspace) (launcherHarness, error)
 }
 
 type launcherState struct {
@@ -123,6 +126,13 @@ func launch(
 		}
 	}()
 
+	if config.candidateImage != "" {
+		phase = "candidate-credential-check"
+		if dependencies.checkCandidate == nil || dependencies.checkCandidate(ctx, config) != nil {
+			return Result{}, ErrLauncherRun
+		}
+	}
+	phase = "policy"
 	policy, err := dependencies.readPolicy(config.RepositoryRoot)
 	if err != nil {
 		return Result{}, ErrLauncherConfiguration
@@ -182,7 +192,7 @@ func launch(
 	}
 
 	phase = "execution"
-	creator, err := dependencies.newCreator(runID, policy, ports)
+	creator, err := dependencies.newCreator(config, runID, policy, ports)
 	if err != nil || creator == nil {
 		return Result{}, launcherFailure(ctx, ErrLauncherRun)
 	}
@@ -220,6 +230,12 @@ func launch(
 
 func defaultLauncherDependencies() launcherDependencies {
 	return launcherDependencies{
+		checkCandidate: func(ctx context.Context, config LauncherConfig) error {
+			return canarylauncher.CheckCandidate(ctx, canarylauncher.Config{
+				RepositoryRoot: config.RepositoryRoot, WorkspaceRoot: config.WorkspaceRoot,
+				OpenShellBinary: config.OpenShellBinary, DockerBinary: config.DockerBinary,
+			}, config.candidateImage)
+		},
 		newRunID:      newRuntimeLauncherRunID,
 		readPolicy:    readRuntimeLauncherPolicy,
 		openWorkspace: newRuntimeLauncherWorkspace,
@@ -237,7 +253,7 @@ func defaultLauncherDependencies() launcherDependencies {
 }
 
 func validLauncherConfig(config LauncherConfig) bool {
-	return config.RepositoryRoot != "" &&
+	return validCandidateSelection(config.candidateImage, config.diagnosticModel) && config.RepositoryRoot != "" &&
 		config.WorkspaceRoot != "" &&
 		config.CredentialDirectory != "" &&
 		validRunProvenance(config.Provenance, config.diagnosticModel)
@@ -378,6 +394,7 @@ func newRuntimeLauncherProvider(
 }
 
 func newRuntimeLauncherCreator(
+	config LauncherConfig,
 	runID string,
 	policy []byte,
 	ports launcherPorts,
@@ -387,10 +404,11 @@ func newRuntimeLauncherCreator(
 		return nil, ErrLauncherConfiguration
 	}
 	return NewExecutionCreator(ExecutionCreationConfig{
-		RunID:    runID,
-		Policy:   policy,
-		Store:    runtimePorts.store,
-		Provider: runtimePorts.provider,
+		diagnosticImage: config.candidateImage,
+		RunID:           runID,
+		Policy:          policy,
+		Store:           runtimePorts.store,
+		Provider:        runtimePorts.provider,
 	})
 }
 
@@ -412,6 +430,7 @@ func newRuntimeLauncherHarness(
 	}
 	return NewHarness(HarnessConfig{
 		diagnosticModel: config.diagnosticModel,
+		candidateImage:  config.candidateImage,
 		RunID:           runID,
 		Provenance:      config.Provenance,
 		ExecutionID:     executionValue.ID,

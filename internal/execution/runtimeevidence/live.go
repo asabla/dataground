@@ -143,6 +143,10 @@ func (cases *LiveCases) Run(ctx context.Context, request CheckRequest) (Observat
 	receipt, err := dispatchLiveCase(ctx, scenario, binding, request.Name)
 	if err != nil {
 		state.fail()
+		var diagnosticFailure *LocalDiagnosticError
+		if errors.As(err, &diagnosticFailure) {
+			return Observation{}, diagnosticFailure
+		}
 		if contextErr := ctx.Err(); contextErr != nil {
 			return Observation{}, errors.Join(ErrLiveCaseBackend, contextErr)
 		}
