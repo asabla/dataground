@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	currentSchemaVersion int64 = 52
+	currentSchemaVersion int64 = 53
 	migrationLockKey     int64 = 0x4441544147524f55
 	upMarker                   = "-- dataground:up"
 	downMarker                 = "-- dataground:down"

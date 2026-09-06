@@ -405,7 +405,8 @@ func (repository *Repository) BeginInvocationRuntimeApprovalDelivery(
 	if approval.State == "delivered" {
 		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalConflict
 	}
-	if approval.State != "resolved" || approval.EffectiveDecision != "" {
+	if approval.State != "resolved" || approval.EffectiveDecision != "" ||
+		(effectiveDecision == "approve" && approval.Decision != "approve") {
 		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalConflict
 	}
 	now := repository.now()
