@@ -42,7 +42,8 @@
     "openshell:runtime-evidence:check": "node scripts/check-openshell-runtime-evidence.mjs",
     "openshell:runtime-evidence:run": "go run ./cmd/dataground-openshell-runtime-conformance",
     "openshell:runtime-certification:check": "node scripts/check-openshell-runtime-certification.mjs",
-    "openshell:runtime-diagnostic:check": "node scripts/check-openshell-runtime-diagnostic.mjs"
+    "openshell:runtime-diagnostic:check": "node scripts/check-openshell-runtime-diagnostic.mjs",
+    "openshell:local:acceptance": "node scripts/local-runtime-acceptance.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.4",

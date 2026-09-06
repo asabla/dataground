@@ -48,7 +48,7 @@ function verifyImageConfiguration(manifestBytes, configBytes, architecture) {
   return { configDigest, architecture, os: "linux", user: "sandbox" };
 }
 
-function readPrivateSnapshot(file, maximumBytes) {
+export function readPrivateSnapshot(file, maximumBytes) {
   if (!isAbsolute(file) || normalize(file) !== file || typeof process.getuid !== "function") {
     throw new Error("Attestation inputs require clean absolute private file paths.");
   }
@@ -87,12 +87,39 @@ function readPrivateSnapshot(file, maximumBytes) {
 }
 
 export function verifyOfflineAttestation(scope, inputs, run = execFileSync) {
+  return verifyOfflineAttestationSnapshots(
+    scope,
+    {
+      manifest: readPrivateSnapshot(inputs.manifest, 1 << 20),
+      bundle: readPrivateSnapshot(inputs.bundle, 4 << 20),
+      trustedRoot: readPrivateSnapshot(inputs.trustedRoot, 1 << 20),
+      trustedRootSHA256: inputs.trustedRootSHA256,
+      ...(inputs.imageConfig === undefined
+        ? {}
+        : { imageConfig: readPrivateSnapshot(inputs.imageConfig, 1 << 20) }),
+    },
+    run,
+  );
+}
+
+// In-process consumers can compose verification over the same acquired bytes.
+// No command accepts a caller's signature-verification result as evidence.
+export function verifyOfflineAttestationSnapshots(scope, inputs, run = execFileSync) {
   if (!/^[a-f0-9]{64}$/.test(inputs.trustedRootSHA256 ?? "")) {
     throw new Error("An independently pinned trusted-root digest is required.");
   }
-  const manifest = readPrivateSnapshot(inputs.manifest, 1 << 20);
-  const bundle = readPrivateSnapshot(inputs.bundle, 4 << 20);
-  const trustedRoot = readPrivateSnapshot(inputs.trustedRoot, 1 << 20);
+  for (const [key, maximum] of Object.entries({
+    manifest: 1 << 20,
+    bundle: 4 << 20,
+    trustedRoot: 1 << 20,
+    imageConfig: 1 << 20,
+  })) {
+    if (key === "imageConfig" && inputs[key] === undefined) continue;
+    if (!Buffer.isBuffer(inputs[key]) || inputs[key].length === 0 || inputs[key].length > maximum) {
+      throw new Error("Attestation snapshot is invalid.");
+    }
+  }
+  const { manifest, bundle, trustedRoot } = inputs;
   if (
     `sha256:${sha256(manifest)}` !== scope.digest ||
     sha256(trustedRoot) !== inputs.trustedRootSHA256
@@ -104,11 +131,7 @@ export function verifyOfflineAttestation(scope, inputs, run = execFileSync) {
   const image =
     inputs.imageConfig === undefined
       ? undefined
-      : verifyImageConfiguration(
-          manifest,
-          readPrivateSnapshot(inputs.imageConfig, 1 << 20),
-          scope.architecture,
-        );
+      : verifyImageConfiguration(manifest, inputs.imageConfig, scope.architecture);
   const directory = mkdtempSync(join(tmpdir(), "dataground-candidate-attestation-"));
   try {
     const files = {
