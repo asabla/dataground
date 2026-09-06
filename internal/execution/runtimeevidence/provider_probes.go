@@ -38,11 +38,13 @@ type OpenShellProbeProvider interface {
 }
 
 type OpenShellProbeConfig struct {
-	RunID       string
-	ExecutionID string
-	Store       OpenShellProbeStore
-	Provider    OpenShellProbeProvider
-	Now         func() time.Time
+	diagnosticModel string
+	Runtime         CodexProbeProvider
+	RunID           string
+	ExecutionID     string
+	Store           OpenShellProbeStore
+	Provider        OpenShellProbeProvider
+	Now             func() time.Time
 }
 
 type OpenShellProbes struct {
@@ -50,6 +52,7 @@ type OpenShellProbes struct {
 }
 
 type openShellProbeState struct {
+	runtime   *codexProbeState
 	mu        sync.Mutex
 	request   ProbeRequest
 	store     OpenShellProbeStore
@@ -71,8 +74,9 @@ var openShellProbeOrder = [...]CheckName{
 func NewOpenShellProbes(config OpenShellProbeConfig) (*OpenShellProbes, error) {
 	if !runIDPattern.MatchString(config.RunID) ||
 		config.ExecutionID == "" ||
-		config.Store == nil ||
-		config.Provider == nil {
+		isNilHarnessPort(config.Store) ||
+		isNilHarnessPort(config.Provider) || isNilHarnessPort(config.Runtime) ||
+		(config.diagnosticModel != "" && !diagnosticModelPattern.MatchString(config.diagnosticModel)) {
 		return nil, ErrOpenShellProbeConfiguration
 	}
 	now := config.Now
@@ -80,6 +84,15 @@ func NewOpenShellProbes(config OpenShellProbeConfig) (*OpenShellProbes, error) {
 		now = time.Now
 	}
 	return &OpenShellProbes{state: &openShellProbeState{
+		runtime: &codexProbeState{
+			diagnosticModel: config.diagnosticModel,
+			store:           config.Store,
+			provider:        config.Runtime,
+			execution: execution.ExecutionRef{
+				IsolationDomainID: runtimeIsolationDomain(config.RunID),
+				ID:                config.ExecutionID,
+			},
+		},
 		request: ProbeRequest{
 			RunID:     config.RunID,
 			Resources: namesForRun(config.RunID),
@@ -187,6 +200,11 @@ func (probes *OpenShellProbes) ArtifactExport(
 		state.fail()
 		return ProbeResult{}, state.observationError(ctx)
 	}
+	productionSHA256, err := state.produceArtifact(ctx, request)
+	if err != nil {
+		state.fail()
+		return ProbeResult{}, state.observationError(ctx)
+	}
 	result, err := state.provider.Export(ctx, execution.ExportRequest{
 		IsolationDomainID: state.execution.IsolationDomainID,
 		ExecutionID:       state.execution.ID,
@@ -212,6 +230,7 @@ func (probes *OpenShellProbes) ArtifactExport(
 		[]byte(record.Execution.ID),
 		[]byte(record.SandboxName),
 		[]byte(runtimeArtifactPath(request.RunID)),
+		productionSHA256[:],
 		contentSHA256[:],
 	)
 }
@@ -358,7 +377,7 @@ func runtimeOperationID(runID string) string {
 }
 
 func runtimeArtifactPath(runID string) string {
-	return "/tmp/dataground-runtime-conformance-" + runID + ".json"
+	return "/sandbox/dataground-runtime-conformance-" + runID + ".json"
 }
 
 func runtimeArtifactContent(runID string) []byte {

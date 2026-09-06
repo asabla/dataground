@@ -50,11 +50,13 @@ func newHarness(config HarnessConfig, now func() time.Time) (*Harness, error) {
 		return nil, ErrHarnessConfiguration
 	}
 	providerProbes, err := NewOpenShellProbes(OpenShellProbeConfig{
-		RunID:       config.RunID,
-		ExecutionID: config.ExecutionID,
-		Store:       config.Store,
-		Provider:    config.Provider,
-		Now:         now,
+		diagnosticModel: config.diagnosticModel,
+		Runtime:         config.Provider,
+		RunID:           config.RunID,
+		ExecutionID:     config.ExecutionID,
+		Store:           config.Store,
+		Provider:        config.Provider,
+		Now:             now,
 	})
 	if err != nil {
 		return nil, ErrHarnessConfiguration
