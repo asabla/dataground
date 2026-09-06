@@ -18,9 +18,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const InvocationRuntimeApprovalContract = "dataground.invocation-runtime-approval/v1"
+const InvocationRuntimeApprovalLegacyContract = "dataground.invocation-runtime-approval/v1"
+const InvocationRuntimeApprovalContract = "dataground.invocation-runtime-approval/v2"
 
 var (
+	ErrInvocationRuntimeApprovalExpired           = errors.New("invocation runtime approval has expired or closed")
 	ErrInvocationRuntimeApprovalInvalid           = errors.New("invocation runtime approval is invalid")
 	ErrInvocationRuntimeApprovalMissing           = errors.New("invocation runtime approval is missing")
 	ErrInvocationRuntimeApprovalConflict          = errors.New("invocation runtime approval conflicts with durable state")
@@ -51,9 +53,13 @@ type InvocationRuntimeApproval struct {
 	DeliveredAt             time.Time
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
+	ExpiresAt               time.Time
+	ClosedAt                time.Time
+	CloseReason             string
 }
 
 type InvocationRuntimeApprovalRequest struct {
+	ExpiresAt       time.Time
 	SourceSequence  uint64
 	RequestedAction string
 }
@@ -93,18 +99,15 @@ func (repository *Repository) RecordInvocationRuntimeApprovalRequest(
 		return InvocationRuntimeApproval{}, fmt.Errorf("begin invocation runtime approval request: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	invocationID, err := lockInvocationRuntimeClaim(ctx, tx, claim, repository.now())
+	if err := lockRuntimeInteractionAttempt(ctx, tx, claim, effect); err != nil {
+		return InvocationRuntimeApproval{}, err
+	}
+	actual, err := getInvocationRuntimeTarget(ctx, tx, target.IsolationDomainID, target.OperationID)
 	if err != nil {
 		return InvocationRuntimeApproval{}, err
 	}
-	if invocationID != target.InvocationID {
+	if actual.InvocationID != target.InvocationID || actual.ServiceID != target.ServiceID || actual.RevisionID != target.RevisionID || actual.ActorID != target.ActorID || actual.CorrelationID != target.CorrelationID {
 		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalConflict
-	}
-	if err := verifyInvocationRuntimeEffect(ctx, tx, effect); err != nil {
-		return InvocationRuntimeApproval{}, err
-	}
-	if err := verifyReservedInvocationRuntimeAttempt(ctx, tx, effect); err != nil {
-		return InvocationRuntimeApproval{}, err
 	}
 	id := identity.Derived(
 		"apr",
@@ -121,7 +124,7 @@ func (repository *Repository) RecordInvocationRuntimeApprovalRequest(
 			existing.RevisionID != target.RevisionID ||
 			existing.EffectID != effect.EffectID ||
 			existing.SourceSequence != request.SourceSequence ||
-			existing.RequestedAction != request.RequestedAction {
+			existing.RequestedAction != request.RequestedAction || (!request.ExpiresAt.IsZero() && !existing.ExpiresAt.Equal(request.ExpiresAt.Truncate(time.Microsecond))) {
 			return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalConflict
 		}
 		if err := repository.recordInvocationRuntimeApprovalEvent(ctx, tx, claim, target, existing); err != nil {
@@ -132,16 +135,29 @@ func (repository *Repository) RecordInvocationRuntimeApprovalRequest(
 		}
 		return existing, nil
 	}
-	now := repository.now()
+	var now, deadline time.Time
+	if err := tx.QueryRow(ctx, `SELECT clock_timestamp(),deadline_at FROM invocation_execution_operations WHERE isolation_domain_id=$1 AND id=$2`, claim.IsolationDomainID, claim.ID).Scan(&now, &deadline); err != nil {
+		return InvocationRuntimeApproval{}, err
+	}
+	expiry := request.ExpiresAt.UTC().Truncate(time.Microsecond)
+	if request.ExpiresAt.IsZero() {
+		expiry = now.Add(15 * time.Minute)
+		if deadline.Before(expiry) {
+			expiry = deadline
+		}
+	}
+	if !expiry.After(now) || expiry.After(now.Add(15*time.Minute)) || expiry.After(deadline) {
+		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalExpired
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO invocation_runtime_approvals (
 			contract, isolation_domain_id, id, operation_id, invocation_id,
 			service_id, revision_id, effect_id, source_sequence, requested_action,
-			state, version, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', 1, $11, $11)
+			state, version, created_at, updated_at, expires_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', 1, $11, $11, $12)
 	`, InvocationRuntimeApprovalContract, target.IsolationDomainID, id,
 		target.OperationID, target.InvocationID, target.ServiceID, target.RevisionID,
-		effect.EffectID, request.SourceSequence, request.RequestedAction, now); err != nil {
+		effect.EffectID, request.SourceSequence, request.RequestedAction, now, expiry); err != nil {
 		return InvocationRuntimeApproval{}, fmt.Errorf("persist invocation runtime approval request: %w", err)
 	}
 	approval, _, err := getInvocationRuntimeApproval(ctx, tx, target.IsolationDomainID, id, false)
@@ -266,6 +282,18 @@ func resolveInvocationRuntimeApproval(
 	if approval.InvocationID != resolution.InvocationID {
 		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalMissing
 	}
+	if approval.State == "closed" || approval.State == "expired" || approval.State == "delivery_unknown" {
+		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalExpired
+	}
+	if approval.State == "pending" && !approval.ExpiresAt.IsZero() {
+		var active bool
+		if err := tx.QueryRow(ctx, `SELECT clock_timestamp() < $1`, approval.ExpiresAt).Scan(&active); err != nil {
+			return InvocationRuntimeApproval{}, err
+		}
+		if !active {
+			return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalExpired
+		}
+	}
 	candidate := approval
 	candidate.Decision = resolution.Decision
 	candidate.ResolvedBy = resolution.ActorID
@@ -315,6 +343,9 @@ func resolveInvocationRuntimeApproval(
 			return InvocationRuntimeApproval{}, err
 		}
 	}
+	if err := tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
+		return InvocationRuntimeApproval{}, err
+	}
 	result, err := tx.Exec(ctx, `
 		UPDATE invocation_runtime_approvals
 		SET state = 'resolved', version = version + 1, decision = $3,
@@ -322,6 +353,7 @@ func resolveInvocationRuntimeApproval(
 		    resolved_at = $6, updated_at = $6
 		WHERE isolation_domain_id = $1 AND id = $2
 		  AND state = 'pending' AND version = $7
+		  AND (expires_at IS NULL OR expires_at > clock_timestamp())
 	`, resolution.IsolationDomainID, resolution.ApprovalID,
 		resolution.Decision, resolution.ActorID, resolution.CorrelationID,
 		now, resolution.ExpectedVersion)
@@ -329,6 +361,9 @@ func resolveInvocationRuntimeApproval(
 		return InvocationRuntimeApproval{}, fmt.Errorf("resolve invocation runtime approval: %w", err)
 	}
 	if result.RowsAffected() != 1 {
+		if !approval.ExpiresAt.IsZero() {
+			return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalExpired
+		}
 		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalConflict
 	}
 	if _, err := tx.Exec(ctx, `
@@ -378,13 +413,7 @@ func (repository *Repository) BeginInvocationRuntimeApprovalDelivery(
 		return InvocationRuntimeApproval{}, fmt.Errorf("begin invocation runtime approval delivery: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	if _, err := lockInvocationRuntimeClaim(ctx, tx, claim, repository.now()); err != nil {
-		return InvocationRuntimeApproval{}, err
-	}
-	if err := verifyInvocationRuntimeEffect(ctx, tx, effect); err != nil {
-		return InvocationRuntimeApproval{}, err
-	}
-	if err := verifyReservedInvocationRuntimeAttempt(ctx, tx, effect); err != nil {
+	if err := lockRuntimeInteractionAttempt(ctx, tx, claim, effect); err != nil {
 		return InvocationRuntimeApproval{}, err
 	}
 	approval, found, err := getInvocationRuntimeApproval(
@@ -399,7 +428,10 @@ func (repository *Repository) BeginInvocationRuntimeApprovalDelivery(
 	if approval.OperationID != claim.ID || approval.EffectID != effect.EffectID {
 		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalConflict
 	}
-	if approval.State == "delivering" {
+	if approval.State == "closed" || approval.State == "expired" {
+		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalExpired
+	}
+	if approval.State == "delivering" || approval.State == "delivery_unknown" {
 		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalDeliveryAmbiguous
 	}
 	if approval.State == "delivered" {
@@ -409,17 +441,24 @@ func (repository *Repository) BeginInvocationRuntimeApprovalDelivery(
 		(effectiveDecision == "approve" && approval.Decision != "approve") {
 		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalConflict
 	}
-	now := repository.now()
+	var now time.Time
+	if err := tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
+		return InvocationRuntimeApproval{}, err
+	}
 	result, err := tx.Exec(ctx, `
 		UPDATE invocation_runtime_approvals
 		SET state = 'delivering', version = version + 1,
 		    effective_decision = $3, updated_at = $4
 		WHERE isolation_domain_id = $1 AND id = $2 AND state = 'resolved'
+		  AND (expires_at IS NULL OR expires_at > clock_timestamp())
 	`, claim.IsolationDomainID, approvalID, effectiveDecision, now)
 	if err != nil {
 		return InvocationRuntimeApproval{}, fmt.Errorf("reserve invocation runtime approval delivery: %w", err)
 	}
 	if result.RowsAffected() != 1 {
+		if !approval.ExpiresAt.IsZero() {
+			return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalExpired
+		}
 		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalConflict
 	}
 	approval, _, err = getInvocationRuntimeApproval(
@@ -451,13 +490,7 @@ func (repository *Repository) CompleteInvocationRuntimeApprovalDelivery(
 		return InvocationRuntimeApproval{}, fmt.Errorf("begin invocation runtime approval completion: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	if _, err := lockInvocationRuntimeClaim(ctx, tx, claim, repository.now()); err != nil {
-		return InvocationRuntimeApproval{}, err
-	}
-	if err := verifyInvocationRuntimeEffect(ctx, tx, effect); err != nil {
-		return InvocationRuntimeApproval{}, err
-	}
-	if err := verifyReservedInvocationRuntimeAttempt(ctx, tx, effect); err != nil {
+	if err := lockRuntimeInteractionAttempt(ctx, tx, claim, effect); err != nil {
 		return InvocationRuntimeApproval{}, err
 	}
 	approval, found, err := getInvocationRuntimeApproval(
@@ -481,17 +514,24 @@ func (repository *Repository) CompleteInvocationRuntimeApprovalDelivery(
 	if approval.State != "delivering" || approval.EffectiveDecision == "" {
 		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalConflict
 	}
-	now := repository.now()
+	var now time.Time
+	if err := tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
+		return InvocationRuntimeApproval{}, err
+	}
 	result, err := tx.Exec(ctx, `
 		UPDATE invocation_runtime_approvals
 		SET state = 'delivered', version = version + 1,
 		    delivered_at = $3, updated_at = $3
 		WHERE isolation_domain_id = $1 AND id = $2 AND state = 'delivering'
+		  AND (expires_at IS NULL OR expires_at > clock_timestamp())
 	`, claim.IsolationDomainID, approvalID, now)
 	if err != nil {
 		return InvocationRuntimeApproval{}, fmt.Errorf("complete invocation runtime approval delivery: %w", err)
 	}
 	if result.RowsAffected() != 1 {
+		if !approval.ExpiresAt.IsZero() {
+			return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalExpired
+		}
 		return InvocationRuntimeApproval{}, ErrInvocationRuntimeApprovalConflict
 	}
 	approval, _, err = getInvocationRuntimeApproval(
@@ -637,13 +677,13 @@ func getInvocationRuntimeApproval(
 		suffix = " FOR UPDATE"
 	}
 	var value InvocationRuntimeApproval
-	var resolvedAt, deliveredAt *time.Time
+	var resolvedAt, deliveredAt, expiresAt, closedAt *time.Time
 	err := querier.QueryRow(ctx, `
 		SELECT contract, isolation_domain_id, id, operation_id, invocation_id,
 		       service_id, revision_id, effect_id, source_sequence, requested_action,
 		       state, version, COALESCE(decision, ''), COALESCE(effective_decision, ''),
 		       COALESCE(resolved_by, ''), COALESCE(resolution_correlation_id, ''),
-		       resolved_at, delivered_at, created_at, updated_at
+		       resolved_at, delivered_at, created_at, updated_at, expires_at, closed_at, COALESCE(close_reason, '')
 		FROM invocation_runtime_approvals
 		WHERE isolation_domain_id = $1 AND id = $2`+suffix,
 		isolationDomainID, approvalID).Scan(
@@ -652,7 +692,7 @@ func getInvocationRuntimeApproval(
 		&value.SourceSequence, &value.RequestedAction, &value.State, &value.Version,
 		&value.Decision, &value.EffectiveDecision, &value.ResolvedBy,
 		&value.ResolutionCorrelationID, &resolvedAt, &deliveredAt,
-		&value.CreatedAt, &value.UpdatedAt,
+		&value.CreatedAt, &value.UpdatedAt, &expiresAt, &closedAt, &value.CloseReason,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return InvocationRuntimeApproval{}, false, nil
@@ -666,7 +706,13 @@ func getInvocationRuntimeApproval(
 	if deliveredAt != nil {
 		value.DeliveredAt = *deliveredAt
 	}
-	if value.Contract != InvocationRuntimeApprovalContract ||
+	if expiresAt != nil {
+		value.ExpiresAt = *expiresAt
+	}
+	if closedAt != nil {
+		value.ClosedAt = *closedAt
+	}
+	if (value.Contract != InvocationRuntimeApprovalContract && value.Contract != InvocationRuntimeApprovalLegacyContract) ||
 		value.IsolationDomainID != isolationDomainID ||
 		value.ID != approvalID ||
 		value.OperationID == "" || value.InvocationID == "" ||
@@ -679,11 +725,39 @@ func getInvocationRuntimeApproval(
 }
 
 func validInvocationRuntimeApprovalState(value InvocationRuntimeApproval) bool {
+	if value.Contract == InvocationRuntimeApprovalLegacyContract {
+		if !value.ExpiresAt.IsZero() || !value.ClosedAt.IsZero() || value.CloseReason != "" {
+			return false
+		}
+	} else if value.Contract != InvocationRuntimeApprovalContract || !value.ExpiresAt.After(value.CreatedAt) || value.ExpiresAt.After(value.CreatedAt.Add(15*time.Minute)) {
+		return false
+	}
+	closed := value.State == "closed" || value.State == "expired" || value.State == "delivery_unknown"
+	if closed {
+		if value.Contract != InvocationRuntimeApprovalContract || value.ClosedAt.IsZero() || value.ClosedAt.Before(value.CreatedAt) || !validApprovalCloseReason(value.CloseReason) {
+			return false
+		}
+		if (value.State == "expired" && value.CloseReason != "expired") || (value.CloseReason == "expired" && value.ClosedAt.Before(value.ExpiresAt)) {
+			return false
+		}
+		if value.State == "closed" && value.CloseReason == "expired" {
+			return false
+		}
+	} else if !value.ClosedAt.IsZero() || value.CloseReason != "" {
+		return false
+	}
+	if value.EffectiveDecision == "approve" && value.Decision != "approve" {
+		return false
+	}
 	resolved := validInvocationRuntimeApprovalDecision(value.Decision) &&
 		validInvocationRuntimeApprovalActor(value.ResolvedBy) &&
 		approvalCorrelationPattern.MatchString(value.ResolutionCorrelationID) &&
 		!value.ResolvedAt.IsZero()
 	switch value.State {
+	case "closed", "expired":
+		return value.EffectiveDecision == "" && value.DeliveredAt.IsZero() && ((value.Version == 2 && value.Decision == "" && value.ResolvedBy == "" && value.ResolutionCorrelationID == "" && value.ResolvedAt.IsZero()) || (value.Version == 3 && resolved))
+	case "delivery_unknown":
+		return value.Version == 4 && resolved && validInvocationRuntimeApprovalDecision(value.EffectiveDecision) && value.DeliveredAt.IsZero()
 	case "pending":
 		return value.Version == 1 &&
 			value.Decision == "" && value.EffectiveDecision == "" &&
@@ -762,6 +836,16 @@ func publicInvocationApproval(value InvocationRuntimeApproval) domain.Invocation
 		ResolvedBy:        value.ResolvedBy,
 		CreatedAt:         value.CreatedAt,
 		UpdatedAt:         value.UpdatedAt,
+	}
+	if value.Contract == InvocationRuntimeApprovalContract {
+		result.SchemaVersion = domain.InvocationApprovalSchemaV2
+		expiresAt := value.ExpiresAt
+		result.ExpiresAt = &expiresAt
+		result.CloseReason = value.CloseReason
+		if !value.ClosedAt.IsZero() {
+			closedAt := value.ClosedAt
+			result.ClosedAt = &closedAt
+		}
 	}
 	if !value.ResolvedAt.IsZero() {
 		resolvedAt := value.ResolvedAt

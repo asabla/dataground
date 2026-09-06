@@ -1,5 +1,50 @@
 {
   "fixtures": [
+    {
+      "file": "valid/invocation-approval-v2-pending.json",
+      "schema": "InvocationApproval",
+      "valid": true
+    },
+    {
+      "file": "valid/invocation-approval-v2-resolved.json",
+      "schema": "InvocationApproval",
+      "valid": true
+    },
+    {
+      "file": "valid/invocation-approval-v2-expired.json",
+      "schema": "InvocationApproval",
+      "valid": true
+    },
+    {
+      "file": "valid/invocation-approval-v2-delivery_unknown.json",
+      "schema": "InvocationApproval",
+      "valid": true
+    },
+    {
+      "file": "invalid/invocation-approval-v2-missing-expiry.json",
+      "schema": "InvocationApproval",
+      "valid": false
+    },
+    {
+      "file": "invalid/invocation-approval-v2-pending-resolution.json",
+      "schema": "InvocationApproval",
+      "valid": false
+    },
+    {
+      "file": "invalid/invocation-approval-v2-closure-missing.json",
+      "schema": "InvocationApproval",
+      "valid": false
+    },
+    {
+      "file": "invalid/invocation-approval-v2-version-mismatch.json",
+      "schema": "InvocationApproval",
+      "valid": false
+    },
+    {
+      "file": "invalid/invocation-approval-v2-effective-decision-leak.json",
+      "schema": "InvocationApproval",
+      "valid": false
+    },
     { "file": "valid/invocation-question.json", "schema": "InvocationQuestion", "valid": true },
     {
       "file": "valid/answer-invocation-question.json",

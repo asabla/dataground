@@ -57,10 +57,10 @@ type workerConfig struct {
 }
 
 type workerResources struct {
-	policyWorkspace *openshell.PolicyWorkspace
-	exportWorkspace *openshell.ExportWorkspace
-	readiness       runtimeCertificationReadiness
-	questionExpiry  *questionExpiryOwner
+	policyWorkspace   *openshell.PolicyWorkspace
+	exportWorkspace   *openshell.ExportWorkspace
+	readiness         runtimeCertificationReadiness
+	interactionExpiry *interactionExpiryOwner
 }
 
 type governedExecutionPlanStore struct {
@@ -225,7 +225,7 @@ func (resources *workerResources) Close() error {
 	if resources == nil {
 		return nil
 	}
-	resources.questionExpiry.Close()
+	resources.interactionExpiry.Close()
 	var exportErr, policyErr error
 	if resources.exportWorkspace != nil {
 		exportErr = resources.exportWorkspace.Close()
@@ -402,11 +402,11 @@ func composeWorkerDriver(
 	fail := func(cause error) (reconcile.EffectDriver, *workerResources, error) {
 		return nil, nil, errors.Join(cause, resources.Close())
 	}
-	resources.questionExpiry, err = newQuestionExpiryOwner(ctx, repository, config.isolationDomainID, questionExpiryInterval, questionExpiryTimeout)
+	resources.interactionExpiry, err = newInteractionExpiryOwner(ctx, repository, config.isolationDomainID, interactionExpiryInterval, interactionExpiryTimeout)
 	if err != nil {
 		return fail(err)
 	}
-	readiness := governedWorkerReadiness{certification: checker, questions: resources.questionExpiry}
+	readiness := governedWorkerReadiness{certification: checker, interactions: resources.interactionExpiry}
 	resources.readiness = readiness
 	policyWorkspace, err := openshell.OpenPolicyWorkspace(config.policyWorkspace)
 	if err != nil {

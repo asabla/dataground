@@ -170,3 +170,51 @@ describe("invocation approval client", () => {
     }
   });
 });
+
+it("validates the complete expiring approval lifecycle without exposing private fields", async () => {
+  const pending = {
+    ...approval,
+    schemaVersion: "dataground.invocation-approval/v2",
+    expiresAt: "2026-08-14T12:10:00Z",
+  };
+  const expired = {
+    ...pending,
+    state: "expired",
+    version: 2,
+    closeReason: "expired",
+    closedAt: pending.expiresAt,
+    updatedAt: pending.expiresAt,
+  };
+  const unknown = {
+    ...expired,
+    state: "delivery_unknown",
+    version: 4,
+    decision: "deny",
+    resolvedBy: "controller",
+    resolvedAt: "2026-08-14T12:01:00Z",
+  };
+  for (const value of [pending, expired, unknown]) {
+    const client = {
+      GET: async () => ({ data: value, response: new Response(null, { status: 200 }) }),
+    } as unknown as DataGroundClient;
+    assert.equal((await readInvocationApproval(client, reference)).ok, true);
+  }
+  for (const value of [
+    { ...pending, expiresAt: undefined },
+    { ...pending, expiresAt: pending.createdAt },
+    { ...pending, expiresAt: "2026-08-14T12:16:00Z" },
+    { ...pending, version: 2 },
+    { ...pending, decision: "approve" },
+    { ...pending, effectiveDecision: "approve" },
+    { ...expired, closedAt: undefined },
+    { ...expired, closedAt: pending.createdAt },
+    { ...expired, closeReason: "cancelled" },
+    { ...unknown, resolvedBy: undefined },
+    { ...unknown, resolvedAt: pending.expiresAt },
+  ]) {
+    const client = {
+      GET: async () => ({ data: value, response: new Response(null, { status: 200 }) }),
+    } as unknown as DataGroundClient;
+    assert.equal((await readInvocationApproval(client, reference)).ok, false);
+  }
+});

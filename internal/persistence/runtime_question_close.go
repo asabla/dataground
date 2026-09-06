@@ -18,7 +18,7 @@ func (repository *Repository) CloseInvocationRuntimeQuestion(ctx context.Context
 		return InvocationRuntimeQuestion{}, err
 	}
 	defer tx.Rollback(ctx)
-	if err := lockRuntimeQuestionAttempt(ctx, tx, claim, effect); err != nil {
+	if err := lockRuntimeInteractionAttempt(ctx, tx, claim, effect); err != nil {
 		return InvocationRuntimeQuestion{}, err
 	}
 	value, found, err := getInvocationRuntimeQuestion(ctx, tx, claim.IsolationDomainID, id, true)

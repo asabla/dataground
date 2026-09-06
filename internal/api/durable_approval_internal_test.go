@@ -227,6 +227,7 @@ func TestDurableApprovalResolutionMapsClosedErrors(t *testing.T) {
 		code   string
 	}{
 		{name: "missing", err: persistence.ErrInvocationRuntimeApprovalMissing, status: http.StatusNotFound, code: "RESOURCE_NOT_FOUND"},
+		{name: "expired", err: persistence.ErrInvocationRuntimeApprovalExpired, status: http.StatusGone, code: "INVOCATION_APPROVAL_EXPIRED"},
 		{name: "conflict", err: persistence.ErrInvocationRuntimeApprovalConflict, status: http.StatusConflict, code: "INVOCATION_APPROVAL_CONFLICT"},
 		{name: "denied", err: reconcile.ErrInvocationApprovalDenied, status: http.StatusForbidden, code: "INVOCATION_APPROVAL_FORBIDDEN"},
 		{name: "idempotency reuse", err: &persistence.DomainError{Code: "IDEMPOTENCY_KEY_REUSED", Message: "reused"}, status: http.StatusConflict, code: "IDEMPOTENCY_KEY_REUSED"},

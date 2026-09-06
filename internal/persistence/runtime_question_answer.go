@@ -115,7 +115,7 @@ func activeRuntimeQuestion(ctx context.Context, tx pgx.Tx, value InvocationRunti
  AND operation.command IN ('invoke','repair')
  AND attempt.effect_id=$4 AND attempt.status='reserved' AND attempt.lease_owner=operation.lease_owner AND attempt.fencing_token=operation.lease_token
  FOR UPDATE OF operation NOWAIT`, value.IsolationDomainID, value.OperationID, value.InvocationID, value.EffectID).Scan(&active)
-	if errors.Is(err, pgx.ErrNoRows) || questionLockUnavailable(err) {
+	if errors.Is(err, pgx.ErrNoRows) || runtimeInteractionLockUnavailable(err) {
 		return ErrInvocationRuntimeQuestionConflict
 	}
 	if err != nil {
@@ -136,7 +136,7 @@ func (repository *Repository) BeginInvocationRuntimeQuestionDelivery(ctx context
 		return InvocationRuntimeQuestion{}, err
 	}
 	defer tx.Rollback(ctx)
-	if err := lockRuntimeQuestionAttempt(ctx, tx, claim, effect); err != nil {
+	if err := lockRuntimeInteractionAttempt(ctx, tx, claim, effect); err != nil {
 		return InvocationRuntimeQuestion{}, err
 	}
 	value, found, err := getInvocationRuntimeQuestion(ctx, tx, claim.IsolationDomainID, id, true)
@@ -158,7 +158,7 @@ func (repository *Repository) BeginInvocationRuntimeQuestionDelivery(ctx context
 	if err := authorize(ctx, value, InvocationQuestionEffect); err != nil {
 		return InvocationRuntimeQuestion{}, err
 	}
-	if err := lockRuntimeQuestionAttempt(ctx, tx, claim, effect); err != nil {
+	if err := lockRuntimeInteractionAttempt(ctx, tx, claim, effect); err != nil {
 		return InvocationRuntimeQuestion{}, err
 	}
 	result, err := tx.Exec(ctx, `UPDATE invocation_runtime_questions AS question SET state='delivering',version=version+1,delivery_started_at=clock_timestamp(),updated_at=clock_timestamp()
@@ -191,7 +191,7 @@ func (repository *Repository) CompleteInvocationRuntimeQuestionDelivery(ctx cont
 		return InvocationRuntimeQuestion{}, err
 	}
 	defer tx.Rollback(ctx)
-	if err := lockRuntimeQuestionAttempt(ctx, tx, claim, effect); err != nil {
+	if err := lockRuntimeInteractionAttempt(ctx, tx, claim, effect); err != nil {
 		return InvocationRuntimeQuestion{}, err
 	}
 	value, found, err := getInvocationRuntimeQuestion(ctx, tx, claim.IsolationDomainID, id, true)

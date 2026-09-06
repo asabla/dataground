@@ -115,3 +115,44 @@ export const NarrowRightToLeft: Story = {
     ),
   ],
 };
+
+export const Expired: Story = {
+  args: {
+    approval: {
+      ...pendingApproval,
+      state: "expired",
+      version: 2,
+      expiresAt: "2026-08-14T12:10:00Z",
+      closedAt: "2026-08-14T12:10:00Z",
+      closeReason: "expired",
+      updatedAt: "2026-08-14T12:10:00Z",
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Request expired")).toBeVisible();
+    await expect(canvas.queryByRole("button", { name: "Approve request" })).not.toBeInTheDocument();
+  },
+};
+export const DeliveryUnknown: Story = {
+  args: {
+    approval: {
+      ...pendingApproval,
+      state: "delivery_unknown",
+      version: 4,
+      decision: "deny",
+      resolvedBy: "controller",
+      resolvedAt: "2026-08-14T12:01:00Z",
+      expiresAt: "2026-08-14T12:10:00Z",
+      closedAt: "2026-08-14T12:10:00Z",
+      closeReason: "expired",
+      updatedAt: "2026-08-14T12:10:00Z",
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Delivery unknown")).toBeVisible();
+    await expect(canvas.getByText(/It cannot be sent again/)).toBeVisible();
+    await expect(canvas.queryByRole("button", { name: "Deny request" })).not.toBeInTheDocument();
+  },
+};

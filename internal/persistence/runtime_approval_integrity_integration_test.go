@@ -134,23 +134,22 @@ func TestInvocationApprovalIntegrityUpgradeRejectsExistingEscalation(t *testing.
 	if err := persistence.MigrateDownTo(ctx, database, 52); err != nil {
 		t.Fatal(err)
 	}
-	approval, err := fixture.repository.RecordInvocationRuntimeApprovalRequest(ctx, fixture.claim, fixture.effect, fixture.target, persistence.InvocationRuntimeApprovalRequest{SourceSequence: 74, RequestedAction: "workspace.change"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fixture.repository.ResolveInvocationRuntimeApprovalCommand(ctx, testIdempotency(approval.IsolationDomainID, "legacy-integrity-fixture"), persistence.InvocationRuntimeApprovalResolution{IsolationDomainID: approval.IsolationDomainID, InvocationID: approval.InvocationID, ApprovalID: approval.ID, ExpectedVersion: 1, Decision: "deny", ActorID: "controller", CorrelationID: identity.New("cor")}, func(context.Context, persistence.InvocationRuntimeApproval) error { return nil }); err != nil {
+	approvalID := identity.New("apr")
+	if _, err := fixture.pool.Exec(ctx, `INSERT INTO invocation_runtime_approvals (contract,isolation_domain_id,id,operation_id,invocation_id,service_id,revision_id,effect_id,source_sequence,requested_action,state,version,decision,resolved_by,resolution_correlation_id,resolved_at,created_at,updated_at)
+ VALUES ('dataground.invocation-runtime-approval/v1',$1,$2,$3,$4,$5,$6,$7,74,'workspace.change','resolved',2,'deny','controller',$8,clock_timestamp(),clock_timestamp(),clock_timestamp())`, fixture.target.IsolationDomainID, approvalID, fixture.target.OperationID, fixture.target.InvocationID, fixture.target.ServiceID, fixture.target.RevisionID, fixture.effect.EffectID, identity.New("cor")); err != nil {
 		t.Fatal(err)
 	}
 	// Schema 52 admitted this contradictory retained state. The upgrade must
 	// reject it without rewriting either the controller decision or its evidence.
-	if _, err := fixture.pool.Exec(ctx, `UPDATE invocation_runtime_approvals SET state='delivering',version=3,effective_decision='approve',updated_at=clock_timestamp() WHERE isolation_domain_id=$1 AND id=$2`, approval.IsolationDomainID, approval.ID); err != nil {
+	if _, err := fixture.pool.Exec(ctx, `UPDATE invocation_runtime_approvals SET state='delivering',version=3,effective_decision='approve',updated_at=clock_timestamp() WHERE isolation_domain_id=$1 AND id=$2`, fixture.target.IsolationDomainID, approvalID); err != nil {
 		t.Fatal(err)
 	}
 	if err := persistence.MigrateUp(ctx, database); err == nil {
 		t.Fatal("upgrade accepted an escalated denial")
 	}
-	value, err := fixture.repository.GetInvocationRuntimeApproval(ctx, approval.IsolationDomainID, approval.ID)
-	if err != nil || value.Decision != "deny" || value.EffectiveDecision != "approve" || value.Version != 3 {
+	var decision, effective string
+	var version int64
+	if err := fixture.pool.QueryRow(ctx, `SELECT decision,effective_decision,version FROM invocation_runtime_approvals WHERE isolation_domain_id=$1 AND id=$2`, fixture.target.IsolationDomainID, approvalID).Scan(&decision, &effective, &version); err != nil || decision != "deny" || effective != "approve" || version != 3 {
 		t.Fatalf("failed migration rewrote retained evidence: %v", err)
 	}
 	if err := persistence.RequireCurrentSchema(ctx, database); err == nil {

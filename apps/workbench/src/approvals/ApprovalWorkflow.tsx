@@ -54,6 +54,18 @@ export interface ApprovalWorkflowProps {
   createIdempotencyKey?: () => string;
 }
 
+function sameApprovalRequest(left: InvocationApproval, right: InvocationApproval): boolean {
+  return (
+    left.schemaVersion === right.schemaVersion &&
+    left.id === right.id &&
+    left.isolationDomainId === right.isolationDomainId &&
+    left.invocationId === right.invocationId &&
+    left.requestedAction === right.requestedAction &&
+    left.createdAt === right.createdAt &&
+    left.expiresAt === right.expiresAt
+  );
+}
+
 export function approvalWorkflowReducer(
   state: ApprovalWorkflowState,
   action: ApprovalWorkflowAction,
@@ -74,6 +86,29 @@ export function approvalWorkflowReducer(
           error: action.result.error,
           errorContext: "read",
           loading: false,
+        };
+      }
+      if (
+        state.approval &&
+        (!sameApprovalRequest(state.approval, action.result.approval) ||
+          action.result.approval.version < state.approval.version ||
+          (action.result.approval.version === state.approval.version &&
+            action.result.approval.state !== state.approval.state) ||
+          (state.approval.decision !== undefined &&
+            (state.approval.decision !== action.result.approval.decision ||
+              state.approval.resolvedBy !== action.result.approval.resolvedBy ||
+              state.approval.resolvedAt !== action.result.approval.resolvedAt)))
+      ) {
+        return {
+          ...state,
+          loading: false,
+          errorContext: "read",
+          error: {
+            code: "WORKBENCH_INVALID_RESPONSE",
+            message:
+              "The approval changed unexpectedly. Close this inspection and reopen it from the timeline.",
+            retryable: false,
+          },
         };
       }
       return {
@@ -141,7 +176,8 @@ function defaultIdempotencyKey(): string {
 
 function sameReference(left: InvocationApproval, right: InvocationApprovalReference): boolean {
   return (
-    left.schemaVersion === "dataground.invocation-approval/v1" &&
+    (left.schemaVersion === "dataground.invocation-approval/v1" ||
+      left.schemaVersion === "dataground.invocation-approval/v2") &&
     left.id === right.approvalId &&
     left.invocationId === right.invocationId &&
     left.isolationDomainId === right.isolationDomainId
@@ -152,7 +188,30 @@ export function approvalReferenceKey(reference: InvocationApprovalReference): st
   return `${reference.isolationDomainId}:${reference.invocationId}:${reference.approvalId}`;
 }
 
-export function ApprovalWorkflow({
+export function ApprovalWorkflow(props: ApprovalWorkflowProps) {
+  const key = `${approvalReferenceKey(props.reference)}:${props.canResolve}`;
+  const [identity, setIdentity] = useState({ client: props.client, key, generation: 0 });
+  if (identity.client !== props.client || identity.key !== key) {
+    setIdentity({ client: props.client, key, generation: identity.generation + 1 });
+    return null;
+  }
+  return (
+    <ApprovalSession
+      key={identity.generation}
+      {...props}
+      initialApproval={identity.generation === 0 ? props.initialApproval : undefined}
+    />
+  );
+}
+
+function approvalExpired(approval: InvocationApproval | undefined): boolean {
+  return (
+    approval?.schemaVersion === "dataground.invocation-approval/v2" &&
+    Date.now() >= Date.parse(approval.expiresAt)
+  );
+}
+
+function ApprovalSession({
   canResolve,
   client,
   createIdempotencyKey = defaultIdempotencyKey,
@@ -167,6 +226,19 @@ export function ApprovalWorkflow({
     loading: validInitialApproval === undefined,
     referenceKey: currentReferenceKey,
   });
+  const [expired, setExpired] = useState(false);
+  const expiryObserved = useRef(false);
+  useEffect(() => {
+    const check = () => {
+      if (approvalExpired(state.approval)) {
+        expiryObserved.current = true;
+        setExpired(true);
+      }
+    };
+    check();
+    const timer = setInterval(check, 250);
+    return () => clearInterval(timer);
+  }, [state.approval]);
   const requestGeneration = useRef(0);
   const submissionLock = useRef<object | undefined>(undefined);
   const stableReference = useMemo(
@@ -204,7 +276,17 @@ export function ApprovalWorkflow({
     async (decision: ApprovalDecision) => {
       const current = state.approval;
       const referenceKey = approvalReferenceKey(stableReference);
+      if (approvalExpired(current)) {
+        expiryObserved.current = true;
+        setExpired(true);
+        return;
+      }
       if (
+        !canResolve ||
+        state.loading ||
+        state.error !== undefined ||
+        expiryObserved.current ||
+        approvalExpired(current) ||
         state.referenceKey !== referenceKey ||
         !current ||
         current.state !== "pending" ||
@@ -256,6 +338,9 @@ export function ApprovalWorkflow({
       }
     },
     [
+      canResolve,
+      state.loading,
+      state.error,
       client,
       createIdempotencyKey,
       dispatch,
@@ -299,9 +384,16 @@ export function ApprovalWorkflow({
     visibleApproval.state !== "pending" || visibleApproval.version === 1;
   const blockedByError = state.error !== undefined;
   const resolutionAvailable =
-    canResolve && supportedPendingVersion && !blockedByError && !state.loading;
+    canResolve &&
+    !expired &&
+    !approvalExpired(visibleApproval) &&
+    supportedPendingVersion &&
+    !blockedByError &&
+    !state.loading;
   let disabledReason: string | undefined;
-  if (state.loading) {
+  if (expired || approvalExpired(visibleApproval)) {
+    disabledReason = "The approval deadline has passed. Refresh to observe its final state.";
+  } else if (state.loading) {
     disabledReason = "The authoritative approval state is being refreshed.";
   } else if (!supportedPendingVersion) {
     disabledReason = "This approval version requires a newer Workbench before it can be resolved.";

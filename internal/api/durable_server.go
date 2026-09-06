@@ -448,6 +448,7 @@ func (server *DurableServer) cancelInvocation(response http.ResponseWriter, requ
 }
 
 func (server *DurableServer) resolveInvocationApproval(response http.ResponseWriter, request *http.Request) {
+	response.Header().Set("Cache-Control", "no-store")
 	server.mutate(response, request, func(domainID, actorID, correlationID string, body []byte) (persistence.CommandResult, error) {
 		input, apiError := decodeBody[resolveInvocationApprovalRequest](body)
 		if apiError != nil {
@@ -489,6 +490,8 @@ func invocationApprovalCommandError(err error) error {
 		return &persistence.DomainError{
 			Code: "RESOURCE_NOT_FOUND", Message: "Invocation approval was not found.",
 		}
+	case errors.Is(err, persistence.ErrInvocationRuntimeApprovalExpired):
+		return &persistence.DomainError{Code: "INVOCATION_APPROVAL_EXPIRED", Message: "Invocation approval has expired or closed."}
 	case errors.Is(err, persistence.ErrInvocationRuntimeApprovalConflict):
 		return &persistence.DomainError{
 			Code: "INVOCATION_APPROVAL_CONFLICT", Message: "Invocation approval cannot be resolved in its current state.",
@@ -710,7 +713,7 @@ func (server *DurableServer) writeCommandError(response http.ResponseWriter, err
 			status = http.StatusForbidden
 		} else if problem.Code == "INVALID_INVOCATION_APPROVAL" || problem.Code == "INVALID_INVOCATION_QUESTION" || problem.Code == "INVOCATION_INPUT_INVALID" {
 			status = http.StatusBadRequest
-		} else if problem.Code == "INVOCATION_QUESTION_EXPIRED" {
+		} else if problem.Code == "INVOCATION_QUESTION_EXPIRED" || problem.Code == "INVOCATION_APPROVAL_EXPIRED" {
 			status = http.StatusGone
 		}
 		writeJSON(response, status, ErrorEnvelope{Error: APIError{
