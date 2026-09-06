@@ -1,0 +1,31 @@
+diff --git a/codex-rs/linux-sandbox/src/landlock.rs b/codex-rs/linux-sandbox/src/landlock.rs
+index 307f956..957f6ff 100644
+--- a/codex-rs/linux-sandbox/src/landlock.rs
++++ b/codex-rs/linux-sandbox/src/landlock.rs
+@@ -258,7 +258,25 @@ fn install_network_seccomp_filter_on_current_thread(
+ 
+     let prog: BpfProgram = filter.try_into()?;
+ 
+-    apply_filter(&prog)?;
++    if let Err(error) = apply_filter(&prog) {
++        match error {
++            seccompiler::Error::Seccomp(ref cause) if cause.raw_os_error() == Some(libc::EPERM) => {
++                // prctl installs the same current-thread filter. The kernel
++                // stacks it with existing filters; it cannot relax the parent.
++                let filter = libc::sock_fprog {
++                    len: prog.len().try_into().expect("bounded seccomp program"),
++                    filter: prog.as_ptr().cast::<libc::sock_filter>().cast_mut(),
++                };
++                let result = unsafe {
++                    libc::prctl(libc::PR_SET_SECCOMP, libc::SECCOMP_MODE_FILTER, &filter, 0, 0)
++                };
++                if result != 0 {
++                    return Err(seccompiler::Error::Seccomp(std::io::Error::last_os_error()).into());
++                }
++            }
++            other => return Err(other.into()),
++        }
++    }
+ 
+     Ok(())
+ }

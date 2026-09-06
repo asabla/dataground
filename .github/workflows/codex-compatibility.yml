@@ -1,0 +1,68 @@
+name: Codex compatibility candidate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/codex-compatibility.yml
+      - deploy/openshell/**
+      - internal/execution/runtimeevidence/**
+      - .go-version
+      - go.mod
+      - go.sum
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codex-compatibility-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-sandbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: .go-version
+
+      - name: Build the source-pinned experimental candidate
+        id: candidate
+        run: |
+          docker build --tag dataground-codex-compatibility:ci deploy/openshell/codex-compatibility
+          candidate_image=$(docker image inspect --format '{{.Id}}' dataground-codex-compatibility:ci)
+          printf 'image=%s\n' "$candidate_image" >> "$GITHUB_OUTPUT"
+
+      - name: Extract checksum-verified OpenShell CLI
+        id: openshell
+        env:
+          OPENSHELL_VERSION: v0.0.86
+          OPENSHELL_PACKAGE: openshell_0.0.86-1_amd64.deb
+          OPENSHELL_PACKAGE_SHA256: 3e757ca2f1e855d6e3bcc328fbd69e0441a9a6d01dfe14902f525185dd55ada4
+        run: |
+          release="https://github.com/NVIDIA/OpenShell/releases/download/$OPENSHELL_VERSION"
+          package="$RUNNER_TEMP/$OPENSHELL_PACKAGE"
+          curl --fail --location --silent --show-error --retry 3 --max-redirs 5 \
+            --proto '=https' --tlsv1.2 "$release/$OPENSHELL_PACKAGE" --output "$package"
+          printf '%s  %s\n' "$OPENSHELL_PACKAGE_SHA256" "$package" | sha256sum --check --strict -
+          cli_root="$RUNNER_TEMP/openshell-cli"
+          install --directory --mode 0700 "$cli_root"
+          dpkg-deb --extract "$package" "$cli_root"
+          printf 'cli=%s\n' "$cli_root/usr/bin/openshell" >> "$GITHUB_OUTPUT"
+
+      - name: Compare native restrictions without provider credentials
+        env:
+          DATAGROUND_TEST_CODEX_COMPATIBILITY_IMAGE: ${{ steps.candidate.outputs.image }}
+          DATAGROUND_TEST_RUNTIME_TOPOLOGY_ROOT: ${{ github.workspace }}
+          DATAGROUND_TEST_OPENSHELL_BINARY: ${{ steps.openshell.outputs.cli }}
+        run: >-
+          go test ./internal/execution/runtimeevidence
+          -run '^TestCodexNativeSandboxCompatibility$'
+          -count=1 -timeout=6m -v
