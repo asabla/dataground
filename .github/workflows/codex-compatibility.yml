@@ -2,6 +2,16 @@ name: Codex compatibility candidate
 
 on:
   workflow_dispatch:
+    inputs:
+      architecture:
+        description: Native architecture to test
+        type: choice
+        options: [amd64, arm64]
+        default: arm64
+      publish:
+        description: Publish the tested experimental image from main
+        type: boolean
+        default: false
   pull_request:
     paths:
       - .github/workflows/codex-compatibility.yml
@@ -23,7 +33,9 @@ concurrency:
 
 jobs:
   native-sandbox:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    outputs:
+      artifact_id: ${{ steps.archive.outputs.artifact-id }}
     timeout-minutes: 35
     steps:
       - name: Check out repository
@@ -36,6 +48,15 @@ jobs:
         with:
           go-version-file: .go-version
 
+      - name: Reject publication outside the reviewed main branch
+        if: inputs.publish && (github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/main' || github.repository != 'asabla/dataground')
+        run: exit 1
+
+      - name: Verify candidate publication boundaries
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 deploy/openshell/codex-compatibility/publication_test.py
+
       - name: Build the source-pinned experimental candidate
         id: candidate
         run: |
@@ -47,8 +68,8 @@ jobs:
         id: openshell
         env:
           OPENSHELL_VERSION: v0.0.86
-          OPENSHELL_PACKAGE: openshell_0.0.86-1_amd64.deb
-          OPENSHELL_PACKAGE_SHA256: 3e757ca2f1e855d6e3bcc328fbd69e0441a9a6d01dfe14902f525185dd55ada4
+          OPENSHELL_PACKAGE: ${{ inputs.architecture == 'arm64' && 'openshell_0.0.86-1_arm64.deb' || 'openshell_0.0.86-1_amd64.deb' }}
+          OPENSHELL_PACKAGE_SHA256: ${{ inputs.architecture == 'arm64' && 'c46feefdd72f7a1fb3e5f43981f8e21b6942086108a249ff22f08a100a750bc2' || '3e757ca2f1e855d6e3bcc328fbd69e0441a9a6d01dfe14902f525185dd55ada4' }}
         run: |
           release="https://github.com/NVIDIA/OpenShell/releases/download/$OPENSHELL_VERSION"
           package="$RUNNER_TEMP/$OPENSHELL_PACKAGE"
@@ -89,3 +110,88 @@ jobs:
           go test ./internal/execution/runtimeevidence
           -run '^TestCodexProviderBoundSandboxCompatibility$'
           -count=1 -timeout=10m -v
+
+      - name: Package the exact tested image
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'asabla/dataground' && inputs.publish
+        env:
+          CANDIDATE_IMAGE: ${{ steps.candidate.outputs.image }}
+          CANDIDATE_ARCH: ${{ inputs.architecture }}
+        run: |
+          python3 deploy/openshell/codex-compatibility/publication.py prepare \
+            --directory "$RUNNER_TEMP/candidate-publication" \
+            --image "$CANDIDATE_IMAGE" --architecture "$CANDIDATE_ARCH" \
+            --source-commit "$GITHUB_SHA"
+
+      - name: Upload the tested image archive
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'asabla/dataground' && inputs.publish
+        id: archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tested-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/candidate-publication/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  publish-candidate:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'asabla/dataground' && inputs.publish
+    needs: native-sandbox
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Check out the reviewed source
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
+
+      - name: Download the exact successful build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.native-sandbox.outputs.artifact_id }}
+          path: ${{ runner.temp }}/candidate-publication
+          merge-multiple: true
+
+      - name: Verify and load the tested image
+        env:
+          CANDIDATE_ARCH: ${{ inputs.architecture }}
+        run: |
+          python3 deploy/openshell/codex-compatibility/publication.py load \
+            --directory "$RUNNER_TEMP/candidate-publication" \
+            --architecture "$CANDIDATE_ARCH" --source-commit "$GITHUB_SHA"
+
+      - name: Publish the exact candidate digest
+        id: published
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+          REGISTRY_USER: ${{ github.actor }}
+          CANDIDATE_ARCH: ${{ inputs.architecture }}
+          DOCKER_CONFIG: ${{ runner.temp }}/candidate-registry-auth
+        run: |
+          install --directory --mode 0700 "$DOCKER_CONFIG"
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$REGISTRY_USER" --password-stdin
+          unset REGISTRY_TOKEN
+          python3 deploy/openshell/codex-compatibility/publication.py publish \
+            --directory "$RUNNER_TEMP/candidate-publication" \
+            --architecture "$CANDIDATE_ARCH" --source-commit "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT"
+
+      - name: Attest the published candidate provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/candidate-registry-auth
+        with:
+          subject-name: ghcr.io/asabla/dataground-codex-candidate
+          subject-digest: ${{ steps.published.outputs.digest }}
+          push-to-registry: true
+
+      - name: Remove ephemeral registry authentication
+        if: always()
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/candidate-registry-auth
+        run: rm -rf -- "$DOCKER_CONFIG"
