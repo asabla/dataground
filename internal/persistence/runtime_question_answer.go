@@ -88,8 +88,8 @@ func answerInvocationRuntimeQuestion(ctx context.Context, tx pgx.Tx, answer Invo
 	if err := activeRuntimeQuestion(ctx, tx, value); err != nil {
 		return InvocationRuntimeQuestion{}, err
 	}
-	result, err := tx.Exec(ctx, `UPDATE invocation_runtime_questions AS question SET state='answered',version=version+1,answers=$3,answered_by=$4,answer_correlation_id=$5,answered_at=clock_timestamp(),updated_at=clock_timestamp()
- WHERE isolation_domain_id=$1 AND id=$2 AND state='pending' AND version=$6 AND expires_at>clock_timestamp() AND `+runtimeQuestionLiveAttemptSQL, value.IsolationDomainID, value.ID, encoded, answer.ActorID, answer.CorrelationID, answer.ExpectedVersion)
+	result, err := tx.Exec(ctx, `UPDATE invocation_runtime_questions AS interaction SET state='answered',version=version+1,answers=$3,answered_by=$4,answer_correlation_id=$5,answered_at=clock_timestamp(),updated_at=clock_timestamp()
+ WHERE isolation_domain_id=$1 AND id=$2 AND state='pending' AND version=$6 AND expires_at>clock_timestamp() AND `+runtimeInteractionLiveAttemptSQL, value.IsolationDomainID, value.ID, encoded, answer.ActorID, answer.CorrelationID, answer.ExpectedVersion)
 	if err != nil {
 		return InvocationRuntimeQuestion{}, err
 	}
@@ -107,24 +107,11 @@ func answerInvocationRuntimeQuestion(ctx context.Context, tx pgx.Tx, answer Invo
 }
 
 func activeRuntimeQuestion(ctx context.Context, tx pgx.Tx, value InvocationRuntimeQuestion) error {
-	var active bool
-	err := tx.QueryRow(ctx, `SELECT true FROM invocation_execution_operations operation JOIN invocation_runtime_attempts attempt
- ON attempt.isolation_domain_id=operation.isolation_domain_id AND attempt.operation_id=operation.id
- WHERE operation.isolation_domain_id=$1 AND operation.id=$2 AND operation.invocation_id=$3
- AND operation.observed_state='running' AND operation.lease_owner IS NOT NULL AND operation.lease_expires_at>clock_timestamp() AND operation.deadline_at>clock_timestamp()
- AND operation.command IN ('invoke','repair')
- AND attempt.effect_id=$4 AND attempt.status='reserved' AND attempt.lease_owner=operation.lease_owner AND attempt.fencing_token=operation.lease_token
- FOR UPDATE OF operation NOWAIT`, value.IsolationDomainID, value.OperationID, value.InvocationID, value.EffectID).Scan(&active)
-	if errors.Is(err, pgx.ErrNoRows) || runtimeInteractionLockUnavailable(err) {
+	err := activeRuntimeInteraction(ctx, tx, value.IsolationDomainID, value.OperationID, value.InvocationID, value.EffectID)
+	if errors.Is(err, ErrLeaseLost) {
 		return ErrInvocationRuntimeQuestionConflict
 	}
-	if err != nil {
-		return err
-	}
-	if !active {
-		return ErrInvocationRuntimeQuestionConflict
-	}
-	return nil
+	return err
 }
 
 func (repository *Repository) BeginInvocationRuntimeQuestionDelivery(ctx context.Context, claim OperationClaim, effect EffectRecord, id string, authorize InvocationRuntimeQuestionAuthorizer) (InvocationRuntimeQuestion, error) {
@@ -161,8 +148,8 @@ func (repository *Repository) BeginInvocationRuntimeQuestionDelivery(ctx context
 	if err := lockRuntimeInteractionAttempt(ctx, tx, claim, effect); err != nil {
 		return InvocationRuntimeQuestion{}, err
 	}
-	result, err := tx.Exec(ctx, `UPDATE invocation_runtime_questions AS question SET state='delivering',version=version+1,delivery_started_at=clock_timestamp(),updated_at=clock_timestamp()
- WHERE isolation_domain_id=$1 AND id=$2 AND state='answered' AND expires_at>clock_timestamp() AND `+runtimeQuestionLiveAttemptSQL, value.IsolationDomainID, value.ID)
+	result, err := tx.Exec(ctx, `UPDATE invocation_runtime_questions AS interaction SET state='delivering',version=version+1,delivery_started_at=clock_timestamp(),updated_at=clock_timestamp()
+ WHERE isolation_domain_id=$1 AND id=$2 AND state='answered' AND expires_at>clock_timestamp() AND `+runtimeInteractionLiveAttemptSQL, value.IsolationDomainID, value.ID)
 	if err != nil {
 		return InvocationRuntimeQuestion{}, err
 	}
@@ -210,7 +197,7 @@ func (repository *Repository) CompleteInvocationRuntimeQuestionDelivery(ctx cont
 	if value.State != "delivering" {
 		return InvocationRuntimeQuestion{}, ErrInvocationRuntimeQuestionConflict
 	}
-	result, err := tx.Exec(ctx, `UPDATE invocation_runtime_questions AS question SET state='delivered',version=version+1,delivered_at=clock_timestamp(),updated_at=clock_timestamp() WHERE isolation_domain_id=$1 AND id=$2 AND `+runtimeQuestionLiveAttemptSQL, value.IsolationDomainID, value.ID)
+	result, err := tx.Exec(ctx, `UPDATE invocation_runtime_questions AS interaction SET state='delivered',version=version+1,delivered_at=clock_timestamp(),updated_at=clock_timestamp() WHERE isolation_domain_id=$1 AND id=$2 AND `+runtimeInteractionLiveAttemptSQL, value.IsolationDomainID, value.ID)
 	if err != nil {
 		return InvocationRuntimeQuestion{}, err
 	}
@@ -229,14 +216,3 @@ func (repository *Repository) CompleteInvocationRuntimeQuestionDelivery(ctx cont
 	}
 	return value, nil
 }
-
-// Re-evaluate time at the write itself; operation locks alone cannot keep a
-// previously live lease or deadline from expiring during authorization.
-const runtimeQuestionLiveAttemptSQL = `EXISTS (
- SELECT 1 FROM invocation_execution_operations operation
- JOIN invocation_runtime_attempts attempt ON attempt.isolation_domain_id=operation.isolation_domain_id AND attempt.operation_id=operation.id
- WHERE operation.isolation_domain_id=question.isolation_domain_id AND operation.id=question.operation_id
- AND operation.invocation_id=question.invocation_id AND operation.command IN ('invoke','repair') AND operation.observed_state='running'
- AND operation.lease_owner IS NOT NULL AND operation.lease_expires_at>clock_timestamp() AND operation.deadline_at>clock_timestamp()
- AND attempt.effect_id=question.effect_id AND attempt.status='reserved'
- AND attempt.lease_owner=operation.lease_owner AND attempt.fencing_token=operation.lease_token)`
