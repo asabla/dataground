@@ -56,7 +56,11 @@ func (repository *Repository) ExpireInvocationRuntimeApprovals(ctx context.Conte
 		return 0, err
 	}
 	defer tx.Rollback(ctx)
-	rows, err := tx.Query(ctx, `SELECT id FROM invocation_runtime_approvals WHERE isolation_domain_id=$1 AND contract='dataground.invocation-runtime-approval/v2' AND state IN ('pending','resolved','delivering') AND expires_at<=clock_timestamp() ORDER BY expires_at,id LIMIT $2 FOR UPDATE SKIP LOCKED`, scope, limit)
+	invocations, err := lockDueRuntimeInteractionInvocations(ctx, tx, scope, "approval", limit)
+	if err != nil {
+		return 0, err
+	}
+	rows, err := tx.Query(ctx, `SELECT id FROM invocation_runtime_approvals WHERE isolation_domain_id=$1 AND invocation_id=ANY($3::text[]) AND contract='dataground.invocation-runtime-approval/v2' AND state IN ('pending','resolved','delivering') AND expires_at<=clock_timestamp() ORDER BY expires_at,id LIMIT $2 FOR UPDATE SKIP LOCKED`, scope, limit, invocations)
 	if err != nil {
 		return 0, err
 	}
@@ -135,5 +139,12 @@ func recordRuntimeApprovalClosure(ctx context.Context, tx pgx.Tx, value Invocati
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO outbox_events (id,isolation_domain_id,aggregate_type,aggregate_id,event_type,payload,correlation_id,available_at,created_at)
  VALUES ($1,$2,'invocation-approval',$3,$4,jsonb_build_object('approvalId',$3::text,'state',$5::text,'version',$6::bigint),$7,$8,$8)`, identity.Derived("out", value.IsolationDomainID+":"+value.ID+":"+strconv.FormatInt(value.Version, 10)), value.IsolationDomainID, value.ID, "invocation-approval."+value.State, value.State, value.Version, correlation, value.UpdatedAt)
-	return err
+	if err != nil {
+		return err
+	}
+	return recordRuntimeInteractionOutcome(ctx, tx, runtimeInteractionOutcome{
+		isolationDomainID: value.IsolationDomainID, invocationID: value.InvocationID, serviceID: value.ServiceID, revisionID: value.RevisionID,
+		id: value.ID, kind: "approval", state: value.State, version: value.Version, actor: actor, correlation: correlation,
+		occurredAt: value.UpdatedAt, closedAt: value.ClosedAt, closeReason: value.CloseReason,
+	})
 }

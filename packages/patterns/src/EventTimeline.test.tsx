@@ -32,6 +32,37 @@ const reference = {
 };
 
 describe("EventTimeline", () => {
+  it("shows interaction outcomes without treating acceptance as delivery or exposing private fields", () => {
+    for (const [type, label] of [
+      ["interaction.question.answered", "Question answered"],
+      ["interaction.approval.expired", "Approval expired"],
+      ["interaction.question.expired", "Question expired"],
+      ["interaction.approval.closed", "Approval closed"],
+      ["interaction.question.closed", "Question closed"],
+      ["interaction.approval.delivery.unknown", "Approval delivery unknown"],
+      ["interaction.question.delivery.unknown", "Answer delivery unknown"],
+    ] as const) {
+      const event = {
+        ...baseEvent,
+        type,
+        source: "platform" as const,
+        payload: {
+          prompt: "private sentinel",
+          answers: ["private sentinel"],
+          message: "private sentinel",
+        },
+      };
+      const result = presentTimelineEvent(event);
+      assert.equal(result.label, label);
+      assert.notEqual(result.tone, "success");
+      assert.doesNotMatch(result.detail, /private sentinel/);
+      const markup = renderToStaticMarkup(
+        <EventTimeline connectionState="current" events={[event]} reference={reference} />,
+      );
+      assert.match(markup, new RegExp(label));
+      assert.doesNotMatch(markup, /private sentinel|Unknown event/);
+    }
+  });
   it("opens only opaque question references from the request event", () => {
     const event = {
       ...baseEvent,

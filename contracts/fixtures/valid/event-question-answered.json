@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "dataground.event/v1",
+  "id": "evt_00000000000000000001",
+  "isolationDomainId": "iso_00000000000000000001",
+  "invocationId": "inv_00000000000000000001",
+  "sequence": 2,
+  "type": "interaction.question.answered",
+  "occurredAt": "2026-07-16T08:00:00Z",
+  "recordedAt": "2026-07-16T08:00:00.001Z",
+  "correlationId": "correlation-fixture",
+  "actorId": "fixture",
+  "serviceId": "svc_00000000000000000001",
+  "revisionId": "rev_00000000000000000001",
+  "payload": {
+    "questionId": "qst_00000000000000000001",
+    "state": "answered",
+    "version": 2
+  },
+  "source": "platform"
+}

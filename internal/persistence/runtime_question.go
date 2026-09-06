@@ -215,7 +215,18 @@ func recordRuntimeQuestionChange(ctx context.Context, tx pgx.Tx, value Invocatio
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO outbox_events (id,isolation_domain_id,aggregate_type,aggregate_id,event_type,payload,correlation_id,available_at,created_at)
  VALUES ($1,$2,'invocation-question',$3,$4,jsonb_build_object('questionId',$3::text,'state',$5::text,'version',$6::bigint),$7,$8,$8)`, identity.Derived("out", value.IsolationDomainID+":"+value.ID+":"+strconv.FormatInt(value.Version, 10)), value.IsolationDomainID, value.ID, "invocation-question."+action, value.State, value.Version, correlation, now)
-	return err
+	if err != nil {
+		return err
+	}
+	switch action {
+	case "answered", "closed", "expired", "delivery_unknown":
+		return recordRuntimeInteractionOutcome(ctx, tx, runtimeInteractionOutcome{
+			isolationDomainID: value.IsolationDomainID, invocationID: value.InvocationID, serviceID: value.ServiceID, revisionID: value.RevisionID,
+			id: value.ID, kind: "question", state: value.State, version: value.Version, actor: actor, correlation: correlation,
+			occurredAt: now, closedAt: value.ClosedAt, closeReason: value.CloseReason,
+		})
+	}
+	return nil
 }
 
 func (repository *Repository) recordRuntimeQuestionEvent(ctx context.Context, tx pgx.Tx, claim OperationClaim, target InvocationRuntimeTarget, question InvocationRuntimeQuestion) error {
