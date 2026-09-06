@@ -48,10 +48,11 @@ var (
 )
 
 type DockerTopologyConfig struct {
-	RunID          string
-	RepositoryRoot string
-	WorkspaceRoot  string
-	DockerBinary   string
+	supervisorCandidateImage string
+	RunID                    string
+	RepositoryRoot           string
+	WorkspaceRoot            string
+	DockerBinary             string
 }
 
 type DockerTopology struct {
@@ -146,6 +147,13 @@ func newDockerTopology(
 		return nil, err
 	}
 	defer clear(gateway)
+	if config.supervisorCandidateImage != "" {
+		gateway, err = selectRuntimeSupervisorCandidate(config, dependencies.runner, binary, gateway)
+		if err != nil {
+			return nil, err
+		}
+		defer clear(gateway)
+	}
 	workspace, err := openRuntimeTopologyWorkspace(
 		workspaceRoot,
 		config.RunID,
@@ -555,6 +563,21 @@ func runtimeTopologyEnvironment(
 	groupID int,
 	dockerGroupID int,
 ) []string {
+	environment := runtimeTopologyDockerEnvironment()
+	return append(
+		environment,
+		"DATAGROUND_RUNTIME_CONFORMANCE_RUN_ID="+runID,
+		"DATAGROUND_RUNTIME_CONFORMANCE_GATEWAY="+resources.Gateway,
+		"DATAGROUND_RUNTIME_CONFORMANCE_PROVIDER="+resources.Provider,
+		"DATAGROUND_RUNTIME_CONFORMANCE_STATE_PATH="+statePath,
+		"DATAGROUND_RUNTIME_CONFORMANCE_JWT_PATH="+jwtPath,
+		"DATAGROUND_RUNTIME_CONFORMANCE_UID="+strconv.Itoa(userID),
+		"DATAGROUND_RUNTIME_CONFORMANCE_GID="+strconv.Itoa(groupID),
+		"DATAGROUND_RUNTIME_CONFORMANCE_DOCKER_GID="+strconv.Itoa(dockerGroupID),
+	)
+}
+
+func runtimeTopologyDockerEnvironment() []string {
 	keys := [...]string{
 		"DOCKER_CERT_PATH",
 		"DOCKER_CONFIG",
@@ -571,17 +594,7 @@ func runtimeTopologyEnvironment(
 			environment = append(environment, key+"="+value)
 		}
 	}
-	return append(
-		environment,
-		"DATAGROUND_RUNTIME_CONFORMANCE_RUN_ID="+runID,
-		"DATAGROUND_RUNTIME_CONFORMANCE_GATEWAY="+resources.Gateway,
-		"DATAGROUND_RUNTIME_CONFORMANCE_PROVIDER="+resources.Provider,
-		"DATAGROUND_RUNTIME_CONFORMANCE_STATE_PATH="+statePath,
-		"DATAGROUND_RUNTIME_CONFORMANCE_JWT_PATH="+jwtPath,
-		"DATAGROUND_RUNTIME_CONFORMANCE_UID="+strconv.Itoa(userID),
-		"DATAGROUND_RUNTIME_CONFORMANCE_GID="+strconv.Itoa(groupID),
-		"DATAGROUND_RUNTIME_CONFORMANCE_DOCKER_GID="+strconv.Itoa(dockerGroupID),
-	)
+	return environment
 }
 
 func runtimeTopologyPathsOverlap(left string, right string) bool {

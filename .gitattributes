@@ -9,3 +9,4 @@
 
 # Unified diffs encode blank context lines with a leading space.
 deploy/openshell/codex-compatibility/*.patch whitespace=-blank-at-eol
+deploy/openshell/supervisor-compatibility/*.patch whitespace=-blank-at-eol

@@ -1,0 +1,134 @@
+diff --git a/crates/openshell-supervisor-process/src/sandbox/linux/landlock.rs b/crates/openshell-supervisor-process/src/sandbox/linux/landlock.rs
+index fb82cf02..818c15fd 100644
+--- a/crates/openshell-supervisor-process/src/sandbox/linux/landlock.rs
++++ b/crates/openshell-supervisor-process/src/sandbox/linux/landlock.rs
+@@ -4,11 +4,12 @@
+ //! Landlock filesystem sandboxing.
+ 
+ use landlock::{
+-    ABI, Access, AccessFs, CompatLevel, Compatible, PathBeneath, PathFd, PathFdError, Ruleset,
+-    RulesetAttr, RulesetCreatedAttr,
++    ABI, Access, AccessFs, BitFlags, CompatLevel, Compatible, PathBeneath, PathFd, PathFdError,
++    Ruleset, RulesetAttr, RulesetCreatedAttr,
+ };
+ use miette::{IntoDiagnostic, Result};
+ use openshell_core::policy::{LandlockCompatibility, SandboxPolicy};
++use std::os::fd::AsFd;
+ use std::path::{Path, PathBuf};
+ use tracing::debug;
+ 
+@@ -218,7 +219,7 @@ fn prepare_with_path_open_mode(
+             if let Some(path_fd) = try_open_path(path, compatibility, path_open_mode)? {
+                 debug!(path = %path.display(), "Landlock allow read-only");
+                 ruleset = ruleset
+-                    .add_rule(PathBeneath::new(path_fd, access_read))
++                    .add_rule(rule_for_open_path(path_fd, access_read, abi)?)
+                     .into_diagnostic()?;
+                 rules_applied += 1;
+             }
+@@ -228,7 +229,7 @@ fn prepare_with_path_open_mode(
+             if let Some(path_fd) = try_open_path(path, compatibility, path_open_mode)? {
+                 debug!(path = %path.display(), "Landlock allow read-write");
+                 ruleset = ruleset
+-                    .add_rule(PathBeneath::new(path_fd, access_all))
++                    .add_rule(rule_for_open_path(path_fd, access_all, abi)?)
+                     .into_diagnostic()?;
+                 rules_applied += 1;
+             }
+@@ -431,6 +432,23 @@ fn try_open_path(
+     }
+ }
+ 
++// Landlock directory rights do not describe access to a single file. Inspect
++// the same opened inode used by the rule, so path replacement cannot substitute
++// its type. Keep strict kernel/ABI enforcement and all meaningful file rights.
++fn rule_for_open_path(
++    path_fd: PathFd,
++    access: BitFlags<AccessFs>,
++    abi: ABI,
++) -> Result<PathBeneath<PathFd>> {
++    let file = std::fs::File::from(path_fd.as_fd().try_clone_to_owned().into_diagnostic()?);
++    let access = if file.metadata().into_diagnostic()?.is_dir() {
++        access
++    } else {
++        access & AccessFs::from_file(abi)
++    };
++    Ok(PathBeneath::new(path_fd, access))
++}
++
+ /// Classify a [`PathFdError`] into a human-readable reason.
+ ///
+ /// `PathFd::new()` wraps `open(path, O_PATH | O_CLOEXEC)` which can fail for
+@@ -469,6 +487,72 @@ fn compat_level(level: &LandlockCompatibility) -> CompatLevel {
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    fn dataground_strict_rules_bind_open_inode_type() {
++        let dir = tempfile::tempdir().unwrap();
++        let path = dir.path().join("replaceable");
++        std::fs::write(&path, b"original").unwrap();
++        let fd = PathFd::new(&path).unwrap();
++        std::fs::rename(&path, dir.path().join("original")).unwrap();
++        std::fs::create_dir(&path).unwrap();
++        Ruleset::default()
++            .set_compatibility(CompatLevel::HardRequirement)
++            .handle_access(AccessFs::from_all(ABI::V2))
++            .unwrap()
++            .create()
++            .unwrap()
++            .add_rule(rule_for_open_path(fd, AccessFs::from_all(ABI::V2), ABI::V2).unwrap())
++            .unwrap();
++    }
++
++    #[test]
++    fn dataground_strict_file_and_directory_permissions_remain_enforced() {
++        let root = tempfile::tempdir().unwrap();
++        let writable = root.path().join("writable");
++        std::fs::create_dir(&writable).unwrap();
++        let readable = root.path().join("readable");
++        let outside = root.path().join("outside");
++        std::fs::write(&readable, b"read-only").unwrap();
++        std::fs::write(&outside, b"denied").unwrap();
++        std::thread::spawn(move || {
++            let mut policy =
++                SandboxPolicy::try_from(openshell_core::proto::SandboxPolicy::default()).unwrap();
++            policy.landlock.compatibility = LandlockCompatibility::HardRequirement;
++            policy.filesystem.include_workdir = false;
++            policy.filesystem.read_only = vec![readable.clone()];
++            policy.filesystem.read_write = vec![writable.clone(), PathBuf::from("/dev/null")];
++            let prepared = prepare(&policy, None).unwrap().unwrap();
++            enforce(prepared).unwrap();
++            assert_eq!(std::fs::read(&readable).unwrap(), b"read-only");
++            assert_eq!(
++                std::fs::write(&readable, b"changed").unwrap_err().kind(),
++                std::io::ErrorKind::PermissionDenied
++            );
++            assert_eq!(
++                std::fs::read(&outside).unwrap_err().kind(),
++                std::io::ErrorKind::PermissionDenied
++            );
++            assert_eq!(
++                std::fs::write(&outside, b"changed").unwrap_err().kind(),
++                std::io::ErrorKind::PermissionDenied
++            );
++            std::fs::write(writable.join("created"), b"allowed").unwrap();
++            std::fs::read_dir(&writable).unwrap();
++            std::fs::create_dir(writable.join("directory")).unwrap();
++            std::fs::OpenOptions::new()
++                .read(true)
++                .write(true)
++                .open("/dev/null")
++                .unwrap();
++            assert_eq!(
++                std::fs::File::open("/dev/zero").unwrap_err().kind(),
++                std::io::ErrorKind::PermissionDenied
++            );
++        })
++        .join()
++        .unwrap();
++    }
++
+     #[test]
+     fn try_open_path_best_effort_returns_none_for_missing_path() {
+         let result = try_open_path(
