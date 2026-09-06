@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 )
+
+var ErrOutboxClaimInvalid = errors.New("outbox claim is invalid")
 
 type OutboxClaim struct {
 	ID                string
@@ -28,7 +31,20 @@ func (repository *Repository) ClaimOutbox(
 	workerID string,
 	leaseDuration time.Duration,
 ) (*OutboxClaim, error) {
-	now := repository.now()
+	return repository.claimOutbox(ctx, "", workerID, leaseDuration)
+}
+
+func (repository *Repository) ClaimOutboxForIsolationDomain(ctx context.Context, isolationDomainID, workerID string, leaseDuration time.Duration) (*OutboxClaim, error) {
+	if !invocationPolicyWithdrawalDomainPattern.MatchString(isolationDomainID) {
+		return nil, ErrOutboxClaimInvalid
+	}
+	return repository.claimOutbox(ctx, isolationDomainID, workerID, leaseDuration)
+}
+
+func (repository *Repository) claimOutbox(ctx context.Context, scope, workerID string, leaseDuration time.Duration) (*OutboxClaim, error) {
+	if repository == nil || repository.pool == nil || ctx == nil || workerID == "" || len(workerID) > 128 || strings.TrimSpace(workerID) != workerID || strings.ContainsAny(workerID, "\x00\r\n") || leaseDuration < time.Microsecond || leaseDuration > time.Hour {
+		return nil, ErrOutboxClaimInvalid
+	}
 	var claim OutboxClaim
 	var encodedPayload []byte
 	claim.LeaseOwner = workerID
@@ -37,8 +53,9 @@ func (repository *Repository) ClaimOutbox(
 			SELECT DISTINCT ON (isolation_domain_id)
 			       isolation_domain_id, id, available_at, created_at
 			FROM outbox_events
-			WHERE status = 'pending' AND available_at <= $1
-			  AND (lease_expires_at IS NULL OR lease_expires_at <= $1)
+			WHERE status = 'pending' AND available_at <= clock_timestamp()
+			  AND ($1::text = '' OR isolation_domain_id = $1)
+			  AND (lease_expires_at IS NULL OR lease_expires_at <= clock_timestamp())
 			ORDER BY isolation_domain_id, available_at, created_at, id
 		), candidate AS (
 			SELECT isolation_domain_id, id FROM per_domain
@@ -47,17 +64,18 @@ func (repository *Repository) ClaimOutbox(
 		), claimed AS (
 			UPDATE outbox_events AS event
 			SET lease_owner = $2, lease_token = event.lease_token + 1,
-			    lease_expires_at = $3, attempt = event.attempt + 1
+			    lease_expires_at = clock_timestamp() + $3::bigint * interval '1 microsecond', attempt = event.attempt + 1
 			FROM candidate
 			WHERE event.isolation_domain_id = candidate.isolation_domain_id
 			  AND event.id = candidate.id
-			  AND (event.lease_expires_at IS NULL OR event.lease_expires_at <= $1)
+			  AND event.status = 'pending' AND event.available_at <= clock_timestamp()
+			  AND (event.lease_expires_at IS NULL OR event.lease_expires_at <= clock_timestamp())
 			RETURNING event.id, event.isolation_domain_id, event.aggregate_type,
 			          event.aggregate_id, event.event_type, event.payload,
 			          event.correlation_id, event.attempt, event.lease_token
 		)
 		SELECT * FROM claimed
-	`, now, workerID, now.Add(leaseDuration)).Scan(
+	`, scope, workerID, leaseDuration.Microseconds()).Scan(
 		&claim.ID, &claim.IsolationDomainID, &claim.AggregateType, &claim.AggregateID,
 		&claim.EventType, &encodedPayload, &claim.CorrelationID, &claim.Attempt, &claim.FencingToken,
 	)
@@ -74,15 +92,14 @@ func (repository *Repository) ClaimOutbox(
 }
 
 func (repository *Repository) CompleteOutbox(ctx context.Context, claim OutboxClaim) error {
-	now := repository.now()
 	result, err := repository.pool.Exec(ctx, `
 		UPDATE outbox_events
-		SET status = 'delivered', delivered_at = $6,
+		SET status = 'delivered', delivered_at = clock_timestamp(),
 		    lease_owner = NULL, lease_expires_at = NULL
 		WHERE id = $1 AND isolation_domain_id = $2
 		  AND status = 'pending' AND lease_owner = $3 AND lease_token = $4
-		  AND lease_expires_at > $5
-	`, claim.ID, claim.IsolationDomainID, claim.LeaseOwner, claim.FencingToken, now, now)
+		  AND lease_expires_at > clock_timestamp()
+	`, claim.ID, claim.IsolationDomainID, claim.LeaseOwner, claim.FencingToken)
 	if err != nil {
 		return fmt.Errorf("complete outbox event: %w", err)
 	}
@@ -93,19 +110,14 @@ func (repository *Repository) CompleteOutbox(ctx context.Context, claim OutboxCl
 }
 
 func (repository *Repository) RetryOutbox(ctx context.Context, claim OutboxClaim, dueAt time.Time) error {
-	now := repository.now()
-	status := "pending"
-	if claim.Attempt >= 20 {
-		status = "dead_letter"
-	}
 	result, err := repository.pool.Exec(ctx, `
 		UPDATE outbox_events
-		SET status = $6, available_at = $7,
+		SET status = CASE WHEN attempt >= 20 THEN 'dead_letter' ELSE 'pending' END, available_at = $5,
 		    lease_owner = NULL, lease_expires_at = NULL
 		WHERE id = $1 AND isolation_domain_id = $2
 		  AND status = 'pending' AND lease_owner = $3 AND lease_token = $4
-		  AND lease_expires_at > $5
-	`, claim.ID, claim.IsolationDomainID, claim.LeaseOwner, claim.FencingToken, now, status, dueAt)
+		  AND lease_expires_at > clock_timestamp()
+	`, claim.ID, claim.IsolationDomainID, claim.LeaseOwner, claim.FencingToken, dueAt)
 	if err != nil {
 		return fmt.Errorf("retry outbox event: %w", err)
 	}
