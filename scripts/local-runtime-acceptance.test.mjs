@@ -392,6 +392,16 @@ test("expiry during external verification cannot release a signing message or ac
 test("a signed replacement diagnostic still has to pass every local case and cleanup check", () => {
   for (const mutate of [
     (d) => {
+      d.schemaVersion = "dataground.dev.openshell-runtime-diagnostic/v4";
+      d.profile.runtimePolicySHA256 =
+        "a1d56c0470c3264c4c37183352d783ebb67911d92ef2eb6ec5f7c76c61f69f39";
+      d.policySource = {
+        profile: "rosetta-development/v1",
+        compilerSourceCommit: "320158f1e4a4eea378d82c1527f4a7af5fb9855b",
+        inputSHA256: "b2895b9172c50ba7a5fdf574cebdf6789258cc8ce9f90ce5ad8f2b1ff0a825ab",
+      };
+    },
+    (d) => {
       d.checks.pop();
     },
     (d) => {

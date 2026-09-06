@@ -1,0 +1,65 @@
+{
+  "source": "permit (principal == Rosetta::Principal::\"dataground-local-runtime\", action, resource is Rosetta::Capability) when { resource.kind == \"filesystem\" && (resource.selector == \"/dev/null\" || resource.selector == \"/sandbox\") };",
+  "target": "openshell",
+  "mode": "strict",
+  "catalog": {
+    "version": "rosetta/v1",
+    "principal": {
+      "id": "dataground-local-runtime"
+    },
+    "capabilities": [
+      {
+        "id": "null-read",
+        "kind": "filesystem",
+        "action": "read",
+        "selector": "/dev/null",
+        "targets": [
+          "openshell"
+        ]
+      },
+      {
+        "id": "null-write",
+        "kind": "filesystem",
+        "action": "write",
+        "selector": "/dev/null",
+        "targets": [
+          "openshell"
+        ]
+      },
+      {
+        "id": "workspace-read",
+        "kind": "filesystem",
+        "action": "read",
+        "selector": "/sandbox",
+        "targets": [
+          "openshell"
+        ]
+      },
+      {
+        "id": "workspace-write",
+        "kind": "filesystem",
+        "action": "write",
+        "selector": "/sandbox",
+        "targets": [
+          "openshell"
+        ]
+      },
+      {
+        "id": "denied-write",
+        "kind": "filesystem",
+        "action": "write",
+        "selector": "/outside",
+        "targets": [
+          "openshell"
+        ]
+      }
+    ]
+  },
+  "options": {
+    "openShell": {
+      "runAsUser": "sandbox",
+      "runAsGroup": "sandbox"
+    },
+    "codex": {}
+  }
+}

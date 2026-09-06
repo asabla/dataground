@@ -115,6 +115,7 @@ type Cleanup struct {
 type Config struct {
 	diagnosticModel string
 	candidateImage  string
+	policyProfile   string
 	RunID           string
 	Provenance      Provenance
 	Cases           CaseRunner
@@ -135,6 +136,7 @@ type runState struct {
 type Result struct {
 	diagnosticModel string
 	candidateImage  string
+	policyProfile   string
 	record          record
 	complete        bool
 }
@@ -271,11 +273,12 @@ func (run *EvidenceRun) Execute(ctx context.Context) (Result, error) {
 	if state.config.candidateImage != "" {
 		profile.SandboxImage = state.config.candidateImage
 		profile.CredentialEvidenceSHA256 = ""
-		profile.RuntimePolicySHA256 = candidateRuntimePolicySHA256
+		profile.RuntimePolicySHA256 = diagnosticPolicyDigest(state.config.policyProfile)
 	}
 	return Result{
 		diagnosticModel: state.config.diagnosticModel,
 		candidateImage:  state.config.candidateImage,
+		policyProfile:   state.config.policyProfile,
 		record: record{
 			SchemaVersion: schemaVersion,
 			Profile:       profile,
@@ -408,7 +411,7 @@ func cleanupResources(ctx context.Context, config Config, resources Resources) (
 }
 
 func validConfig(config Config) bool {
-	return validCandidateSelection(config.candidateImage, config.diagnosticModel) && runIDPattern.MatchString(config.RunID) &&
+	return validDiagnosticPolicy(config.policyProfile, config.candidateImage, config.diagnosticModel) && runIDPattern.MatchString(config.RunID) &&
 		validRunProvenance(config.Provenance, config.diagnosticModel) &&
 		config.Cases != nil &&
 		config.Cleanup.Sandbox != nil &&

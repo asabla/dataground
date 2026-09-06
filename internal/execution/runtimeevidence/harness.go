@@ -26,6 +26,7 @@ type HarnessProvider interface {
 type HarnessConfig struct {
 	diagnosticModel string
 	candidateImage  string
+	policyProfile   string
 	RunID           string
 	Provenance      Provenance
 	ExecutionID     string
@@ -87,6 +88,7 @@ func newHarness(config HarnessConfig, now func() time.Time) (*Harness, error) {
 	run, err := newEvidenceRun(Config{
 		diagnosticModel: config.diagnosticModel,
 		candidateImage:  config.candidateImage,
+		policyProfile:   config.policyProfile,
 		RunID:           config.RunID,
 		Provenance:      config.Provenance,
 		Cases:           cases,
@@ -110,7 +112,7 @@ func (harness *Harness) Run(ctx context.Context) (Result, error) {
 }
 
 func validHarnessConfig(config HarnessConfig) bool {
-	return validCandidateSelection(config.candidateImage, config.diagnosticModel) && runIDPattern.MatchString(config.RunID) &&
+	return validDiagnosticPolicy(config.policyProfile, config.candidateImage, config.diagnosticModel) && runIDPattern.MatchString(config.RunID) &&
 		validRunProvenance(config.Provenance, config.diagnosticModel) &&
 		config.ExecutionID != "" &&
 		!isNilHarnessPort(config.Store) &&

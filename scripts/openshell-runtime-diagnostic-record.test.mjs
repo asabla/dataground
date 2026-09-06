@@ -112,3 +112,52 @@ test("sub-millisecond windows preserve exact chronology", () => {
   value.checks[1].startedAt = "2026-09-06T08:38:00.000000001Z";
   assert.notEqual(verifyDiagnostic(value, expected).length, 0);
 });
+
+test("Rosetta diagnostics bind a separate policy, compiler input and closed version", () => {
+  const value = structuredClone(record);
+  value.schemaVersion = "dataground.dev.openshell-runtime-diagnostic/v4";
+  value.profile.runtimePolicySHA256 =
+    "a1d56c0470c3264c4c37183352d783ebb67911d92ef2eb6ec5f7c76c61f69f39";
+  value.policySource = {
+    profile: "rosetta-development/v1",
+    compilerSourceCommit: "320158f1e4a4eea378d82c1527f4a7af5fb9855b",
+    inputSHA256: "b2895b9172c50ba7a5fdf574cebdf6789258cc8ce9f90ce5ad8f2b1ff0a825ab",
+  };
+  assert.deepEqual(verifyDiagnostic(value, expected), []);
+  for (const mutate of [
+    (v) => {
+      v.schemaVersion = record.schemaVersion;
+    },
+    (v) => {
+      v.profile.runtimePolicySHA256 = record.profile.runtimePolicySHA256;
+    },
+    (v) => {
+      delete v.policySource;
+    },
+    (v) => {
+      v.policySource.compilerSourceCommit = "0".repeat(40);
+    },
+    (v) => {
+      v.policySource.inputSHA256 = "0".repeat(64);
+    },
+    (v) => {
+      v.policySource.profile = "other";
+    },
+    (v) => {
+      v.policySource.extra = true;
+    },
+    (v) => {
+      v.certificationEligible = true;
+    },
+    (v) => {
+      v.checks.pop();
+    },
+    (v) => {
+      v.cleanup.sandbox.name = "other";
+    },
+  ]) {
+    const changed = structuredClone(value);
+    mutate(changed);
+    assert.notEqual(verifyDiagnostic(changed, expected).length, 0);
+  }
+});

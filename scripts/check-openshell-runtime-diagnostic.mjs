@@ -7,16 +7,20 @@ import addFormats from "ajv-formats";
 const root = resolve(import.meta.dirname, "..");
 const read = async (name) =>
   JSON.parse(await readFile(resolve(root, "deploy/openshell", name), "utf8"));
-const [profile, evidenceSchema, diagnosticSchema, policy] = await Promise.all([
-  read("development-profile.json"),
-  read("runtime-conformance-evidence.schema.json"),
-  read("runtime-candidate-diagnostic.schema.json"),
-  readFile(resolve(root, "deploy/openshell/codex-compatibility/runtime-policy.yaml")),
-]);
+const [profile, evidenceSchema, diagnosticSchema, policy, rosettaSchema, rosettaPolicy] =
+  await Promise.all([
+    read("development-profile.json"),
+    read("runtime-conformance-evidence.schema.json"),
+    read("runtime-candidate-diagnostic.schema.json"),
+    readFile(resolve(root, "deploy/openshell/codex-compatibility/runtime-policy.yaml")),
+    read("runtime-rosetta-diagnostic.schema.json"),
+    readFile(resolve(root, "deploy/openshell/codex-compatibility/rosetta-runtime-policy.yaml")),
+  ]);
 const ajv = new Ajv2020({ strict: true, allErrors: true });
 addFormats(ajv);
 ajv.addSchema(evidenceSchema);
 const validate = ajv.compile(diagnosticSchema);
+const validateRosetta = ajv.compile(rosettaSchema);
 const topology = profile.runtime.conformance.topology;
 const expectedProfile = {
   openshellCommit: profile.source.openshell.commit,
@@ -47,12 +51,19 @@ export function verifyDiagnostic(value, { sourceCommit, candidateImage }) {
   ) {
     return ["exact source commit and local candidate image are required"];
   }
-  if (!validate(value)) return ["record does not match the closed candidate diagnostic schema"];
+  const rosetta = value?.schemaVersion === "dataground.dev.openshell-runtime-diagnostic/v4";
+  if (!(rosetta ? validateRosetta : validate)(value))
+    return ["record does not match the closed candidate diagnostic schema"];
   const failures = [];
   if (
     value.run.sourceCommit !== sourceCommit ||
     value.profile.sandboxImage !== candidateImage ||
-    Object.entries(expectedProfile).some(([key, expected]) => value.profile[key] !== expected)
+    Object.entries({
+      ...expectedProfile,
+      runtimePolicySHA256: createHash("sha256")
+        .update(rosetta ? rosettaPolicy : policy)
+        .digest("hex"),
+    }).some(([key, expected]) => value.profile[key] !== expected)
   ) {
     failures.push("diagnostic does not match the expected source, image and checked profile");
   }
