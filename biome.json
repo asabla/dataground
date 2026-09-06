@@ -31,5 +31,13 @@
       "quoteStyle": "double",
       "semicolons": "always"
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["deploy/openshell/diagnostics/codex-candidate-arm64-20260906.json"],
+      "formatter": {
+        "enabled": false
+      }
+    }
+  ]
 }
