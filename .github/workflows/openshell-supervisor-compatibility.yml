@@ -10,6 +10,7 @@ on:
       - deploy/openshell/codex-compatibility/rosetta-runtime-*
       - internal/execution/runtimeevidence/**
       - internal/execution/openshell/**
+      - internal/security/canary*/**
       - .go-version
       - go.mod
       - go.sum
@@ -67,6 +68,17 @@ jobs:
           docker pull "$image"
           candidate_image=$(docker image inspect --format '{{.Id}}' "$image")
           printf 'image=%s\n' "$candidate_image" >> "$GITHUB_OUTPUT"
+
+      - name: Scan the replacement supervisor and strict policy for credential exposure
+        env:
+          DATAGROUND_TEST_CODEX_COMPATIBILITY_IMAGE: ${{ steps.runtime.outputs.image }}
+          DATAGROUND_TEST_SUPERVISOR_COMPATIBILITY_IMAGE: ${{ steps.supervisor.outputs.image }}
+          DATAGROUND_TEST_RUNTIME_TOPOLOGY_ROOT: ${{ github.workspace }}
+          DATAGROUND_TEST_OPENSHELL_BINARY: ${{ steps.openshell.outputs.cli }}
+        run: >-
+          go test ./internal/security/canarylauncher
+          -run '^TestStrictSupervisorCandidateCredentialNonExposure$'
+          -count=1 -timeout=12m -v
 
       - name: Require native restrictions and artifact export under the strict policy
         env:
