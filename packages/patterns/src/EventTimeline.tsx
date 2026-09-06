@@ -257,6 +257,51 @@ export function presentTimelineEvent(event: TimelineEvent): EventPresentation {
         label: "Question requested",
         tone: "waiting",
       };
+    case "interaction.question.answered":
+      return {
+        detail:
+          "An authorized response was recorded. Delivery to the runtime may still be pending.",
+        label: "Question answered",
+        tone: "active",
+      };
+    case "interaction.approval.expired":
+      return {
+        detail: "The approval deadline passed. This request no longer accepts a decision.",
+        label: "Approval expired",
+        tone: "neutral",
+      };
+    case "interaction.question.expired":
+      return {
+        detail: "The response deadline passed. This question no longer accepts an answer.",
+        label: "Question expired",
+        tone: "neutral",
+      };
+    case "interaction.approval.closed":
+      return {
+        detail: "The runtime no longer accepts a decision for this request.",
+        label: "Approval closed",
+        tone: "neutral",
+      };
+    case "interaction.question.closed":
+      return {
+        detail: "The runtime no longer accepts an answer for this question.",
+        label: "Question closed",
+        tone: "neutral",
+      };
+    case "interaction.approval.delivery.unknown":
+      return {
+        detail:
+          "The approval delivery outcome could not be confirmed. The decision will not be sent again.",
+        label: "Approval delivery unknown",
+        tone: "critical",
+      };
+    case "interaction.question.delivery.unknown":
+      return {
+        detail:
+          "The answer delivery outcome could not be confirmed. The answer will not be sent again.",
+        label: "Answer delivery unknown",
+        tone: "critical",
+      };
     case "artifact.available": {
       const descriptor = isRecord(event.payload.descriptor) ? event.payload.descriptor : undefined;
       return {

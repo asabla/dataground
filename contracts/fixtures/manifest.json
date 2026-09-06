@@ -1,5 +1,12 @@
 {
   "fixtures": [
+    { "file": "valid/event-question-answered.json", "schema": "EventEnvelope", "valid": true },
+    { "file": "valid/event-approval-expired.json", "schema": "EventEnvelope", "valid": true },
+    {
+      "file": "valid/event-question-delivery_unknown.json",
+      "schema": "EventEnvelope",
+      "valid": true
+    },
     {
       "file": "valid/invocation-approval-v2-pending.json",
       "schema": "InvocationApproval",

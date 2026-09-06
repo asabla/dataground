@@ -53,7 +53,11 @@ func (repository *Repository) ExpireInvocationRuntimeQuestions(ctx context.Conte
 		return 0, err
 	}
 	defer tx.Rollback(ctx)
-	rows, err := tx.Query(ctx, `SELECT id FROM invocation_runtime_questions WHERE isolation_domain_id=$1 AND state IN ('pending','answered','delivering') AND expires_at<=clock_timestamp() ORDER BY expires_at,id LIMIT $2 FOR UPDATE SKIP LOCKED`, scope, limit)
+	invocations, err := lockDueRuntimeInteractionInvocations(ctx, tx, scope, "question", limit)
+	if err != nil {
+		return 0, err
+	}
+	rows, err := tx.Query(ctx, `SELECT id FROM invocation_runtime_questions WHERE isolation_domain_id=$1 AND invocation_id=ANY($3::text[]) AND state IN ('pending','answered','delivering') AND expires_at<=clock_timestamp() ORDER BY expires_at,id LIMIT $2 FOR UPDATE SKIP LOCKED`, scope, limit, invocations)
 	if err != nil {
 		return 0, err
 	}

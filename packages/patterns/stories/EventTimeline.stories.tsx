@@ -201,3 +201,73 @@ export const MoreRetainedEvents: Story = {
     await expect(replay).toHaveFocus();
   },
 };
+
+export const InteractionOutcomes: Story = {
+  args: {
+    events: [
+      event(1, "interaction.question.answered", {
+        questionId: "qst_00000000000000000001",
+        state: "answered",
+        version: 2,
+      }),
+      event(2, "interaction.approval.expired", {
+        approvalId: "apr_00000000000000000001",
+        state: "expired",
+        version: 2,
+        closedAt: "2026-08-14T12:00:00Z",
+        closeReason: "expired",
+      }),
+      event(3, "interaction.question.expired", {
+        questionId: "qst_00000000000000000002",
+        state: "expired",
+        version: 2,
+        closedAt: "2026-08-14T12:00:00Z",
+        closeReason: "expired",
+      }),
+      event(4, "interaction.approval.closed", {
+        approvalId: "apr_00000000000000000002",
+        state: "closed",
+        version: 2,
+        closedAt: "2026-08-14T12:00:00Z",
+        closeReason: "runtime-ended",
+      }),
+      event(5, "interaction.question.closed", {
+        questionId: "qst_00000000000000000003",
+        state: "closed",
+        version: 2,
+        closedAt: "2026-08-14T12:00:00Z",
+        closeReason: "runtime-ended",
+      }),
+      event(6, "interaction.approval.delivery.unknown", {
+        approvalId: "apr_00000000000000000003",
+        state: "delivery_unknown",
+        version: 4,
+        closedAt: "2026-08-14T12:00:00Z",
+        closeReason: "runtime-ended",
+      }),
+      event(7, "interaction.question.delivery.unknown", {
+        questionId: "qst_00000000000000000004",
+        state: "delivery_unknown",
+        version: 4,
+        closedAt: "2026-08-14T12:00:00Z",
+        closeReason: "runtime-ended",
+      }),
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    for (const label of [
+      "Question answered",
+      "Approval expired",
+      "Question expired",
+      "Approval closed",
+      "Question closed",
+      "Approval delivery unknown",
+      "Answer delivery unknown",
+    ]) {
+      await expect(canvas.getByText(label, { exact: true })).toBeVisible();
+    }
+    await expect(canvas.getByText(/Delivery to the runtime may still be pending/)).toBeVisible();
+    await expect(canvas.queryByText("Unknown event", { exact: true })).toBeNull();
+  },
+};
