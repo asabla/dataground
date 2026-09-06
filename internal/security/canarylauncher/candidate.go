@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"regexp"
 	"time"
+
+	"github.com/asabla/dataground/internal/execution/openshell"
 )
 
 var candidateImagePattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
@@ -16,6 +18,24 @@ var candidateImagePattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 // experimental image. It returns no serializable certification record and never
 // acquires real provider credentials.
 func CheckCandidate(ctx context.Context, config Config, image string) error {
+	if config.supervisorCandidateImage != "" {
+		return ErrInvalidConfiguration
+	}
+	return checkCandidate(ctx, config, image)
+}
+
+// CheckSupervisorCandidate scans the explicit image pair under the checked
+// strict Rosetta policy. It acquires only synthetic credentials, returns no
+// serializable evidence, and cannot be used as stock-profile certification.
+func CheckSupervisorCandidate(ctx context.Context, config Config, image, supervisor string) error {
+	if !candidateImagePattern.MatchString(supervisor) || config.supervisorCandidateImage != "" {
+		return ErrInvalidConfiguration
+	}
+	config.supervisorCandidateImage = supervisor
+	return checkCandidate(ctx, config, image)
+}
+
+func checkCandidate(ctx context.Context, config Config, image string) error {
 	if ctx == nil || !candidateImagePattern.MatchString(image) {
 		return ErrInvalidConfiguration
 	}
@@ -33,8 +53,17 @@ func CheckCandidate(ctx context.Context, config Config, image string) error {
 	cmd.WaitDelay = time.Second
 	var output candidateInspectionOutput
 	cmd.Stdout = &output
-	if err := cmd.Run(); err != nil || !validCandidateInspection(output.Bytes(), image) {
+	if err := cmd.Run(); err != nil || !validCandidateInspection(output.buffer.Bytes(), image) {
 		return ErrInvalidConfiguration
+	}
+	if config.supervisorCandidateImage != "" {
+		cmd := exec.CommandContext(inspectionCtx, resolved.dockerBinary, "image", "inspect", config.supervisorCandidateImage, "--format", openshell.SupervisorCandidateInspectionFormat)
+		cmd.Env, cmd.WaitDelay = dockerClientEnvironment(), time.Second
+		var supervisorOutput candidateInspectionOutput
+		cmd.Stdout = &supervisorOutput
+		if cmd.Run() != nil || !openshell.VerifySupervisorCandidateInspection(supervisorOutput.buffer.Bytes(), config.supervisorCandidateImage) {
+			return ErrInvalidConfiguration
+		}
 	}
 	_, err = run(ctx, config, image)
 	return err
@@ -52,11 +81,11 @@ func validCandidateInspection(data []byte, image string) bool {
 		inspection.Labels["dataground.dev.certification-eligible"] == "false"
 }
 
-type candidateInspectionOutput struct{ bytes.Buffer }
+type candidateInspectionOutput struct{ buffer bytes.Buffer }
 
 func (output *candidateInspectionOutput) Write(data []byte) (int, error) {
-	if output.Len()+len(data) > 16<<10 {
+	if output.buffer.Len()+len(data) > 16<<10 {
 		return 0, io.ErrShortBuffer
 	}
-	return output.Buffer.Write(data)
+	return output.buffer.Write(data)
 }

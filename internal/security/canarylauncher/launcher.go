@@ -1,6 +1,7 @@
 package canarylauncher
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -98,21 +99,26 @@ var (
 )
 
 type Config struct {
-	RepositoryRoot  string
-	WorkspaceRoot   string
-	OpenShellBinary string
-	DockerBinary    string
+	supervisorCandidateImage string
+	RepositoryRoot           string
+	WorkspaceRoot            string
+	OpenShellBinary          string
+	DockerBinary             string
 }
 
 // Run starts one isolated Docker topology, creates the provider-bound sandbox,
 // wraps the exact Codex session, and releases evidence only after every owned
 // resource and the run-scoped gateway volume have been removed.
 func Run(ctx context.Context, config Config) (canaryevidence.Result, error) {
+	if config.supervisorCandidateImage != "" {
+		return canaryevidence.Result{}, ErrInvalidConfiguration
+	}
 	return run(ctx, config, "")
 }
 
 func run(ctx context.Context, config Config, diagnosticImage string) (canaryevidence.Result, error) {
-	if ctx == nil || (diagnosticImage != "" && !candidateImagePattern.MatchString(diagnosticImage)) {
+	if ctx == nil || (diagnosticImage != "" && !candidateImagePattern.MatchString(diagnosticImage)) ||
+		(config.supervisorCandidateImage != "" && (diagnosticImage == "" || !candidateImagePattern.MatchString(config.supervisorCandidateImage))) {
 		return canaryevidence.Result{}, ErrInvalidConfiguration
 	}
 	if err := ctx.Err(); err != nil {
@@ -136,7 +142,17 @@ func run(ctx context.Context, config Config, diagnosticImage string) (canaryevid
 		return canaryevidence.Result{}, err
 	}
 	defer clear(gatewayContent)
-	policy, err := readVerifiedFile(resolved.policyFile, canaryprofile.PolicySHA256)
+	policyFile, policySHA256 := resolved.policyFile, canaryprofile.PolicySHA256
+	if config.supervisorCandidateImage != "" {
+		if bytes.Count(gatewayContent, []byte(canaryprofile.SupervisorImage)) != 1 {
+			return canaryevidence.Result{}, ErrInvalidConfiguration
+		}
+		gatewayContent = bytes.Replace(gatewayContent, []byte(canaryprofile.SupervisorImage), []byte(config.supervisorCandidateImage), 1)
+		defer clear(gatewayContent)
+		policyFile = filepath.Join(resolved.repositoryRoot, "deploy/openshell/codex-compatibility/rosetta-runtime-policy.yaml")
+		policySHA256 = "a1d56c0470c3264c4c37183352d783ebb67911d92ef2eb6ec5f7c76c61f69f39"
+	}
+	policy, err := readVerifiedFile(policyFile, policySHA256)
 	if err != nil {
 		return canaryevidence.Result{}, err
 	}
@@ -289,7 +305,7 @@ func run(ctx context.Context, config Config, diagnosticImage string) (canaryevid
 		OperationID:       operationID,
 		Image:             sandboxImage,
 		Policy:            policy,
-		PolicyDigest:      "sha256:" + canaryprofile.PolicySHA256,
+		PolicyDigest:      "sha256:" + policySHA256,
 		ProviderProfiles:  []string{names.Provider},
 	})
 	if err != nil {
@@ -395,6 +411,7 @@ func run(ctx context.Context, config Config, diagnosticImage string) (canaryevid
 }
 
 type resolvedConfig struct {
+	repositoryRoot  string
 	workspaceRoot   string
 	composeFile     string
 	gatewayConfig   string
@@ -440,6 +457,7 @@ func resolveConfig(config Config) (resolvedConfig, error) {
 		return resolvedConfig{}, err
 	}
 	return resolvedConfig{
+		repositoryRoot:  repositoryRoot,
 		workspaceRoot:   filepath.Clean(workspaceRoot),
 		composeFile:     filepath.Join(repositoryRoot, filepath.FromSlash(canaryprofile.ComposePath)),
 		gatewayConfig:   filepath.Join(repositoryRoot, filepath.FromSlash(canaryprofile.GatewayConfigPath)),
