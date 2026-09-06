@@ -140,6 +140,51 @@ func TestCodexProbesRejectUnexpectedTerminalWithoutWaitingForDeadline(t *testing
 	}
 }
 
+func TestLocalApprovalFailureIdentifiesBoundaryWithoutReleasingEvidence(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		method string
+		stage  string
+	}{
+		{"missing", "", "approval-observation"},
+		{"wrong-action", "item/commandExecution/requestApproval", "action"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			scripts := codexProbeScripts(testRunID)
+			scripts[7] = func(server *codexProbeServer) {
+				server.startWithModel("selected-model", "dataground_openshell_codex")
+				if test.method != "" {
+					server.request("private-request", test.method, map[string]any{
+						"threadId": "native-thread", "turnId": "native-turn", "itemId": "private-item", "command": "private content",
+					})
+				} else {
+					server.notify("turn/completed", map[string]any{
+						"threadId": "native-thread", "turn": map[string]any{"id": "native-turn", "status": "completed", "items": []any{}},
+					})
+				}
+			}
+			fixture := newCodexProbeFixture(scripts...)
+			probes := fixture.open(t)
+			for _, call := range []func(context.Context, ProbeRequest) (ProbeResult, error){probes.Initialize, probes.TurnSuccess, probes.TurnFailure, probes.EventNormalization, probes.Interrupt, probes.Cancellation, probes.CommandApproval} {
+				if _, err := call(context.Background(), testProbeRequest()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			probes.state.diagnosticModel = "selected-model"
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			result, err := probes.FileChangeApproval(ctx, testProbeRequest())
+			var failure *LocalDiagnosticError
+			if ctx.Err() != nil || !errors.As(err, &failure) || failure.Error() != "local runtime diagnostic failed at case-file-change-approval-"+test.stage || result.ObservationSHA256 != ([32]byte{}) {
+				t.Fatal("approval failure lost its closed stage or released evidence")
+			}
+			if _, err := probes.FileChangeApproval(ctx, testProbeRequest()); !errors.Is(err, ErrCodexProbeOrder) {
+				t.Fatal("failed approval probe allowed replay")
+			}
+		})
+	}
+}
+
 func TestCodexProbesFailClosed(t *testing.T) {
 	t.Parallel()
 

@@ -333,7 +333,7 @@ func (probes *CodexProbes) approval(
 	) (codexProbeObservation, error) {
 		turn, closeTurn, err := state.start(ctx, request, startRequest)
 		if err != nil {
-			return codexProbeObservation{}, err
+			return codexProbeObservation{}, state.approvalFailure(name, "turn-start")
 		}
 		defer func() { _ = closeTurn() }()
 		resolved := false
@@ -343,30 +343,60 @@ func (probes *CodexProbes) approval(
 				return false, nil
 			}
 			if event.Payload["action"] != action {
-				return false, ErrCodexProbeObservation
+				return false, state.approvalFailure(name, "action")
 			}
 			approvalID, ok := event.Payload["approvalId"].(string)
 			if !ok || approvalID == "" {
-				return false, ErrCodexProbeObservation
+				return false, state.approvalFailure(name, "identity")
 			}
 			if err := turn.ResolveApproval(ctx, approvalID, dgruntime.ApprovalDeny); err != nil {
-				return false, err
+				return false, state.approvalFailure(name, "decision")
 			}
 			resolved = true
 			if err := turn.Interrupt(ctx); err != nil {
-				return false, err
+				return false, state.approvalFailure(name, "interrupt")
 			}
 			interrupted = true
 			return false, nil
 		}, "lifecycle.cancelled")
-		if err != nil || !resolved || !interrupted || turn.Wait(ctx) != nil || closeTurn() != nil {
-			return codexProbeObservation{}, ErrCodexProbeObservation
+		var failure *LocalDiagnosticError
+		if errors.As(err, &failure) {
+			return codexProbeObservation{}, failure
+		}
+		if !resolved {
+			return codexProbeObservation{}, state.approvalFailure(name, "approval-observation")
+		}
+		if err != nil || !interrupted {
+			return codexProbeObservation{}, state.approvalFailure(name, "interrupt-observation")
+		}
+		if turn.Wait(ctx) != nil {
+			return codexProbeObservation{}, state.approvalFailure(name, "turn-completion")
+		}
+		if closeTurn() != nil {
+			return codexProbeObservation{}, state.approvalFailure(name, "transport-close")
 		}
 		return codexProbeObservation{events: events, outcome: "approval-denied"}, nil
 	})
 }
 
 type codexProbeCall func(context.Context, *codexProbeState) (codexProbeObservation, error)
+
+// Approval diagnostics identify only the failed boundary, never model output,
+// native request identifiers, approval payloads, or upstream errors.
+func (state *codexProbeState) approvalFailure(name CheckName, stage string) error {
+	if name != CheckCommandApproval && name != CheckFileChangeApproval {
+		return ErrCodexProbeObservation
+	}
+	switch stage {
+	case "turn-start", "action", "identity", "decision", "interrupt", "approval-observation", "interrupt-observation", "turn-completion", "transport-close":
+	default:
+		return ErrCodexProbeObservation
+	}
+	if state.diagnosticModel != "" {
+		return &LocalDiagnosticError{stage: "case-" + string(name) + "-" + stage}
+	}
+	return ErrCodexProbeObservation
+}
 
 func (state *codexProbeState) normalizationFailure(stage string) error {
 	switch stage {
