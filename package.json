@@ -16,6 +16,7 @@
     "contracts:check": "node scripts/check-contracts.mjs",
     "codex:schema:check": "node scripts/check-codex-schema.mjs",
     "codex:candidate:check": "node scripts/check-codex-candidate-publication.mjs",
+    "codex:candidate:attestation:check": "node scripts/check-codex-candidate-attestation.mjs",
     "contracts:generate": "node scripts/generate-contracts.mjs --write",
     "contracts:generate:check": "node scripts/generate-contracts.mjs",
     "dev:api": "go run ./cmd/dataground-api",

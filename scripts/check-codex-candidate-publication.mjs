@@ -21,18 +21,7 @@ function execute(command, args) {
   });
 }
 
-// Verification results are consumed only from a successful gh invocation, never
-// from caller-supplied JSON that could impersonate signature verification.
-export function verifyPublication(scope, run = execute) {
-  const { digest, sourceCommit, runId, runAttempt, architecture } = scope;
-  requireCondition(
-    digestPattern.test(digest ?? "") &&
-      /^[a-f0-9]{40}$/.test(sourceCommit ?? "") &&
-      /^[1-9][0-9]{0,14}$/.test(runId ?? "") &&
-      /^[1-9][0-9]{0,8}$/.test(runAttempt ?? "") &&
-      ["amd64", "arm64"].includes(architecture),
-    "Exact candidate digest, source, run, attempt and architecture are required.",
-  );
+function commands(run) {
   const invoke = (command, args) => {
     try {
       return run(command, args);
@@ -40,10 +29,6 @@ export function verifyPublication(scope, run = execute) {
       throw new Error(`${command} verification operation failed; upstream output withheld.`);
     }
   };
-  requireCondition(
-    /^gh version 2\.98\.0(?:\s|$)/.test(invoke("gh", ["--version"])),
-    "Candidate provenance verification requires GitHub CLI 2.98.0.",
-  );
   const parse = (command, args) => {
     try {
       return JSON.parse(invoke(command, args));
@@ -51,10 +36,29 @@ export function verifyPublication(scope, run = execute) {
       throw new Error(`${command} verification operation did not return valid evidence.`);
     }
   };
+  return { invoke, parse };
+}
+
+// Verification results are consumed only from a successful gh invocation, never
+// from caller-supplied JSON that could impersonate signature verification.
+export function verifyCandidateAttestation(scope, run = execute, files) {
+  const { digest, sourceCommit, runId, runAttempt } = scope;
+  requireCondition(
+    digestPattern.test(digest ?? "") &&
+      /^[a-f0-9]{40}$/.test(sourceCommit ?? "") &&
+      /^[1-9][0-9]{0,14}$/.test(runId ?? "") &&
+      /^[1-9][0-9]{0,8}$/.test(runAttempt ?? ""),
+    "Exact candidate digest, source, run and attempt are required.",
+  );
+  const { invoke, parse } = commands(run);
+  requireCondition(
+    /^gh version 2\.98\.0(?:\s|$)/.test(invoke("gh", ["--version"])),
+    "Candidate provenance verification requires GitHub CLI 2.98.0.",
+  );
   const results = parse("gh", [
     "attestation",
     "verify",
-    `oci://${imageRepository}@${digest}`,
+    files?.manifest ?? `oci://${imageRepository}@${digest}`,
     "--repo",
     repository,
     "--signer-workflow",
@@ -72,6 +76,7 @@ export function verifyPublication(scope, run = execute) {
     "https://slsa.dev/provenance/v1",
     "--format",
     "json",
+    ...(files ? ["--bundle", files.bundle, "--custom-trusted-root", files.trustedRoot] : []),
   ]);
   const invocation = `${repositoryURL}/actions/runs/${runId}/attempts/${runAttempt}`;
   const exact =
@@ -104,6 +109,18 @@ export function verifyPublication(scope, run = execute) {
       );
     });
   requireCondition(exact, "No verified attestation matches the exact candidate publication.");
+
+  return invocation;
+}
+
+export function verifyPublication(scope, run = execute) {
+  const { digest, sourceCommit, runId, runAttempt, architecture } = scope;
+  requireCondition(
+    ["amd64", "arm64"].includes(architecture),
+    "Exact candidate architecture is required.",
+  );
+  const invocation = verifyCandidateAttestation(scope, run);
+  const { invoke, parse } = commands(run);
 
   // Signing happens before the job finishes: a valid signature can belong to a
   // failed publication. Read the immutable attempt, not the latest rerun state.
