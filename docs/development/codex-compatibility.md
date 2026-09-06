@@ -68,3 +68,15 @@ The candidate workflow can test native `amd64` or `arm64` on explicit dispatch; 
 The build job retains read-only repository permissions and packages the exact tested local image with its source revision, architecture and archive digest. A separate job consumes that immutable workflow artifact, verifies the archive and the loaded image’s identity, `sandbox` user and non-certifying source labels, then publishes to `ghcr.io/asabla/dataground-codex-candidate` using a run-and-attempt-specific candidate tag. Consumers must pin the returned registry digest. The job uses only its ephemeral GitHub registry token in the disposable runner’s default Docker credential file, which the pinned attestation action reads directly, and always logs out of GHCR afterward. The published digest receives GitHub/Sigstore build provenance from the pinned official attestation action.
 
 A pushed image whose attestation or workflow later fails is not a completed publication. The workflow must complete successfully, and consumers must verify its repository/workflow provenance before using the image. Publication remains experimental and architecture-specific: it neither promotes the accepted development profile nor supplies inference conformance or production certification. The publication helper’s denial tests run before every candidate build.
+
+Verify a publication with GitHub CLI 2.98.0 and Docker available locally. Supply the exact reviewed workflow source revision, image digest, run ID, attempt, and tested architecture; do not derive the expected source from untrusted image labels:
+
+```sh
+pnpm codex:candidate:check \
+  "sha256:$CANDIDATE_DIGEST" "$REVIEWED_SOURCE_COMMIT" \
+  "$PUBLICATION_RUN_ID" "$PUBLICATION_RUN_ATTEMPT" arm64
+```
+
+The command verifies GitHub/Sigstore provenance through `gh attestation verify`, pins the repository identity, workflow, issuer, main ref, source and signer revisions, hosted runner and exact invocation, then checks that the same workflow attempt and both jobs completed successfully. A signature issued before a later workflow failure is rejected. Only afterward does Docker pull the exact registry digest and verify its architecture, local image ID, `sandbox` user and candidate labels. The command uses existing local GitHub access when required and acquires no model credentials. Upstream command output is withheld on failure.
+
+Successful output records the registry digest, local image ID, source, architecture and invocation with `certificationEligible: false`. This output is a verification summary, not a signed acceptance record; rerun verification before use. It does not accept local runtime evidence or activate governed execution.

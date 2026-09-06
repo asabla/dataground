@@ -15,6 +15,7 @@
     "build:workbench": "pnpm --filter @dataground/workbench build",
     "contracts:check": "node scripts/check-contracts.mjs",
     "codex:schema:check": "node scripts/check-codex-schema.mjs",
+    "codex:candidate:check": "node scripts/check-codex-candidate-publication.mjs",
     "contracts:generate": "node scripts/generate-contracts.mjs --write",
     "contracts:generate:check": "node scripts/generate-contracts.mjs",
     "dev:api": "go run ./cmd/dataground-api",
