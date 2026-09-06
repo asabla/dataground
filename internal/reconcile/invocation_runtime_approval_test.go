@@ -29,17 +29,21 @@ type runtimeApprovalStoreStub struct {
 	onRead            func()
 	onBegin           func()
 	keepPending       bool
+	lifetime          time.Duration
 }
 
 func (store *runtimeApprovalStoreStub) RecordInvocationRuntimeApprovalRequest(
 	_ context.Context,
-	_ persistence.OperationClaim,
-	_ persistence.EffectRecord,
+	claim persistence.OperationClaim,
+	effect persistence.EffectRecord,
 	target persistence.InvocationRuntimeTarget,
 	request persistence.InvocationRuntimeApprovalRequest,
 ) (persistence.InvocationRuntimeApproval, error) {
 	store.approval = persistence.InvocationRuntimeApproval{
 		Contract:          persistence.InvocationRuntimeApprovalContract,
+		CreatedAt:         time.Now().UTC().Truncate(time.Microsecond),
+		ExpiresAt:         claim.DeadlineAt,
+		EffectID:          effect.EffectID,
 		IsolationDomainID: target.IsolationDomainID,
 		ID:                "apr_00000000000000000001",
 		OperationID:       target.OperationID,
@@ -50,6 +54,18 @@ func (store *runtimeApprovalStoreStub) RecordInvocationRuntimeApprovalRequest(
 		SourceSequence:    request.SourceSequence,
 		State:             "pending",
 		Version:           1,
+	}
+	if store.lifetime > 0 {
+		store.approval.ExpiresAt = store.approval.CreatedAt.Add(store.lifetime)
+	}
+	return store.approval, nil
+}
+
+func (store *runtimeApprovalStoreStub) CloseInvocationRuntimeApproval(_ context.Context, _ persistence.OperationClaim, _ persistence.EffectRecord, _ string, _ string) (persistence.InvocationRuntimeApproval, error) {
+	if store.approval.State == "delivering" {
+		store.approval.State = "delivery_unknown"
+	} else if store.approval.State != "delivered" {
+		store.approval.State = "closed"
 	}
 	return store.approval, nil
 }
@@ -319,7 +335,7 @@ func (authorize approvalBoundaryAuthorizer) AuthorizeInvocationApproval(ctx cont
 
 func TestInvocationRuntimeApprovalDeliveryCannotOutliveItsClaim(t *testing.T) {
 	t.Parallel()
-	for _, boundary := range []string{"expired lease", "lease expires during delivery", "operation expires during delivery", "cancelled after reservation"} {
+	for _, boundary := range []string{"expired lease", "lease expires during delivery", "operation expires during delivery", "cancelled after reservation", "approval expires while waiting", "approval expires during delivery"} {
 		t.Run(boundary, func(t *testing.T) {
 			t.Parallel()
 			claim, effect, target := runtimeDriverFixture()
@@ -332,6 +348,12 @@ func TestInvocationRuntimeApprovalDeliveryCannotOutliveItsClaim(t *testing.T) {
 			wantErr := error(context.DeadlineExceeded)
 			wantDeadline := claim.LeaseExpiresAt
 			switch boundary {
+			case "approval expires while waiting":
+				store.lifetime = 50 * time.Millisecond
+				store.keepPending = true
+			case "approval expires during delivery":
+				store.lifetime = 50 * time.Millisecond
+				turn.onResolve = func(ctx context.Context) { <-ctx.Done() }
 			case "expired lease":
 				claim.LeaseExpiresAt = time.Now().Add(-time.Second)
 			case "lease expires during delivery":
@@ -350,6 +372,9 @@ func TestInvocationRuntimeApprovalDeliveryCannotOutliveItsClaim(t *testing.T) {
 			_, err := driver.recordRuntimeEvent(ctx, claim, effect, target, turn, dgruntime.Event{Sequence: 1, Type: "interaction.approval.requested", Payload: map[string]any{"approvalId": "approval-1", "action": "process.execute"}})
 			if !errors.Is(err, wantErr) || store.completed || turn.decisionID != "" {
 				t.Fatalf("expired authority delivered an approval: %v", err)
+			}
+			if store.lifetime > 0 {
+				wantDeadline = store.approval.ExpiresAt
 			}
 			if !turn.deadline.IsZero() && !turn.deadline.Equal(wantDeadline) {
 				t.Fatal("native delivery exceeded the earlier lease or operation deadline")

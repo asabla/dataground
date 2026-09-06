@@ -10,24 +10,26 @@ import (
 	"github.com/asabla/dataground/internal/identity"
 )
 
-var errQuestionExpiryUnavailable = errors.New("durable question expiry is unavailable")
+var errInteractionExpiryUnavailable = errors.New("durable interaction expiry is unavailable")
 
 const (
-	questionExpiryBatchSize = 100
-	questionExpiryInterval  = 250 * time.Millisecond
-	questionExpiryTimeout   = 2 * time.Second
-	questionExpiryActor     = "dataground-question-expiry"
+	interactionExpiryBatchSize = 100
+	interactionExpiryInterval  = 250 * time.Millisecond
+	interactionExpiryTimeout   = 2 * time.Second
+	questionExpiryActor        = "dataground-question-expiry"
+	approvalExpiryActor        = "dataground-approval-expiry"
 )
 
-type questionExpiryStore interface {
+type interactionExpiryStore interface {
 	ExpireInvocationRuntimeQuestions(context.Context, string, string, string, int) (int, error)
+	ExpireInvocationRuntimeApprovals(context.Context, string, string, string, int) (int, error)
 }
 
 // The expiry owner runs independently of RunOne, which can wait on a native
-// turn. PostgreSQL decides which questions are due and commits their terminal
+// turn. PostgreSQL decides which interactions are due and commits their terminal
 // states, audit and outbox records together; this loop owns only bounded polling.
-type questionExpiryOwner struct {
-	store             questionExpiryStore
+type interactionExpiryOwner struct {
+	store             interactionExpiryStore
 	scope             string
 	interval, timeout time.Duration
 	cancel            context.CancelFunc
@@ -37,18 +39,18 @@ type questionExpiryOwner struct {
 	failed            bool
 }
 
-func newQuestionExpiryOwner(ctx context.Context, store questionExpiryStore, scope string, interval, timeout time.Duration) (*questionExpiryOwner, error) {
+func newInteractionExpiryOwner(ctx context.Context, store interactionExpiryStore, scope string, interval, timeout time.Duration) (*interactionExpiryOwner, error) {
 	if ctx == nil || ctx.Err() != nil || store == nil || !isolationDomainIDPattern.MatchString(scope) || interval <= 0 || timeout <= 0 {
-		return nil, errQuestionExpiryUnavailable
+		return nil, errInteractionExpiryUnavailable
 	}
 	switch value := reflect.ValueOf(store); value.Kind() {
 	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 		if value.IsNil() {
-			return nil, errQuestionExpiryUnavailable
+			return nil, errInteractionExpiryUnavailable
 		}
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	owner := &questionExpiryOwner{store: store, scope: scope, interval: interval, timeout: timeout, cancel: cancel, done: make(chan struct{})}
+	owner := &interactionExpiryOwner{store: store, scope: scope, interval: interval, timeout: timeout, cancel: cancel, done: make(chan struct{})}
 	if err := owner.sweep(ctx); err != nil {
 		cancel()
 		return nil, err
@@ -57,22 +59,26 @@ func newQuestionExpiryOwner(ctx context.Context, store questionExpiryStore, scop
 	return owner, nil
 }
 
-func (owner *questionExpiryOwner) sweep(ctx context.Context) error {
+func (owner *interactionExpiryOwner) sweep(ctx context.Context) error {
 	bounded, cancel := context.WithTimeout(ctx, owner.timeout)
 	defer cancel()
-	count, err := owner.store.ExpireInvocationRuntimeQuestions(bounded, owner.scope, questionExpiryActor, identity.New("cor"), questionExpiryBatchSize)
+	count, err := owner.store.ExpireInvocationRuntimeQuestions(bounded, owner.scope, questionExpiryActor, identity.New("cor"), interactionExpiryBatchSize)
+	approvalCount := 0
+	if err == nil && bounded.Err() == nil && count >= 0 && count <= interactionExpiryBatchSize {
+		approvalCount, err = owner.store.ExpireInvocationRuntimeApprovals(bounded, owner.scope, approvalExpiryActor, identity.New("cor"), interactionExpiryBatchSize)
+	}
 	owner.mu.Lock()
 	defer owner.mu.Unlock()
-	if err != nil || bounded.Err() != nil || count < 0 || count > questionExpiryBatchSize {
+	if approvalCount < 0 || approvalCount > interactionExpiryBatchSize || err != nil || bounded.Err() != nil || count < 0 || count > interactionExpiryBatchSize {
 		owner.failed = true
-		return errQuestionExpiryUnavailable
+		return errInteractionExpiryUnavailable
 	}
 	owner.failed = false
 	owner.lastSuccess = time.Now()
 	return nil
 }
 
-func (owner *questionExpiryOwner) run(ctx context.Context) {
+func (owner *interactionExpiryOwner) run(ctx context.Context) {
 	defer close(owner.done)
 	defer func() { owner.mu.Lock(); owner.failed = true; owner.mu.Unlock() }()
 	ticker := time.NewTicker(owner.interval)
@@ -92,19 +98,19 @@ func (owner *questionExpiryOwner) run(ctx context.Context) {
 	}
 }
 
-func (owner *questionExpiryOwner) Ready() error {
+func (owner *interactionExpiryOwner) Ready() error {
 	if owner == nil {
-		return errQuestionExpiryUnavailable
+		return errInteractionExpiryUnavailable
 	}
 	owner.mu.Lock()
 	defer owner.mu.Unlock()
 	if owner.failed || owner.lastSuccess.IsZero() || time.Since(owner.lastSuccess) > owner.interval+owner.timeout {
-		return errQuestionExpiryUnavailable
+		return errInteractionExpiryUnavailable
 	}
 	return nil
 }
 
-func (owner *questionExpiryOwner) Close() {
+func (owner *interactionExpiryOwner) Close() {
 	if owner == nil {
 		return
 	}
@@ -114,21 +120,21 @@ func (owner *questionExpiryOwner) Close() {
 
 type governedWorkerReadiness struct {
 	certification runtimeCertificationReadiness
-	questions     *questionExpiryOwner
+	interactions  *interactionExpiryOwner
 }
 
 func (readiness governedWorkerReadiness) Check(ctx context.Context) error {
 	if ctx == nil || ctx.Err() != nil || readiness.certification == nil {
-		return errQuestionExpiryUnavailable
+		return errInteractionExpiryUnavailable
 	}
-	if err := readiness.questions.Ready(); err != nil {
+	if err := readiness.interactions.Ready(); err != nil {
 		return err
 	}
 	if err := readiness.certification.Check(ctx); err != nil {
 		return err
 	}
 	if ctx.Err() != nil {
-		return errQuestionExpiryUnavailable
+		return errInteractionExpiryUnavailable
 	}
-	return readiness.questions.Ready()
+	return readiness.interactions.Ready()
 }

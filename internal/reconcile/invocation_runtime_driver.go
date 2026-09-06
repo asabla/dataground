@@ -43,6 +43,7 @@ type InvocationRuntimeStore interface {
 }
 
 type InvocationRuntimeApprovalStore interface {
+	CloseInvocationRuntimeApproval(context.Context, persistence.OperationClaim, persistence.EffectRecord, string, string) (persistence.InvocationRuntimeApproval, error)
 	RecordInvocationRuntimeApprovalRequest(
 		context.Context,
 		persistence.OperationClaim,
@@ -619,7 +620,7 @@ func (driver *InvocationRuntimeDriver) recordRuntimeEvent(
 	target persistence.InvocationRuntimeTarget,
 	turn dgruntime.Turn,
 	event dgruntime.Event,
-) (persistence.OperationClaim, error) {
+) (resultClaim persistence.OperationClaim, resultErr error) {
 	if strings.HasPrefix(event.Type, "interaction.question.") {
 		return claim, dgruntime.ErrQuestionMode
 	}
@@ -653,6 +654,26 @@ func (driver *InvocationRuntimeDriver) recordRuntimeEvent(
 	if err != nil {
 		return claim, err
 	}
+	if approval.Contract != persistence.InvocationRuntimeApprovalContract || approval.ID == "" || approval.IsolationDomainID != target.IsolationDomainID || approval.OperationID != claim.ID || approval.InvocationID != target.InvocationID || approval.ServiceID != target.ServiceID || approval.RevisionID != target.RevisionID || approval.EffectID != effect.EffectID || approval.SourceSequence != event.Sequence || approval.RequestedAction != requestedAction || approval.State != "pending" || approval.Version != 1 || !approval.ExpiresAt.After(approval.CreatedAt) || approval.ExpiresAt.After(approval.CreatedAt.Add(15*time.Minute)) || approval.ExpiresAt.After(claim.DeadlineAt) {
+		return claim, persistence.ErrInvocationRuntimeApprovalConflict
+	}
+	original := approval
+	delivered := false
+	defer func() {
+		if delivered {
+			return
+		}
+		cleanup, stop := context.WithTimeout(context.Background(), 2*time.Second)
+		defer stop()
+		reason := "runtime-ended"
+		if errors.Is(resultErr, context.Canceled) {
+			reason = "cancelled"
+		}
+		_, closeErr := driver.approvalStore.CloseInvocationRuntimeApproval(cleanup, claim, effect, original.ID, reason)
+		resultErr = errors.Join(resultErr, closeErr)
+	}()
+	ctx, stopExpiry := context.WithDeadline(ctx, original.ExpiresAt)
+	defer stopExpiry()
 	// The durable approval store atomically publishes the sanitized platform
 	// event with the pending record. The adapter-local identifier stays only
 	// in this stack frame for the eventual single-use delivery.
@@ -667,6 +688,9 @@ func (driver *InvocationRuntimeDriver) recordRuntimeEvent(
 		)
 		if err != nil {
 			return claim, err
+		}
+		if approval.Contract != original.Contract || approval.ID != original.ID || approval.IsolationDomainID != original.IsolationDomainID || approval.OperationID != original.OperationID || approval.InvocationID != original.InvocationID || approval.ServiceID != original.ServiceID || approval.RevisionID != original.RevisionID || approval.EffectID != original.EffectID || approval.SourceSequence != original.SourceSequence || approval.RequestedAction != original.RequestedAction || !approval.CreatedAt.Equal(original.CreatedAt) || !approval.ExpiresAt.Equal(original.ExpiresAt) {
+			return claim, persistence.ErrInvocationRuntimeApprovalConflict
 		}
 		switch approval.State {
 		case "pending":
@@ -707,8 +731,11 @@ func (driver *InvocationRuntimeDriver) recordRuntimeEvent(
 			); err != nil {
 				return claim, err
 			}
+			delivered = true
 			return claim, nil
-		case "delivering":
+		case "closed", "expired":
+			return claim, persistence.ErrInvocationRuntimeApprovalExpired
+		case "delivering", "delivery_unknown":
 			return claim, persistence.ErrInvocationRuntimeApprovalDeliveryAmbiguous
 		case "delivered":
 			return claim, persistence.ErrInvocationRuntimeApprovalConflict

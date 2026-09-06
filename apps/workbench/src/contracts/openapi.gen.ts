@@ -638,7 +638,8 @@ export interface components {
             expectedVersion: 1;
             answers: components["schemas"]["QuestionAnswer"][];
         };
-        InvocationApproval: {
+        InvocationApproval: components["schemas"]["InvocationApprovalV1"] | components["schemas"]["InvocationApprovalV2"];
+        InvocationApprovalV1: {
             /** @constant */
             schemaVersion: "dataground.invocation-approval/v1";
             id: components["schemas"]["ApprovalId"];
@@ -661,6 +662,86 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        InvocationApprovalV2: {
+            /** @constant */
+            schemaVersion: "dataground.invocation-approval/v2";
+            id: components["schemas"]["ApprovalId"];
+            isolationDomainId: components["schemas"]["IsolationDomainId"];
+            invocationId: components["schemas"]["InvocationId"];
+            /** @enum {unknown} */
+            requestedAction: "process.execute" | "workspace.change";
+            /** @enum {unknown} */
+            state: "pending" | "resolved" | "delivering" | "delivered" | "closed" | "expired" | "delivery_unknown";
+            version: number;
+            /** @enum {unknown} */
+            decision?: "approve" | "deny";
+            resolvedBy?: string;
+            /** Format: date-time */
+            resolvedAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: date-time */
+            closedAt?: string;
+            /** @enum {unknown} */
+            closeReason?: "expired" | "runtime-request-cleared" | "runtime-ended" | "cancelled";
+        } & (({
+            /** @constant */
+            state?: "pending";
+            /** @constant */
+            version?: 1;
+        } & unknown) | ({
+            /** @constant */
+            state?: "resolved";
+            /** @constant */
+            version?: 2;
+        } & unknown) | ({
+            /** @constant */
+            state?: "delivering";
+            /** @constant */
+            version?: 3;
+        } & unknown) | ({
+            /** @constant */
+            state?: "delivered";
+            /** @constant */
+            version?: 4;
+        } & unknown) | {
+            /** @constant */
+            state?: "delivery_unknown";
+            /** @constant */
+            version?: 4;
+        } | {
+            /** @constant */
+            state?: "closed";
+            /** @constant */
+            version?: 2;
+            /** @enum {unknown} */
+            closeReason: "runtime-request-cleared" | "runtime-ended" | "cancelled";
+        } | {
+            /** @constant */
+            state?: "closed";
+            /** @constant */
+            version?: 3;
+            /** @enum {unknown} */
+            closeReason: "runtime-request-cleared" | "runtime-ended" | "cancelled";
+        } | {
+            /** @constant */
+            state?: "expired";
+            /** @constant */
+            version?: 2;
+            /** @constant */
+            closeReason: "expired";
+        } | {
+            /** @constant */
+            state?: "expired";
+            /** @constant */
+            version?: 3;
+            /** @constant */
+            closeReason: "expired";
+        });
         EventEnvelope: {
             /**
              * @description Trusted event origin class. Runtime lifecycle events describe a native turn and do not establish terminal platform invocation state. Durable reads derive this value from retained journal provenance without changing event identity, sequence, type, or payload. Older envelopes may omit it.
@@ -1521,6 +1602,15 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+            /** @description The approval has expired or closed. */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             415: components["responses"]["Error"];
             503: components["responses"]["Error"];
         };

@@ -15,6 +15,9 @@ export interface ApprovalResource {
   resolvedAt?: string;
   createdAt: string;
   updatedAt: string;
+  expiresAt?: string;
+  closedAt?: string;
+  closeReason?: string;
 }
 
 export interface ApprovalRequestError {
@@ -41,6 +44,9 @@ interface StatePresentation {
 }
 
 const statePresentations: Record<string, StatePresentation> = {
+  closed: { label: "Request closed", tone: "neutral" },
+  expired: { label: "Request expired", tone: "neutral" },
+  delivery_unknown: { label: "Delivery unknown", tone: "waiting" },
   delivered: { label: "Decision delivered", tone: "success" },
   delivering: { label: "Delivering decision", tone: "active" },
   pending: { label: "Waiting for decision", tone: "waiting" },
@@ -128,6 +134,22 @@ export function ApprovalRequest({
             <time dateTime={approval.createdAt}>{approval.createdAt}</time>
           </dd>
         </div>
+        {approval.expiresAt && (
+          <div>
+            <dt>Expires at</dt>
+            <dd>
+              <time dateTime={approval.expiresAt}>{approval.expiresAt}</time>
+            </dd>
+          </div>
+        )}
+        {approval.closedAt && (
+          <div>
+            <dt>Closed at</dt>
+            <dd>
+              <time dateTime={approval.closedAt}>{approval.closedAt}</time>
+            </dd>
+          </div>
+        )}
         {approval.decision && (
           <div>
             <dt>Recorded decision</dt>
@@ -161,6 +183,9 @@ export function ApprovalRequest({
         enforcement before delivering it to the runtime.
       </p>
 
+      {approval.state === "delivery_unknown" && (
+        <p>The runtime may have received this decision. It cannot be sent again.</p>
+      )}
       {error && (
         <div className="dg-approval-request__error" role="alert">
           <strong>{errorHeading}</strong> {error.message}

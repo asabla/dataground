@@ -93,6 +93,84 @@ function unavailableResult(): ApprovalResult {
   };
 }
 
+function validExpiringApproval(value: Record<string, unknown>): boolean {
+  const fields = [
+    "schemaVersion",
+    "id",
+    "isolationDomainId",
+    "invocationId",
+    "requestedAction",
+    "state",
+    "version",
+    "decision",
+    "resolvedBy",
+    "resolvedAt",
+    "createdAt",
+    "updatedAt",
+    "expiresAt",
+    "closedAt",
+    "closeReason",
+  ];
+  if (
+    Object.keys(value).some((key) => !fields.includes(key)) ||
+    !isTimestamp(value.createdAt) ||
+    !isTimestamp(value.updatedAt) ||
+    !isTimestamp(value.expiresAt)
+  )
+    return false;
+  const created = Date.parse(value.createdAt),
+    expiry = Date.parse(value.expiresAt),
+    updated = Date.parse(value.updatedAt);
+  if (expiry <= created || expiry > created + 15 * 60_000 || updated < created) return false;
+  const resolved = ["decision", "resolvedBy", "resolvedAt"].every(
+    (key) => value[key] !== undefined,
+  );
+  const unresolved = ["decision", "resolvedBy", "resolvedAt"].every(
+    (key) => value[key] === undefined,
+  );
+  if (!resolved && !unresolved) return false;
+  if (
+    resolved &&
+    (!isTimestamp(value.resolvedAt) ||
+      Date.parse(value.resolvedAt) < created ||
+      Date.parse(value.resolvedAt) >= expiry ||
+      Date.parse(value.resolvedAt) > updated)
+  )
+    return false;
+  const terminal = ["closed", "expired", "delivery_unknown"].includes(String(value.state));
+  if (terminal) {
+    if (
+      !isTimestamp(value.closedAt) ||
+      Date.parse(value.closedAt) < created ||
+      Date.parse(value.closedAt) > updated ||
+      !["expired", "runtime-request-cleared", "runtime-ended", "cancelled"].includes(
+        String(value.closeReason),
+      )
+    )
+      return false;
+    if (value.closeReason === "expired" && Date.parse(value.closedAt) < expiry) return false;
+    if (value.state === "expired" && value.closeReason !== "expired") return false;
+    if (value.state === "closed" && value.closeReason === "expired") return false;
+  } else if (value.closedAt !== undefined || value.closeReason !== undefined) return false;
+  switch (value.state) {
+    case "pending":
+      return value.version === 1 && unresolved;
+    case "resolved":
+      return value.version === 2 && resolved;
+    case "delivering":
+      return value.version === 3 && resolved;
+    case "delivered":
+      return value.version === 4 && resolved;
+    case "closed":
+    case "expired":
+      return (value.version === 2 && unresolved) || (value.version === 3 && resolved);
+    case "delivery_unknown":
+      return value.version === 4 && resolved;
+    default:
+      return false;
+  }
+}
+
 function matchedApprovalResult(
   value: unknown,
   reference: InvocationApprovalReference,
@@ -103,12 +181,24 @@ function matchedApprovalResult(
     );
   }
   if (
-    value.schemaVersion !== "dataground.invocation-approval/v1" ||
+    !["dataground.invocation-approval/v1", "dataground.invocation-approval/v2"].includes(
+      String(value.schemaVersion),
+    ) ||
+    (value.schemaVersion === "dataground.invocation-approval/v2" &&
+      !validExpiringApproval(value)) ||
     value.id !== reference.approvalId ||
     value.invocationId !== reference.invocationId ||
     value.isolationDomainId !== reference.isolationDomainId ||
     !["process.execute", "workspace.change"].includes(String(value.requestedAction)) ||
-    !["pending", "resolved", "delivering", "delivered"].includes(String(value.state)) ||
+    ![
+      "pending",
+      "resolved",
+      "delivering",
+      "delivered",
+      "closed",
+      "expired",
+      "delivery_unknown",
+    ].includes(String(value.state)) ||
     !Number.isSafeInteger(value.version) ||
     (value.version as number) < 1 ||
     !isTimestamp(value.createdAt) ||
@@ -143,7 +233,9 @@ export async function readInvocationApproval(
     const { data, error, response } = await client.GET(approvalPath, {
       params: { path: reference },
     });
-    return data ? matchedApprovalResult(data, reference) : failedResult(error, response.status);
+    return data && response.status === 200
+      ? matchedApprovalResult(data, reference)
+      : failedResult(error, response.status);
   } catch {
     return unavailableResult();
   }
@@ -170,7 +262,9 @@ export async function resolveInvocationApproval(
         path: reference,
       },
     });
-    return data ? matchedApprovalResult(data, reference) : failedResult(error, response.status);
+    return data && response.status === 200
+      ? matchedApprovalResult(data, reference)
+      : failedResult(error, response.status);
   } catch {
     return unavailableResult();
   }

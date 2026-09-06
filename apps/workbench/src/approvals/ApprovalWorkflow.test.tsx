@@ -136,3 +136,30 @@ describe("ApprovalWorkflow", () => {
     assert.match(key, /^[A-Za-z0-9._:]{8,128}$/u);
   });
 });
+
+it("rejects a refreshed approval that extends expiry or regresses terminal state", () => {
+  const expiring = {
+    ...approval,
+    schemaVersion: "dataground.invocation-approval/v2",
+    expiresAt: "2026-08-14T12:10:00Z",
+  } as InvocationApproval;
+  const expired = {
+    ...expiring,
+    state: "expired",
+    version: 2,
+    closedAt: "2026-08-14T12:10:00Z",
+    closeReason: "expired",
+    updatedAt: "2026-08-14T12:10:00Z",
+  } as InvocationApproval;
+  for (const next of [
+    expiring,
+    { ...expired, expiresAt: "2026-08-14T12:12:00Z" } as InvocationApproval,
+  ]) {
+    const state = approvalWorkflowReducer(
+      { approval: expired, loading: true, referenceKey },
+      { type: "load-finished", referenceKey, result: { ok: true, approval: next } },
+    );
+    assert.equal(state.approval, expired);
+    assert.equal(state.error?.code, "WORKBENCH_INVALID_RESPONSE");
+  }
+});

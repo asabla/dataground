@@ -886,6 +886,12 @@
           "401": { "$ref": "#/components/responses/Error" },
           "403": { "$ref": "#/components/responses/Error" },
           "404": { "$ref": "#/components/responses/Error" },
+          "410": {
+            "description": "The approval has expired or closed.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } }
+            }
+          },
           "409": { "$ref": "#/components/responses/Error" },
           "415": { "$ref": "#/components/responses/Error" },
           "503": { "$ref": "#/components/responses/Error" }
@@ -1793,6 +1799,12 @@
         }
       },
       "InvocationApproval": {
+        "oneOf": [
+          { "$ref": "#/components/schemas/InvocationApprovalV1" },
+          { "$ref": "#/components/schemas/InvocationApprovalV2" }
+        ]
+      },
+      "InvocationApprovalV1": {
         "type": "object",
         "additionalProperties": true,
         "required": [
@@ -1823,6 +1835,293 @@
           "createdAt": { "type": "string", "format": "date-time" },
           "updatedAt": { "type": "string", "format": "date-time" }
         }
+      },
+      "InvocationApprovalV2": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "id",
+          "isolationDomainId",
+          "invocationId",
+          "requestedAction",
+          "state",
+          "version",
+          "createdAt",
+          "updatedAt",
+          "expiresAt"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "type": "string",
+            "const": "dataground.invocation-approval/v2"
+          },
+          "id": {
+            "$ref": "#/components/schemas/ApprovalId"
+          },
+          "isolationDomainId": {
+            "$ref": "#/components/schemas/IsolationDomainId"
+          },
+          "invocationId": {
+            "$ref": "#/components/schemas/InvocationId"
+          },
+          "requestedAction": {
+            "enum": ["process.execute", "workspace.change"]
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "resolved",
+              "delivering",
+              "delivered",
+              "closed",
+              "expired",
+              "delivery_unknown"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "decision": {
+            "enum": ["approve", "deny"]
+          },
+          "resolvedBy": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "resolvedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "closedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "closeReason": {
+            "enum": ["expired", "runtime-request-cleared", "runtime-ended", "cancelled"]
+          }
+        },
+        "oneOf": [
+          {
+            "properties": {
+              "state": {
+                "const": "pending"
+              },
+              "version": {
+                "const": 1
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": ["decision"]
+                },
+                {
+                  "required": ["resolvedBy"]
+                },
+                {
+                  "required": ["resolvedAt"]
+                }
+              ]
+            },
+            "allOf": [
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": ["closedAt"]
+                    },
+                    {
+                      "required": ["closeReason"]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "properties": {
+              "state": {
+                "const": "resolved"
+              },
+              "version": {
+                "const": 2
+              }
+            },
+            "required": ["decision", "resolvedBy", "resolvedAt"],
+            "allOf": [
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": ["closedAt"]
+                    },
+                    {
+                      "required": ["closeReason"]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "properties": {
+              "state": {
+                "const": "delivering"
+              },
+              "version": {
+                "const": 3
+              }
+            },
+            "required": ["decision", "resolvedBy", "resolvedAt"],
+            "allOf": [
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": ["closedAt"]
+                    },
+                    {
+                      "required": ["closeReason"]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "properties": {
+              "state": {
+                "const": "delivered"
+              },
+              "version": {
+                "const": 4
+              }
+            },
+            "required": ["decision", "resolvedBy", "resolvedAt"],
+            "allOf": [
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": ["closedAt"]
+                    },
+                    {
+                      "required": ["closeReason"]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "properties": {
+              "state": {
+                "const": "delivery_unknown"
+              },
+              "version": {
+                "const": 4
+              }
+            },
+            "required": ["decision", "resolvedBy", "resolvedAt", "closedAt", "closeReason"]
+          },
+          {
+            "properties": {
+              "state": {
+                "const": "closed"
+              },
+              "version": {
+                "const": 2
+              },
+              "closeReason": {
+                "enum": ["runtime-request-cleared", "runtime-ended", "cancelled"]
+              }
+            },
+            "required": ["closedAt", "closeReason"],
+            "not": {
+              "anyOf": [
+                {
+                  "required": ["decision"]
+                },
+                {
+                  "required": ["resolvedBy"]
+                },
+                {
+                  "required": ["resolvedAt"]
+                }
+              ]
+            }
+          },
+          {
+            "properties": {
+              "state": {
+                "const": "closed"
+              },
+              "version": {
+                "const": 3
+              },
+              "closeReason": {
+                "enum": ["runtime-request-cleared", "runtime-ended", "cancelled"]
+              }
+            },
+            "required": ["closedAt", "closeReason", "decision", "resolvedBy", "resolvedAt"]
+          },
+          {
+            "properties": {
+              "state": {
+                "const": "expired"
+              },
+              "version": {
+                "const": 2
+              },
+              "closeReason": {
+                "const": "expired"
+              }
+            },
+            "required": ["closedAt", "closeReason"],
+            "not": {
+              "anyOf": [
+                {
+                  "required": ["decision"]
+                },
+                {
+                  "required": ["resolvedBy"]
+                },
+                {
+                  "required": ["resolvedAt"]
+                }
+              ]
+            }
+          },
+          {
+            "properties": {
+              "state": {
+                "const": "expired"
+              },
+              "version": {
+                "const": 3
+              },
+              "closeReason": {
+                "const": "expired"
+              }
+            },
+            "required": ["closedAt", "closeReason", "decision", "resolvedBy", "resolvedAt"]
+          }
+        ]
       },
       "EventEnvelope": {
         "type": "object",
