@@ -6,3 +6,6 @@
 *.gif binary
 *.webp binary
 *.woff2 binary
+
+# Unified diffs encode blank context lines with a leading space.
+deploy/openshell/codex-compatibility/*.patch whitespace=-blank-at-eol
