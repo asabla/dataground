@@ -34,6 +34,7 @@ var (
 	ErrNoGateway                    = execution.ErrNoGateway
 	ErrExecutionMissing             = execution.ErrExecutionMissing
 	ErrProviderFailure              = errors.New("execution provider operation failed")
+	ErrExportPathInvalid            = errors.New("sandbox export path must be a clean absolute path beneath /sandbox")
 	ErrProviderObservation          = errors.New("execution provider observation failed")
 	ErrProviderSettingsObservation  = errors.New("execution provider settings observation failed")
 	ErrProviderSettingsMutation     = errors.New("execution provider settings mutation failed")
@@ -530,8 +531,9 @@ func (provider *Provider) Export(ctx context.Context, request execution.ExportRe
 	}
 	if request.SandboxPath == "" || !path.IsAbs(request.SandboxPath) ||
 		path.Clean(request.SandboxPath) != request.SandboxPath ||
-		strings.ContainsRune(request.SandboxPath, '\x00') {
-		return execution.ExportResult{}, errors.New("sandbox export path must be clean and absolute")
+		strings.ContainsRune(request.SandboxPath, '\x00') ||
+		!strings.HasPrefix(request.SandboxPath, "/sandbox/") {
+		return execution.ExportResult{}, ErrExportPathInvalid
 	}
 	ref := execution.ExecutionRef{IsolationDomainID: request.IsolationDomainID, ID: request.ExecutionID}
 	entry, gateway, err := provider.lookupExecution(ctx, ref)
