@@ -34,10 +34,15 @@ func TestCodexProviderBoundSandboxCompatibility(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
+	supervisor := os.Getenv("DATAGROUND_TEST_SUPERVISOR_COMPATIBILITY_IMAGE")
 	if err := canarylauncher.CheckCandidate(ctx, canarylauncher.Config{RepositoryRoot: root, WorkspaceRoot: workspace, OpenShellBinary: binary}, image); err != nil {
 		t.Fatal("candidate credential scan failed")
 	}
-	for _, candidate := range []bool{false, true} {
+	candidates := []bool{false, true}
+	if supervisor != "" {
+		candidates = []bool{true}
+	}
+	for _, candidate := range candidates {
 		name := "missing-null-device"
 		if candidate {
 			name = "candidate-policy"
@@ -48,7 +53,7 @@ func TestCodexProviderBoundSandboxCompatibility(t *testing.T) {
 				t.Fatal(err)
 			}
 			resources := namesForRun(runID)
-			topology, err := NewDockerTopology(DockerTopologyConfig{RunID: runID, RepositoryRoot: root, WorkspaceRoot: workspace})
+			topology, err := NewDockerTopology(DockerTopologyConfig{supervisorCandidateImage: supervisor, RunID: runID, RepositoryRoot: root, WorkspaceRoot: workspace})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -96,12 +101,15 @@ func TestCodexProviderBoundSandboxCompatibility(t *testing.T) {
 			if candidate {
 				selection.candidateImage = image
 			}
+			if supervisor != "" {
+				selection.policyProfile = RosettaRuntimePolicyProfile
+			}
 			policy, err := readRuntimeLauncherPolicy(selection)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if candidate {
-				creator, err := NewExecutionCreator(ExecutionCreationConfig{diagnosticImage: image, RunID: runID, Policy: policy, Store: ports.store, Provider: ports.provider})
+				creator, err := NewExecutionCreator(ExecutionCreationConfig{policyProfile: selection.policyProfile, diagnosticImage: image, RunID: runID, Policy: policy, Store: ports.store, Provider: ports.provider})
 				if err != nil {
 					t.Fatal(err)
 				}

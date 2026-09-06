@@ -1,0 +1,80 @@
+name: OpenShell supervisor compatibility candidate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/openshell-supervisor-compatibility.yml
+      - deploy/openshell/supervisor-compatibility/**
+      - deploy/openshell/runtime-conformance/**
+      - deploy/openshell/codex-compatibility/rosetta-runtime-*
+      - internal/execution/runtimeevidence/**
+      - internal/execution/openshell/**
+      - .go-version
+      - go.mod
+      - go.sum
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openshell-supervisor-compatibility-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  strict-landlock:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
+
+      - name: Build the pinned supervisor and require strict kernel denials
+        run: docker build --tag dataground-supervisor-compatibility:ci deploy/openshell/supervisor-compatibility
+
+      - name: Require candidate identity without activating a runtime
+        id: supervisor
+        run: |
+          test "$(docker image inspect --format '{{index .Config.Labels "dataground.dev.supervisor-compatibility-source"}}' dataground-supervisor-compatibility:ci)" = d556748771c41cbbd4e4dd7cd9030c798afe2b7d
+          test "$(docker image inspect --format '{{index .Config.Labels "dataground.dev.certification-eligible"}}' dataground-supervisor-compatibility:ci)" = false
+          candidate_image=$(docker image inspect --format '{{.Id}}' dataground-supervisor-compatibility:ci)
+          printf 'image=%s\n' "$candidate_image" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: .go-version
+
+      - name: Extract the pinned ARM64 OpenShell CLI
+        id: openshell
+        run: |
+          package="$RUNNER_TEMP/openshell_0.0.86-1_arm64.deb"
+          curl --fail --location --silent --show-error --retry 3 --max-redirs 5 \
+            --proto '=https' --tlsv1.2 \
+            https://github.com/NVIDIA/OpenShell/releases/download/v0.0.86/openshell_0.0.86-1_arm64.deb --output "$package"
+          printf '%s  %s\n' c46feefdd72f7a1fb3e5f43981f8e21b6942086108a249ff22f08a100a750bc2 "$package" | sha256sum --check --strict -
+          cli_root="$RUNNER_TEMP/openshell-cli"
+          install --directory --mode 0700 "$cli_root"
+          dpkg-deb --extract "$package" "$cli_root"
+          printf 'cli=%s\n' "$cli_root/usr/bin/openshell" >> "$GITHUB_OUTPUT"
+
+      - name: Acquire the exact published ARM64 Codex candidate
+        id: runtime
+        run: |
+          image=ghcr.io/asabla/dataground-codex-candidate@sha256:9fff9875097a3608fce25e0d401cacc70ad10113237683fe907e45d94e4b24a1
+          docker pull "$image"
+          candidate_image=$(docker image inspect --format '{{.Id}}' "$image")
+          printf 'image=%s\n' "$candidate_image" >> "$GITHUB_OUTPUT"
+
+      - name: Require native restrictions and artifact export under the strict policy
+        env:
+          DATAGROUND_TEST_CODEX_COMPATIBILITY_IMAGE: ${{ steps.runtime.outputs.image }}
+          DATAGROUND_TEST_SUPERVISOR_COMPATIBILITY_IMAGE: ${{ steps.supervisor.outputs.image }}
+          DATAGROUND_TEST_RUNTIME_TOPOLOGY_ROOT: ${{ github.workspace }}
+          DATAGROUND_TEST_OPENSHELL_BINARY: ${{ steps.openshell.outputs.cli }}
+        run: >-
+          go test ./internal/execution/runtimeevidence
+          -run '^TestCodexProviderBoundSandboxCompatibility$'
+          -count=1 -timeout=10m -v
