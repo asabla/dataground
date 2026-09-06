@@ -7,21 +7,38 @@ import addFormats from "ajv-formats";
 const root = resolve(import.meta.dirname, "..");
 const read = async (name) =>
   JSON.parse(await readFile(resolve(root, "deploy/openshell", name), "utf8"));
-const [profile, evidenceSchema, diagnosticSchema, policy, rosettaSchema, rosettaPolicy] =
-  await Promise.all([
-    read("development-profile.json"),
-    read("runtime-conformance-evidence.schema.json"),
-    read("runtime-candidate-diagnostic.schema.json"),
-    readFile(resolve(root, "deploy/openshell/codex-compatibility/runtime-policy.yaml")),
-    read("runtime-rosetta-diagnostic.schema.json"),
-    readFile(resolve(root, "deploy/openshell/codex-compatibility/rosetta-runtime-policy.yaml")),
-  ]);
+const [
+  profile,
+  evidenceSchema,
+  diagnosticSchema,
+  policy,
+  rosettaSchema,
+  rosettaPolicy,
+  supervisorSchema,
+  gatewayTemplate,
+] = await Promise.all([
+  read("development-profile.json"),
+  read("runtime-conformance-evidence.schema.json"),
+  read("runtime-candidate-diagnostic.schema.json"),
+  readFile(resolve(root, "deploy/openshell/codex-compatibility/runtime-policy.yaml")),
+  read("runtime-rosetta-diagnostic.schema.json"),
+  readFile(resolve(root, "deploy/openshell/codex-compatibility/rosetta-runtime-policy.yaml")),
+  read("runtime-supervisor-diagnostic.schema.json"),
+  readFile(resolve(root, "deploy/openshell/runtime-conformance/gateway.toml"), "utf8"),
+]);
 const ajv = new Ajv2020({ strict: true, allErrors: true });
 addFormats(ajv);
 ajv.addSchema(evidenceSchema);
 const validate = ajv.compile(diagnosticSchema);
 const validateRosetta = ajv.compile(rosettaSchema);
+const validateSupervisor = ajv.compile(supervisorSchema);
 const topology = profile.runtime.conformance.topology;
+if (
+  createHash("sha256").update(gatewayTemplate).digest("hex") !== topology.gatewayConfigSHA256 ||
+  gatewayTemplate.split(profile.artifacts.supervisor).length !== 2
+) {
+  throw new Error("Checked runtime gateway template does not match its profile.");
+}
 const expectedProfile = {
   openshellCommit: profile.source.openshell.commit,
   gatewayImage: topology.gatewayImage,
@@ -44,15 +61,24 @@ function nanoseconds(value) {
   return BigInt(milliseconds) * 1000000n + BigInt((match[2] ?? "").padEnd(9, "0"));
 }
 
-export function verifyDiagnostic(value, { sourceCommit, candidateImage }) {
+export function verifyDiagnostic(value, { sourceCommit, candidateImage, supervisorImage }) {
   if (
     !/^[a-f0-9]{40}$/.test(sourceCommit ?? "") ||
     !/^sha256:[a-f0-9]{64}$/.test(candidateImage ?? "")
   ) {
     return ["exact source commit and local candidate image are required"];
   }
-  const rosetta = value?.schemaVersion === "dataground.dev.openshell-runtime-diagnostic/v4";
-  if (!(rosetta ? validateRosetta : validate)(value))
+  const supervisor = value?.schemaVersion === "dataground.dev.openshell-runtime-diagnostic/v5";
+  if (
+    supervisor
+      ? !/^sha256:[a-f0-9]{64}$/.test(supervisorImage ?? "")
+      : supervisorImage !== undefined
+  ) {
+    return ["the exact supervisor image is required only for a v5 diagnostic"];
+  }
+  const rosetta =
+    supervisor || value?.schemaVersion === "dataground.dev.openshell-runtime-diagnostic/v4";
+  if (!(supervisor ? validateSupervisor : rosetta ? validateRosetta : validate)(value))
     return ["record does not match the closed candidate diagnostic schema"];
   const failures = [];
   if (
@@ -63,6 +89,14 @@ export function verifyDiagnostic(value, { sourceCommit, candidateImage }) {
       runtimePolicySHA256: createHash("sha256")
         .update(rosetta ? rosettaPolicy : policy)
         .digest("hex"),
+      ...(supervisor
+        ? {
+            supervisorImage,
+            gatewayConfigSHA256: createHash("sha256")
+              .update(gatewayTemplate.replace(profile.artifacts.supervisor, supervisorImage))
+              .digest("hex"),
+          }
+        : {}),
     }).some(([key, expected]) => value.profile[key] !== expected)
   ) {
     failures.push("diagnostic does not match the expected source, image and checked profile");
@@ -119,10 +153,10 @@ if (import.meta.main) {
     !file ||
     sourceFlag !== "--source-commit" ||
     imageFlag !== "--candidate-image" ||
-    extra.length
+    (extra.length !== 0 && (extra.length !== 2 || extra[0] !== "--supervisor-candidate-image"))
   ) {
     console.error(
-      "usage: node scripts/check-openshell-runtime-diagnostic.mjs <record.json> --source-commit <sha> --candidate-image sha256:<id>",
+      "usage: node scripts/check-openshell-runtime-diagnostic.mjs <record.json> --source-commit <sha> --candidate-image sha256:<id> [--supervisor-candidate-image sha256:<id>]",
     );
     process.exitCode = 2;
   } else {
@@ -132,6 +166,7 @@ if (import.meta.main) {
       const failures = verifyDiagnostic(JSON.parse(bytes.toString("utf8")), {
         sourceCommit,
         candidateImage,
+        supervisorImage: extra[1],
       });
       if (failures.length) {
         console.error(failures.join("\n"));
