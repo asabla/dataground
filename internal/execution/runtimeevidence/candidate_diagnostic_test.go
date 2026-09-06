@@ -180,6 +180,22 @@ func TestLocalNormalizationFailuresRemainClosedAndSingleUse(t *testing.T) {
 	}
 }
 
+func TestLocalApprovalDiagnosticsRejectUntrustedStages(t *testing.T) {
+	state := &codexProbeState{diagnosticModel: "selected-model"}
+	for _, name := range []CheckName{CheckCommandApproval, CheckFileChangeApproval} {
+		if state.approvalFailure(name, "private native payload") != ErrCodexProbeObservation {
+			t.Fatal("unknown diagnostic content was exposed")
+		}
+	}
+	if state.approvalFailure(CheckName("private native payload"), "decision") != ErrCodexProbeObservation {
+		t.Fatal("unknown case content was exposed")
+	}
+	state.diagnosticModel = ""
+	if state.approvalFailure(CheckFileChangeApproval, "decision") != ErrCodexProbeObservation {
+		t.Fatal("CI mode emitted local diagnostic details")
+	}
+}
+
 func TestLocalNormalizationFailureSurvivesCompleteEvidenceComposition(t *testing.T) {
 	failure := (&codexProbeState{diagnosticModel: "selected-model"}).normalizationFailure("command-start")
 	scenario := newTestConcreteScenario(t, &scenarioProbes{fail: failure})
