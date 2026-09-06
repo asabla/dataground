@@ -91,7 +91,20 @@ pnpm codex:candidate:attestation:check \
   /absolute/private/trusted-root.jsonl "$REVIEWED_TRUST_ROOT_SHA256"
 ```
 
-This command requires GitHub CLI 2.98.0 and checks the same exact certificate and subject bindings as the online publication verifier. It reads bounded, owner-held non-symlink files, checks the manifest and trust-root digests, freezes private copies, and runs the verifier with an isolated configuration/state directory and no inherited credentials. The child receives explicit offline inputs and HTTP(S) proxy settings pointing to loopback port 9; it acquires no remote evidence. Temporary inputs and CLI state are removed after success or failure. Offline verification establishes the signed image digest and invocation only: it does not inspect image architecture or isolation metadata, check workflow completion, accept a runtime diagnostic, or enable governed execution. Its output explicitly retains `publicationCompletionChecked: false` and `certificationEligible: false`.
+This command requires GitHub CLI 2.98.0 and checks the same exact certificate and subject bindings as the online publication verifier. It reads bounded, owner-held non-symlink files, checks the manifest and trust-root digests, freezes private copies, and runs the verifier with an isolated configuration/state directory and no inherited credentials. The child receives explicit offline inputs and HTTP(S) proxy settings pointing to loopback port 9; it acquires no remote evidence. Temporary inputs and CLI state are removed after success or failure. Without a configuration blob, offline verification establishes the signed image digest and invocation only. It does not check workflow completion, accept a runtime diagnostic, or enable governed execution. Its output explicitly retains `publicationCompletionChecked: false` and `certificationEligible: false`.
+
+To also verify image architecture and isolation metadata, append the expected architecture and a private file containing the exact raw configuration blob addressed by the manifest:
+
+```sh
+pnpm codex:candidate:attestation:check \
+  "sha256:$CANDIDATE_DIGEST" "$REVIEWED_SOURCE_COMMIT" \
+  "$PUBLICATION_RUN_ID" "$PUBLICATION_RUN_ATTEMPT" \
+  /absolute/private/manifest.json /absolute/private/bundle.jsonl \
+  /absolute/private/trusted-root.jsonl "$REVIEWED_TRUST_ROOT_SHA256" \
+  arm64 /absolute/private/image-config.json
+```
+
+The configuration uses the same bounded private-file acquisition rules. The verifier checks its exact byte length and SHA-256 against the signed Docker v2 or OCI image manifest, then requires the selected Linux architecture, `sandbox` user and candidate source/non-certification labels. Docker inspection output is a reserialization and cannot replace the original blob. Successful output includes the configuration digest and verified execution metadata. This verifies metadata committed by the signed manifest; it does not acquire or verify the filesystem layers. A local Docker image ID can identify either the manifest or its configuration, depending on the image store, so callers must retain both exact identities when relating a local diagnostic to the published image.
 
 ## Published ARM64 candidate diagnostic
 

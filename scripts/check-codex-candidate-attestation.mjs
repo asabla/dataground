@@ -18,6 +18,36 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+function verifyImageConfiguration(manifestBytes, configBytes, architecture) {
+  const manifest = JSON.parse(manifestBytes.toString("utf8"));
+  const config = JSON.parse(configBytes.toString("utf8"));
+  const mediaTypes = {
+    "application/vnd.docker.distribution.manifest.v2+json":
+      "application/vnd.docker.container.image.v1+json",
+    "application/vnd.oci.image.manifest.v1+json": "application/vnd.oci.image.config.v1+json",
+  };
+  const configDigest = `sha256:${sha256(configBytes)}`;
+  if (
+    !["amd64", "arm64"].includes(architecture) ||
+    manifest?.schemaVersion !== 2 ||
+    !Object.hasOwn(mediaTypes, manifest.mediaType ?? "") ||
+    manifest.config?.mediaType !== mediaTypes[manifest.mediaType] ||
+    manifest.config.digest !== configDigest ||
+    manifest.config.size !== configBytes.length ||
+    config?.architecture !== architecture ||
+    config.os !== "linux" ||
+    config.config?.User !== "sandbox" ||
+    config.config.Labels?.["org.opencontainers.image.source"] !==
+      "https://github.com/asabla/dataground" ||
+    config.config.Labels?.["dataground.dev.codex-compatibility-source"] !==
+      "4c70bff480af37b1bf1a9b352b8341060fe55755" ||
+    config.config.Labels?.["dataground.dev.certification-eligible"] !== "false"
+  ) {
+    throw new Error("Candidate configuration does not match the signed image and profile.");
+  }
+  return { configDigest, architecture, os: "linux", user: "sandbox" };
+}
+
 function readPrivateSnapshot(file, maximumBytes) {
   if (!isAbsolute(file) || normalize(file) !== file || typeof process.getuid !== "function") {
     throw new Error("Attestation inputs require clean absolute private file paths.");
@@ -69,6 +99,16 @@ export function verifyOfflineAttestation(scope, inputs, run = execFileSync) {
   ) {
     throw new Error("Manifest or trusted-root digest does not match.");
   }
+  // The raw configuration is addressed by the signed manifest. A Docker inspect
+  // rendering is not that blob and cannot establish this digest relationship.
+  const image =
+    inputs.imageConfig === undefined
+      ? undefined
+      : verifyImageConfiguration(
+          manifest,
+          readPrivateSnapshot(inputs.imageConfig, 1 << 20),
+          scope.architecture,
+        );
   const directory = mkdtempSync(join(tmpdir(), "dataground-candidate-attestation-"));
   try {
     const files = {
@@ -108,6 +148,7 @@ export function verifyOfflineAttestation(scope, inputs, run = execFileSync) {
       invocation,
       bundleSHA256: sha256(bundle),
       trustedRootSHA256: inputs.trustedRootSHA256,
+      ...(image ? { image } : {}),
       publicationCompletionChecked: false,
       certificationEligible: false,
     };
@@ -126,15 +167,19 @@ if (import.meta.main) {
     bundle,
     trustedRoot,
     trustedRootSHA256,
+    architecture,
+    imageConfig,
     ...extra
   ] = process.argv.slice(2);
   try {
-    if (extra.length || !trustedRootSHA256) throw new Error("Invalid arguments.");
+    if (extra.length || !trustedRootSHA256 || Boolean(architecture) !== Boolean(imageConfig)) {
+      throw new Error("Invalid arguments.");
+    }
     console.log(
       JSON.stringify(
         verifyOfflineAttestation(
-          { digest, sourceCommit, runId, runAttempt },
-          { manifest, bundle, trustedRoot, trustedRootSHA256 },
+          { digest, sourceCommit, runId, runAttempt, architecture },
+          { manifest, bundle, trustedRoot, trustedRootSHA256, imageConfig },
         ),
       ),
     );
