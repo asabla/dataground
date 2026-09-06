@@ -119,7 +119,7 @@ func TestGovernedDevelopmentPlanRequiresExactPinnedProfile(t *testing.T) {
 		ProviderProfiles:        []string{governedProviderProfile},
 		RequiredCapabilities:    []string{reconcile.CodexAppServerRuntimeProfileV1},
 	}
-	if !validGovernedDevelopmentPlan(plan) {
+	if !validGovernedDevelopmentPlan(plan, "") {
 		t.Fatal("exact governed development plan was rejected")
 	}
 	tests := []struct {
@@ -142,7 +142,7 @@ func TestGovernedDevelopmentPlanRequiresExactPinnedProfile(t *testing.T) {
 			changed.ProviderProfiles = slices.Clone(plan.ProviderProfiles)
 			changed.RequiredCapabilities = slices.Clone(plan.RequiredCapabilities)
 			test.mutate(&changed)
-			if validGovernedDevelopmentPlan(changed) {
+			if validGovernedDevelopmentPlan(changed, "") {
 				t.Fatal("profile drift was accepted")
 			}
 		})
