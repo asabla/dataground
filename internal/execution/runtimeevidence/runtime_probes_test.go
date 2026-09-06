@@ -104,6 +104,8 @@ func TestCodexProbesRejectUnexpectedTerminalWithoutWaitingForDeadline(t *testing
 		{"failed-success-probe", 1, "failed"},
 		{"cancelled-success-probe", 1, "interrupted"},
 		{"successful-failure-probe", 2, "completed"},
+		{"command-without-approval", 6, "completed"},
+		{"file-change-without-approval", 7, "completed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			scripts := codexProbeScripts(testRunID)
@@ -119,7 +121,7 @@ func TestCodexProbesRejectUnexpectedTerminalWithoutWaitingForDeadline(t *testing
 			}
 			fixture := newCodexProbeFixture(scripts...)
 			probes := fixture.open(t)
-			calls := []func(context.Context, ProbeRequest) (ProbeResult, error){probes.Initialize, probes.TurnSuccess, probes.TurnFailure}
+			calls := []func(context.Context, ProbeRequest) (ProbeResult, error){probes.Initialize, probes.TurnSuccess, probes.TurnFailure, probes.EventNormalization, probes.Interrupt, probes.Cancellation, probes.CommandApproval, probes.FileChangeApproval}
 			for index := 0; index < test.index; index++ {
 				if _, err := calls[index](context.Background(), testProbeRequest()); err != nil {
 					t.Fatal(err)

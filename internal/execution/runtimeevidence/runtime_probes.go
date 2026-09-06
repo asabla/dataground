@@ -298,7 +298,8 @@ func (probes *CodexProbes) CommandApproval(
 	request ProbeRequest,
 ) (ProbeResult, error) {
 	return probes.approval(ctx, request, CheckCommandApproval, "process.execute", dgruntime.StartRequest{
-		Prompt:       "Request approval to run printf 'dg-command-" + request.RunID + "'. Do not answer without running it.",
+		Prompt: "Use exec_command to run printf 'dg-command-" + request.RunID +
+			"' with sandbox_permissions set to require_escalated and justification set to 'Exercise the controlled command approval denial'. Request approval before executing; do not run this command with default permissions.",
 		ApprovalMode: dgruntime.ApprovalInteractive,
 		SandboxMode:  dgruntime.SandboxReadOnly,
 	})
@@ -309,8 +310,10 @@ func (probes *CodexProbes) FileChangeApproval(
 	request ProbeRequest,
 ) (ProbeResult, error) {
 	return probes.approval(ctx, request, CheckFileChangeApproval, "workspace.change", dgruntime.StartRequest{
-		Prompt: "Request approval to create /tmp/dg-file-" + request.RunID +
-			".txt containing dg-file-" + request.RunID + ". Do not answer without changing the file.",
+		// The destination must be outside the native writable workspace, otherwise
+		// apply_patch can legitimately finish without an approval request.
+		Prompt: "Apply exactly this patch using apply_patch. If a dedicated apply_patch tool is unavailable, invoke apply_patch through the command tool. Let apply_patch request approval for the destination outside the current workspace. Do not use another file-writing command or change the destination.\n*** Begin Patch\n*** Add File: /sandbox/dg-file-" + request.RunID +
+			".txt\n+dg-file-" + request.RunID + "\n*** End Patch",
 		WorkingDir:   "/tmp",
 		ApprovalMode: dgruntime.ApprovalInteractive,
 		SandboxMode:  dgruntime.SandboxWorkspaceWrite,

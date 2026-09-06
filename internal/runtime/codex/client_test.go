@@ -39,8 +39,7 @@ func TestClientPerformsHandshakeAndNormalizesTurn(t *testing.T) {
 		if threadParams["ephemeral"] != true || threadParams["approvalsReviewer"] != "user" || threadParams["sandbox"] != "workspace-write" {
 			t.Fatalf("thread policy is not deterministic: %#v", threadParams)
 		}
-		capabilities, ok := threadParams["approvalPolicy"].(map[string]any)
-		if !ok || capabilities["granular"] == nil {
+		if threadParams["approvalPolicy"] != "on-request" {
 			t.Fatalf("interactive approvals are not explicit: %#v", threadParams["approvalPolicy"])
 		}
 		server.respond(thread.ID, map[string]any{"thread": map[string]any{"id": "native-thread-sensitive"}})

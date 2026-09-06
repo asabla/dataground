@@ -347,17 +347,13 @@ func (client *Client) Close() error {
 	return nil
 }
 
-func approvalPolicy(mode dgruntime.ApprovalMode) any {
+func approvalPolicy(mode dgruntime.ApprovalMode) string {
 	if mode == dgruntime.ApprovalLocked {
 		return "never"
 	}
-	return map[string]any{"granular": map[string]bool{
-		"mcp_elicitations":    true,
-		"request_permissions": true,
-		"rules":               true,
-		"sandbox_approval":    true,
-		"skill_approval":      true,
-	}}
+	// The pinned command handler accepts model-requested escalation only under
+	// OnRequest, even when a granular policy enables sandbox approvals.
+	return "on-request"
 }
 
 func (client *Client) request(ctx context.Context, method string, params any, target any) error {
