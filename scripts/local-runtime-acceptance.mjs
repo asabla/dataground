@@ -15,14 +15,25 @@ const profile = readFileSync(join(root, "deploy/openshell/development-profile.js
 const schema = JSON.parse(
   readFileSync(join(root, "deploy/openshell/local-runtime-acceptance.schema.json")),
 );
+const strictSchema = JSON.parse(
+  readFileSync(join(root, "deploy/openshell/local-strict-runtime-acceptance.schema.json")),
+);
 const ajv = new Ajv2020({ strict: true, allErrors: true });
 addFormats(ajv);
-const validateEnvelope = ajv.compile(schema);
-const validateStatement = ajv.compile({ $ref: `${schema.$id}#/$defs/statement` });
-const validateTrust = ajv.compile({ $ref: `${schema.$id}#/$defs/trust` });
+ajv.addSchema(schema);
+ajv.addSchema(strictSchema);
+const documents = (suffix) => ({
+  anyOf: [schema, strictSchema].map((value) => ({ $ref: `${value.$id}${suffix}` })),
+});
+const validateEnvelope = ajv.compile(documents(""));
+const validateStatement = ajv.compile(documents("#/$defs/statement"));
+const validateTrust = ajv.compile(documents("#/$defs/trust"));
 const day = 24 * 60 * 60 * 1000;
-const domain = "DataGround local candidate runtime acceptance v1\n";
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
+const strictAcceptance = (statement) =>
+  statement.contract === "dataground.local-runtime-acceptance-statement/v2";
+const domain = (statement) =>
+  `DataGround local candidate runtime acceptance v${strictAcceptance(statement) ? 2 : 1}\n`;
 
 export function canonicalJSON(value) {
   const sort = (item, level) => {
@@ -73,7 +84,10 @@ function decode(value, length) {
 
 function validateBindings(statement, trustBytes, artifacts, expected) {
   const trust = parse(trustBytes, validateTrust);
+  const strict = strictAcceptance(statement);
   if (
+    trust.contract !== `dataground.local-runtime-acceptance-trust/v${strict ? 2 : 1}` ||
+    (strict && trust.profile !== statement.profile) ||
     !/^[a-f0-9]{64}$/.test(expected.trustProfileSHA256 ?? "") ||
     hash(trustBytes) !== expected.trustProfileSHA256 ||
     statement.trustProfileSHA256 !== expected.trustProfileSHA256 ||
@@ -104,6 +118,9 @@ function validateBindings(statement, trustBytes, artifacts, expected) {
     imageConfig: 1 << 20,
     bundle: 4 << 20,
     trustedRoot: 1 << 20,
+    ...(strict
+      ? { supervisorManifest: 1 << 20, supervisorImageConfig: 1 << 20, supervisorBundle: 4 << 20 }
+      : {}),
   })) {
     if (
       !Buffer.isBuffer(artifacts[name]) ||
@@ -123,10 +140,11 @@ function validateBindings(statement, trustBytes, artifacts, expected) {
     throw new Error("Acceptance evidence digest does not match.");
   const diagnostic = JSON.parse(artifacts.diagnostic.toString("utf8"));
   if (
-    diagnostic.schemaVersion !== "dataground.dev.openshell-runtime-diagnostic/v3" ||
+    diagnostic.schemaVersion !== `dataground.dev.openshell-runtime-diagnostic/v${strict ? 5 : 3}` ||
     verifyDiagnostic(diagnostic, {
       sourceCommit: statement.sourceRevision,
       candidateImage: statement.localImageId,
+      ...(strict ? { supervisorImage: statement.supervisor.localImageId } : {}),
     }).length ||
     diagnostic.run.model !== statement.model ||
     issued <= Date.parse(diagnostic.run.finishedAt) ||
@@ -136,12 +154,23 @@ function validateBindings(statement, trustBytes, artifacts, expected) {
     )
   )
     throw new Error("Acceptance diagnostic, model, image identity or evidence age is invalid.");
+  if (
+    strict &&
+    (hash(artifacts.supervisorManifest) !== statement.supervisor.publication.digest.slice(7) ||
+      hash(artifacts.supervisorImageConfig) !== statement.supervisor.configSHA256 ||
+      hash(artifacts.supervisorBundle) !== statement.supervisor.bundleSHA256 ||
+      ![
+        statement.supervisor.publication.digest,
+        `sha256:${statement.supervisor.configSHA256}`,
+      ].includes(statement.supervisor.localImageId))
+  )
+    throw new Error("Acceptance supervisor evidence or local image identity does not match.");
   decode(trust.publicKey, 32);
-  return trust;
+  return { trust, diagnostic };
 }
 
 function verifyImage(statement, trust, artifacts, run) {
-  return verifyOfflineAttestationSnapshots(
+  verifyOfflineAttestationSnapshots(
     statement.publication,
     {
       ...artifacts,
@@ -149,26 +178,48 @@ function verifyImage(statement, trust, artifacts, run) {
     },
     run,
   );
+  if (strictAcceptance(statement)) {
+    verifyOfflineAttestationSnapshots(
+      statement.supervisor.publication,
+      {
+        manifest: artifacts.supervisorManifest,
+        imageConfig: artifacts.supervisorImageConfig,
+        bundle: artifacts.supervisorBundle,
+        trustedRoot: artifacts.trustedRoot,
+        trustedRootSHA256: trust.trustedRootSHA256,
+      },
+      run,
+      "supervisor",
+    );
+  }
 }
 
 // The signer vouches for local observations and successful post-signing workflow
 // completion. GitHub's image signature alone cannot establish either fact.
 export function prepareAcceptance(statementBytes, trustBytes, artifacts, expected, run) {
   const statement = parse(statementBytes, validateStatement);
-  const trust = validateBindings(statement, trustBytes, artifacts, expected);
+  const { trust } = validateBindings(statement, trustBytes, artifacts, expected);
   verifyImage(statement, trust, artifacts, run);
   const publication = verifyPublication(statement.publication, run);
   if (publication.imageId !== statement.localImageId) {
     throw new Error("The pulled published image does not match the local diagnostic.");
   }
+  if (strictAcceptance(statement)) {
+    const supervisor = verifyPublication(statement.supervisor.publication, run, "supervisor");
+    if (supervisor.imageId !== statement.supervisor.localImageId) {
+      throw new Error("The pulled supervisor does not match the local diagnostic.");
+    }
+  }
   validateBindings(statement, trustBytes, artifacts, expected);
-  return Buffer.concat([Buffer.from(domain), statementBytes]);
+  return Buffer.concat([Buffer.from(domain(statement)), statementBytes]);
 }
 
 export function verifyAcceptance(envelopeBytes, trustBytes, artifacts, expected, run) {
   const envelope = parse(envelopeBytes, validateEnvelope);
   const statement = envelope.statement;
   if (
+    envelope.contract !==
+      `dataground.local-runtime-acceptance-envelope/v${strictAcceptance(statement) ? 2 : 1}` ||
     !/^[a-f0-9]{64}$/.test(expected.envelopeSHA256 ?? "") ||
     hash(envelopeBytes) !== expected.envelopeSHA256 ||
     !sameScope(statement.scope, expected.scope) ||
@@ -179,7 +230,7 @@ export function verifyAcceptance(envelopeBytes, trustBytes, artifacts, expected,
     expected.rejectedAcceptanceIds.has(statement.acceptanceId)
   )
     throw new Error("Acceptance target, digest, generation or revocation does not match.");
-  const trust = validateBindings(statement, trustBytes, artifacts, expected);
+  const { trust } = validateBindings(statement, trustBytes, artifacts, expected);
   const key = createPublicKey({
     key: Buffer.concat([
       Buffer.from("302a300506032b6570032100", "hex"),
@@ -192,14 +243,14 @@ export function verifyAcceptance(envelopeBytes, trustBytes, artifacts, expected,
     envelope.signature.keyId !== trust.keyId ||
     !verify(
       null,
-      Buffer.concat([Buffer.from(domain), canonicalJSON(statement)]),
+      Buffer.concat([Buffer.from(domain(statement)), canonicalJSON(statement)]),
       key,
       decode(envelope.signature.value, 64),
     )
   )
     throw new Error("Local acceptance signature is invalid.");
   verifyImage(statement, trust, artifacts, run);
-  validateBindings(statement, trustBytes, artifacts, expected);
+  const { diagnostic } = validateBindings(statement, trustBytes, artifacts, expected);
   return {
     acceptanceId: statement.acceptanceId,
     generation: statement.generation,
@@ -210,10 +261,18 @@ export function verifyAcceptance(envelopeBytes, trustBytes, artifacts, expected,
     expiresAt: statement.expiresAt,
     certificationEligible: false,
     deploymentScope: statement.deploymentScope,
+    ...(strictAcceptance(statement)
+      ? {
+          supervisorImage: `ghcr.io/asabla/dataground-supervisor-candidate@${statement.supervisor.publication.digest}`,
+          supervisorLocalImageId: statement.supervisor.localImageId,
+          gatewayConfigSHA256: diagnostic.profile.gatewayConfigSHA256,
+          enforcementDigest: `sha256:${diagnostic.profile.runtimePolicySHA256}`,
+        }
+      : {}),
   };
 }
 
-function acquire(directory) {
+function acquire(directory, strict) {
   if (!isAbsolute(directory) || normalize(directory) !== directory)
     throw new Error("Evidence directory must be a clean absolute path.");
   return Object.fromEntries(
@@ -223,6 +282,13 @@ function acquire(directory) {
       imageConfig: ["image-config.json", 1 << 20],
       bundle: ["bundle.jsonl", 4 << 20],
       trustedRoot: ["trusted-root.jsonl", 1 << 20],
+      ...(strict
+        ? {
+            supervisorManifest: ["supervisor-manifest.json", 1 << 20],
+            supervisorImageConfig: ["supervisor-image-config.json", 1 << 20],
+            supervisorBundle: ["supervisor-bundle.jsonl", 4 << 20],
+          }
+        : {}),
     }).map(([key, [file, maximum]]) => [key, readPrivateSnapshot(join(directory, file), maximum)]),
   );
 }
@@ -245,7 +311,11 @@ if (import.meta.main) {
       throw new Error("Invalid arguments.");
     const document = readPrivateSnapshot(documentFile, 64 << 10);
     const trust = readPrivateSnapshot(trustFile, 64 << 10);
-    const artifacts = acquire(directory);
+    const value = parse(document, mode === "prepare" ? validateStatement : validateEnvelope);
+    const artifacts = acquire(
+      directory,
+      strictAcceptance(mode === "prepare" ? value : value.statement),
+    );
     const expected = { trustProfileSHA256, sourceRevision };
     if (mode === "prepare") {
       const [output] = options;
