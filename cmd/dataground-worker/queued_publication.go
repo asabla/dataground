@@ -19,6 +19,7 @@ var publicationOperationIDPattern = regexp.MustCompile(`^op_[0-9a-z]{20,32}$`)
 
 type developmentPublicationStore interface {
 	reconcile.Store
+	FindAuthorizedDevelopmentPublication(context.Context, persistence.DevelopmentPublicationInput) (*domain.Operation, error)
 	RequireAuthorizedDevelopmentPublication(context.Context, string, persistence.DevelopmentPublicationInput) error
 	ClaimAuthorizedDevelopmentPublication(context.Context, string, persistence.DevelopmentPublicationInput, string, time.Duration) (*persistence.OperationClaim, error)
 	CompleteAuthorizedDevelopmentPublication(context.Context, persistence.OperationClaim, persistence.DevelopmentPublicationInput, persistence.DevelopmentPublicationVerifier, persistence.PublicationAuthorization) error
@@ -88,8 +89,15 @@ func consumeAuthorizedDevelopmentPublication(ctx context.Context, store developm
 }
 
 func consumePublication(ctx context.Context, store developmentPublicationStore, config developmentPublicationConfiguration, workerID string, verify persistence.DevelopmentPublicationVerifier, authorize persistence.PublicationAuthorization, output io.Writer) error {
-	if ctx == nil || ctx.Err() != nil || store == nil || verify == nil || workerID == "" || len(workerID) > 256 || strings.TrimSpace(workerID) != workerID || strings.ContainsAny(workerID, "\r\n\x00") || !publicationOperationIDPattern.MatchString(config.operationID) || !config.input.ValidReviewedInputs() {
+	if ctx == nil || ctx.Err() != nil || store == nil || verify == nil || workerID == "" || len(workerID) > 256 || strings.TrimSpace(workerID) != workerID || strings.ContainsAny(workerID, "\r\n\x00") || (!publicationOperationIDPattern.MatchString(config.operationID) && !(config.authorizedPublication() && config.operationID == "")) || !config.input.ValidReviewedInputs() {
 		return errDevelopmentPublication
+	}
+	if config.authorizedPublication() && config.operationID == "" {
+		operation, err := awaitAuthorizedPublication(ctx, store, config.input)
+		if err != nil {
+			return errDevelopmentPublication
+		}
+		config.operationID = operation.Metadata.ID
 	}
 	version := publication.QueuedDevelopmentVersion
 	require := store.RequireDevelopmentPublication
@@ -134,6 +142,33 @@ func consumePublication(ctx context.Context, store developmentPublicationStore, 
 		select {
 		case <-ctx.Done():
 			return errDevelopmentPublication
+		case <-ticker.C:
+		}
+	}
+}
+
+// Waiting observes accepted state only. No verifier, authorization callback or
+// claim runs before the API has durably accepted the exact reviewed request.
+func awaitAuthorizedPublication(ctx context.Context, store developmentPublicationStore, input persistence.DevelopmentPublicationInput) (*domain.Operation, error) {
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for {
+		if ctx.Err() != nil {
+			return nil, errDevelopmentPublication
+		}
+		operation, err := store.FindAuthorizedDevelopmentPublication(ctx, input)
+		if err != nil {
+			return nil, errDevelopmentPublication
+		}
+		if operation != nil {
+			if !publicationOperationIDPattern.MatchString(operation.Metadata.ID) || operation.Metadata.IsolationDomainID != input.Target.IsolationDomainID || operation.ResourceID != input.Target.RevisionID || operation.Kind != persistence.OperationKindPublication || operation.StateMachineVersion != publication.AuthorizedDevelopmentVersion {
+				return nil, errDevelopmentPublication
+			}
+			return operation, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, errDevelopmentPublication
 		case <-ticker.C:
 		}
 	}

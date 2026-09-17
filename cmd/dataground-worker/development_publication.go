@@ -65,7 +65,10 @@ func loadDevelopmentPublication(args []string, lookup environmentLookup) (develo
 			return nil
 		})
 	}
-	if flags.Parse(args[1:]) != nil || flags.NArg() != 0 || flags.NFlag() != len(items) {
+	if flags.Parse(args[1:]) != nil || flags.NArg() != 0 {
+		return config, errDevelopmentPublication
+	}
+	if flags.NFlag() != len(items) && !(config.authorizedPublication() && config.operationID == "" && flags.NFlag() == len(items)-1) {
 		return config, errDevelopmentPublication
 	}
 	var err error
@@ -75,7 +78,7 @@ func loadDevelopmentPublication(args []string, lookup environmentLookup) (develo
 			return config, errDevelopmentPublication
 		}
 	}
-	if config.isPublicationConsumer() && !publicationOperationIDPattern.MatchString(config.operationID) {
+	if config.isPublicationConsumer() && !(config.authorizedPublication() && config.operationID == "") && !publicationOperationIDPattern.MatchString(config.operationID) {
 		return config, errDevelopmentPublication
 	}
 	config.input.ExpectedVersion, err = strconv.Atoi(version)
@@ -187,7 +190,7 @@ func runDevelopmentPublication(ctx context.Context, args []string, output io.Wri
 		}
 		return writeDevelopmentPublicationReceipt(output, result.Body)
 	}
-	if config.isPublicationConsumer() {
+	if config.isPublicationConsumer() && config.operationID != "" {
 		require := repository.RequireDevelopmentPublication
 		if config.authorizedPublication() {
 			require = repository.RequireAuthorizedDevelopmentPublication
