@@ -248,3 +248,109 @@ func TestAuthorizedPublicationConsumerRequiresAuthorityAndExactVersion(t *testin
 		t.Fatal("authorized consumer selected operator operation")
 	}
 }
+
+type waitingPublicationConsumerStore struct {
+	*publicationConsumerStore
+	observe func(context.Context, persistence.DevelopmentPublicationInput) (*domain.Operation, error)
+}
+
+func (store *waitingPublicationConsumerStore) FindAuthorizedDevelopmentPublication(ctx context.Context, input persistence.DevelopmentPublicationInput) (*domain.Operation, error) {
+	return store.observe(ctx, input)
+}
+
+func TestAuthorizedPublicationConsumerWaitsForAcceptanceAndRecoversWithoutHandoff(t *testing.T) {
+	config, base := newPublicationConsumerFixture(t)
+	config.command = "reconcile-authorized-publication"
+	config.operationID = ""
+	base.operation.StateMachineVersion = 4
+	observations, verifications, decisions := 0, 0, 0
+	store := &waitingPublicationConsumerStore{publicationConsumerStore: base}
+	store.observe = func(_ context.Context, input persistence.DevelopmentPublicationInput) (*domain.Operation, error) {
+		observations++
+		if input.Target != config.input.Target || input.PlanDigest != config.input.PlanDigest || input.PolicyDigest != config.input.PolicyDigest || input.VerificationDigest != config.input.VerificationDigest {
+			t.Fatal("discovery changed reviewed inputs")
+		}
+		if observations == 1 {
+			if base.claimed != 0 || verifications != 0 || decisions != 0 {
+				t.Fatal("worker acted before acceptance")
+			}
+			return nil, nil
+		}
+		operation := base.operation
+		return &operation, nil
+	}
+	verify := func(context.Context) (persistence.DevelopmentPublicationEvidence, error) {
+		verifications++
+		return persistence.DevelopmentPublicationEvidence{}, nil
+	}
+	authorize := func(_ context.Context, request authz.PublicationRequest) error {
+		decisions++
+		if request.ActorID != "repair-operator" {
+			t.Fatal("discovery replaced durable actor")
+		}
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var output bytes.Buffer
+	if err := consumeAuthorizedDevelopmentPublication(ctx, store, config, "preconfigured-worker", verify, authorize, &output); err != nil {
+		t.Fatal(err)
+	}
+	if observations != 2 || verifications != 1 || decisions != 1 || base.completed != 1 || output.Len() == 0 {
+		t.Fatal("publication did not complete after acceptance", observations, verifications, decisions)
+	}
+	claims := base.claimed
+	output.Reset()
+	if err := consumeAuthorizedDevelopmentPublication(ctx, store, config, "replacement", verify, authorize, &output); err != nil || base.claimed != claims || verifications != 1 || decisions != 1 || output.Len() == 0 {
+		t.Fatal("discovery repeated completed publication", err)
+	}
+}
+
+func TestPublicationDiscoveryDoesNotHideFailuresOrUseOtherScopes(t *testing.T) {
+	for _, mode := range []string{"cancelled waiting", "database", "domain", "revision", "kind", "version", "id", "changed pins"} {
+		t.Run(mode, func(t *testing.T) {
+			config, base := newPublicationConsumerFixture(t)
+			config.command = "reconcile-authorized-publication"
+			config.operationID = ""
+			base.operation.StateMachineVersion = 4
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			store := &waitingPublicationConsumerStore{publicationConsumerStore: base}
+			store.observe = func(context.Context, persistence.DevelopmentPublicationInput) (*domain.Operation, error) {
+				switch mode {
+				case "cancelled waiting":
+					cancel()
+					return nil, nil
+				case "database":
+					return nil, errors.New("private database detail")
+				case "domain":
+					base.operation.Metadata.IsolationDomainID = "iso_other"
+				case "revision":
+					base.operation.ResourceID = "rev_other"
+				case "kind":
+					base.operation.Kind = persistence.OperationKindInvocation
+				case "version":
+					base.operation.StateMachineVersion = 3
+				case "id":
+					base.operation.Metadata.ID = "op_invalid"
+				case "changed pins":
+					base.reject = true
+				}
+				operation := base.operation
+				return &operation, nil
+			}
+			verify := func(context.Context) (persistence.DevelopmentPublicationEvidence, error) {
+				t.Fatal("invalid discovery reached verifier")
+				return persistence.DevelopmentPublicationEvidence{}, nil
+			}
+			authorize := func(context.Context, authz.PublicationRequest) error {
+				t.Fatal("invalid discovery reached authority")
+				return nil
+			}
+			var output bytes.Buffer
+			if err := consumeAuthorizedDevelopmentPublication(ctx, store, config, "worker", verify, authorize, &output); err == nil || strings.Contains(err.Error(), "private") || base.claimed != 0 || output.Len() != 0 {
+				t.Fatal("discovery failure escaped", err)
+			}
+		})
+	}
+}

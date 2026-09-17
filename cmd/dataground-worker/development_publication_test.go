@@ -179,7 +179,11 @@ func TestPreparePublicationConfigurationMatchesAuthorizedConsumerPins(t *testing
 	if err != nil || consumer.input.VerificationDigest != config.input.VerificationDigest || consumer.input.ActorID != "" || consumer.publicationPolicyContract() != reconcile.InvocationAuthorizationPolicyPublicationContract {
 		t.Fatal(consumer, err)
 	}
-	for _, invalid := range [][]string{append(args, "--actor", "operator"), append(consumerArgs, "--actor", "operator"), consumerArgs[:len(consumerArgs)-2]} {
+	waiting, err := loadDevelopmentPublication(consumerArgs[:len(consumerArgs)-2], mapEnvironment(validStrictAcceptanceEnvironment()))
+	if err != nil || waiting.operationID != "" || !waiting.authorizedPublication() || waiting.input.VerificationDigest != config.input.VerificationDigest {
+		t.Fatal("waiting consumer changed reviewed inputs", err)
+	}
+	for _, invalid := range [][]string{append(args, "--actor", "operator"), append(consumerArgs, "--actor", "operator"), consumerArgs[:len(consumerArgs)-4]} {
 		if _, err := loadDevelopmentPublication(invalid, mapEnvironment(validStrictAcceptanceEnvironment())); err == nil {
 			t.Fatal("ambiguous authority accepted")
 		}

@@ -71,16 +71,19 @@ This command validates and hashes configuration only. It does not connect to Pos
 
 The public request body remains `{"expectedVersion":1}` with the normal authentication, content type and idempotency headers. The API derives the actor from authentication and takes every digest from its immutable configuration. Invalid schemas return their existing safe 409 codes. A publication denial returns `403 PUBLICATION_FORBIDDEN`; unavailable policy, audit or reviewed dependencies return retryable `503 PUBLICATION_UNAVAILABLE`. Acceptance returns a version 4 operation with status 202 and a 15-minute deadline. It leaves the revision in draft. Each retry checks current publication authority before returning the historical acceptance response. Entity refresh changes the policy digest and invalidates the old reviewed configuration; withdrawal or audit failure also withholds replay.
 
-Read the operation identity from the response and consume it with the independently configured worker:
+Start the independently configured worker before the consumer submits publication:
 
 ```sh
 DATAGROUND_WORKER_ID=authorized-publication-worker \
 go run ./cmd/dataground-worker reconcile-authorized-publication \
   --expected-version 1 \
   --plan-digest 'sha256:<reviewed-plan-digest>' \
-  --policy-digest 'sha256:<reviewed-effective-v5-policy-digest>' \
-  --operation-id "$PUBLICATION_OPERATION_ID"
+  --policy-digest 'sha256:<reviewed-effective-v5-policy-digest>'
 ```
+
+Without `--operation-id`, the worker observes the one configured isolation domain, service and revision until the API accepts its matching request. An existing draft with no request is an idle wait. Missing scope, changed draft version, an operator-only request or mismatched accepted digests fails closed. Waiting performs no authorization evaluation, runtime verification, queue insertion or lease acquisition. A signal cancels the wait. The command then consumes that operation and exits with its terminal result; it does not discover other revisions. Restarting the same command discovers retained terminal state without repeating publication, including after revision retirement. A repaired failed operation is consumed after the worker restarts. This needs no per-request operator handoff.
+
+An explicit `--operation-id "$PUBLICATION_OPERATION_ID"` remains supported when an operator wants to bind a known accepted operation. In that mode the request must already exist. The version 3 operator consumer still requires that flag.
 
 This consumer leases only the exact version 4 request. It uses the durable actor and correlation, verifies the runtime and current version 5 policy, then records a separate effect decision under the policy and lifecycle locks before publication commits. The older operator consumer cannot claim or complete this operation. Missing authority, a stale lease, expiry, withdrawal, cancellation or audit failure keeps the draft unpublished. Success atomically commits the published revision, terminal operation, runtime evidence audit and outbox event. The same recovery and terminal-observation rules described for the operator consumer apply.
 

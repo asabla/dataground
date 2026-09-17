@@ -122,6 +122,9 @@ func TestQueuedGovernedPublicationFencesVerificationAndPreservesRecovery(t *test
 		if fresh != 1 || json.Unmarshal(original, &operation) != nil || operation.StateMachineVersion != 3 || operation.ObservedState != "queued" {
 			t.Fatal("queue identity changed")
 		}
+		if operation, err := repo.FindAuthorizedDevelopmentPublication(ctx, f.input); err == nil || operation != nil {
+			t.Fatal("discovery accepted operator request", err)
+		}
 		changed := f.input
 		changed.PolicyDigest = "sha256:" + strings.Repeat("0", 64)
 		if _, err := repo.QueueDevelopmentPublication(ctx, idem, changed, time.Now().Add(time.Hour)); err == nil {

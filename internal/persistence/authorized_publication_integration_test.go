@@ -57,7 +57,7 @@ func TestAuthorizedPublicationAPIToFencedCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"success", "entry denied", "effect denied", "withdrawn", "audit failure", "invalid input schema", "invalid output schema"} {
+	for _, mode := range []string{"success", "retired", "entry denied", "effect denied", "withdrawn", "audit failure", "invalid input schema", "invalid output schema"} {
 		t.Run(mode, func(t *testing.T) {
 			policy := `permit(principal, action, resource);`
 			if mode == "entry denied" {
@@ -68,6 +68,28 @@ func TestAuthorizedPublicationAPIToFencedCompletion(t *testing.T) {
 			}
 			f := newDevelopmentPublicationFixtureWithPolicy(t, ctx, repo, store, []byte(policy))
 			scope := f.input.Target.IsolationDomainID
+			if operation, err := repo.FindAuthorizedDevelopmentPublication(ctx, f.input); err != nil || operation != nil {
+				t.Fatal("draft without request was not idle", operation, err)
+			}
+			if mode == "success" {
+				for _, change := range []string{"domain", "service", "revision", "version"} {
+					invalid := f.input
+					switch change {
+					case "domain":
+						invalid.Target.IsolationDomainID = identity.New("iso")
+					case "service":
+						invalid.Target.ServiceID = identity.New("svc")
+					case "revision":
+						invalid.Target.RevisionID = identity.New("rev")
+					case "version":
+						invalid.ExpectedVersion++
+					}
+					if operation, err := repo.FindAuthorizedDevelopmentPublication(ctx, invalid); err == nil || operation != nil {
+						t.Fatal("invalid discovery waited", change, err)
+					}
+				}
+			}
+
 			const token = "authorized-publication-api-token-thirty-two-bytes"
 			authenticator, err := authn.NewDevelopmentAuthenticator(authn.DevelopmentConfig{BearerToken: []byte(token), PrincipalID: "operator", IsolationDomainID: scope})
 			if err != nil {
@@ -145,6 +167,43 @@ func TestAuthorizedPublicationAPIToFencedCompletion(t *testing.T) {
 				t.Fatal(string(original), err)
 			}
 			operationID := operation.Metadata.ID
+			if mode == "success" {
+				other := f.input
+				other.Target.IsolationDomainID = identity.New("iso")
+				idem := persistence.Idempotency{IsolationDomainID: other.Target.IsolationDomainID, Method: "POST", Path: "/fixture", Key: "collision-service", RequestDigest: [32]byte{1}}
+				if _, err := repo.CreateService(ctx, idem, persistence.CreateServiceInput{ID: other.Target.ServiceID, Name: "colliding publication identity", ActorID: "operator", CorrelationID: identity.New("cor")}); err != nil {
+					t.Fatal(err)
+				}
+				idem.Key = "collision-revision"
+				if _, err := repo.CreateRevision(ctx, idem, persistence.CreateRevisionInput{ID: other.Target.RevisionID, ServiceID: other.Target.ServiceID, RuntimeProfile: other.Target.RuntimeProfile, RequiredCapabilities: []string{other.Target.RuntimeProfile}, ActorID: "operator", CorrelationID: identity.New("cor")}); err != nil {
+					t.Fatal(err)
+				}
+				if operation, err := repo.FindAuthorizedDevelopmentPublication(ctx, other); err != nil || operation != nil {
+					t.Fatal("discovery crossed colliding domain", err)
+				}
+			}
+
+			discovered, err := repo.FindAuthorizedDevelopmentPublication(ctx, f.input)
+			if err != nil || discovered == nil || discovered.Metadata.ID != operationID || discovered.StateMachineVersion != 4 {
+				t.Fatal("accepted request not discovered", discovered, err)
+			}
+			for _, pin := range []string{"plan", "policy", "verification", "version"} {
+				changed := f.input
+				switch pin {
+				case "plan":
+					changed.PlanDigest = "sha256:" + strings.Repeat("0", 64)
+				case "policy":
+					changed.PolicyDigest = "sha256:" + strings.Repeat("0", 64)
+				case "verification":
+					changed.VerificationDigest = "sha256:" + strings.Repeat("0", 64)
+				case "version":
+					changed.ExpectedVersion++
+				}
+				if operation, err := repo.FindAuthorizedDevelopmentPublication(ctx, changed); err == nil || operation != nil {
+					t.Fatal("discovery accepted changed pin", pin, err)
+				}
+			}
+
 			if err := repo.RequireDevelopmentPublication(ctx, operationID, f.input); err == nil {
 				t.Fatal("old consumer accepted authorized request")
 			}
@@ -216,7 +275,7 @@ func TestAuthorizedPublicationAPIToFencedCompletion(t *testing.T) {
 			if queryErr := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM outbox_events WHERE isolation_domain_id=$1 AND event_type='service-publication.published'),(SELECT count(*) FROM audit_records WHERE isolation_domain_id=$1 AND action='development-publication.accept')`, scope).Scan(&events, &evidence); queryErr != nil {
 				t.Fatal(queryErr)
 			}
-			if mode != "success" {
+			if mode != "success" && mode != "retired" {
 				if err == nil || revision.State != "draft" || events != 0 || evidence != 0 {
 					t.Fatal("failed authority published", err, revision.State, events, evidence)
 				}
@@ -228,6 +287,15 @@ func TestAuthorizedPublicationAPIToFencedCompletion(t *testing.T) {
 			var decisions int
 			if err := pool.QueryRow(ctx, `SELECT count(*) FROM publication_authorization_decisions WHERE isolation_domain_id=$1 AND phase='effect' AND outcome='allowed' AND actor_id='operator' AND fencing_token=$2`, scope, claim.FencingToken).Scan(&decisions); err != nil || decisions != 1 {
 				t.Fatal("effect audit", decisions, err)
+			}
+			if mode == "retired" {
+				if _, err := repo.RetireRevision(ctx, persistence.Idempotency{IsolationDomainID: scope, Method: "POST", Path: "/retire", Key: "retire-discovery", RequestDigest: [32]byte{2}}, persistence.RetireRevisionInput{RevisionID: f.input.Target.RevisionID, ExpectedVersion: 2, ActorID: "operator", CorrelationID: identity.New("cor")}); err != nil {
+					t.Fatal(err)
+				}
+				if operation, err := repo.FindAuthorizedDevelopmentPublication(ctx, f.input); err != nil || operation == nil || operation.ObservedState != "published" {
+					t.Fatal("historical discovery lost retired revision", err)
+				}
+				return
 			}
 			if _, err := api.NewPublishingDurableHandler(ctx, repo, authenticator, audited, f.input); err != nil {
 				t.Fatal("published restart", err)
@@ -245,6 +313,9 @@ func TestAuthorizedPublicationAPIToFencedCompletion(t *testing.T) {
 			changed.VerificationDigest = "sha256:" + strings.Repeat("0", 64)
 			if _, err := api.NewPublishingDurableHandler(ctx, repo, authenticator, audited, changed); err == nil {
 				t.Fatal("restart accepted different pins")
+			}
+			if discovered, err := repo.FindAuthorizedDevelopmentPublication(ctx, f.input); err != nil || discovered == nil || discovered.ObservedState != "published" {
+				t.Fatal("terminal discovery failed", err)
 			}
 			if !bytes.Equal(original, call(path, `{"expectedVersion":1}`, token, "publish", 202)) {
 				t.Fatal("terminal acceptance replay changed")
