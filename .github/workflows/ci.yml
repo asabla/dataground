@@ -168,9 +168,40 @@ jobs:
           -run '^TestDockerTopologyLiveIdentityAndCleanup$'
           -count=1 -timeout=6m
 
-      - name: Verify operator gateway replay and retained state
+      - name: Extract checksum-verified OpenShell CLI
+        id: openshell
+        env:
+          OPENSHELL_VERSION: v0.0.86
+          OPENSHELL_PACKAGE: openshell_0.0.86-1_amd64.deb
+          OPENSHELL_PACKAGE_SHA256: 3e757ca2f1e855d6e3bcc328fbd69e0441a9a6d01dfe14902f525185dd55ada4
+        run: |
+          release="https://github.com/NVIDIA/OpenShell/releases/download/$OPENSHELL_VERSION"
+          package="$RUNNER_TEMP/$OPENSHELL_PACKAGE"
+          curl \
+            --fail \
+            --location \
+            --silent \
+            --show-error \
+            --retry 3 \
+            --max-redirs 5 \
+            --proto '=https' \
+            --tlsv1.2 \
+            "$release/$OPENSHELL_PACKAGE" \
+            --output "$package"
+          printf '%s  %s\n' "$OPENSHELL_PACKAGE_SHA256" "$package" \
+            | sha256sum --check --strict -
+          cli_root="$RUNNER_TEMP/openshell-cli"
+          install --directory --mode 0700 "$cli_root"
+          dpkg-deb --extract "$package" "$cli_root"
+          cli="$cli_root/usr/bin/openshell"
+          test -x "$cli"
+          "$cli" --version | grep --fixed-strings --line-regexp "openshell 0.0.86"
+          printf 'cli=%s\n' "$cli" >>"$GITHUB_OUTPUT"
+
+      - name: Verify operator gateway and provider replay
         env:
           DATAGROUND_TEST_RUNTIME_TOPOLOGY_ROOT: ${{ github.workspace }}
+          DATAGROUND_TEST_OPENSHELL_BINARY: ${{ steps.openshell.outputs.cli }}
         run: >-
           go test ./internal/execution/runtimeevidence
           -run '^TestDevelopmentGatewayLiveReplayAndRetirement$'

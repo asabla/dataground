@@ -60,7 +60,11 @@ func RunDevelopmentGateway(ctx context.Context, action string, config Developmen
 	if runtime.GOOS != "linux" || (config.SupervisorLocalImageID != "" && runtime.GOARCH != "arm64") {
 		return DevelopmentGatewayReceipt{}, ErrDockerTopologyConfiguration
 	}
-	return runDevelopmentGateway(ctx, action, config, developmentGatewayDependencies{
+	return runDevelopmentGateway(ctx, action, config, defaultDevelopmentGatewayDependencies())
+}
+
+func defaultDevelopmentGatewayDependencies() developmentGatewayDependencies {
+	return developmentGatewayDependencies{
 		observedTopologyDependencies: observedTopologyDependencies{
 			dockerTopologyDependencies: dockerTopologyDependencies{runner: localTopologyDockerRunner{}, resolveBinary: resolveRuntimeTopologyBinary, processIdentity: runtimeDockerProcessIdentity, checkListeners: checkGatewayProcessListeners, wait: waitForRuntimeTopology},
 			checkLoadedConfiguration:   checkLoadedGatewayConfiguration,
@@ -75,7 +79,7 @@ func RunDevelopmentGateway(ctx context.Context, action string, config Developmen
 				return nil
 			}
 		},
-	})
+	}
 }
 
 func runDevelopmentGateway(ctx context.Context, action string, config DevelopmentGatewayConfig, deps developmentGatewayDependencies) (DevelopmentGatewayReceipt, error) {
@@ -94,6 +98,14 @@ func runDevelopmentGateway(ctx context.Context, action string, config Developmen
 		return empty, ErrDevelopmentGateway
 	}
 	defer closeDevelopmentGatewayLock(lock)
+	return runLockedDevelopmentGateway(ctx, action, config, deps)
+}
+
+// The caller holds the same deployment lock across gateway observation and
+// any operator-owned provider operation.
+func runLockedDevelopmentGateway(ctx context.Context, action string, config DevelopmentGatewayConfig, deps developmentGatewayDependencies) (DevelopmentGatewayReceipt, error) {
+	empty := DevelopmentGatewayReceipt{}
+	root := config.WorkspaceRoot
 	if ctx.Err() != nil {
 		return empty, ErrDevelopmentGateway
 	}

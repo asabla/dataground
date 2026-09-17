@@ -201,7 +201,7 @@ type gatewaySettingsView struct {
 }
 
 // EnableProviderProfiles owns the pinned gateway-global opt-in required before
-// a provider-bound sandbox can be created. The dedicated evidence gateway is
+// a provider-bound sandbox can be created. The dedicated evidence or operator gateway is
 // observed before mutation and again on a cancellation-independent recovery
 // context so a lost acknowledgement never permits an unsafe retry.
 func (provider *Provider) EnableProviderProfiles(

@@ -21,13 +21,19 @@ func (provider *Provider) CreateRuntimeConformanceProvider(
 	ctx context.Context,
 	request execution.RuntimeConformanceProviderRequest,
 ) (execution.ProviderBinding, error) {
+	if !runtimeConformanceProviderNamePattern.MatchString(request.Name) {
+		return execution.ProviderBinding{}, execution.ErrStateConflict
+	}
+	return provider.createCodexProvider(ctx, request)
+}
+
+func (provider *Provider) createCodexProvider(ctx context.Context, request execution.RuntimeConformanceProviderRequest) (execution.ProviderBinding, error) {
 	if provider == nil ||
 		ctx == nil ||
 		isNilCredentialProviderRunner(provider.credentialProvider) ||
 		provider.expected != credentialEvidenceOpenShellVersion ||
 		request.IsolationDomainID == "" ||
 		request.GatewayID == "" ||
-		!runtimeConformanceProviderNamePattern.MatchString(request.Name) ||
 		!validRuntimeConformanceCredentials(request.Credentials) {
 		return execution.ProviderBinding{}, execution.ErrStateConflict
 	}
@@ -43,7 +49,7 @@ func (provider *Provider) CreateRuntimeConformanceProvider(
 		GatewayID:         request.GatewayID,
 		Name:              request.Name,
 	}
-	before, err := provider.ObserveRuntimeConformanceProvider(ctx, ref)
+	before, err := provider.observeCodexProvider(ctx, ref)
 	if err != nil {
 		return execution.ProviderBinding{}, ErrProviderFailure
 	}
@@ -87,7 +93,7 @@ func (provider *Provider) CreateRuntimeConformanceProvider(
 		credentialProviderRecoveryTimeout,
 	)
 	defer cancel()
-	after, err := provider.ObserveRuntimeConformanceProvider(recoveryCtx, ref)
+	after, err := provider.observeCodexProvider(recoveryCtx, ref)
 	if err != nil || !after.Exists {
 		return execution.ProviderBinding{}, credentialProviderError(ctx)
 	}
@@ -106,11 +112,17 @@ func (provider *Provider) ObserveRuntimeConformanceProvider(
 	ctx context.Context,
 	ref execution.RuntimeConformanceProviderRef,
 ) (execution.ProviderBindingObservation, error) {
+	if !runtimeConformanceProviderNamePattern.MatchString(ref.Name) {
+		return execution.ProviderBindingObservation{}, execution.ErrStateConflict
+	}
+	return provider.observeCodexProvider(ctx, ref)
+}
+
+func (provider *Provider) observeCodexProvider(ctx context.Context, ref execution.RuntimeConformanceProviderRef) (execution.ProviderBindingObservation, error) {
 	if provider == nil ||
 		ctx == nil ||
 		ref.IsolationDomainID == "" ||
-		ref.GatewayID == "" ||
-		!runtimeConformanceProviderNamePattern.MatchString(ref.Name) {
+		ref.GatewayID == "" {
 		return execution.ProviderBindingObservation{}, execution.ErrStateConflict
 	}
 	binding, exists, observedAt, err := provider.observeProviderBindingName(
