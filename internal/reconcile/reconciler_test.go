@@ -138,7 +138,7 @@ func TestVersionOneCancellationRetainsOriginalEffectlessPath(t *testing.T) {
 func TestPublicationUsesExplicitFiniteStates(t *testing.T) {
 	store := newFakeStore(persistence.OperationClaim{
 		Kind: persistence.OperationKindPublication, IsolationDomainID: "iso_test",
-		ID: "op_test", ResourceID: "rev_test", Command: "publish", ObservedState: "queued",
+		ID: "op_test", ResourceID: "rev_test", Command: "publish", ObservedState: "queued", StateMachineVersion: 1,
 		DeadlineAt: time.Now().Add(time.Hour), CorrelationID: "corr_test", ActorID: "actor_test",
 	})
 	worker := New(store, &fakeDriver{}, "worker-a")
@@ -199,7 +199,7 @@ func TestVersionOneInvocationCompletesThroughItsOriginalSingleEffect(t *testing.
 func TestStaleLeaseCannotAdvance(t *testing.T) {
 	store := newFakeStore(persistence.OperationClaim{
 		Kind: persistence.OperationKindPublication, IsolationDomainID: "iso_test",
-		ID: "op_test", ResourceID: "rev_test", Command: "publish", ObservedState: "queued",
+		ID: "op_test", ResourceID: "rev_test", Command: "publish", ObservedState: "queued", StateMachineVersion: 1,
 		DeadlineAt: time.Now().Add(time.Hour), CorrelationID: "corr_test", ActorID: "actor_test",
 	})
 	claim, err := store.ClaimNext(context.Background(), persistence.OperationKindPublication, "worker-a", time.Second)

@@ -45,6 +45,12 @@ type ClaimedEffectDriver interface {
 	ApplyClaimed(context.Context, persistence.OperationClaim, persistence.EffectRecord) (map[string]any, error)
 }
 
+// GovernedPublicationDriver verifies and commits a version 3 publication under
+// its exact claim. It must not simulate an external publication receipt.
+type GovernedPublicationDriver interface {
+	PublishClaimed(context.Context, persistence.OperationClaim) error
+}
+
 type Reconciler struct {
 	store         Store
 	driver        EffectDriver
@@ -108,6 +114,32 @@ func (reconciler *Reconciler) advance(ctx context.Context, claim persistence.Ope
 }
 
 func (reconciler *Reconciler) advancePublication(ctx context.Context, claim persistence.OperationClaim) error {
+	if claim.StateMachineVersion == publication.QueuedDevelopmentVersion {
+		if claim.Command == "cancel" {
+			return reconciler.store.Advance(ctx, claim, "cancelled", nil)
+		}
+		driver, ok := reconciler.driver.(GovernedPublicationDriver)
+		if !ok || governedInvocationDependencyMissing(driver) {
+			return errors.New("governed publication verifier is required")
+		}
+		switch claim.ObservedState {
+		case "queued":
+			return reconciler.store.Advance(ctx, claim, "validating", nil)
+		case "validating":
+			if err := driver.PublishClaimed(ctx, claim); err != nil {
+				if errors.Is(err, persistence.ErrLeaseLost) {
+					return err
+				}
+				return reconciler.retry(ctx, claim, err)
+			}
+			return nil
+		default:
+			return errors.New("governed publication state is invalid")
+		}
+	}
+	if claim.StateMachineVersion != publication.StateMachineVersion {
+		return errors.New("publication state machine version is unsupported")
+	}
 	if claim.Command == "cancel" {
 		return reconciler.store.Advance(ctx, claim, "cancelled", nil)
 	}

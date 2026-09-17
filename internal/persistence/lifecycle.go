@@ -431,10 +431,13 @@ func (repository *Repository) advance(
 		  AND observed_state = $3
 		  AND lease_owner = $4 AND lease_token = $5
 		  AND lease_expires_at > $9
+		  AND ($10 <> 'service-publication' OR state_machine_version <> 3 OR $6 IN ('validating', 'failed', 'cancelled'))
+		  AND ($10 <> 'service-publication' OR state_machine_version <> 3 OR
+		       (lease_expires_at > clock_timestamp() AND ($6 IN ('failed', 'cancelled') OR deadline_at > clock_timestamp())))
 	`, table)
 	result, err := tx.Exec(ctx, query,
 		claim.IsolationDomainID, claim.ID, claim.ObservedState,
-		claim.LeaseOwner, claim.FencingToken, nextState, encodedResult, encodedError, now,
+		claim.LeaseOwner, claim.FencingToken, nextState, encodedResult, encodedError, now, claim.Kind,
 	)
 	if err != nil {
 		return fmt.Errorf("advance %s operation: %w", claim.Kind, err)
