@@ -66,6 +66,40 @@ func (repository *Repository) QueueDevelopmentPublication(ctx context.Context, i
 	})
 }
 
+// RequireDevelopmentPublication matches a stored immutable request against the
+// consumer's independently loaded configuration, including on terminal replay.
+func (repository *Repository) RequireDevelopmentPublication(ctx context.Context, operationID string, input DevelopmentPublicationInput) error {
+	if repository == nil || !repository.Configured() || ctx == nil || !input.ValidReviewedInputs() {
+		return ErrDevelopmentPublicationUnavailable
+	}
+	var matched bool
+	err := repository.pool.QueryRow(ctx, `SELECT EXISTS (
+        SELECT 1 FROM governed_publication_requests request
+        JOIN service_publication_operations operation ON operation.isolation_domain_id=request.isolation_domain_id AND operation.id=request.operation_id
+        JOIN service_revisions revision ON revision.isolation_domain_id=request.isolation_domain_id AND revision.id=request.revision_id
+        WHERE request.isolation_domain_id=$1 AND request.operation_id=$2 AND request.service_id=$3 AND request.revision_id=$4
+          AND request.expected_version=$5 AND request.plan_digest=$6 AND request.policy_digest=$7 AND request.verification_digest=$8
+          AND operation.state_machine_version=3 AND operation.revision_id=request.revision_id
+          AND revision.service_id=request.service_id AND revision.runtime_profile=$9
+    )`, input.Target.IsolationDomainID, operationID, input.Target.ServiceID, input.Target.RevisionID, input.ExpectedVersion, input.PlanDigest, input.PolicyDigest, input.VerificationDigest, input.Target.RuntimeProfile).Scan(&matched)
+	if err != nil || !matched {
+		return ErrDevelopmentPublicationUnavailable
+	}
+	return nil
+}
+
+// ClaimDevelopmentPublication leases only the exact reviewed version 3 request.
+// It cannot consume another publication or invocation in the same revision.
+func (repository *Repository) ClaimDevelopmentPublication(ctx context.Context, operationID string, input DevelopmentPublicationInput, workerID string, leaseDuration time.Duration) (*OperationClaim, error) {
+	if !validProviderCredentialText(workerID, 256) || leaseDuration <= 0 || leaseDuration > 2*time.Minute {
+		return nil, ErrDevelopmentPublicationUnavailable
+	}
+	if err := repository.RequireDevelopmentPublication(ctx, operationID, input); err != nil {
+		return nil, err
+	}
+	return repository.claimNext(ctx, OperationKindPublication, input.Target.IsolationDomainID, input.Target.ServiceID, input.Target.RevisionID, input.Target.RuntimeProfile, workerID, leaseDuration, operationID, publication.QueuedDevelopmentVersion)
+}
+
 // CompleteDevelopmentPublication verifies the queued pins under the exact live
 // claim. Verification has only read effects. Publication, evidence and the final
 // operation commit atomically; an uncertain commit is observed through the

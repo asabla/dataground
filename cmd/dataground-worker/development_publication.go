@@ -23,26 +23,38 @@ import (
 var errDevelopmentPublication = errors.New("governed development publication unavailable; retry the exact command to resolve its outcome")
 
 type developmentPublicationConfiguration struct {
-	acceptance localRuntimeAcceptanceConfig
-	input      persistence.DevelopmentPublicationInput
-	endpoint   string
-	bucket     string
+	command     string
+	operationID string
+	deadline    time.Time
+	acceptance  localRuntimeAcceptanceConfig
+	input       persistence.DevelopmentPublicationInput
+	endpoint    string
+	bucket      string
 }
 
 func loadDevelopmentPublication(args []string, lookup environmentLookup) (developmentPublicationConfiguration, error) {
 	var config developmentPublicationConfiguration
-	if len(args) == 0 || args[0] != "publish-development" {
+	if len(args) == 0 || (args[0] != "publish-development" && args[0] != "queue-development-publication" && args[0] != "reconcile-development-publication") {
 		return config, errDevelopmentPublication
 	}
-	flags := flag.NewFlagSet("publish-development", flag.ContinueOnError)
+	config.command = args[0]
+	flags := flag.NewFlagSet(config.command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var version string
-	for _, item := range []struct {
+	var version, deadline string
+	type publicationFlag struct {
 		name  string
 		value *string
-	}{
-		{"expected-version", &version}, {"plan-digest", &config.input.PlanDigest}, {"policy-digest", &config.input.PolicyDigest}, {"actor", &config.input.ActorID}, {"correlation-id", &config.input.CorrelationID},
-	} {
+	}
+	items := []publicationFlag{{"expected-version", &version}, {"plan-digest", &config.input.PlanDigest}, {"policy-digest", &config.input.PolicyDigest}}
+	if config.command == "reconcile-development-publication" {
+		items = append(items, publicationFlag{"operation-id", &config.operationID})
+	} else {
+		items = append(items, publicationFlag{"actor", &config.input.ActorID}, publicationFlag{"correlation-id", &config.input.CorrelationID})
+	}
+	if config.command == "queue-development-publication" {
+		items = append(items, publicationFlag{"deadline", &deadline})
+	}
+	for _, item := range items {
 		seen := false
 		flags.Func(item.name, "exact reviewed publication value", func(value string) error {
 			if seen || value == "" {
@@ -53,10 +65,19 @@ func loadDevelopmentPublication(args []string, lookup environmentLookup) (develo
 			return nil
 		})
 	}
-	if flags.Parse(args[1:]) != nil || flags.NArg() != 0 || flags.NFlag() != 5 {
+	if flags.Parse(args[1:]) != nil || flags.NArg() != 0 || flags.NFlag() != len(items) {
 		return config, errDevelopmentPublication
 	}
 	var err error
+	if config.command == "queue-development-publication" {
+		config.deadline, err = time.Parse(time.RFC3339Nano, deadline)
+		if err != nil || config.deadline.Format(time.RFC3339Nano) != deadline {
+			return config, errDevelopmentPublication
+		}
+	}
+	if config.command == "reconcile-development-publication" && !publicationOperationIDPattern.MatchString(config.operationID) {
+		return config, errDevelopmentPublication
+	}
 	config.input.ExpectedVersion, err = strconv.Atoi(version)
 	if err != nil || strconv.Itoa(config.input.ExpectedVersion) != version {
 		return config, errDevelopmentPublication
@@ -90,7 +111,7 @@ func loadDevelopmentPublication(args []string, lookup environmentLookup) (develo
 	}
 	digest := sha256.Sum256(pins)
 	config.input.VerificationDigest = "sha256:" + hex.EncodeToString(digest[:])
-	if !config.input.Valid() {
+	if !config.input.ValidReviewedInputs() || (config.command != "reconcile-development-publication" && !config.input.Valid()) {
 		return config, errDevelopmentPublication
 	}
 	return config, nil
@@ -131,8 +152,11 @@ func runDevelopmentPublication(ctx context.Context, args []string, output io.Wri
 	if err != nil {
 		return errDevelopmentPublication
 	}
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
+	if config.command != "reconcile-development-publication" {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+	}
 	databaseURL := os.Getenv("DATAGROUND_DATABASE_URL")
 	if databaseURL == "" {
 		return errDevelopmentPublication
@@ -152,6 +176,19 @@ func runDevelopmentPublication(ctx context.Context, args []string, output io.Wri
 	}
 	defer pool.Close()
 	repository := persistence.NewRepository(pool)
+	if config.command == "queue-development-publication" {
+		idem := persistence.Idempotency{IsolationDomainID: config.input.Target.IsolationDomainID, Method: "POST", Path: "/internal/queued-development-publication/" + config.input.Target.RevisionID, Key: config.input.CorrelationID, RequestDigest: sha256.Sum256([]byte("dataground.queued-development-publication/v1"))}
+		result, err := repository.QueueDevelopmentPublication(ctx, idem, config.input, config.deadline)
+		if err != nil {
+			return errDevelopmentPublication
+		}
+		return writeDevelopmentPublicationReceipt(output, result.Body)
+	}
+	if config.command == "reconcile-development-publication" {
+		if err := repository.RequireDevelopmentPublication(ctx, config.operationID, config.input); err != nil {
+			return errDevelopmentPublication
+		}
+	}
 	store := executionpostgres.New(pool)
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
@@ -170,13 +207,22 @@ func runDevelopmentPublication(ctx context.Context, args []string, output io.Wri
 	}
 	checker := &localRuntimeAcceptanceChecker{config: config.acceptance}
 	defer checker.Close()
-	result, err := repository.PublishDevelopmentRevision(ctx, config.input, func(ctx context.Context) (persistence.DevelopmentPublicationEvidence, error) {
+	verify := func(ctx context.Context) (persistence.DevelopmentPublicationEvidence, error) {
 		return verifyDevelopmentPublication(ctx, config, store, bundles, policies, checker)
-	})
+	}
+	if config.command == "reconcile-development-publication" {
+		workerID := os.Getenv("DATAGROUND_WORKER_ID")
+		return consumeDevelopmentPublication(ctx, repository, config, workerID, verify, output)
+	}
+	result, err := repository.PublishDevelopmentRevision(ctx, config.input, verify)
 	if err != nil {
 		return errDevelopmentPublication
 	}
-	receipt := append(result.Body, '\n')
+	return writeDevelopmentPublicationReceipt(output, result.Body)
+}
+
+func writeDevelopmentPublicationReceipt(output io.Writer, body []byte) error {
+	receipt := append(body, '\n')
 	if written, err := output.Write(receipt); err != nil || written != len(receipt) {
 		return errors.New("publication receipt could not be written; retry the exact command")
 	}
