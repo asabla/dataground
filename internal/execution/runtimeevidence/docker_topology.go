@@ -60,25 +60,26 @@ type DockerTopology struct {
 }
 
 type dockerTopologyState struct {
-	containerID    string
-	startedAt      string
-	candidate      candidateTopologyBinding
-	mu             sync.Mutex
-	runID          string
-	resources      Resources
-	runner         dockerTopologyRunner
-	binary         string
-	project        string
-	environment    []string
-	wait           func(context.Context) error
-	checkListeners func(context.Context, int, string) error
-	workspace      *runtimeTopologyWorkspace
-	started        bool
-	starting       bool
-	active         bool
-	cleaning       bool
-	removed        bool
-	failed         bool
+	containerID              string
+	startedAt                string
+	candidate                candidateTopologyBinding
+	mu                       sync.Mutex
+	runID                    string
+	resources                Resources
+	runner                   dockerTopologyRunner
+	binary                   string
+	project                  string
+	environment              []string
+	wait                     func(context.Context) error
+	checkListeners           func(context.Context, int, string) error
+	checkLoadedConfiguration func(context.Context, int) error
+	workspace                *runtimeTopologyWorkspace
+	started                  bool
+	starting                 bool
+	active                   bool
+	cleaning                 bool
+	removed                  bool
+	failed                   bool
 }
 
 type dockerTopologyDependencies struct {

@@ -128,7 +128,10 @@ func (state *dockerTopologyState) verifyRunningConfiguration(ctx context.Context
 	if err != nil || state.checkListeners == nil || state.checkListeners(ctx, value.PID, bridgeAddress) != nil {
 		return "", ErrDockerTopologyDrift
 	}
-	// Socket observation must still refer to this exact running process.
+	if state.checkLoadedConfiguration != nil && state.checkLoadedConfiguration(ctx, value.PID) != nil {
+		return "", ErrDockerTopologyDrift
+	}
+	// Socket and configuration observations must still refer to this exact running process.
 	confirmation, err := state.runner.Run(ctx, state.environment, state.binary, "inspect", "--format", runningGatewayInspection, containerID)
 	if err != nil {
 		return "", ErrDockerTopologyDrift
