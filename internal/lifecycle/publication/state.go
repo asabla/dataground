@@ -12,6 +12,9 @@ const AtomicDevelopmentVersion = 2
 // its current lease. It has no reference or external publication effect.
 const QueuedDevelopmentVersion = 3
 
+// AuthorizedDevelopmentVersion additionally requires audited publication authority.
+const AuthorizedDevelopmentVersion = 4
+
 type State string
 
 const (

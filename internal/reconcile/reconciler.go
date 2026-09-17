@@ -51,6 +51,12 @@ type GovernedPublicationDriver interface {
 	PublishClaimed(context.Context, persistence.OperationClaim) error
 }
 
+// AuthorizedPublicationDriver is deliberately separate from the operator-only
+// driver so older consumers cannot advance requests that require public authority.
+type AuthorizedPublicationDriver interface {
+	PublishAuthorizedClaimed(context.Context, persistence.OperationClaim) error
+}
+
 type Reconciler struct {
 	store         Store
 	driver        EffectDriver
@@ -114,19 +120,29 @@ func (reconciler *Reconciler) advance(ctx context.Context, claim persistence.Ope
 }
 
 func (reconciler *Reconciler) advancePublication(ctx context.Context, claim persistence.OperationClaim) error {
-	if claim.StateMachineVersion == publication.QueuedDevelopmentVersion {
+	if claim.StateMachineVersion == publication.QueuedDevelopmentVersion || claim.StateMachineVersion == publication.AuthorizedDevelopmentVersion {
 		if claim.Command == "cancel" {
 			return reconciler.store.Advance(ctx, claim, "cancelled", nil)
 		}
-		driver, ok := reconciler.driver.(GovernedPublicationDriver)
-		if !ok || governedInvocationDependencyMissing(driver) {
-			return errors.New("governed publication verifier is required")
+		var publish func(context.Context, persistence.OperationClaim) error
+		if claim.StateMachineVersion == publication.AuthorizedDevelopmentVersion {
+			driver, ok := reconciler.driver.(AuthorizedPublicationDriver)
+			if !ok || governedInvocationDependencyMissing(driver) {
+				return errors.New("authorized publication verifier is required")
+			}
+			publish = driver.PublishAuthorizedClaimed
+		} else {
+			driver, ok := reconciler.driver.(GovernedPublicationDriver)
+			if !ok || governedInvocationDependencyMissing(driver) {
+				return errors.New("governed publication verifier is required")
+			}
+			publish = driver.PublishClaimed
 		}
 		switch claim.ObservedState {
 		case "queued":
 			return reconciler.store.Advance(ctx, claim, "validating", nil)
 		case "validating":
-			if err := driver.PublishClaimed(ctx, claim); err != nil {
+			if err := publish(ctx, claim); err != nil {
 				if errors.Is(err, persistence.ErrLeaseLost) {
 					return err
 				}

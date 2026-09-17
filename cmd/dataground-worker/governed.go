@@ -562,7 +562,7 @@ func composeWorkerDriver(
 	if err != nil {
 		return fail(err)
 	}
-	if activePolicy.Contract != reconcile.InvocationAuthorizationPolicyApprovalContract {
+	if activePolicy.Contract != reconcile.InvocationAuthorizationPolicyApprovalContract && activePolicy.Contract != reconcile.InvocationAuthorizationPolicyPublicationContract {
 		return fail(errors.New("approval-capable invocation authorization policy is required"))
 	}
 	baseAuthorizer, err := reconcile.NewAuditedCedarInvocationAuthorizer(policySource, repository)

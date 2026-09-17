@@ -140,6 +140,13 @@ func assembleAPIRuntime(ctx context.Context, address string) (*apiRuntime, error
 	if err != nil {
 		return nil, err
 	}
+	publicationTarget, err := loadGovernedPublicationTarget(os.LookupEnv)
+	if err != nil {
+		return nil, err
+	}
+	if publicationTarget != nil && dispatchTarget != nil {
+		return nil, errors.New("select publication or invocation dispatch configuration")
+	}
 	configurationPath, oidcMode := os.LookupEnv("DATAGROUND_API_SECURITY_CONFIG_FILE")
 	if oidcMode {
 		if configurationPath == "" {
@@ -173,7 +180,7 @@ func assembleAPIRuntime(ctx context.Context, address string) (*apiRuntime, error
 		if err != nil {
 			return nil, err
 		}
-		assembly, err := composeOIDCSecurity(ctx, repository, configuration, policy, dispatchTarget)
+		assembly, err := composeOIDCSecurity(ctx, repository, configuration, policy, dispatchTarget, publicationTarget)
 		if err != nil {
 			pool.Close()
 			return nil, err
@@ -181,6 +188,9 @@ func assembleAPIRuntime(ctx context.Context, address string) (*apiRuntime, error
 		mode := "oidc-dpop"
 		if dispatchTarget != nil {
 			mode = "oidc-dpop-governed-development"
+		}
+		if publicationTarget != nil {
+			mode = "oidc-dpop-publishing-development"
 		}
 		return &apiRuntime{
 			handler:           assembly.Handler(),
@@ -201,7 +211,7 @@ func assembleAPIRuntime(ctx context.Context, address string) (*apiRuntime, error
 	runtime := &apiRuntime{handler: handler, mode: "reference"}
 	databaseURL := os.Getenv("DATAGROUND_DATABASE_URL")
 	if databaseURL == "" {
-		if dispatchTarget != nil {
+		if dispatchTarget != nil || publicationTarget != nil {
 			return nil, errors.New("governed dispatch requires durable API mode")
 		}
 		if address != defaultAddress {
@@ -223,7 +233,9 @@ func assembleAPIRuntime(ctx context.Context, address string) (*apiRuntime, error
 		pool.Close()
 		return nil, fmt.Errorf("durable authorization audit assembly: %w", err)
 	}
-	if dispatchTarget == nil {
+	if publicationTarget != nil {
+		handler, err = api.NewPublishingDurableHandler(ctx, repository, auditedAuthenticator, auditedAuthorizer, *publicationTarget)
+	} else if dispatchTarget == nil {
 		handler, err = api.NewDurableHandler(repository, auditedAuthenticator, auditedAuthorizer)
 	} else {
 		handler, err = api.NewGovernedDurableHandler(
@@ -240,7 +252,9 @@ func assembleAPIRuntime(ctx context.Context, address string) (*apiRuntime, error
 	}
 	runtime.handler = handler
 	runtime.pool = pool
-	if dispatchTarget == nil {
+	if publicationTarget != nil {
+		runtime.mode = "durable-publishing-development"
+	} else if dispatchTarget == nil {
 		runtime.mode = "durable-development"
 	} else {
 		runtime.mode = "durable-governed-development"

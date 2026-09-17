@@ -254,6 +254,7 @@ func composeOIDCSecurity(
 	configuration oidcSecurityConfiguration,
 	policy []byte,
 	dispatchTarget *persistence.InvocationDispatchTarget,
+	publicationTarget *persistence.DevelopmentPublicationInput,
 ) (*api.DurableOIDCDPoPAssembly, error) {
 	if ctx == nil || repository == nil || !repository.Configured() {
 		return nil, errors.New("durable OIDC security repository is required")
@@ -300,6 +301,7 @@ func composeOIDCSecurity(
 		MaximumProofAge:          configuration.DPoP.MaximumProofAge.value,
 		DPoPNonce:                configuration.dpopNoncePolicy(repository),
 		InvocationDispatchTarget: dispatchTarget,
+		PublicationTarget:        publicationTarget,
 	})
 }
 

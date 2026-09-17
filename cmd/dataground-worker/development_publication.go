@@ -34,7 +34,7 @@ type developmentPublicationConfiguration struct {
 
 func loadDevelopmentPublication(args []string, lookup environmentLookup) (developmentPublicationConfiguration, error) {
 	var config developmentPublicationConfiguration
-	if len(args) == 0 || (args[0] != "publish-development" && args[0] != "queue-development-publication" && args[0] != "reconcile-development-publication") {
+	if len(args) == 0 || (args[0] != "publish-development" && args[0] != "queue-development-publication" && args[0] != "reconcile-development-publication" && args[0] != "reconcile-authorized-publication" && args[0] != "prepare-publication-configuration") {
 		return config, errDevelopmentPublication
 	}
 	config.command = args[0]
@@ -46,9 +46,9 @@ func loadDevelopmentPublication(args []string, lookup environmentLookup) (develo
 		value *string
 	}
 	items := []publicationFlag{{"expected-version", &version}, {"plan-digest", &config.input.PlanDigest}, {"policy-digest", &config.input.PolicyDigest}}
-	if config.command == "reconcile-development-publication" {
+	if config.isPublicationConsumer() {
 		items = append(items, publicationFlag{"operation-id", &config.operationID})
-	} else {
+	} else if config.command != "prepare-publication-configuration" {
 		items = append(items, publicationFlag{"actor", &config.input.ActorID}, publicationFlag{"correlation-id", &config.input.CorrelationID})
 	}
 	if config.command == "queue-development-publication" {
@@ -75,7 +75,7 @@ func loadDevelopmentPublication(args []string, lookup environmentLookup) (develo
 			return config, errDevelopmentPublication
 		}
 	}
-	if config.command == "reconcile-development-publication" && !publicationOperationIDPattern.MatchString(config.operationID) {
+	if config.isPublicationConsumer() && !publicationOperationIDPattern.MatchString(config.operationID) {
 		return config, errDevelopmentPublication
 	}
 	config.input.ExpectedVersion, err = strconv.Atoi(version)
@@ -111,7 +111,7 @@ func loadDevelopmentPublication(args []string, lookup environmentLookup) (develo
 	}
 	digest := sha256.Sum256(pins)
 	config.input.VerificationDigest = "sha256:" + hex.EncodeToString(digest[:])
-	if !config.input.ValidReviewedInputs() || (config.command != "reconcile-development-publication" && !config.input.Valid()) {
+	if !config.input.ValidReviewedInputs() || (!config.isPublicationConsumer() && config.command != "prepare-publication-configuration" && !config.input.Valid()) {
 		return config, errDevelopmentPublication
 	}
 	return config, nil
@@ -137,7 +137,7 @@ func verifyDevelopmentPublication(ctx context.Context, config developmentPublica
 		return persistence.DevelopmentPublicationEvidence{}, errDevelopmentPublication
 	}
 	policy, err := policies.ResolveInvocationAuthorizationPolicy(ctx, reconcile.InvocationAuthorizationPolicyScope{IsolationDomainID: target.IsolationDomainID, ServiceID: target.ServiceID, RevisionID: target.RevisionID})
-	if err != nil || policy.IsolationDomainID != target.IsolationDomainID || policy.ServiceID != target.ServiceID || policy.RevisionID != target.RevisionID || policy.Contract != reconcile.InvocationAuthorizationPolicyApprovalContract || "sha256:"+hex.EncodeToString(policy.Digest[:]) != config.input.PolicyDigest {
+	if err != nil || policy.IsolationDomainID != target.IsolationDomainID || policy.ServiceID != target.ServiceID || policy.RevisionID != target.RevisionID || policy.Contract != config.publicationPolicyContract() || "sha256:"+hex.EncodeToString(policy.Digest[:]) != config.input.PolicyDigest {
 		return persistence.DevelopmentPublicationEvidence{}, errDevelopmentPublication
 	}
 	proof, err := acceptance.check(ctx)
@@ -152,7 +152,10 @@ func runDevelopmentPublication(ctx context.Context, args []string, output io.Wri
 	if err != nil {
 		return errDevelopmentPublication
 	}
-	if config.command != "reconcile-development-publication" {
+	if config.command == "prepare-publication-configuration" {
+		return writePublicPublicationConfiguration(output, config.input)
+	}
+	if !config.isPublicationConsumer() {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
@@ -184,8 +187,12 @@ func runDevelopmentPublication(ctx context.Context, args []string, output io.Wri
 		}
 		return writeDevelopmentPublicationReceipt(output, result.Body)
 	}
-	if config.command == "reconcile-development-publication" {
-		if err := repository.RequireDevelopmentPublication(ctx, config.operationID, config.input); err != nil {
+	if config.isPublicationConsumer() {
+		require := repository.RequireDevelopmentPublication
+		if config.authorizedPublication() {
+			require = repository.RequireAuthorizedDevelopmentPublication
+		}
+		if err := require(ctx, config.operationID, config.input); err != nil {
 			return errDevelopmentPublication
 		}
 	}
@@ -210,8 +217,15 @@ func runDevelopmentPublication(ctx context.Context, args []string, output io.Wri
 	verify := func(ctx context.Context) (persistence.DevelopmentPublicationEvidence, error) {
 		return verifyDevelopmentPublication(ctx, config, store, bundles, policies, checker)
 	}
-	if config.command == "reconcile-development-publication" {
+	if config.isPublicationConsumer() {
 		workerID := os.Getenv("DATAGROUND_WORKER_ID")
+		if config.authorizedPublication() {
+			authorizer, err := reconcile.NewPublicationAuthorizer(policies, repository)
+			if err != nil {
+				return errDevelopmentPublication
+			}
+			return consumeAuthorizedDevelopmentPublication(ctx, repository, config, workerID, verify, authorizer.AuthorizePublication, output)
+		}
 		return consumeDevelopmentPublication(ctx, repository, config, workerID, verify, output)
 	}
 	result, err := repository.PublishDevelopmentRevision(ctx, config.input, verify)
@@ -225,6 +239,42 @@ func writeDevelopmentPublicationReceipt(output io.Writer, body []byte) error {
 	receipt := append(body, '\n')
 	if written, err := output.Write(receipt); err != nil || written != len(receipt) {
 		return errors.New("publication receipt could not be written; retry the exact command")
+	}
+	return nil
+}
+
+func (config developmentPublicationConfiguration) authorizedPublication() bool {
+	return config.command == "reconcile-authorized-publication"
+}
+func (config developmentPublicationConfiguration) isPublicationConsumer() bool {
+	return config.command == "reconcile-development-publication" || config.authorizedPublication()
+}
+func (config developmentPublicationConfiguration) publicationPolicyContract() string {
+	if config.authorizedPublication() {
+		return reconcile.InvocationAuthorizationPolicyPublicationContract
+	}
+	return reconcile.InvocationAuthorizationPolicyApprovalContract
+}
+
+// writePublicPublicationConfiguration exports only reviewed identity and digests.
+// Runtime paths, credentials, provider routes and native endpoints remain internal.
+func writePublicPublicationConfiguration(output io.Writer, input persistence.DevelopmentPublicationInput) error {
+	if output == nil || !input.ValidReviewedInputs() {
+		return errDevelopmentPublication
+	}
+	configuration := struct {
+		Contract           string `json:"contract"`
+		IsolationDomainID  string `json:"isolationDomainId"`
+		ServiceID          string `json:"serviceId"`
+		RevisionID         string `json:"revisionId"`
+		RuntimeProfile     string `json:"runtimeProfile"`
+		ExpectedVersion    int    `json:"expectedVersion"`
+		PlanDigest         string `json:"planDigest"`
+		PolicyDigest       string `json:"policyDigest"`
+		VerificationDigest string `json:"verificationDigest"`
+	}{"dataground.api-governed-publication/v1", input.Target.IsolationDomainID, input.Target.ServiceID, input.Target.RevisionID, input.Target.RuntimeProfile, input.ExpectedVersion, input.PlanDigest, input.PolicyDigest, input.VerificationDigest}
+	if err := json.NewEncoder(output).Encode(configuration); err != nil {
+		return errDevelopmentPublication
 	}
 	return nil
 }

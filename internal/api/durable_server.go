@@ -24,12 +24,14 @@ import (
 const durableOperationDeadline = 15 * time.Minute
 
 type DurableServer struct {
-	repository         *persistence.Repository
-	dispatchTarget     *persistence.InvocationDispatchTarget
-	approvals          durableInvocationApprovalResolver
-	approvalReader     durableInvocationApprovalReader
-	questions          durableInvocationQuestionStore
-	questionAuthorizer persistence.InvocationRuntimeQuestionAuthorizer
+	repository            *persistence.Repository
+	publicationTarget     *persistence.DevelopmentPublicationInput
+	publicationAuthorizer persistence.PublicationAuthorization
+	dispatchTarget        *persistence.InvocationDispatchTarget
+	approvals             durableInvocationApprovalResolver
+	approvalReader        durableInvocationApprovalReader
+	questions             durableInvocationQuestionStore
+	questionAuthorizer    persistence.InvocationRuntimeQuestionAuthorizer
 }
 
 type durableInvocationApprovalResolver interface {
@@ -54,7 +56,7 @@ func NewDurableHandler(
 	authenticator authn.Authenticator,
 	authorizer authz.Authorizer,
 ) (http.Handler, error) {
-	return newDurableHandler(repository, authenticator, authorizer, nil, nil, nil)
+	return newDurableHandler(repository, authenticator, authorizer, nil, nil, nil, nil)
 }
 
 func NewGovernedDurableHandler(
@@ -70,7 +72,16 @@ func NewGovernedDurableHandler(
 	if err := repository.RequireInvocationDispatchTarget(ctx, dispatchTarget); err != nil {
 		return nil, err
 	}
-	return newDurableHandler(repository, authenticator, authorizer, nil, nil, &dispatchTarget)
+	return newDurableHandler(repository, authenticator, authorizer, nil, nil, &dispatchTarget, nil)
+}
+
+// NewPublishingDurableHandler explicitly enables draft publication bootstrap.
+// The ordinary governed constructor retains its published-target prerequisite.
+func NewPublishingDurableHandler(ctx context.Context, repository *persistence.Repository, authenticator authn.Authenticator, authorizer authz.Authorizer, target persistence.DevelopmentPublicationInput) (http.Handler, error) {
+	if err := repository.RequirePublicationDispatchTarget(ctx, target); err != nil {
+		return nil, err
+	}
+	return newDurableHandler(repository, authenticator, authorizer, nil, nil, &target.Target, &target)
 }
 
 func NewDurableDPoPBoundHandler(
@@ -82,7 +93,7 @@ func NewDurableDPoPBoundHandler(
 	if binder == nil {
 		return nil, errors.New("DPoP request binder is required")
 	}
-	return newDurableHandler(repository, authenticator, authorizer, binder, nil, nil)
+	return newDurableHandler(repository, authenticator, authorizer, binder, nil, nil, nil)
 }
 
 func NewDurableRateLimitedDPoPHandler(
@@ -98,7 +109,7 @@ func NewDurableRateLimitedDPoPHandler(
 	if rateLimiter == nil || isNilInterface(rateLimiter) {
 		return nil, errors.New("authentication rate limiter is required")
 	}
-	return newDurableHandler(repository, authenticator, authorizer, binder, rateLimiter, nil)
+	return newDurableHandler(repository, authenticator, authorizer, binder, rateLimiter, nil, nil)
 }
 
 func newDurableHandler(
@@ -108,6 +119,7 @@ func newDurableHandler(
 	binder *DPoPRequestBinder,
 	rateLimiter AuthenticationRateLimiter,
 	dispatchTarget *persistence.InvocationDispatchTarget,
+	publicationTarget *persistence.DevelopmentPublicationInput,
 ) (http.Handler, error) {
 	if repository == nil || !repository.Configured() {
 		return nil, errors.New("durable repository is required")
@@ -123,7 +135,19 @@ func newDurableHandler(
 		clonedTarget := *dispatchTarget
 		dispatchTarget = &clonedTarget
 	}
+	if publicationTarget != nil {
+		if !publicationTarget.ValidReviewedInputs() || dispatchTarget == nil || publicationTarget.Target != *dispatchTarget {
+			return nil, errors.New("publication dispatch configuration is invalid")
+		}
+		copy := *publicationTarget
+		copy.ActorID, copy.CorrelationID = "", ""
+		publicationTarget = &copy
+	}
 	policySource, err := reconcile.NewDurableInvocationAuthorizationPolicySource(repository)
+	if err != nil {
+		return nil, err
+	}
+	publicationAuthorizer, err := reconcile.NewPublicationAuthorizer(policySource, repository)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +166,7 @@ func newDurableHandler(
 		return nil, err
 	}
 	server := &DurableServer{
-		repository: repository, dispatchTarget: dispatchTarget,
+		repository: repository, dispatchTarget: dispatchTarget, publicationTarget: publicationTarget, publicationAuthorizer: publicationAuthorizer.AuthorizePublication,
 		approvals: approvalResolver, approvalReader: repository,
 		questions: repository, questionAuthorizer: invocationAuthorizer.AuthorizeInvocationQuestion,
 	}
@@ -355,6 +379,18 @@ func (server *DurableServer) publishServiceRevision(response http.ResponseWriter
 		input, apiError := decodeBody[publishServiceRevisionRequest](body)
 		if apiError != nil {
 			return encodedError(http.StatusBadRequest, *apiError)
+		}
+		if target := server.publicationTarget; target != nil && target.Target.IsolationDomainID == domainID && target.Target.RevisionID == request.PathValue("revisionId") {
+			if input.ExpectedVersion != target.ExpectedVersion {
+				return persistence.CommandResult{}, &persistence.DomainError{Code: "VERSION_CONFLICT", Message: "The revision version does not match the reviewed publication."}
+			}
+			reviewed := *target
+			reviewed.ActorID, reviewed.CorrelationID = actorID, correlationID
+			result, err := server.repository.QueueAuthorizedDevelopmentPublication(request.Context(), commandIdempotency(request, domainID, actorID, body), reviewed, time.Now().UTC().Add(durableOperationDeadline), server.publicationAuthorizer)
+			if err != nil {
+				return persistence.CommandResult{}, publicationCommandError(err)
+			}
+			return result, nil
 		}
 		return server.repository.AcceptPublication(request.Context(), commandIdempotency(request, domainID, actorID, body), persistence.AcceptPublicationInput{
 			RevisionID: request.PathValue("revisionId"), ExpectedVersion: input.ExpectedVersion,
@@ -709,9 +745,9 @@ func (server *DurableServer) writeCommandError(response http.ResponseWriter, err
 		if problem.Code == "RESOURCE_NOT_FOUND" {
 			status = http.StatusNotFound
 		} else if problem.Code == "COMMAND_IN_PROGRESS" ||
-			problem.Code == "INVOCATION_APPROVAL_UNAVAILABLE" || problem.Code == "INVOCATION_QUESTION_UNAVAILABLE" {
+			problem.Code == "PUBLICATION_UNAVAILABLE" || problem.Code == "INVOCATION_APPROVAL_UNAVAILABLE" || problem.Code == "INVOCATION_QUESTION_UNAVAILABLE" {
 			status = http.StatusServiceUnavailable
-		} else if problem.Code == "INVOCATION_APPROVAL_FORBIDDEN" || problem.Code == "INVOCATION_QUESTION_FORBIDDEN" {
+		} else if problem.Code == "PUBLICATION_FORBIDDEN" || problem.Code == "INVOCATION_APPROVAL_FORBIDDEN" || problem.Code == "INVOCATION_QUESTION_FORBIDDEN" {
 			status = http.StatusForbidden
 		} else if problem.Code == "INVALID_INVOCATION_APPROVAL" || problem.Code == "INVALID_INVOCATION_QUESTION" || problem.Code == "INVOCATION_INPUT_INVALID" {
 			status = http.StatusBadRequest
@@ -745,4 +781,15 @@ func encodedError(status int, apiError APIError) (persistence.CommandResult, err
 func encodedResult(status int, value any) (persistence.CommandResult, error) {
 	body, err := json.Marshal(value)
 	return persistence.CommandResult{Status: status, Body: body}, err
+}
+
+func publicationCommandError(err error) error {
+	var problem *persistence.DomainError
+	if errors.As(err, &problem) {
+		return problem
+	}
+	if errors.Is(err, reconcile.ErrPublicationAuthorizationDenied) {
+		return &persistence.DomainError{Code: "PUBLICATION_FORBIDDEN", Message: "The revision policy denied publication."}
+	}
+	return &persistence.DomainError{Code: "PUBLICATION_UNAVAILABLE", Message: "Governed publication is temporarily unavailable.", Retryable: true}
 }

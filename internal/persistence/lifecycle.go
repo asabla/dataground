@@ -446,8 +446,8 @@ func (repository *Repository) advance(
 		  AND observed_state = $3
 		  AND lease_owner = $4 AND lease_token = $5
 		  AND lease_expires_at > $9
-		  AND ($10 <> 'service-publication' OR state_machine_version <> 3 OR $6 IN ('validating', 'failed', 'cancelled'))
-		  AND ($10 <> 'service-publication' OR state_machine_version <> 3 OR
+		  AND ($10 <> 'service-publication' OR state_machine_version NOT IN (3,4) OR $6 IN ('validating', 'failed', 'cancelled'))
+		  AND ($10 <> 'service-publication' OR state_machine_version NOT IN (3,4) OR
 		       (lease_expires_at > clock_timestamp() AND ($6 IN ('failed', 'cancelled') OR deadline_at > clock_timestamp())))
 	`, table)
 	result, err := tx.Exec(ctx, query,
