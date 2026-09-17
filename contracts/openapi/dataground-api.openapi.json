@@ -1309,6 +1309,23 @@
       }
     },
     "schemas": {
+      "RuntimeCompletedMessage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "phase"],
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 65536,
+            "description": "Authoritative completed message text. Runtime ingestion also enforces a 64 KiB UTF-8 byte limit."
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["commentary", "final", "unspecified"],
+            "description": "Commentary is progress only. Final is an explicitly classified answer. Unspecified preserves a runtime that does not classify message phases."
+          }
+        }
+      },
       "HealthResponse": {
         "type": "object",
         "additionalProperties": false,
@@ -2559,6 +2576,25 @@
           "serviceId",
           "revisionId",
           "payload"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "output.message.completed"
+                }
+              },
+              "required": ["type"]
+            },
+            "then": {
+              "properties": {
+                "payload": {
+                  "$ref": "#/components/schemas/RuntimeCompletedMessage"
+                }
+              }
+            }
+          }
         ],
         "properties": {
           "source": {

@@ -1,5 +1,16 @@
 {
   "fixtures": [
+    { "file": "valid/event-completed-message.json", "schema": "EventEnvelope", "valid": true },
+    {
+      "file": "invalid/event-completed-message-phase.json",
+      "schema": "EventEnvelope",
+      "valid": false
+    },
+    {
+      "file": "invalid/event-completed-message-native-id.json",
+      "schema": "EventEnvelope",
+      "valid": false
+    },
     { "file": "valid/resource-audit-page.json", "schema": "ResourceAuditPage", "valid": true },
     {
       "file": "valid/invocation-question-page.json",

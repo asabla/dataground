@@ -34,6 +34,11 @@ func newRuntimeQuestionFixture(t *testing.T, ctx context.Context) *runtimeQuesti
 
 func newRuntimeQuestionFixtureWithReservation(t *testing.T, ctx context.Context, reserve bool) *runtimeQuestionFixture {
 	t.Helper()
+	return newRuntimeQuestionFixtureWithSchema(t, ctx, reserve, nil)
+}
+
+func newRuntimeQuestionFixtureWithSchema(t *testing.T, ctx context.Context, reserve bool, schema map[string]any) *runtimeQuestionFixture {
+	t.Helper()
 	pool := resetOperatorAuditDatabase(t, ctx)
 	t.Cleanup(pool.Close)
 	t.Cleanup(func() {
@@ -57,7 +62,7 @@ func newRuntimeQuestionFixtureWithReservation(t *testing.T, ctx context.Context,
 		ctx,
 		testIdempotency(domainID, "question-revision"),
 		persistence.CreateRevisionInput{
-			ID: revisionID, ServiceID: serviceID, RuntimeProfile: "reference/v1",
+			ID: revisionID, ServiceID: serviceID, RuntimeProfile: "reference/v1", OutputSchema: schema,
 			RequiredCapabilities: []string{"tool"}, ActorID: "creator",
 			CorrelationID: identity.New("cor"),
 		},

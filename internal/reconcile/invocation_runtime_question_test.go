@@ -293,6 +293,11 @@ func TestInvocationRuntimeQuestionWaitKeepsDrainingEventsAndRenewingLease(t *tes
 				return
 			}
 		}
+		select {
+		case events <- dgruntime.Event{Sequence: 502, Type: dgruntime.MessageCompletedEvent, Payload: map[string]any{"text": "done", "phase": "final"}}:
+		case <-ctx.Done():
+			return
+		}
 		store.mu.Lock()
 		store.autoAnswer = true
 		store.mu.Unlock()
@@ -306,7 +311,7 @@ func TestInvocationRuntimeQuestionWaitKeepsDrainingEventsAndRenewingLease(t *tes
 		t.Fatal(err)
 	}
 	<-produced
-	if len(runtimeStore.events) != 500 || runtimeStore.completeCalls != 1 || runtimeStore.renewCalls == 0 || turn.answerCalls != 1 || store.value.State != "delivered" {
+	if len(runtimeStore.events) != 501 || runtimeStore.completeCalls != 1 || runtimeStore.renewCalls == 0 || turn.answerCalls != 1 || store.value.State != "delivered" {
 		t.Fatal("question wait blocked event replay, lease renewal or finalization")
 	}
 	for _, recorded := range runtimeStore.events {
@@ -318,7 +323,7 @@ func TestInvocationRuntimeQuestionWaitKeepsDrainingEventsAndRenewingLease(t *tes
 
 func TestInvocationRuntimeQuestionQueuedAtTurnCompletionNeverDelivers(t *testing.T) {
 	questions, store, _, _, claim, event := questionMediationFixture(t)
-	turn := &streamingQuestionTurn{questionTurnStub: questionTurnStub{active: true}, events: runtimeEvents(event, dgruntime.Event{Sequence: 2, Type: "output.text.delta", Payload: map[string]any{"text": "finished"}}), done: make(chan struct{})}
+	turn := &streamingQuestionTurn{questionTurnStub: questionTurnStub{active: true}, events: runtimeEvents(event, dgruntime.Event{Sequence: 2, Type: dgruntime.MessageCompletedEvent, Payload: map[string]any{"text": "finished", "phase": "final"}}), done: make(chan struct{})}
 	close(turn.done)
 	runtimeStore := &runtimeStoreStub{}
 	questions.driver.store = runtimeStore

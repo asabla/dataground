@@ -168,7 +168,7 @@ func (transport *questionBridgeTransport) Start(_ context.Context, request dgrun
 		return nil, dgruntime.ErrQuestionMode
 	}
 	transport.turn.events <- dgruntime.Event{Sequence: 1, Type: "interaction.question.requested", Payload: map[string]any{"questionId": "question-1", "questions": questionPrompts(), "expiresAt": time.Now().Add(request.QuestionTimeout).UTC().Truncate(time.Microsecond).Add(-123 * time.Nanosecond).Format(time.RFC3339Nano)}}
-	transport.turn.events <- dgruntime.Event{Sequence: 2, Type: "output.text.delta", Payload: map[string]any{"text": "Question bridge complete."}}
+	transport.turn.events <- dgruntime.Event{Sequence: 2, Type: dgruntime.MessageCompletedEvent, Payload: map[string]any{"text": "Question bridge complete.", "phase": "final"}}
 	return transport.turn, nil
 }
 func (*questionBridgeTransport) Close() error { return nil }

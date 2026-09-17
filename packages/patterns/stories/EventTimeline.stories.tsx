@@ -84,6 +84,22 @@ export const DurableCancellation: Story = {
   },
 };
 
+export const CompletedMessages: Story = {
+  args: {
+    events: [
+      event(1, "output.message.completed", { phase: "commentary", text: "Checking the data." }),
+      event(2, "output.message.completed", { phase: "final", text: '{"answer":42}' }),
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Progress message", { exact: true })).toBeVisible();
+    await expect(canvas.getByText("Final answer", { exact: true })).toBeVisible();
+    await expect(canvas.getByText('{"answer":42}', { exact: true })).toBeVisible();
+    await expect(canvas.queryByText("Invocation succeeded", { exact: true })).toBeNull();
+  },
+};
+
 export const RuntimeCompletionBeforePlatformFailure: Story = {
   args: {
     events: [

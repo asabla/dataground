@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"sync"
 	"testing"
@@ -30,6 +31,18 @@ func codexContractFixture(t *testing.T, scenario runtimetest.Scenario) runtimete
 			server.notify("turn/completed", map[string]any{"threadId": threadID, "turn": map[string]any{"id": turnID, "status": status, "error": map[string]any{"message": runtimetest.NativeCanary + "error"}}})
 		}
 		switch scenario {
+		case runtimetest.CompletedMessages:
+			for i, message := range []struct {
+				text  string
+				phase any
+			}{{"Progress.", "commentary"}, {"Legacy answer.", nil}, {runtimetest.OutputText, "final_answer"}} {
+				params := nativeMessageParams(threadID, turnID, fmt.Sprintf("%smessage-%d", runtimetest.NativeCanary, i), message.text, message.phase)
+				server.notify("item/agentMessage/delta", map[string]any{"threadId": threadID, "turnId": turnID, "itemId": params["item"].(map[string]any)["id"], "delta": "Partial preview."})
+				server.notify("item/completed", params)
+				server.notify("item/completed", params)
+			}
+			server.notify("item/completed", nativeMessageParams(threadID, turnID, runtimetest.NativeCanary+"message-1", "Legacy answer.", nil))
+			complete("completed")
 		case runtimetest.Success:
 			server.notify("item/agentMessage/delta", map[string]any{"threadId": threadID, "turnId": turnID, "itemId": runtimetest.NativeCanary + "message", "delta": runtimetest.OutputText})
 			for _, kind := range []string{"mcpToolCall", "commandExecution", "fileChange"} {
@@ -37,6 +50,7 @@ func codexContractFixture(t *testing.T, scenario runtimetest.Scenario) runtimete
 					server.notify("item/"+state, map[string]any{"threadId": threadID, "turnId": turnID, "item": map[string]any{"id": runtimetest.NativeCanary + "item", "type": kind, "command": runtimetest.NativeCanary + "command", "path": runtimetest.NativeCanary + "path"}})
 				}
 			}
+			server.notify("item/completed", nativeMessageParams(threadID, turnID, runtimetest.NativeCanary+"message", runtimetest.OutputText, "final_answer"))
 			complete("completed")
 		case runtimetest.UsageSnapshots:
 			for _, counts := range [][3]int{{12, 8, 20}, {12, 8, 20}, {10, 6, 16}} {

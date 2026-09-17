@@ -18,20 +18,21 @@ import (
 type Scenario string
 
 const (
-	Success         Scenario = "success"
-	UsageSnapshots  Scenario = "usage-snapshots"
-	Failure         Scenario = "failure"
-	Interrupt       Scenario = "interrupt"
-	ProtocolFailure Scenario = "protocol-failure"
-	ScopeViolation  Scenario = "scope-violation"
-	ProcessFailure  Scenario = "process-failure"
-	Ownership       Scenario = "single-turn-ownership"
-	Validation      Scenario = "invalid-start"
-	Approve         Scenario = "approval-approve"
-	Deny            Scenario = "approval-deny"
-	Question        Scenario = "question-answer"
-	RejectApproval  Scenario = "unsupported-approval"
-	RejectQuestion  Scenario = "unsupported-question"
+	Success           Scenario = "success"
+	UsageSnapshots    Scenario = "usage-snapshots"
+	CompletedMessages Scenario = "completed-messages"
+	Failure           Scenario = "failure"
+	Interrupt         Scenario = "interrupt"
+	ProtocolFailure   Scenario = "protocol-failure"
+	ScopeViolation    Scenario = "scope-violation"
+	ProcessFailure    Scenario = "process-failure"
+	Ownership         Scenario = "single-turn-ownership"
+	Validation        Scenario = "invalid-start"
+	Approve           Scenario = "approval-approve"
+	Deny              Scenario = "approval-deny"
+	Question          Scenario = "question-answer"
+	RejectApproval    Scenario = "unsupported-approval"
+	RejectQuestion    Scenario = "unsupported-question"
 )
 
 // NativeCanary belongs in fixture-native identifiers, paths, commands, and
@@ -61,7 +62,7 @@ func Run(t *testing.T, factory Factory, features Features) {
 	if factory == nil {
 		t.Fatal("runtime contract fixture factory is absent")
 	}
-	scenarios := []Scenario{Success, UsageSnapshots, Failure, Interrupt, ProtocolFailure, ScopeViolation, ProcessFailure, Ownership, Validation}
+	scenarios := []Scenario{Success, UsageSnapshots, CompletedMessages, Failure, Interrupt, ProtocolFailure, ScopeViolation, ProcessFailure, Ownership, Validation}
 	if features.Approvals {
 		scenarios = append(scenarios, Approve, Deny)
 	} else {
@@ -152,6 +153,16 @@ func run(t *testing.T, f Fixture, scenario Scenario) {
 	}
 	f.Release()
 	switch scenario {
+	case CompletedMessages:
+		for _, want := range []dgruntime.CompletedMessage{{Text: "Progress.", Phase: "commentary"}, {Text: "Legacy answer.", Phase: "unspecified"}, {Text: OutputText, Phase: "final"}} {
+			stream.next("output.text.delta")
+			event := stream.next(dgruntime.MessageCompletedEvent)
+			got, err := dgruntime.ParseCompletedMessage(event.Payload)
+			if err != nil || got != want {
+				t.Fatal("completed message lost its text or phase", got, err)
+			}
+		}
+		stream.next("lifecycle.succeeded")
 	case Success:
 		output := stream.next("output.text.delta")
 		if output.Payload["text"] != OutputText {
@@ -165,6 +176,10 @@ func run(t *testing.T, f Fixture, scenario Scenario) {
 					t.Fatal("activity classification changed")
 				}
 			}
+		}
+		message, err := dgruntime.ParseCompletedMessage(stream.next(dgruntime.MessageCompletedEvent).Payload)
+		if err != nil || message.Text != OutputText || message.Phase != "final" {
+			t.Fatal("successful answer is missing", err)
 		}
 		stream.next("lifecycle.succeeded")
 	case UsageSnapshots:

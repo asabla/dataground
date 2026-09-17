@@ -69,6 +69,7 @@ type Client struct {
 	nextApproval       uint64
 	approvals          map[string]approval
 	nativeRequests     map[string]struct{}
+	completedMessages  map[string][32]byte
 
 	questionMode    dgruntime.QuestionMode
 	questionTimeout time.Duration
@@ -109,6 +110,7 @@ func newClient(session execution.RuntimeSession, openShellProvider bool) (*Clien
 		pending:           make(map[uint64]chan wireMessage),
 		approvals:         make(map[string]approval),
 		nativeRequests:    make(map[string]struct{}),
+		completedMessages: make(map[string][32]byte),
 		inbound:           make(chan wireMessage, inboundLimit),
 		events:            make(chan dgruntime.Event, eventLimit),
 		done:              make(chan struct{}),
@@ -678,18 +680,28 @@ func (client *Client) handleNotification(message wireMessage) {
 }
 
 func (client *Client) handleItemLifecycle(message wireMessage) {
-	var params struct {
-		ThreadID string `json:"threadId"`
-		TurnID   string `json:"turnId"`
-		Item     struct {
-			Type string `json:"type"`
-		} `json:"item"`
+	select {
+	case <-client.terminalDone:
+		return
+	default:
 	}
-	if json.Unmarshal(message.Params, &params) != nil || params.Item.Type == "" || !client.matchesActiveTurn(params.ThreadID, params.TurnID) {
+	var params struct {
+		ThreadID string          `json:"threadId"`
+		TurnID   string          `json:"turnId"`
+		Item     json.RawMessage `json:"item"`
+	}
+	var item struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(message.Params, &params) != nil || json.Unmarshal(params.Item, &item) != nil || item.Type == "" || !client.matchesActiveTurn(params.ThreadID, params.TurnID) {
 		client.fail(fmt.Errorf("%w: item lifecycle scope does not match", dgruntime.ErrProtocol))
 		return
 	}
-	eventPrefix, normalizedKind := normalizeItemType(params.Item.Type)
+	if item.Type == "agentMessage" && message.Method == "item/completed" {
+		client.handleCompletedMessage(params.Item)
+		return
+	}
+	eventPrefix, normalizedKind := normalizeItemType(item.Type)
 	if eventPrefix == "" {
 		return
 	}
