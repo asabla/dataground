@@ -43,6 +43,7 @@ const (
 type environmentLookup func(string) (string, bool)
 
 type workerConfig struct {
+	waitForPublication   bool
 	mode                 string
 	isolationDomainID    string
 	gatewayID            string
@@ -281,6 +282,12 @@ func loadWorkerConfig(lookup environmentLookup) (workerConfig, error) {
 		mode = workerModeReference
 	}
 	config := workerConfig{mode: mode}
+	if value, configured := lookup(waitForPublicationEnvironment); configured {
+		if mode != workerModeGovernedDevelopment || (value != "true" && value != "false") {
+			return workerConfig{}, errors.New("publication waiting requires governed-development mode and an explicit true or false value")
+		}
+		config.waitForPublication = value == "true"
+	}
 	if mode == workerModeReference {
 		return config, nil
 	}
@@ -420,6 +427,12 @@ func composeWorkerDriver(
 	}
 	if config.mode != workerModeGovernedDevelopment || pool == nil || repository == nil {
 		return nil, nil, errors.New("governed worker configuration and durable dependencies are required")
+	}
+
+	if config.waitForPublication {
+		if err := awaitGovernedRevisionPublication(ctx, repository, config.runtimeTarget()); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	resources := &workerResources{}

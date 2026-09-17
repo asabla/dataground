@@ -62,8 +62,15 @@ func main() {
 		logger.Error("worker configuration failed", "error", err)
 		os.Exit(1)
 	}
+	if config.waitForPublication {
+		target := config.runtimeTarget()
+		logger.Info("waiting for service revision publication", "isolation_domain_id", target.isolationDomainID, "service_id", target.serviceID, "revision_id", target.revisionID)
+	}
 	driver, resources, err := composeWorkerDriver(ctx, pool, repository, config)
 	if err != nil {
+		if config.waitForPublication && ctx.Err() != nil {
+			return
+		}
 		logger.Error("worker composition failed", "error", err)
 		os.Exit(1)
 	}
