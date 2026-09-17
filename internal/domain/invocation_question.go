@@ -24,3 +24,19 @@ type InvocationQuestion struct {
 	CreatedAt         time.Time        `json:"createdAt"`
 	UpdatedAt         time.Time        `json:"updatedAt"`
 }
+
+const InvocationQuestionSummarySchemaV1 = "dataground.invocation-question-summary/v1"
+
+// InvocationQuestionSummary supports discovery without disclosing prompts,
+// answers, responder identity, or runtime routing. Content needs an exact read.
+type InvocationQuestionSummary struct {
+	SchemaVersion     string    `json:"schemaVersion"`
+	ID                string    `json:"id"`
+	IsolationDomainID string    `json:"isolationDomainId"`
+	InvocationID      string    `json:"invocationId"`
+	State             string    `json:"state"`
+	Version           int64     `json:"version"`
+	ExpiresAt         time.Time `json:"expiresAt"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
+}

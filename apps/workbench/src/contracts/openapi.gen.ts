@@ -391,6 +391,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List invocation questions
+         * @description Lists retained question identifiers and lifecycle metadata, newest creation first with identifier tie-breaking. Prompts, options, stored answers, responder identity, and runtime routing are excluded. The listInvocationQuestions grant on the invocation is separate from exact question read and answer grants. Each page requires authorization; the cursor binds the isolation domain and invocation. Pages contain current state, not a frozen snapshot. Refresh from the first page for new questions or changed states. Reference invocations return an empty page.
+         */
+        get: operations["listInvocationQuestions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -572,6 +592,26 @@ export interface components {
             nextCursor?: string;
         } & {
             [key: string]: unknown;
+        };
+        InvocationQuestionSummary: {
+            /** @constant */
+            schemaVersion: "dataground.invocation-question-summary/v1";
+            id: components["schemas"]["QuestionId"];
+            isolationDomainId: components["schemas"]["IsolationDomainId"];
+            invocationId: components["schemas"]["InvocationId"];
+            /** @enum {unknown} */
+            state: "pending" | "answered" | "delivering" | "delivered" | "expired" | "closed" | "delivery_unknown";
+            version: number;
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        } & (unknown & unknown & unknown & unknown & unknown);
+        InvocationQuestionPage: {
+            items: components["schemas"]["InvocationQuestionSummary"][];
+            nextCursor?: string;
         };
         InvocationApprovalPage: {
             items: components["schemas"]["InvocationApproval"][];
@@ -1725,6 +1765,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InvocationApprovalPage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    listInvocationQuestions: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                invocationId: components["parameters"]["InvocationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A bounded page of provider-neutral question resources. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvocationQuestionPage"];
                 };
             };
             400: components["responses"]["Error"];

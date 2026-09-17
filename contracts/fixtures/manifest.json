@@ -1,6 +1,26 @@
 {
   "fixtures": [
     {
+      "file": "valid/invocation-question-page.json",
+      "schema": "InvocationQuestionPage",
+      "valid": true
+    },
+    {
+      "file": "valid/invocation-question-page-empty.json",
+      "schema": "InvocationQuestionPage",
+      "valid": true
+    },
+    {
+      "file": "invalid/invocation-question-page-content.json",
+      "schema": "InvocationQuestionPage",
+      "valid": false
+    },
+    {
+      "file": "invalid/invocation-question-page-version.json",
+      "schema": "InvocationQuestionPage",
+      "valid": false
+    },
+    {
       "file": "valid/invocation-approval-page.json",
       "schema": "InvocationApprovalPage",
       "valid": true

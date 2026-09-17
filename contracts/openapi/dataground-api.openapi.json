@@ -1027,6 +1027,67 @@
         },
         "description": "Lists all retained approval states, newest creation first with identifier tie-breaking. Pages contain current state, not a frozen snapshot. Refresh from the first page to discover new approvals or state changes. The cursor is bound to the isolation domain and invocation and grants no authority. A dedicated listInvocationApprovals grant on the invocation is required; reading or resolving an individual approval requires its separate grant. Reference invocations return an empty page."
       }
+    },
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/questions": {
+      "get": {
+        "operationId": "listInvocationQuestions",
+        "summary": "List invocation questions",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "$ref": "#/components/parameters/InvocationId"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A bounded page of provider-neutral question resources.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvocationQuestionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "description": "Lists retained question identifiers and lifecycle metadata, newest creation first with identifier tie-breaking. Prompts, options, stored answers, responder identity, and runtime routing are excluded. The listInvocationQuestions grant on the invocation is separate from exact question read and answer grants. Each page requires authorization; the cursor binds the isolation domain and invocation. Pages contain current state, not a frozen snapshot. Refresh from the first page for new questions or changed states. Reference invocations return an empty page."
+      }
     }
   },
   "components": {
@@ -1451,6 +1512,163 @@
             "maxItems": 100,
             "items": {
               "$ref": "#/components/schemas/ServiceAlias"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        }
+      },
+      "InvocationQuestionSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "id",
+          "isolationDomainId",
+          "invocationId",
+          "state",
+          "version",
+          "expiresAt",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "const": "dataground.invocation-question-summary/v1"
+          },
+          "id": {
+            "$ref": "#/components/schemas/QuestionId"
+          },
+          "isolationDomainId": {
+            "$ref": "#/components/schemas/IsolationDomainId"
+          },
+          "invocationId": {
+            "$ref": "#/components/schemas/InvocationId"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "answered",
+              "delivering",
+              "delivered",
+              "expired",
+              "closed",
+              "delivery_unknown"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": ["pending"]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "version": {
+                  "enum": [1]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": ["answered"]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "version": {
+                  "enum": [2]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": ["delivering"]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "version": {
+                  "enum": [3]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": ["delivered", "delivery_unknown"]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "version": {
+                  "enum": [4]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": ["closed", "expired"]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "version": {
+                  "enum": [2, 3]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "InvocationQuestionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/InvocationQuestionSummary"
             }
           },
           "nextCursor": {
