@@ -25,11 +25,12 @@ type dockerTopologyResult struct {
 }
 
 type fakeDockerTopologyRunner struct {
-	mu      sync.Mutex
-	calls   []dockerTopologyCall
-	results []dockerTopologyResult
-	block   chan struct{}
-	entered chan struct{}
+	topology *dockerTopologyState
+	mu       sync.Mutex
+	calls    []dockerTopologyCall
+	results  []dockerTopologyResult
+	block    chan struct{}
+	entered  chan struct{}
 }
 
 func (runner *fakeDockerTopologyRunner) Run(
@@ -44,6 +45,18 @@ func (runner *fakeDockerTopologyRunner) Run(
 		binary:      binary,
 		args:        append([]string(nil), args...),
 	})
+	if runner.topology != nil && len(args) == 4 && args[0] == "inspect" && args[2] == runningGatewayInspection {
+		value, _ := validRunningGateway(runner.topology, args[3])
+		output, err := json.Marshal(value)
+		runner.mu.Unlock()
+		return output, err
+	}
+	if runner.topology != nil && len(args) == 5 && args[0] == "image" && args[3] == runningGatewayImageInspection {
+		_, value := validRunningGateway(runner.topology, "")
+		output, err := json.Marshal(value)
+		runner.mu.Unlock()
+		return output, err
+	}
 	if len(runner.results) == 0 {
 		runner.mu.Unlock()
 		return nil, errors.New("unexpected command")
@@ -88,7 +101,7 @@ func TestDockerTopologyStartsExactProjectAndObservesCleanup(t *testing.T) {
 	runner.mu.Lock()
 	calls := append([]dockerTopologyCall(nil), runner.calls...)
 	runner.mu.Unlock()
-	if len(calls) != 6 {
+	if len(calls) != 8 {
 		t.Fatalf("command count = %d", len(calls))
 	}
 	project := "dg_runtime_" + testRunID
@@ -97,17 +110,17 @@ func TestDockerTopologyStartsExactProjectAndObservesCleanup(t *testing.T) {
 	}) || calls[0].args[5] != "up" {
 		t.Fatalf("compose up arguments = %#v", calls[0].args)
 	}
-	if !reflect.DeepEqual(calls[3].args[len(calls[3].args)-3:], []string{
+	if !reflect.DeepEqual(calls[5].args[len(calls[5].args)-3:], []string{
 		"down", "--volumes", "--remove-orphans",
 	}) {
-		t.Fatalf("compose down arguments = %#v", calls[3].args)
+		t.Fatalf("compose down arguments = %#v", calls[5].args)
 	}
-	if !reflect.DeepEqual(calls[5].args, []string{
+	if !reflect.DeepEqual(calls[7].args, []string{
 		"volume", "ls", "--filter",
 		"label=com.docker.compose.project=" + project,
 		"--quiet",
 	}) {
-		t.Fatalf("volume observation arguments = %#v", calls[5].args)
+		t.Fatalf("volume observation arguments = %#v", calls[7].args)
 	}
 	environment := strings.Join(calls[0].environment, "\n")
 	if strings.Contains(environment, "must-not-cross") {
@@ -129,7 +142,7 @@ func TestDockerTopologyStartsExactProjectAndObservesCleanup(t *testing.T) {
 	if err := topology.Cleanup(context.Background()); err != nil {
 		t.Fatalf("idempotent Cleanup() error = %v", err)
 	}
-	if len(runner.calls) != 6 {
+	if len(runner.calls) != 8 {
 		t.Fatal("idempotent cleanup repeated native mutation")
 	}
 }
@@ -294,6 +307,9 @@ func newTestDockerTopology(
 	)
 	if err != nil {
 		t.Fatalf("newDockerTopology() error = %v", err)
+	}
+	if fake, ok := runner.(*fakeDockerTopologyRunner); ok {
+		fake.topology = topology.state
 	}
 	t.Cleanup(func() {
 		_ = topology.Cleanup(context.Background())

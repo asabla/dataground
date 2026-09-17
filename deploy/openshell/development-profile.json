@@ -457,7 +457,7 @@
       "topology": {
         "assembly": "internal/execution/runtimeevidence.NewDockerTopology",
         "composeFile": "deploy/openshell/runtime-conformance/docker-compose.yml",
-        "composeSHA256": "e0c3a67c3b5976dc22e32e47614a1f8f08aaaa2ddfc0c376240641a391066762",
+        "composeSHA256": "23e7b8fefea1cb51ea3740b6f2c2b9b5a3cd341bbad873e8ace9bb5612c6ad53",
         "gatewayConfigFile": "deploy/openshell/runtime-conformance/gateway.toml",
         "gatewayConfigSHA256": "16f5d7a5e7d1dad1be67ede22d7b9d70e76517c98c6c9a4a4c2eb89eead08651",
         "binding": "one run-derived Compose project, digest-pinned gateway image, private frozen topology directory, fresh gateway JWT material, and exact gateway and provider labels",

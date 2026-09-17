@@ -60,6 +60,8 @@ type DockerTopology struct {
 }
 
 type dockerTopologyState struct {
+	containerID string
+	startedAt   string
 	candidate   candidateTopologyBinding
 	mu          sync.Mutex
 	runID       string
@@ -214,6 +216,10 @@ func (topology *DockerTopology) Start(ctx context.Context) error {
 		state.failStart()
 		return errors.Join(ErrDockerTopologyStart, err)
 	}
+	if err := state.verifyFrozenTopology(); err != nil {
+		state.failStart()
+		return ErrDockerTopologyDrift
+	}
 	if _, err := state.runner.Run(
 		ctx,
 		state.environment,
@@ -247,6 +253,11 @@ func (topology *DockerTopology) Start(ctx context.Context) error {
 		state.failStart()
 		return topologyStartError(ctx)
 	}
+	startedAt, err := state.verifyRunningConfiguration(ctx, containerID)
+	if err != nil {
+		state.failStart()
+		return topologyStartError(ctx)
+	}
 	state.mu.Lock()
 	if err := ctx.Err(); err != nil {
 		state.failed = true
@@ -260,6 +271,7 @@ func (topology *DockerTopology) Start(ctx context.Context) error {
 		state.mu.Unlock()
 		return errors.Join(ErrDockerTopologyStart, ErrDockerTopologyOrder)
 	}
+	state.containerID, state.startedAt = containerID, startedAt
 	state.starting = false
 	state.mu.Unlock()
 	return nil

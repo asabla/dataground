@@ -52,7 +52,9 @@ function inputs() {
       },
     }),
   );
+  // Synthetic test input uses the current topology; archived evidence stays unchanged.
   const diagnostic = structuredClone(record);
+  diagnostic.profile.composeSHA256 = JSON.parse(profile).runtime.conformance.topology.composeSHA256;
   diagnostic.profile.sandboxImage = `sha256:${configSHA256}`;
   const artifacts = {
     diagnostic: Buffer.from(JSON.stringify(diagnostic)),

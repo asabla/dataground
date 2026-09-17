@@ -1196,6 +1196,7 @@ if (
   runtimeDockerTopology?.composeFile !==
     "deploy/openshell/runtime-conformance/docker-compose.yml" ||
   runtimeDockerTopology?.composeSHA256 !== runtimeDockerComposeSHA256 ||
+  !runtimeDockerCompose.includes('command: ["--config", "/etc/openshell/gateway.toml"]') ||
   runtimeDockerTopology?.gatewayConfigFile !==
     "deploy/openshell/runtime-conformance/gateway.toml" ||
   runtimeDockerTopology?.gatewayConfigSHA256 !== runtimeGatewayConfigSHA256 ||

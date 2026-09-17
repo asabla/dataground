@@ -39,6 +39,7 @@ func TestLauncherOwnsCompositionAndCleanupOrder(t *testing.T) {
 		"creator-create",
 		"harness-open",
 		"harness-run",
+		"topology-check",
 		"creator-cleanup",
 		"provider-cleanup",
 		"source-cleanup",
@@ -256,6 +257,12 @@ func (fixture *launcherFixture) dependencies() launcherDependencies {
 type fakeLauncherTopology struct {
 	fixture    *launcherFixture
 	cleanupErr error
+	checkErr   error
+}
+
+func (topology *fakeLauncherTopology) Check(context.Context) error {
+	topology.fixture.events = append(topology.fixture.events, "topology-check")
+	return topology.checkErr
 }
 
 func (topology *fakeLauncherTopology) Start(context.Context) error {

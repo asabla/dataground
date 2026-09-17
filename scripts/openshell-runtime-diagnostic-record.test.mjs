@@ -7,7 +7,13 @@ import { verifyDiagnostic } from "./check-openshell-runtime-diagnostic.mjs";
 const bytes = await readFile(
   new URL("../deploy/openshell/diagnostics/codex-candidate-arm64-20260906.json", import.meta.url),
 );
-const record = JSON.parse(bytes.toString("utf8"));
+const archivedRecord = JSON.parse(bytes.toString("utf8"));
+const currentProfile = JSON.parse(
+  await readFile(new URL("../deploy/openshell/development-profile.json", import.meta.url), "utf8"),
+);
+// Synthetic cases exercise the current verifier without rewriting archived observations.
+const record = structuredClone(archivedRecord);
+record.profile.composeSHA256 = currentProfile.runtime.conformance.topology.composeSHA256;
 const expected = {
   sourceCommit: "fed7191b2543c53842cb8310149ff3c359e8c6f5",
   candidateImage: "sha256:703abdf5d88c6298423ba25cb11340990169b4f535b1b75ecc9fb4b730165573",
@@ -18,7 +24,9 @@ test("the archived ARM64 run retains its exact diagnostic bytes and profile", ()
     createHash("sha256").update(bytes).digest("hex"),
     "4ff6e86de99891700d312c19f42aee4c5c69000110a54070a2f805a44209f665",
   );
-  assert.deepEqual(verifyDiagnostic(record, expected), []);
+  assert.deepEqual(verifyDiagnostic(archivedRecord, expected), [
+    "diagnostic does not match the expected source, image and checked profile",
+  ]);
   assert.equal(record.certificationEligible, false);
 });
 
@@ -39,7 +47,7 @@ test("the published ARM64 candidate retains its exact local conformance record",
       sourceCommit: "e7a0839bfcaa6a9d95540224a63c02be45bb89e1",
       candidateImage: "sha256:9fff9875097a3608fce25e0d401cacc70ad10113237683fe907e45d94e4b24a1",
     }),
-    [],
+    ["diagnostic does not match the expected source, image and checked profile"],
   );
   assert.equal(published.certificationEligible, false);
 });
