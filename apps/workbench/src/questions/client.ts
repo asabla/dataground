@@ -144,6 +144,16 @@ export function validQuestionAnswers(
   }
   return jsonBytes(answers) <= 16384;
 }
+const questionVersions: Record<string, number[]> = {
+  pending: [1],
+  answered: [2],
+  delivering: [3],
+  delivered: [4],
+  closed: [2, 3],
+  expired: [2, 3],
+  delivery_unknown: [4],
+};
+
 export function matchesQuestion(
   value: unknown,
   reference: InvocationQuestionReference,
@@ -183,19 +193,10 @@ export function matchesQuestion(
     Date.parse(value.expiresAt) - Date.parse(value.createdAt) > 900000
   )
     return false;
-  const versions: Record<string, number[]> = {
-    pending: [1],
-    answered: [2],
-    delivering: [3],
-    delivered: [4],
-    closed: [2, 3],
-    expired: [2, 3],
-    delivery_unknown: [4],
-  };
   if (
     typeof value.state !== "string" ||
-    !Object.hasOwn(versions, value.state) ||
-    !versions[value.state]?.includes(value.version as number)
+    !Object.hasOwn(questionVersions, value.state) ||
+    !questionVersions[value.state]?.includes(value.version as number)
   )
     return false;
   const answered = value.answeredBy !== undefined || value.answeredAt !== undefined;
@@ -372,4 +373,143 @@ export function sameQuestionRequest(left: InvocationQuestion, right: InvocationQ
       );
     })
   );
+}
+
+export type InvocationQuestionSummary = components["schemas"]["InvocationQuestionSummary"];
+export type InvocationQuestionListReference = Pick<
+  InvocationQuestionReference,
+  "isolationDomainId" | "invocationId"
+>;
+export type QuestionListResult =
+  | { ok: true; page: components["schemas"]["InvocationQuestionPage"] }
+  | { ok: false; error: QuestionFailure };
+
+function matchesQuestionSummary(
+  value: unknown,
+  reference: InvocationQuestionListReference,
+): value is InvocationQuestionSummary {
+  return (
+    record(value) &&
+    keys(value, [
+      "schemaVersion",
+      "id",
+      "isolationDomainId",
+      "invocationId",
+      "state",
+      "version",
+      "expiresAt",
+      "createdAt",
+      "updatedAt",
+    ]) &&
+    value.schemaVersion === "dataground.invocation-question-summary/v1" &&
+    id(value.id, "qst") &&
+    value.isolationDomainId === reference.isolationDomainId &&
+    value.invocationId === reference.invocationId &&
+    time(value.createdAt) &&
+    time(value.updatedAt) &&
+    time(value.expiresAt) &&
+    Date.parse(value.updatedAt) >= Date.parse(value.createdAt) &&
+    Date.parse(value.expiresAt) > Date.parse(value.createdAt) &&
+    Date.parse(value.expiresAt) - Date.parse(value.createdAt) <= 900000 &&
+    typeof value.state === "string" &&
+    Object.hasOwn(questionVersions, value.state) &&
+    (questionVersions[value.state]?.includes(value.version as number) ?? false)
+  );
+}
+
+export async function listInvocationQuestions(
+  client: DataGroundClient,
+  reference: InvocationQuestionListReference,
+  cursor?: string,
+): Promise<QuestionListResult> {
+  const invalid: QuestionListResult = {
+    ok: false,
+    error: {
+      code: "WORKBENCH_INVALID_RESPONSE",
+      message: "DataGround returned a question page the Workbench could not interpret.",
+      retryable: false,
+    },
+  };
+  if (
+    !id(reference.isolationDomainId, "iso") ||
+    !id(reference.invocationId, "inv") ||
+    (cursor !== undefined &&
+      (cursor.length < 1 || cursor.length > 512 || !/^[A-Za-z0-9_-]+$/u.test(cursor)))
+  ) {
+    return {
+      ok: false,
+      error: {
+        code: "WORKBENCH_INVALID_REQUEST",
+        message: "The question discovery reference is invalid.",
+        retryable: false,
+      },
+    };
+  }
+  try {
+    const { data, error, response } = await client.GET(
+      "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/questions",
+      {
+        params: {
+          path: reference,
+          query: { limit: 50, ...(cursor === undefined ? {} : { cursor }) },
+        },
+        cache: "no-store",
+      },
+    );
+    if (response.status !== 200) {
+      const result = failed(error, response.status);
+      if (result.ok) return invalid;
+      const messages: Record<number, string> = {
+        401: "Sign in again to discover questions.",
+        403: "You are not authorized to discover questions for this invocation.",
+        404: "The invocation was not found.",
+      };
+      return {
+        ok: false,
+        error: {
+          ...result.error,
+          message:
+            messages[response.status] ??
+            "DataGround could not load questions. Refresh to try again.",
+        },
+      };
+    }
+    if (
+      !record(data) ||
+      !keys(data, ["items", "nextCursor"]) ||
+      !Array.isArray(data.items) ||
+      data.items.length > 50
+    )
+      return invalid;
+    if (
+      data.nextCursor !== undefined &&
+      (typeof data.nextCursor !== "string" ||
+        data.nextCursor.length < 1 ||
+        data.nextCursor.length > 512 ||
+        !/^[A-Za-z0-9_-]+$/u.test(data.nextCursor) ||
+        data.nextCursor === cursor ||
+        data.items.length === 0)
+    )
+      return invalid;
+    const seen = new Set<string>();
+    const items: InvocationQuestionSummary[] = [];
+    for (const item of data.items) {
+      if (!matchesQuestionSummary(item, reference) || seen.has(item.id)) return invalid;
+      seen.add(item.id);
+      items.push(item);
+    }
+    return {
+      ok: true,
+      page: { items, ...(data.nextCursor === undefined ? {} : { nextCursor: data.nextCursor }) },
+    };
+  } catch {
+    return {
+      ok: false,
+      error: {
+        code: "WORKBENCH_NETWORK_UNAVAILABLE",
+        message: "The Workbench could not load questions. Refresh to try again.",
+        retryable: true,
+      },
+    };
+  }
 }

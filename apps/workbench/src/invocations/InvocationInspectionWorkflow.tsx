@@ -8,7 +8,11 @@ import {
 import { ArtifactWorkflow, type InvocationArtifactReference } from "../artifacts";
 import type { DataGroundClient } from "../contracts/client";
 import { EventTimelineWorkflow } from "../events";
-import { type InvocationQuestionReference, QuestionWorkflow } from "../questions";
+import {
+  type InvocationQuestionReference,
+  QuestionDiscoveryWorkflow,
+  QuestionWorkflow,
+} from "../questions";
 import type { InvocationReference } from "./client";
 import { InvocationWorkflow } from "./InvocationWorkflow";
 
@@ -111,6 +115,13 @@ export function InvocationInspectionWorkflow({
         onInspectArtifact={onInspectArtifact}
         reference={reference}
       />
+      {onInspectQuestion && (
+        <QuestionDiscoveryWorkflow
+          client={client}
+          reference={reference}
+          onInspectQuestion={onInspectQuestion}
+        />
+      )}
       <ApprovalDiscoveryWorkflow
         client={client}
         reference={reference}
@@ -133,7 +144,7 @@ export function InvocationInspectionWorkflow({
             <StatusBadge tone="critical">Scope mismatch</StatusBadge>
             <p>
               The selected question does not belong to the active invocation. Reopen it from the
-              confirmed event timeline.
+              question list or confirmed event timeline.
             </p>
           </section>
         ))}
