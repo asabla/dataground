@@ -233,6 +233,12 @@ const validateApprovalPage = ajv.compile({
 const approvalPage = await readJson("contracts/fixtures/valid/invocation-approval-page.json");
 assert.equal(validateApprovalPage({ items: Array(100).fill(approvalPage.items[0]) }), true);
 assert.equal(validateApprovalPage({ items: Array(101).fill(approvalPage.items[0]) }), false);
+const validateQuestionPage = ajv.compile({
+  $ref: "urn:dataground:openapi:v1#/components/schemas/InvocationQuestionPage",
+});
+const questionPage = await readJson("contracts/fixtures/valid/invocation-question-page.json");
+assert.equal(validateQuestionPage({ items: Array(100).fill(questionPage.items[0]) }), true);
+assert.equal(validateQuestionPage({ items: Array(101).fill(questionPage.items[0]) }), false);
 const validateReleaseManifest = ajv.compile(releaseManifest);
 ajv.addSchema(authorizationAuditExport);
 ajv.addSchema(operatorAuditExport);

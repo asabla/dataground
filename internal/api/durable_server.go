@@ -195,6 +195,7 @@ func newDurableHandler(
 		authz.CancelInvocation, authz.Invocation, "invocationId", server.cancelInvocation,
 	))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/approvals", protected(authz.ListInvocationApprovals, authz.Invocation, "invocationId", server.listInvocationApprovals))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/questions", protected(authz.ListInvocationQuestions, authz.Invocation, "invocationId", server.listInvocationQuestions))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/questions/{questionId}", protected(authz.ReadInvocationQuestion, authz.InvocationQuestion, "questionId", server.getInvocationQuestion))
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/questions/{questionId}/answers", protected(authz.AnswerInvocationQuestion, authz.InvocationQuestion, "questionId", server.answerInvocationQuestion))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/approvals/{approvalId}", protected(

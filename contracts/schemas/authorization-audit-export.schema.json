@@ -162,6 +162,7 @@
             "readInvocationQuestion",
             "answerInvocationQuestion",
             "listInvocationApprovals",
+            "listInvocationQuestions",
             "readInvocationApproval",
             "resolveInvocationApproval",
             "readInvocationEvents",
