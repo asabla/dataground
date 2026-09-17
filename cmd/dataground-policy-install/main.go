@@ -30,7 +30,7 @@ func run(ctx context.Context, arguments []string) error {
 	flags := flag.NewFlagSet("dataground-policy-install", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var domainID, serviceID, revisionID, policySetID, policyFile, entityFile, actorID, reason, correlationID string
-	var approvalCapable, questionCapable bool
+	var approvalCapable, questionCapable, publicationCapable bool
 	flags.StringVar(&domainID, "isolation-domain", "", "isolation domain identifier")
 	flags.StringVar(&serviceID, "service", "", "agent service identifier")
 	flags.StringVar(&revisionID, "revision", "", "service revision identifier")
@@ -42,11 +42,12 @@ func run(ctx context.Context, arguments []string) error {
 	flags.StringVar(&correlationID, "correlation-id", "", "stable installation correlation identifier")
 	flags.BoolVar(&approvalCapable, "approval-capable", false, "install the interactive approval Cedar contract")
 	flags.BoolVar(&questionCapable, "question-capable", false, "install the interactive question and approval Cedar contract")
+	flags.BoolVar(&publicationCapable, "publication-capable", false, "install the publication, question and approval Cedar contract")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
-	if approvalCapable && questionCapable {
-		return errors.New("select only one interactive policy contract")
+	if (approvalCapable && questionCapable) || (publicationCapable && (approvalCapable || questionCapable)) {
+		return errors.New("select only one policy contract")
 	}
 	if flags.NArg() != 0 ||
 		domainID == "" ||
@@ -74,7 +75,9 @@ func run(ctx context.Context, arguments []string) error {
 		RevisionID:        revisionID,
 	}
 	var policy reconcile.InvocationAuthorizationPolicy
-	if questionCapable {
+	if publicationCapable {
+		policy, err = reconcile.NewInvocationAuthorizationPolicyWithPublicationEntities(scope, policySetID, reconcile.CanonicalPublicationCedarSchema(), policyBytes, entityBytes)
+	} else if questionCapable {
 		policy, err = reconcile.NewInvocationAuthorizationPolicyWithQuestionEntities(scope, policySetID, reconcile.CanonicalInvocationCedarQuestionSchema(), policyBytes, entityBytes)
 	} else if approvalCapable {
 		policy, err = reconcile.NewInvocationAuthorizationPolicyWithApprovalEntities(

@@ -61,7 +61,7 @@ func (record InvocationAuthorizationPolicyRecord) Valid() bool {
 		digest := invocationAuthorizationPolicyRecordDigest(record.Schema, record.Policies)
 		return len(record.Entities) == 0 && bytes.Equal(record.PolicyDigest, digest[:])
 	case "dataground.invocation-authorization-policy/v2",
-		"dataground.invocation-authorization-policy/v3", "dataground.invocation-authorization-policy/v4":
+		"dataground.invocation-authorization-policy/v3", "dataground.invocation-authorization-policy/v4", "dataground.invocation-authorization-policy/v5":
 		if !validInvocationAuthorizationEntityBytes(record.Entities) {
 			return false
 		}
@@ -80,6 +80,8 @@ func (record InvocationAuthorizationPolicyRecord) entityPolicyDigest(entities []
 		return authz.InvocationAuthorizationPolicyV2Digest(record.Schema, record.Policies, entities), true
 	case "dataground.invocation-authorization-policy/v3":
 		return authz.InvocationAuthorizationPolicyV3Digest(record.Schema, record.Policies, entities), true
+	case "dataground.invocation-authorization-policy/v5":
+		return authz.InvocationAuthorizationPolicyV5Digest(record.Schema, record.Policies, entities), true
 	case "dataground.invocation-authorization-policy/v4":
 		return authz.InvocationAuthorizationPolicyV4Digest(record.Schema, record.Policies, entities), true
 	default:

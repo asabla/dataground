@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	InvocationAuthorizationPolicyContract         = "dataground.invocation-authorization-policy/v1"
-	InvocationAuthorizationPolicyEntityContract   = "dataground.invocation-authorization-policy/v2"
-	InvocationAuthorizationPolicyApprovalContract = "dataground.invocation-authorization-policy/v3"
-	InvocationAuthorizationPolicyQuestionContract = "dataground.invocation-authorization-policy/v4"
+	InvocationAuthorizationPolicyContract            = "dataground.invocation-authorization-policy/v1"
+	InvocationAuthorizationPolicyEntityContract      = "dataground.invocation-authorization-policy/v2"
+	InvocationAuthorizationPolicyApprovalContract    = "dataground.invocation-authorization-policy/v3"
+	InvocationAuthorizationPolicyQuestionContract    = "dataground.invocation-authorization-policy/v4"
+	InvocationAuthorizationPolicyPublicationContract = "dataground.invocation-authorization-policy/v5"
 )
 
 const maxInvocationAuthorizationPolicyIDBytes = 128
@@ -82,6 +83,14 @@ func NewInvocationAuthorizationPolicyWithApprovalEntities(
 	)
 }
 
+func NewInvocationAuthorizationPolicyWithPublicationEntities(scope InvocationAuthorizationPolicyScope, policySetID string, schema, policies, entities []byte) (InvocationAuthorizationPolicy, error) {
+	canonicalEntities, _, err := canonicalInvocationCedarEntities(entities)
+	if err != nil || !bytes.Equal(canonicalEntities, entities) {
+		return InvocationAuthorizationPolicy{}, ErrInvocationAuthorizationPolicyInvalid
+	}
+	return newInvocationAuthorizationPolicy(InvocationAuthorizationPolicyPublicationContract, scope, policySetID, schema, policies, canonicalEntities)
+}
+
 func NewInvocationAuthorizationPolicyWithQuestionEntities(
 	scope InvocationAuthorizationPolicyScope,
 	policySetID string,
@@ -142,7 +151,7 @@ func newInvocationAuthorizationPolicy(
 		len(policies) > maxInvocationAuthorizationPolicyBytes ||
 		(contract == InvocationAuthorizationPolicyContract && len(entities) != 0) ||
 		((contract == InvocationAuthorizationPolicyEntityContract ||
-			contract == InvocationAuthorizationPolicyApprovalContract || contract == InvocationAuthorizationPolicyQuestionContract) &&
+			contract == InvocationAuthorizationPolicyApprovalContract || contract == InvocationAuthorizationPolicyQuestionContract || contract == InvocationAuthorizationPolicyPublicationContract) &&
 			(len(entities) == 0 || len(entities) > maxInvocationAuthorizationEntityBytes)) {
 		return InvocationAuthorizationPolicy{}, ErrInvocationAuthorizationPolicyInvalid
 	}
@@ -312,7 +321,7 @@ func validInvocationAuthorizationPolicy(
 	case InvocationAuthorizationPolicyContract:
 		return len(policy.Entities) == 0 &&
 			policy.Digest == invocationAuthorizationPolicyDigest(policy.Schema, policy.Policies)
-	case InvocationAuthorizationPolicyEntityContract, InvocationAuthorizationPolicyApprovalContract, InvocationAuthorizationPolicyQuestionContract:
+	case InvocationAuthorizationPolicyEntityContract, InvocationAuthorizationPolicyApprovalContract, InvocationAuthorizationPolicyQuestionContract, InvocationAuthorizationPolicyPublicationContract:
 		if len(policy.Entities) == 0 || len(policy.Entities) > maxInvocationAuthorizationEntityBytes {
 			return false
 		}
@@ -339,6 +348,9 @@ func invocationAuthorizationPolicyDigestForContract(
 	entities []byte,
 ) [sha256.Size]byte {
 	digest := sha256.New()
+	if contract == InvocationAuthorizationPolicyPublicationContract {
+		return authz.InvocationAuthorizationPolicyV5Digest(schema, policies, entities)
+	}
 	if contract == InvocationAuthorizationPolicyQuestionContract {
 		return authz.InvocationAuthorizationPolicyV4Digest(schema, policies, entities)
 	}
