@@ -16,7 +16,7 @@ const (
 	credentialEvidenceSHA256     = "684e8e9e8b859e0822c8f287201d137a88abcad501f7b9f94ffac9c9aa9414e3"
 	gatewayEndpoint              = "http://127.0.0.1:8080"
 	driver                       = "docker"
-	runtimeComposeSHA256         = "e0c3a67c3b5976dc22e32e47614a1f8f08aaaa2ddfc0c376240641a391066762"
+	runtimeComposeSHA256         = "23e7b8fefea1cb51ea3740b6f2c2b9b5a3cd341bbad873e8ace9bb5612c6ad53"
 	runtimeGatewayConfigSHA256   = "16f5d7a5e7d1dad1be67ede22d7b9d70e76517c98c6c9a4a4c2eb89eead08651"
 )
 

@@ -42,6 +42,7 @@ type LauncherConfig struct {
 }
 
 type launcherTopology interface {
+	Check(context.Context) error
 	Start(context.Context) error
 	Cleanup(context.Context) error
 }
@@ -242,6 +243,10 @@ func launch(
 		if config.diagnosticModel != "" && errors.As(err, &failure) {
 			return Result{}, failure
 		}
+		return Result{}, launcherFailure(ctx, ErrLauncherRun)
+	}
+	phase = "topology-final-verification"
+	if err := topology.Check(ctx); err != nil {
 		return Result{}, launcherFailure(ctx, ErrLauncherRun)
 	}
 	return result, nil

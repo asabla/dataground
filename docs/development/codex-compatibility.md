@@ -49,14 +49,7 @@ Provider-bound execution also requires the checked `deploy/openshell/codex-compa
 
 The exact [ARM64 candidate diagnostic](../../deploy/openshell/diagnostics/codex-candidate-arm64-20260906.json) passed all twelve live cases on 2026-09-06 using source commit `fed7191b2543c53842cb8310149ff3c359e8c6f5`, model `gpt-6-astra`, and local candidate image `sha256:703abdf5d88c6298423ba25cb11340990169b4f535b1b75ecc9fb4b730165573`. It exercised initialization, successful and unavailable-model turns, command-event normalization, interruption, cancellation, denied command and file approvals, artifact production/export, and sandbox teardown on the owned loopback topology. The candidate synthetic credential scan ran before local credentials were opened. The local bundle and live run resources were removed; the synthetic precheck retained only its empty mode-0600 policy-workspace lock.
 
-The archived JSON retains its exact producer bytes, with SHA-256 `4ff6e86de99891700d312c19f42aee4c5c69000110a54070a2f805a44209f665`. Its narrow formatter override preserves that identity, and a regression test pins the digest. Verify the report's closed shape, current profile, exact image/source, case order, distinct commitments, nanosecond chronology, and run-bound cleanup with:
-
-```shell
-pnpm openshell:runtime-diagnostic:check \
-  deploy/openshell/diagnostics/codex-candidate-arm64-20260906.json \
-  --source-commit fed7191b2543c53842cb8310149ff3c359e8c6f5 \
-  --candidate-image sha256:703abdf5d88c6298423ba25cb11340990169b4f535b1b75ecc9fb4b730165573
-```
+The archived JSON retains its exact producer bytes, with SHA-256 `4ff6e86de99891700d312c19f42aee4c5c69000110a54070a2f805a44209f665`. Its narrow formatter override preserves that identity, and a regression test pins the digest. The current verifier rejects this archived report because it predates the explicit gateway command and current Compose digest. Its bytes remain historical evidence of the original run. A new live diagnostic is required before local acceptance under the corrected topology.
 
 This verifier checks recorded observations; it does not independently rerun the sandbox or authenticate an operator attestation. The record has local origin and `certificationEligible: false`, and the CI evidence schema rejects it. It contains no credentials, prompts, native transcript, or exported content. It establishes this local ARM64 run only and does not itself establish image publication. An explicit local-evidence acceptance contract, accepted credential/runtime evidence, scoped activation, and production certification remain outstanding. Default execution and release checkers are unchanged.
 
@@ -118,10 +111,6 @@ The [published-image local diagnostic](../../deploy/openshell/diagnostics/codex-
 pnpm codex:candidate:check \
   sha256:9fff9875097a3608fce25e0d401cacc70ad10113237683fe907e45d94e4b24a1 \
   e7a0839bfcaa6a9d95540224a63c02be45bb89e1 34025809311 1 arm64
-pnpm openshell:runtime-diagnostic:check \
-  deploy/openshell/diagnostics/codex-published-candidate-arm64-20260906.json \
-  --source-commit e7a0839bfcaa6a9d95540224a63c02be45bb89e1 \
-  --candidate-image sha256:9fff9875097a3608fce25e0d401cacc70ad10113237683fe907e45d94e4b24a1
 ```
 
-This establishes a verified publication and one local conformance run of that exact image. The diagnostic remains local and non-certifying. It does not satisfy the existing CI runtime-evidence contract, activate the governed worker, or certify the complete Developer, Team, or Production deployment profile.
+This records a verified publication and one historical local conformance run of that exact image. The archived diagnostic predates the corrected gateway command and does not pass the current topology verifier. The diagnostic remains local and non-certifying. It does not satisfy the existing CI runtime-evidence contract, activate the governed worker, or certify the complete Developer, Team, or Production deployment profile.
