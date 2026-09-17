@@ -10,6 +10,7 @@ export interface ServiceRevisionHistoryPanelProps {
   onRetry: () => void;
   onCreate?: () => void;
   onOpen?: (revision: ServiceRevisionHistoryResource) => void;
+  onInspectAudit?: (revision: ServiceRevisionHistoryResource) => void;
   onRetire?: (revision: ServiceRevisionHistoryResource) => void;
   revisions: ServiceRevisionHistoryResource[];
 }
@@ -28,6 +29,7 @@ export function ServiceRevisionHistoryPanel({
   onLoadMore,
   onRetry,
   onRetire,
+  onInspectAudit,
   onCreate,
   onOpen,
   revisions,
@@ -84,10 +86,20 @@ export function ServiceRevisionHistoryPanel({
                   Updated{" "}
                   <time dateTime={revision.metadata.updatedAt}>{revision.metadata.updatedAt}</time>
                 </span>
-                {((onOpen && revision.state !== "retired") ||
+                {(onInspectAudit ||
+                  (onOpen && revision.state !== "retired") ||
                   (onRetire && revision.state === "published")) && (
                   <div className="revision-history__actions">
-                    {onOpen && (
+                    {onInspectAudit && (
+                      <Button
+                        variant="quiet"
+                        isDisabled={isLoading || isLoadingMore || !!error}
+                        onPress={() => onInspectAudit(revision)}
+                      >
+                        Inspect audit for revision {revision.revisionNumber}
+                      </Button>
+                    )}
+                    {onOpen && revision.state !== "retired" && (
                       <Button
                         isDisabled={isLoading || isLoadingMore || !!error}
                         variant="quiet"

@@ -60,6 +60,7 @@ export {
   QuestionRequest,
   type QuestionRequestProps,
 } from "./QuestionRequest";
+export { type AuditRecordSummary, ResourceAudit, type ResourceAuditProps } from "./ResourceAudit";
 export {
   type AssignedServiceAlias,
   ServiceAliasAssign,
