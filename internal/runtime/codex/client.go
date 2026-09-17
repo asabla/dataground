@@ -784,16 +784,15 @@ func (client *Client) respondError(id json.RawMessage, code int, message string)
 }
 
 func (client *Client) waitProcess() {
-	err := client.session.Wait()
+	_ = client.session.Wait()
 	select {
 	case <-client.closed:
 		return
 	default:
 	}
-	if err == nil {
-		err = errors.New("app-server exited unexpectedly")
-	}
-	client.fail(fmt.Errorf("%w: %v", dgruntime.ErrProtocol, err))
+	// Native process errors can contain paths or provider details. Only the
+	// stable failure classification crosses the worker boundary.
+	client.fail(fmt.Errorf("%w: runtime process exited unexpectedly", dgruntime.ErrProtocol))
 }
 
 func (client *Client) protocolFailure(message string) error {

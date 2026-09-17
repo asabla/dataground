@@ -101,10 +101,7 @@ type InvocationRuntimeArtifactFinalizer interface {
 	Finalize(context.Context, artifact.Finalization) (artifact.Record, error)
 }
 
-type InvocationRuntimeAdapter interface {
-	Start(context.Context, dgruntime.StartRequest) (dgruntime.Turn, error)
-	Close() error
-}
+type InvocationRuntimeAdapter = dgruntime.Adapter
 
 type InvocationRuntimeAdapterFactory interface {
 	New(execution.RuntimeSession) (InvocationRuntimeAdapter, error)
