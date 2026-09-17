@@ -94,6 +94,10 @@ The command validates file identity, canonical content, explicit scope, attribut
 
 No migration is introduced by this command. Removing the command does not remove installed plans; the existing append-only binding and governed effect-time authorization remain authoritative. A replacement plan requires a new service revision. Missing policy, enforcement material, provider grants or accepted runtime certification continues to block governed execution.
 
+## Publish the strict development revision
+
+After preparing the exact inputs, use the [governed development publication command](development-publication.md) to publish the draft revision. It reuses the signed acceptance and deployment verifier and commits the publication, audit, outbox event, and replay receipt atomically. Public publication remains reference-only.
+
 ## API dispatch
 
 The durable API can explicitly opt into this worker target without changing the public invocation route. Set `DATAGROUND_GOVERNED_DISPATCH_CONFIG_FILE` to an absolute path containing an owner-controlled regular file such as:

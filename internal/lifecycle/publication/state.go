@@ -4,6 +4,10 @@ import "fmt"
 
 const StateMachineVersion = 1
 
+// AtomicDevelopmentVersion records a terminal operator publication whose
+// validation and database effects commit together, without queued effects.
+const AtomicDevelopmentVersion = 2
+
 type State string
 
 const (

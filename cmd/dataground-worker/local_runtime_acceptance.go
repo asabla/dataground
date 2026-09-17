@@ -167,15 +167,26 @@ func executeLocalAcceptance(ctx context.Context, binary string, arguments []stri
 	return output.buffer.Bytes(), nil
 }
 
+type localRuntimeAcceptanceProof struct {
+	acceptanceID string
+	generation   uint64
+	expiresAt    time.Time
+}
+
 func (checker *localRuntimeAcceptanceChecker) Check(ctx context.Context) error {
+	_, err := checker.check(ctx)
+	return err
+}
+
+func (checker *localRuntimeAcceptanceChecker) check(ctx context.Context) (localRuntimeAcceptanceProof, error) {
 	if checker == nil || ctx == nil || !checker.config.valid() {
-		return ErrRuntimeCertificationUnavailable
+		return localRuntimeAcceptanceProof{}, ErrRuntimeCertificationUnavailable
 	}
 	checker.mu.Lock()
 	closed := checker.closed || checker.deploymentFailed
 	checker.mu.Unlock()
 	if closed {
-		return ErrRuntimeCertificationUnavailable
+		return localRuntimeAcceptanceProof{}, ErrRuntimeCertificationUnavailable
 	}
 	config := checker.config
 	arguments := []string{localRuntimeVerifier, "verify", config.envelopeFile, config.trustFile, config.evidenceDirectory, config.trustSHA256, config.sourceRevision, config.envelopeSHA256, config.target.isolationDomainID, config.target.serviceID, config.target.revisionID, strconv.FormatUint(config.minimumGeneration, 10)}
@@ -193,7 +204,7 @@ func (checker *localRuntimeAcceptanceChecker) Check(ctx context.Context) error {
 	defer cancel()
 	output, err := run(ctx, config.nodeBinary, arguments, environment)
 	if err != nil || len(output) == 0 || len(output) > maximumAcceptanceOutput || ctx.Err() != nil {
-		return ErrRuntimeCertificationUnavailable
+		return localRuntimeAcceptanceProof{}, ErrRuntimeCertificationUnavailable
 	}
 	var receipt struct {
 		AcceptanceID string `json:"acceptanceId"`
@@ -217,10 +228,10 @@ func (checker *localRuntimeAcceptanceChecker) Check(ctx context.Context) error {
 	decoder := json.NewDecoder(bytes.NewReader(output))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&receipt); err != nil {
-		return ErrRuntimeCertificationUnavailable
+		return localRuntimeAcceptanceProof{}, ErrRuntimeCertificationUnavailable
 	}
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return ErrRuntimeCertificationUnavailable
+		return localRuntimeAcceptanceProof{}, ErrRuntimeCertificationUnavailable
 	}
 	expires, err := time.Parse(time.RFC3339Nano, receipt.ExpiresAt)
 	if err != nil || !time.Now().Before(expires) ||
@@ -231,13 +242,13 @@ func (checker *localRuntimeAcceptanceChecker) Check(ctx context.Context) error {
 		receipt.Scope.ServiceID != config.target.serviceID || receipt.Scope.RevisionID != config.target.revisionID ||
 		receipt.Profile != config.acceptanceProfile() || receipt.Image != config.image || receipt.Model != config.model ||
 		receipt.CertificationEligible == nil || *receipt.CertificationEligible || receipt.DeploymentScope != "loopback-development-only" {
-		return ErrRuntimeCertificationUnavailable
+		return localRuntimeAcceptanceProof{}, ErrRuntimeCertificationUnavailable
 	}
 	strictFields := []json.RawMessage{receipt.SupervisorImage, receipt.SupervisorLocalImageID, receipt.GatewayConfigSHA256, receipt.EnforcementDigest}
 	if config.strict == nil {
 		for _, field := range strictFields {
 			if len(field) != 0 {
-				return ErrRuntimeCertificationUnavailable
+				return localRuntimeAcceptanceProof{}, ErrRuntimeCertificationUnavailable
 			}
 		}
 	} else {
@@ -245,18 +256,18 @@ func (checker *localRuntimeAcceptanceChecker) Check(ctx context.Context) error {
 		for index, field := range strictFields {
 			var value string
 			if json.Unmarshal(field, &value) != nil || value != expected[index] {
-				return ErrRuntimeCertificationUnavailable
+				return localRuntimeAcceptanceProof{}, ErrRuntimeCertificationUnavailable
 			}
 		}
 		if checker.checkDeployment(ctx) != nil {
-			return ErrRuntimeCertificationUnavailable
+			return localRuntimeAcceptanceProof{}, ErrRuntimeCertificationUnavailable
 		}
 	}
 	checker.mu.Lock()
 	closed = checker.closed || checker.deploymentFailed
 	checker.mu.Unlock()
 	if closed || ctx.Err() != nil || !time.Now().Before(expires) {
-		return ErrRuntimeCertificationUnavailable
+		return localRuntimeAcceptanceProof{}, ErrRuntimeCertificationUnavailable
 	}
-	return nil
+	return localRuntimeAcceptanceProof{receipt.AcceptanceID, receipt.Generation, expires}, nil
 }

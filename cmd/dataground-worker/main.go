@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -16,6 +17,16 @@ import (
 const pollInterval = 250 * time.Millisecond
 
 func main() {
+	if len(os.Args) > 1 {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := runDevelopmentPublication(ctx, os.Args[1:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	databaseURL := os.Getenv("DATAGROUND_DATABASE_URL")
 	if databaseURL == "" {
