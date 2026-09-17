@@ -45,6 +45,32 @@ The local execution plan must bind the accepted published image and the exact ca
 
 The worker snapshots its configuration at startup. Changing minimum generation, rejected IDs, trust or accepted envelope pins requires an operator-controlled restart; removing or altering an evidence file makes subsequent checks fail immediately. No durable acceptance-generation registry, live configuration refresh or upstream credential acquisition is introduced. This profile neither provisions the required published revision and policy/provider inputs nor establishes an end-to-end governed journey by itself. Local model credentials remain with OpenShell, and reference mode stays the default.
 
+## Use strict local acceptance with a pinned deployment
+
+On a Linux ARM64 host, select `openshell-codex-strict-candidate-development/v1` with a verified version 2 envelope, trust profile and evidence directory. This uses the common local acceptance settings above and the same exact service-revision scope, generation, rejection, model and expiry checks. The strict contract binds ARM64 publications for both Codex and the supervisor; the worker rejects other operating systems and architectures. It does not fall back to the version 1 local profile.
+
+Supply these additional independent deployment pins:
+
+```shell
+DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE='openshell-codex-strict-candidate-development/v1'
+DATAGROUND_LOCAL_RUNTIME_SUPERVISOR_IMAGE='ghcr.io/asabla/dataground-supervisor-candidate@sha256:<accepted-manifest-digest>'
+DATAGROUND_LOCAL_RUNTIME_SUPERVISOR_LOCAL_IMAGE_ID='sha256:<accepted-local-image-identity>'
+DATAGROUND_LOCAL_RUNTIME_GATEWAY_CONFIG_SHA256='<accepted-gateway-configuration-sha256>'
+DATAGROUND_LOCAL_RUNTIME_TOPOLOGY_RUN_ID='<current-deployment-run-id>'
+DATAGROUND_LOCAL_RUNTIME_GATEWAY_CONTAINER_ID='<exact-current-container-id>'
+DATAGROUND_LOCAL_RUNTIME_GATEWAY_STARTED_AT='<exact-original-docker-start-timestamp>'
+DATAGROUND_LOCAL_RUNTIME_TOPOLOGY_ROOT='/absolute/private/topology-root'
+DATAGROUND_LOCAL_RUNTIME_DOCKER_BINARY='/absolute/path/to/docker'
+```
+
+The supervisor publication, local image identity and configuration digest must match the verified v2 receipt. The execution plan must use the accepted Codex image and strict policy digest `sha256:a1d56c0470c3264c4c37183352d783ebb67911d92ef2eb6ec5f7c76c61f69f39`. A version 1 policy, different image, different model, missing strict field or certification claim fails before deployment observation or placement. The worker checks expiry again after observation, within the existing overall 75-second verification deadline.
+
+The deployment identifiers refer to the current gateway, not the already-cleaned diagnostic run. Independently prepare an instance of the [checked host-network topology](openshell-local.md#observe-an-existing-development-gateway) and preserve its owner-only workspace under `dg-runtime-topology-<current-deployment-run-id>`. The mounted configuration must have been staged more than one second before that process started. The observer requires a supported local Linux filesystem, a stable trusted host clock, access to the gateway process's `/proc` records and the local Docker socket. The ordinary bridged local Compose profile cannot satisfy this binding.
+
+At startup and every existing readiness, governed effect, authorization, runtime renewal, artifact and completion boundary, the worker first verifies the signed acceptance and then rechecks the same deployment. Container replacement, restart, modified mounted configuration, invalid listeners, image substitution or unavailable observation prevents further work in that worker. A failed deployment observation remains rejected until an operator-controlled worker restart with reviewed pins. Worker shutdown and failed startup close observation handles without restarting, stopping or deleting the operator-owned gateway.
+
+The worker does not provision this topology, publish images, create acceptance signatures or grant provider access. Preparing the required revision, policy, provider grants, accepted evidence and gateway remains an operator responsibility. This remains an experimental loopback development profile; reference mode is still the default and production release acceptance is not established.
+
 ## Install a reviewed execution plan
 
 An operator with administrative database access can install the plan through `go run ./cmd/dataground-execution-plan-install`. This command exposes the existing immutable plan-binding transaction; it does not create a revision, publish enforcement material, grant provider access, or certify a runtime. The revision must already exist in the exact isolation domain with the plan's runtime profile and required capabilities. Complete provisioning of the other inputs above remains required.
