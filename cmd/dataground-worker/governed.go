@@ -63,13 +63,15 @@ type workerResources struct {
 	exportWorkspace   *openshell.ExportWorkspace
 	readiness         runtimeCertificationReadiness
 	interactionExpiry *interactionExpiryOwner
+	runtimeAcceptance *localRuntimeAcceptanceChecker
 }
 
 type governedExecutionPlanStore struct {
 	execution.ExecutionPlanStore
-	readiness      runtimeCertificationReadiness
-	target         runtimeCertificationTarget
-	candidateImage string
+	readiness         runtimeCertificationReadiness
+	target            runtimeCertificationTarget
+	candidateImage    string
+	acceptanceProfile string
 }
 
 type governedCodexRuntimeRequestBuilder struct {
@@ -142,19 +144,30 @@ func (store governedExecutionPlanStore) GetExecutionPlan(
 	if err != nil {
 		return execution.ExecutionPlan{}, err
 	}
-	if !validGovernedDevelopmentPlan(plan, store.candidateImage) {
+	if !validGovernedDevelopmentPlan(plan, store.candidateImage, store.acceptanceProfile) {
 		return execution.ExecutionPlan{}, execution.ErrExecutionPlanRevisionMismatch
 	}
 	return plan, nil
 }
 
-func validGovernedDevelopmentPlan(plan execution.ExecutionPlan, candidateImage string) bool {
+func validGovernedDevelopmentPlan(plan execution.ExecutionPlan, candidateImage, acceptanceProfile string) bool {
 	image, enforcement := governedSandboxImage, governedEnforcementDigest
 	if candidateImage != "" {
 		if !localCandidateImagePattern.MatchString(candidateImage) {
 			return false
 		}
-		image, enforcement = candidateImage, localEnforcementDigest
+		image = candidateImage
+		switch acceptanceProfile {
+		case localRuntimeProfile:
+			enforcement = localEnforcementDigest
+		case strictLocalRuntimeProfile:
+			enforcement = strictLocalEnforcementDigest
+		default:
+			return false
+		}
+	}
+	if candidateImage == "" && acceptanceProfile != "" {
+		return false
 	}
 	return plan.RuntimeProfile == reconcile.CodexAppServerRuntimeProfileV1 &&
 		plan.ImageReference == image &&
@@ -249,14 +262,17 @@ func (resources *workerResources) Close() error {
 		return nil
 	}
 	resources.interactionExpiry.Close()
-	var exportErr, policyErr error
+	var exportErr, policyErr, acceptanceErr error
 	if resources.exportWorkspace != nil {
 		exportErr = resources.exportWorkspace.Close()
 	}
 	if resources.policyWorkspace != nil {
 		policyErr = resources.policyWorkspace.Close()
 	}
-	return errors.Join(exportErr, policyErr)
+	if resources.runtimeAcceptance != nil {
+		acceptanceErr = resources.runtimeAcceptance.Close()
+	}
+	return errors.Join(exportErr, policyErr, acceptanceErr)
 }
 
 func loadWorkerConfig(lookup environmentLookup) (workerConfig, error) {
@@ -280,7 +296,7 @@ func loadWorkerConfig(lookup environmentLookup) (workerConfig, error) {
 	switch {
 	case !found || profile == governedCertificationProfile:
 		config.certification, err = loadRuntimeCertificationConfig(lookup)
-	case profile == localRuntimeProfile:
+	case profile == localRuntimeProfile || profile == strictLocalRuntimeProfile:
 		config.localAcceptance, err = loadLocalRuntimeAcceptanceConfig(lookup)
 	default:
 		return workerConfig{}, errors.New("unsupported development runtime profile")
@@ -406,14 +422,20 @@ func composeWorkerDriver(
 		return nil, nil, errors.New("governed worker configuration and durable dependencies are required")
 	}
 
+	resources := &workerResources{}
+	fail := func(cause error) (reconcile.EffectDriver, *workerResources, error) {
+		return nil, nil, errors.Join(cause, resources.Close())
+	}
 	var checker runtimeCertificationReadiness
-	var candidateImage, model string
+	var candidateImage, model, acceptanceProfile string
 	var err error
 	if config.localAcceptance != nil {
 		if !config.localAcceptance.valid() {
 			return nil, nil, ErrRuntimeCertificationUnavailable
 		}
-		checker = &localRuntimeAcceptanceChecker{config: *config.localAcceptance}
+		resources.runtimeAcceptance = &localRuntimeAcceptanceChecker{config: *config.localAcceptance}
+		checker = resources.runtimeAcceptance
+		acceptanceProfile = config.localAcceptance.acceptanceProfile()
 		candidateImage, model = config.localAcceptance.image, config.localAcceptance.model
 	} else {
 		checker, err = newRuntimeCertificationChecker(config.certification, nodeRuntimeCertificationVerifier{})
@@ -422,7 +444,7 @@ func composeWorkerDriver(
 		}
 	}
 	if err := checker.Check(ctx); err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	var runtimeProfile string
 	if err := pool.QueryRow(ctx, `
@@ -435,12 +457,9 @@ func composeWorkerDriver(
 	`, config.runtimeTarget().isolationDomainID, config.runtimeTarget().serviceID,
 		config.runtimeTarget().revisionID).Scan(&runtimeProfile); err != nil ||
 		runtimeProfile != reconcile.CodexAppServerRuntimeProfileV1 {
-		return nil, nil, ErrRuntimeCertificationScopeMismatch
+		return fail(ErrRuntimeCertificationScopeMismatch)
 	}
-	resources := &workerResources{readiness: checker}
-	fail := func(cause error) (reconcile.EffectDriver, *workerResources, error) {
-		return nil, nil, errors.Join(cause, resources.Close())
-	}
+	resources.readiness = checker
 	resources.interactionExpiry, err = newInteractionExpiryOwner(ctx, repository, config.isolationDomainID, interactionExpiryInterval, interactionExpiryTimeout)
 	if err != nil {
 		return fail(err)
@@ -517,6 +536,7 @@ func composeWorkerDriver(
 		governedExecutionPlanStore{
 			ExecutionPlanStore: executionStore,
 			candidateImage:     candidateImage,
+			acceptanceProfile:  acceptanceProfile,
 			readiness:          readiness,
 			target:             config.runtimeTarget(),
 		},

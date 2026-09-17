@@ -13,14 +13,17 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 const (
-	localRuntimeProfile     = "openshell-codex-candidate-development/v1"
-	localRuntimeVerifier    = "scripts/local-runtime-acceptance.mjs"
-	localEnforcementDigest  = "sha256:d7f510e5332068cea5106de5351973dc60f15e22e970fa9352a75d3bbd32b95d"
-	maximumAcceptanceOutput = 16 << 10
+	strictLocalRuntimeProfile    = "openshell-codex-strict-candidate-development/v1"
+	strictLocalEnforcementDigest = "sha256:a1d56c0470c3264c4c37183352d783ebb67911d92ef2eb6ec5f7c76c61f69f39"
+	localRuntimeProfile          = "openshell-codex-candidate-development/v1"
+	localRuntimeVerifier         = "scripts/local-runtime-acceptance.mjs"
+	localEnforcementDigest       = "sha256:d7f510e5332068cea5106de5351973dc60f15e22e970fa9352a75d3bbd32b95d"
+	maximumAcceptanceOutput      = 16 << 10
 )
 
 var (
@@ -30,6 +33,7 @@ var (
 )
 
 type localRuntimeAcceptanceConfig struct {
+	strict            *strictLocalRuntimeConfig
 	target            runtimeCertificationTarget
 	envelopeFile      string
 	trustFile         string
@@ -84,6 +88,12 @@ func loadLocalRuntimeAcceptanceConfig(lookup environmentLookup) (*localRuntimeAc
 		slices.Sort(config.rejectedIDs)
 		config.rejectedIDs = slices.Compact(config.rejectedIDs)
 	}
+	if profile, _ := lookup("DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE"); profile == strictLocalRuntimeProfile {
+		config.strict, err = loadStrictLocalRuntimeConfig(lookup)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if !config.valid() {
 		return nil, ErrRuntimeCertificationUnavailable
 	}
@@ -95,7 +105,7 @@ func cleanAbsoluteAcceptancePath(value string) bool {
 }
 
 func (config localRuntimeAcceptanceConfig) valid() bool {
-	if !config.target.valid() || !sha256Pattern.MatchString(config.envelopeSHA256) ||
+	if (config.strict != nil && !config.strict.valid()) || !config.target.valid() || !sha256Pattern.MatchString(config.envelopeSHA256) ||
 		!sha256Pattern.MatchString(config.trustSHA256) || !commitPattern.MatchString(config.sourceRevision) ||
 		config.minimumGeneration == 0 || config.minimumGeneration > maximumSafeJSONInteger ||
 		!localCandidateImagePattern.MatchString(config.image) || !localModelPattern.MatchString(config.model) ||
@@ -126,8 +136,13 @@ func (config workerConfig) runtimeTarget() runtimeCertificationTarget {
 type localAcceptanceCommand func(context.Context, string, []string, []string) ([]byte, error)
 
 type localRuntimeAcceptanceChecker struct {
-	config localRuntimeAcceptanceConfig
-	run    localAcceptanceCommand
+	config           localRuntimeAcceptanceConfig
+	run              localAcceptanceCommand
+	mu               sync.Mutex
+	closed           bool
+	deploymentFailed bool
+	observation      runtimeDeploymentObservation
+	observe          runtimeDeploymentObserverFactory
 }
 
 type acceptanceOutput struct{ buffer bytes.Buffer }
@@ -156,6 +171,12 @@ func (checker *localRuntimeAcceptanceChecker) Check(ctx context.Context) error {
 	if checker == nil || ctx == nil || !checker.config.valid() {
 		return ErrRuntimeCertificationUnavailable
 	}
+	checker.mu.Lock()
+	closed := checker.closed || checker.deploymentFailed
+	checker.mu.Unlock()
+	if closed {
+		return ErrRuntimeCertificationUnavailable
+	}
 	config := checker.config
 	arguments := []string{localRuntimeVerifier, "verify", config.envelopeFile, config.trustFile, config.evidenceDirectory, config.trustSHA256, config.sourceRevision, config.envelopeSHA256, config.target.isolationDomainID, config.target.serviceID, config.target.revisionID, strconv.FormatUint(config.minimumGeneration, 10)}
 	if len(config.rejectedIDs) > 0 {
@@ -182,12 +203,16 @@ func (checker *localRuntimeAcceptanceChecker) Check(ctx context.Context) error {
 			ServiceID         string `json:"serviceId"`
 			RevisionID        string `json:"revisionId"`
 		} `json:"scope"`
-		Profile               string `json:"profile"`
-		Image                 string `json:"image"`
-		Model                 string `json:"model"`
-		ExpiresAt             string `json:"expiresAt"`
-		CertificationEligible *bool  `json:"certificationEligible"`
-		DeploymentScope       string `json:"deploymentScope"`
+		Profile                string          `json:"profile"`
+		Image                  string          `json:"image"`
+		Model                  string          `json:"model"`
+		ExpiresAt              string          `json:"expiresAt"`
+		CertificationEligible  *bool           `json:"certificationEligible"`
+		DeploymentScope        string          `json:"deploymentScope"`
+		SupervisorImage        json.RawMessage `json:"supervisorImage"`
+		SupervisorLocalImageID json.RawMessage `json:"supervisorLocalImageId"`
+		GatewayConfigSHA256    json.RawMessage `json:"gatewayConfigSHA256"`
+		EnforcementDigest      json.RawMessage `json:"enforcementDigest"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(output))
 	decoder.DisallowUnknownFields()
@@ -204,8 +229,33 @@ func (checker *localRuntimeAcceptanceChecker) Check(ctx context.Context) error {
 		slices.Contains(config.rejectedIDs, receipt.AcceptanceID) ||
 		receipt.Scope.IsolationDomainID != config.target.isolationDomainID ||
 		receipt.Scope.ServiceID != config.target.serviceID || receipt.Scope.RevisionID != config.target.revisionID ||
-		receipt.Profile != localRuntimeProfile || receipt.Image != config.image || receipt.Model != config.model ||
+		receipt.Profile != config.acceptanceProfile() || receipt.Image != config.image || receipt.Model != config.model ||
 		receipt.CertificationEligible == nil || *receipt.CertificationEligible || receipt.DeploymentScope != "loopback-development-only" {
+		return ErrRuntimeCertificationUnavailable
+	}
+	strictFields := []json.RawMessage{receipt.SupervisorImage, receipt.SupervisorLocalImageID, receipt.GatewayConfigSHA256, receipt.EnforcementDigest}
+	if config.strict == nil {
+		for _, field := range strictFields {
+			if len(field) != 0 {
+				return ErrRuntimeCertificationUnavailable
+			}
+		}
+	} else {
+		expected := []string{config.strict.supervisorImage, config.strict.topology.SupervisorLocalImageID, config.strict.topology.GatewayConfigSHA256, strictLocalEnforcementDigest}
+		for index, field := range strictFields {
+			var value string
+			if json.Unmarshal(field, &value) != nil || value != expected[index] {
+				return ErrRuntimeCertificationUnavailable
+			}
+		}
+		if checker.checkDeployment(ctx) != nil {
+			return ErrRuntimeCertificationUnavailable
+		}
+	}
+	checker.mu.Lock()
+	closed = checker.closed || checker.deploymentFailed
+	checker.mu.Unlock()
+	if closed || ctx.Err() != nil || !time.Now().Before(expires) {
 		return ErrRuntimeCertificationUnavailable
 	}
 	return nil
