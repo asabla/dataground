@@ -30,7 +30,8 @@ func TestInvocationRuntimeDriverRunsOneFencedTurn(t *testing.T) {
 	turn := &runtimeTurnStub{
 		events: runtimeEvents(
 			dgruntime.Event{Sequence: 1, Type: "output.text.delta", Payload: map[string]any{"text": "persisted output"}},
-			dgruntime.Event{Sequence: 2, Type: "lifecycle.succeeded", Payload: map[string]any{"message": "finished"}},
+			dgruntime.Event{Sequence: 2, Type: "usage.recorded", Payload: domain.Usage{InputTokens: 12, OutputTokens: 8, TotalTokens: 20}.SnapshotPayload()},
+			dgruntime.Event{Sequence: 3, Type: "lifecycle.succeeded", Payload: map[string]any{"message": "finished"}},
 		),
 	}
 	adapter := &runtimeAdapterStub{turn: turn}
@@ -60,7 +61,7 @@ func TestInvocationRuntimeDriverRunsOneFencedTurn(t *testing.T) {
 		store.failCalls != 0 {
 		t.Fatalf("runtime completion = result %#v, store %#v", result, store)
 	}
-	if len(store.events) != 2 || store.events[0].SourceSequence != 1 || store.events[1].SourceSequence != 2 {
+	if len(store.events) != 3 || store.events[0].SourceSequence != 1 || store.events[1].SourceSequence != 2 || store.events[1].Type != "usage.recorded" || store.events[1].Payload["totalTokens"] != 20 || store.events[2].SourceSequence != 3 {
 		t.Fatalf("runtime events = %#v", store.events)
 	}
 	if authorizer.calls != 1 || provider.observeCalls != 1 || provider.startCalls != 1 || adapter.startCalls != 1 {

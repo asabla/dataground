@@ -606,6 +606,7 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** @description Latest runtime-reported cumulative token snapshot for this invocation, not an additive delta or billing amount. A later snapshot can correct earlier estimates. Absence means no usage report was recorded, not zero usage. */
         Usage: {
             inputTokens: number;
             outputTokens: number;

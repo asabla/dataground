@@ -452,7 +452,7 @@ func capabilities() []capability {
 		{Name: "question", Classification: "unsupported", Evidence: []CheckName{}, ReasonCode: unsupported("ADAPTER_UNSUPPORTED")},
 		{Name: "permission-escalation", Classification: "unsupported", Evidence: []CheckName{}, ReasonCode: unsupported("ADAPTER_UNSUPPORTED")},
 		{Name: "rich-item-delta", Classification: "unsupported", Evidence: []CheckName{}, ReasonCode: unsupported("ADAPTER_UNSUPPORTED")},
-		{Name: "usage", Classification: "unsupported", Evidence: []CheckName{}, ReasonCode: unsupported("ADAPTER_UNSUPPORTED")},
+		{Name: "usage", Classification: "unsupported", Evidence: []CheckName{}, ReasonCode: unsupported("NATIVE_PROTOCOL_UNCERTIFIED")},
 		{Name: "resume", Classification: "unsupported", Evidence: []CheckName{}, ReasonCode: unsupported("DURABLE_INTERACTION_UNIMPLEMENTED")},
 		{Name: "steer", Classification: "unsupported", Evidence: []CheckName{}, ReasonCode: unsupported("DURABLE_INTERACTION_UNIMPLEMENTED")},
 		{Name: "artifact-export", Classification: "supported", Evidence: []CheckName{CheckArtifactExport}},

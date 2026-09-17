@@ -1014,7 +1014,7 @@ const expectedRuntimeReasonCodes = {
   question: "ADAPTER_UNSUPPORTED",
   "permission-escalation": "ADAPTER_UNSUPPORTED",
   "rich-item-delta": "ADAPTER_UNSUPPORTED",
-  usage: "ADAPTER_UNSUPPORTED",
+  usage: "NATIVE_PROTOCOL_UNCERTIFIED",
   resume: "DURABLE_INTERACTION_UNIMPLEMENTED",
   steer: "DURABLE_INTERACTION_UNIMPLEMENTED",
   "runtime-artifact-events": "NATIVE_PROTOCOL_UNCERTIFIED",

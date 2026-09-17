@@ -197,6 +197,12 @@ func (repository *Repository) RecordInvocationRuntimeEvent(
 		return domain.EventEnvelope{}, ErrInvocationRuntimeEventInvalid
 	}
 
+	if event.Type == "usage.recorded" {
+		if _, err := domain.ParseUsageSnapshot(encodedPayload); err != nil {
+			return domain.EventEnvelope{}, ErrInvocationRuntimeEventInvalid
+		}
+	}
+
 	tx, err := repository.pool.Begin(ctx)
 	if err != nil {
 		return domain.EventEnvelope{}, fmt.Errorf("begin invocation runtime event: %w", err)
@@ -299,6 +305,25 @@ func (repository *Repository) RecordInvocationRuntimeEvent(
 	}
 	if result.RowsAffected() != 1 {
 		return domain.EventEnvelope{}, ErrLeaseLost
+	}
+	if event.Type == "usage.recorded" {
+		// Journal and projection commit together under the invocation lock.
+		// Source order, not arrival order, selects the latest snapshot. Exact
+		// replays return above and cannot roll back a more recent projection.
+		if _, err := tx.Exec(ctx, `
+			UPDATE invocations
+			SET usage = $3, version = version + 1, updated_at = $5
+			WHERE isolation_domain_id = $1 AND id = $2
+			  AND usage IS DISTINCT FROM $3::jsonb
+			  AND NOT EXISTS (
+			    SELECT 1 FROM invocation_events
+			    WHERE isolation_domain_id = $1 AND invocation_id = $2
+			      AND source_kind = 'runtime' AND event_type = 'usage.recorded'
+			      AND source_sequence > $4
+			  )
+		`, target.IsolationDomainID, target.InvocationID, encodedPayload, event.SourceSequence, now); err != nil {
+			return domain.EventEnvelope{}, fmt.Errorf("persist invocation usage snapshot: %w", err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.EventEnvelope{}, fmt.Errorf("commit invocation runtime event: %w", err)

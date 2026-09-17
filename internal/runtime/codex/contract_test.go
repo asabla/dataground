@@ -38,6 +38,11 @@ func codexContractFixture(t *testing.T, scenario runtimetest.Scenario) runtimete
 				}
 			}
 			complete("completed")
+		case runtimetest.UsageSnapshots:
+			for _, counts := range [][3]int{{12, 8, 20}, {12, 8, 20}, {10, 6, 16}} {
+				server.notify("thread/tokenUsage/updated", nativeUsageParams(threadID, turnID, counts[0], counts[1], counts[2]))
+			}
+			complete("completed")
 		case runtimetest.Ownership, runtimetest.Validation:
 			complete("completed")
 		case runtimetest.Failure:
