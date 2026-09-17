@@ -1,5 +1,6 @@
 {
   "fixtures": [
+    { "file": "valid/resource-audit-page.json", "schema": "ResourceAuditPage", "valid": true },
     {
       "file": "valid/invocation-question-page.json",
       "schema": "InvocationQuestionPage",

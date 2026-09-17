@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "dataground.resource-audit-page/v1",
+  "isolationDomainId": "iso_00000000000000000001",
+  "resourceType": "invocation",
+  "resourceId": "inv_00000000000000000001",
+  "receiptId": "arr_00000000000000000001",
+  "items": [
+    {
+      "id": "aud_00000000000000000001",
+      "source": "lifecycle",
+      "recordedAt": "2026-09-17T12:00:00Z",
+      "actorId": "consumer",
+      "action": "invocation.accepted",
+      "outcome": "accepted",
+      "correlationId": "cor_00000000000000000001",
+      "operationId": "op_00000000000000000001"
+    },
+    {
+      "id": "ard_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source": "invocation-authorization",
+      "recordedAt": "2026-09-17T12:00:01Z",
+      "actorId": "consumer",
+      "action": "run",
+      "outcome": "allowed",
+      "correlationId": "cor_00000000000000000001",
+      "operationId": "op_00000000000000000001",
+      "policySetId": "reviewed-policy",
+      "policyDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "nextCursor": "arr_00000000000000000001"
+}

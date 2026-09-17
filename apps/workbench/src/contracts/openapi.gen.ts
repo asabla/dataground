@@ -411,6 +411,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read service revision audit
+         * @description Reads safe lifecycle records for the exact resource and its operation, followed by publication authorization decisions. Sources are ordered as listed, then by insertion sequence within each source, not by timestamp. The readServiceRevisionAudit permission is distinct from resource read permission. Every page requires current authorization and a committed append-only read receipt. Opaque continuations bind the principal identity and kind, domain, resource, and original database snapshot; a cursor is not an authorization grant. Start a new read to include later commits. Metadata, payloads, policy entities, credentials, native runtime routing, and unrelated audit streams are excluded. Reference mode returns RESOURCE_AUDIT_UNAVAILABLE (503). Responses use Cache-Control: no-store.
+         */
+        get: operations["readServiceRevisionAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read invocation audit
+         * @description Reads safe lifecycle records for the exact resource and its operation, followed by invocation authorization decisions. Sources are ordered as listed, then by insertion sequence within each source, not by timestamp. The readInvocationAudit permission is distinct from resource read permission. Every page requires current authorization and a committed append-only read receipt. Opaque continuations bind the principal identity and kind, domain, resource, and original database snapshot; a cursor is not an authorization grant. Start a new read to include later commits. Metadata, payloads, policy entities, credentials, native runtime routing, and unrelated audit streams are excluded. Reference mode returns RESOURCE_AUDIT_UNAVAILABLE (503). Responses use Cache-Control: no-store.
+         */
+        get: operations["readInvocationAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -911,6 +951,34 @@ export interface components {
             expectedVersion: 1;
             /** @enum {unknown} */
             decision: "approve" | "deny";
+        };
+        ResourceAuditRecord: {
+            id: string;
+            /** @enum {string} */
+            source: "lifecycle" | "invocation-authorization" | "publication-authorization";
+            /** Format: date-time */
+            recordedAt: string;
+            actorId: string;
+            action: string;
+            /** @enum {string} */
+            outcome: "accepted" | "succeeded" | "failed" | "cancelled" | "denied" | "allowed" | "unavailable";
+            correlationId: string;
+            operationId?: components["schemas"]["OperationId"];
+            policySetId?: string;
+            policyDigest?: string;
+            /** @enum {string} */
+            phase?: "entry" | "effect";
+        };
+        ResourceAuditPage: {
+            /** @constant */
+            schemaVersion: "dataground.resource-audit-page/v1";
+            isolationDomainId: components["schemas"]["IsolationDomainId"];
+            /** @enum {string} */
+            resourceType: "service-revision" | "invocation";
+            resourceId: string;
+            receiptId: string;
+            items: components["schemas"]["ResourceAuditRecord"][];
+            nextCursor?: string;
         };
     };
     responses: {
@@ -1796,6 +1864,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InvocationQuestionPage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    readServiceRevisionAudit: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                revisionId: components["parameters"]["RevisionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A stable bounded audit page with a committed disclosure receipt. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceAuditPage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    readInvocationAudit: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                invocationId: components["parameters"]["InvocationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A stable bounded audit page with a committed disclosure receipt. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceAuditPage"];
                 };
             };
             400: components["responses"]["Error"];

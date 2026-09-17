@@ -1088,6 +1088,126 @@
         },
         "description": "Lists retained question identifiers and lifecycle metadata, newest creation first with identifier tie-breaking. Prompts, options, stored answers, responder identity, and runtime routing are excluded. The listInvocationQuestions grant on the invocation is separate from exact question read and answer grants. Each page requires authorization; the cursor binds the isolation domain and invocation. Pages contain current state, not a frozen snapshot. Refresh from the first page for new questions or changed states. Reference invocations return an empty page."
       }
+    },
+    "/v1/isolation-domains/{isolationDomainId}/service-revisions/{revisionId}/audit": {
+      "get": {
+        "operationId": "readServiceRevisionAudit",
+        "summary": "Read service revision audit",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "$ref": "#/components/parameters/RevisionId"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^arr_[0-9a-z]{20,32}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A stable bounded audit page with a committed disclosure receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceAuditPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "description": "Reads safe lifecycle records for the exact resource and its operation, followed by publication authorization decisions. Sources are ordered as listed, then by insertion sequence within each source, not by timestamp. The readServiceRevisionAudit permission is distinct from resource read permission. Every page requires current authorization and a committed append-only read receipt. Opaque continuations bind the principal identity and kind, domain, resource, and original database snapshot; a cursor is not an authorization grant. Start a new read to include later commits. Metadata, payloads, policy entities, credentials, native runtime routing, and unrelated audit streams are excluded. Reference mode returns RESOURCE_AUDIT_UNAVAILABLE (503). Responses use Cache-Control: no-store."
+      }
+    },
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/audit": {
+      "get": {
+        "operationId": "readInvocationAudit",
+        "summary": "Read invocation audit",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "$ref": "#/components/parameters/InvocationId"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^arr_[0-9a-z]{20,32}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A stable bounded audit page with a committed disclosure receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceAuditPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "description": "Reads safe lifecycle records for the exact resource and its operation, followed by invocation authorization decisions. Sources are ordered as listed, then by insertion sequence within each source, not by timestamp. The readInvocationAudit permission is distinct from resource read permission. Every page requires current authorization and a committed append-only read receipt. Opaque continuations bind the principal identity and kind, domain, resource, and original database snapshot; a cursor is not an authorization grant. Start a new read to include later commits. Metadata, payloads, policy entities, credentials, native runtime routing, and unrelated audit streams are excluded. Reference mode returns RESOURCE_AUDIT_UNAVAILABLE (503). Responses use Cache-Control: no-store."
+      }
     }
   },
   "components": {
@@ -2597,6 +2717,110 @@
         "properties": {
           "expectedVersion": { "type": "integer", "const": 1 },
           "decision": { "enum": ["approve", "deny"] }
+        }
+      },
+      "ResourceAuditRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "source", "recordedAt", "actorId", "action", "outcome", "correlationId"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^(aud_[0-9a-z]{20,32}|ard_[0-9a-f]{32})$"
+          },
+          "source": {
+            "type": "string",
+            "enum": ["lifecycle", "invocation-authorization", "publication-authorization"]
+          },
+          "recordedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "actorId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "action": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9.-]{0,127}$"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "denied",
+              "allowed",
+              "unavailable"
+            ]
+          },
+          "correlationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "operationId": {
+            "$ref": "#/components/schemas/OperationId"
+          },
+          "policySetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "policyDigest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["entry", "effect"]
+          }
+        }
+      },
+      "ResourceAuditPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "isolationDomainId",
+          "resourceType",
+          "resourceId",
+          "receiptId",
+          "items"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "const": "dataground.resource-audit-page/v1"
+          },
+          "isolationDomainId": {
+            "$ref": "#/components/schemas/IsolationDomainId"
+          },
+          "resourceType": {
+            "type": "string",
+            "enum": ["service-revision", "invocation"]
+          },
+          "resourceId": {
+            "type": "string",
+            "pattern": "^(rev|inv)_[0-9a-z]{20,32}$"
+          },
+          "receiptId": {
+            "type": "string",
+            "pattern": "^arr_[0-9a-z]{20,32}$"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/ResourceAuditRecord"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "pattern": "^arr_[0-9a-z]{20,32}$"
+          }
         }
       }
     }
