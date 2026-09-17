@@ -14,6 +14,7 @@ var (
 	ErrClosed           = errors.New("runtime adapter is closed")
 	ErrProtocol         = errors.New("runtime protocol violation")
 	ErrTurnFailed       = errors.New("runtime turn failed")
+	ErrTurnInterrupted  = errors.New("runtime turn was interrupted")
 	ErrApprovalNotFound = errors.New("runtime approval not found")
 	ErrApprovalMode     = errors.New("runtime approval mode is invalid")
 	ErrApprovalDecision = errors.New("runtime approval decision is invalid")
@@ -95,6 +96,8 @@ type Turn interface {
 	Events() <-chan Event
 	ResolveApproval(context.Context, string, ApprovalDecision) error
 	Interrupt(context.Context) error
+	// Wait returns nil only for successful completion. Native interruption is
+	// ErrTurnInterrupted; cancellation of a wait context is a separate outcome.
 	Wait(context.Context) error
 	Close() error
 }

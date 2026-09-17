@@ -108,7 +108,7 @@ func TestInterruptionClosesApprovalsBeforeNativeAcknowledgement(t *testing.T) {
 	if err := <-interrupted; err != nil {
 		t.Fatal(err)
 	}
-	if err := turn.Wait(ctx); err != nil {
+	if err := turn.Wait(ctx); !errors.Is(err, dgruntime.ErrTurnInterrupted) {
 		t.Fatal(err)
 	}
 	if err := session.scriptError(); err != nil {

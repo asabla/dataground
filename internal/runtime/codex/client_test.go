@@ -223,8 +223,8 @@ func TestClientInterruptsOnlyTheActiveNativeTurn(t *testing.T) {
 	if event.Payload["reason"] != "runtime interruption" {
 		t.Fatalf("unexpected cancellation: %#v", event)
 	}
-	if err := turn.Wait(context.Background()); err != nil {
-		t.Fatalf("interrupted turn should be terminal without an adapter error: %v", err)
+	if err := turn.Wait(context.Background()); !errors.Is(err, dgruntime.ErrTurnInterrupted) {
+		t.Fatalf("interrupted turn lost its terminal classification: %v", err)
 	}
 }
 

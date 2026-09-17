@@ -724,6 +724,7 @@ func (client *Client) handleTurnCompleted(message wireMessage) {
 	case "completed":
 		client.emit("lifecycle.succeeded", map[string]any{"message": "Runtime turn completed."})
 	case "interrupted":
+		terminalErr = dgruntime.ErrTurnInterrupted
 		client.emit("lifecycle.cancelled", map[string]any{"reason": "runtime interruption"})
 	case "failed":
 		terminalErr = dgruntime.ErrTurnFailed

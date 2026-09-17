@@ -327,7 +327,7 @@ func TestQuestionInterruptionRetiresPendingAnswers(t *testing.T) {
 	if err := turn.(dgruntime.QuestionTurn).AnswerQuestion(ctx, "question-1", nil); !errors.Is(err, dgruntime.ErrQuestionNotFound) {
 		t.Fatal("interrupted question remained actionable")
 	}
-	if err := turn.Wait(ctx); err != nil {
+	if err := turn.Wait(ctx); !errors.Is(err, dgruntime.ErrTurnInterrupted) {
 		t.Fatal(err)
 	}
 }
