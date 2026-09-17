@@ -129,6 +129,14 @@ jobs:
           -run '^TestDockerTopologyLiveIdentityAndCleanup$'
           -count=1 -timeout=6m
 
+      - name: Verify operator gateway replay and retained state
+        env:
+          DATAGROUND_TEST_RUNTIME_TOPOLOGY_ROOT: ${{ github.workspace }}
+        run: >-
+          go test ./internal/execution/runtimeevidence
+          -run '^TestDevelopmentGatewayLiveReplayAndRetirement$'
+          -count=1 -timeout=4m
+
   s3-enforcement-conformance:
     runs-on: ubuntu-latest
     timeout-minutes: 10

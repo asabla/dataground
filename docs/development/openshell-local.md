@@ -209,6 +209,8 @@ The credential-evidence and ordinary local Compose gateways also use the explici
 
 ## Observe an existing development gateway
 
+The [operator-owned gateway command](development-gateway.md) can prepare this checked topology, preserve it across command and worker replacement, and return the exact deployment pins required below.
+
 The internal `runtimeevidence.NewObservedDockerTopology` boundary can inspect an existing instance of the checked host-network runtime topology without issuing startup, restart, or cleanup commands. Its caller independently pins the exact container identifier, original Docker start time, run identity, private workspace root, Docker executable, gateway configuration digest, and any accepted supervisor image configuration digest. The workspace must retain the checked Compose file, gateway configuration, state directory, and JWT directory with their existing owner-only permissions. It does not attach to the ordinary bridged local Compose profile.
 
 Observation uses only the local `/var/run/docker.sock` endpoint and removes ambient Docker contexts, registry configuration, and account credentials from the child environment. It checks the exact run labels and all running topology constraints above. For a candidate supervisor it also checks the pinned local image identity and reviewed source/patch labels. A missing or changed observation poisons that observer; recovery requires a new observer with independently reviewed deployment pins. `Close` releases file handles only and never stops a gateway or removes its state, including after failure.
