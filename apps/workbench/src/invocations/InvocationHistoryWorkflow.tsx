@@ -3,6 +3,7 @@ import { useCallback, useEffect, useId, useReducer, useRef, useState } from "rea
 import type { InvocationApprovalReference } from "../approvals";
 import type { InvocationArtifactReference } from "../artifacts";
 import type { DataGroundClient } from "../contracts/client";
+import type { InvocationQuestionReference } from "../questions";
 import {
   type AgentServiceInvocationTarget,
   type InvocationSummaryResource,
@@ -35,6 +36,7 @@ export function InvocationHistoryWorkflow({ client, target }: InvocationHistoryW
     client: DataGroundClient;
     invocation: InvocationSummaryResource;
   }>();
+  const [question, setQuestion] = useState<InvocationQuestionReference>();
   const [approval, setApproval] = useState<InvocationApprovalReference>();
   const [artifact, setArtifact] = useState<InvocationArtifactReference>();
   const load = useCallback(
@@ -43,6 +45,7 @@ export function InvocationHistoryWorkflow({ client, target }: InvocationHistoryW
       if (cursor === undefined) {
         setSelected(undefined);
         setApproval(undefined);
+        setQuestion(undefined);
         setArtifact(undefined);
       }
       dispatch({ type: "requested", client, scope, requestId, cursor });
@@ -89,6 +92,7 @@ export function InvocationHistoryWorkflow({ client, target }: InvocationHistoryW
               returnFocusId.current = `${titleId}-open-${invocation.metadata.id}`;
               setSelected(undefined);
               setApproval(undefined);
+              setQuestion(undefined);
               setArtifact(undefined);
             }}
           >
@@ -99,18 +103,28 @@ export function InvocationHistoryWorkflow({ client, target }: InvocationHistoryW
           key={invocation.metadata.id}
           client={client}
           canCancelInvocation
+          canAnswerQuestion
           canResolveApproval
           reference={{ isolationDomainId, invocationId: invocation.metadata.id }}
+          selectedQuestion={question}
+          onCloseQuestion={() => setQuestion(undefined)}
           selectedApproval={approval}
           selectedArtifact={artifact}
           onCloseApproval={() => setApproval(undefined)}
           onCloseArtifact={() => setArtifact(undefined)}
+          onInspectQuestion={(reference) => {
+            setApproval(undefined);
+            setArtifact(undefined);
+            setQuestion(reference);
+          }}
           onInspectApproval={(reference) => {
+            setQuestion(undefined);
             setArtifact(undefined);
             setApproval(reference);
           }}
           onInspectArtifact={(reference) => {
             setApproval(undefined);
+            setQuestion(undefined);
             setArtifact(reference);
           }}
         />
@@ -184,6 +198,7 @@ export function InvocationHistoryWorkflow({ client, target }: InvocationHistoryW
                 variant="quiet"
                 onPress={() => {
                   setApproval(undefined);
+                  setQuestion(undefined);
                   setArtifact(undefined);
                   setSelected({ client, invocation: item });
                 }}
