@@ -18,7 +18,7 @@ import (
 )
 
 func TestInvocationAuthorizationEntityRefreshIsSequentialAndFailClosed(t *testing.T) {
-	for _, contract := range []string{"v2", "v3", "v4"} {
+	for _, contract := range []string{"v2", "v3", "v4", "v5"} {
 		t.Run(contract, func(t *testing.T) { testInvocationAuthorizationEntityRefresh(t, contract) })
 	}
 }
@@ -76,6 +76,10 @@ func testInvocationAuthorizationEntityRefresh(t *testing.T, contract string) {
 		constructor = reconcile.NewInvocationAuthorizationPolicyWithApprovalEntities
 		schema = reconcile.CanonicalInvocationCedarApprovalSchema()
 		digestFor = authz.InvocationAuthorizationPolicyV3Digest
+	case "v5":
+		constructor = reconcile.NewInvocationAuthorizationPolicyWithPublicationEntities
+		schema = reconcile.CanonicalPublicationCedarSchema()
+		digestFor = authz.InvocationAuthorizationPolicyV5Digest
 	case "v4":
 		constructor = reconcile.NewInvocationAuthorizationPolicyWithQuestionEntities
 		schema = reconcile.CanonicalInvocationCedarQuestionSchema()
@@ -371,7 +375,7 @@ func assertRefreshedMembership(t *testing.T, ctx context.Context, policy reconci
 		input.Action.ID = "approve"
 		input.Approval = &reconcile.InvocationApprovalAuthorizationContext{ID: identity.New("apr"), RequestedAction: "process.execute", Decision: "approve", Phase: "effect"}
 	}
-	if policy.Contract == reconcile.InvocationAuthorizationPolicyQuestionContract {
+	if policy.Contract == reconcile.InvocationAuthorizationPolicyQuestionContract || policy.Contract == reconcile.InvocationAuthorizationPolicyPublicationContract {
 		input.Contract = reconcile.InvocationCedarQuestionContract
 		input.Action.ID = "answer"
 		input.Question = &reconcile.InvocationQuestionAuthorizationContext{ID: identity.New("qst"), Version: 2, Phase: "effect", QuestionCount: 1, FreeTextCount: 1}

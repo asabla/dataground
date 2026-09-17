@@ -49,7 +49,13 @@ func TestReadPolicyFileRejectsUnsafeInputs(t *testing.T) {
 }
 
 func TestPolicyInstallRejectsAmbiguousInteractiveContract(t *testing.T) {
-	if err := run(context.Background(), []string{"--approval-capable", "--question-capable"}); err == nil || !strings.Contains(err.Error(), "select only one interactive policy contract") {
+	if err := run(context.Background(), []string{"--approval-capable", "--question-capable"}); err == nil || !strings.Contains(err.Error(), "select only one policy contract") {
 		t.Fatalf("ambiguous policy selection: %v", err)
 	}
+	for _, flag := range []string{"--approval-capable", "--question-capable"} {
+		if err := run(context.Background(), []string{"--publication-capable", flag}); err == nil {
+			t.Fatal("publication selected with another contract")
+		}
+	}
+
 }

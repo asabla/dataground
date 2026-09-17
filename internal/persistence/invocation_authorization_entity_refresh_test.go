@@ -73,7 +73,7 @@ func TestInvocationAuthorizationEntityRefreshContracts(t *testing.T) {
 
 func TestInvocationAuthorizationEntityRefreshRejectsNonEntityPolicyContracts(t *testing.T) {
 	t.Parallel()
-	for _, contract := range []string{"", "dataground.invocation-authorization-policy/v1", "dataground.invocation-authorization-policy/v5"} {
+	for _, contract := range []string{"", "dataground.invocation-authorization-policy/v1", "dataground.invocation-authorization-policy/v6"} {
 		record := InvocationAuthorizationPolicyRecord{Contract: contract, Schema: []byte("schema"), Policies: []byte("policy")}
 		if _, supported := record.entityPolicyDigest([]byte("[]")); supported {
 			t.Fatalf("unsupported entity refresh contract accepted: %q", contract)

@@ -134,6 +134,10 @@ func InvocationAuthorizationPolicyV4Digest(
 	)
 }
 
+func InvocationAuthorizationPolicyV5Digest(schema, policies, entities []byte) [sha256.Size]byte {
+	return invocationAuthorizationPolicyEntityDigest("dataground.invocation-authorization-policy/v5\x00", schema, policies, entities)
+}
+
 func invocationAuthorizationPolicyEntityDigest(
 	domain string,
 	schema []byte,

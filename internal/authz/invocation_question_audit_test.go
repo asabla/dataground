@@ -14,6 +14,11 @@ func TestQuestionAuditRecordRequiresClosedContextAndPolicyContract(t *testing.T)
 	if !value.Valid() {
 		t.Fatal("valid question audit record rejected")
 	}
+	newContract := value
+	newContract.PolicyContract = "dataground.invocation-authorization-policy/v5"
+	if !newContract.Valid() {
+		t.Fatal("publication contract lost question audit support")
+	}
 	if value.Invocation.Valid() {
 		t.Fatal("question record accepted by legacy invocation stream")
 	}

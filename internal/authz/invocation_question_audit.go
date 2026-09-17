@@ -34,7 +34,7 @@ func (record InvocationQuestionDecisionRecord) Valid() bool {
 	switch record.PolicyContract {
 	case "dataground.invocation-authorization-policy/v1", "dataground.invocation-authorization-policy/v2", "dataground.invocation-authorization-policy/v3":
 		return record.Invocation.Outcome != OutcomeAllowed
-	case "dataground.invocation-authorization-policy/v4":
+	case "dataground.invocation-authorization-policy/v4", "dataground.invocation-authorization-policy/v5":
 		return true
 	default:
 		return false
