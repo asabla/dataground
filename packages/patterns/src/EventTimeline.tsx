@@ -199,6 +199,17 @@ export function presentTimelineEvent(event: TimelineEvent): EventPresentation {
         label: "Invocation cancelled",
         tone: "warning",
       };
+    case "output.message.completed":
+      return {
+        detail: boundedText(event.payload.text, "The completed message has no text preview."),
+        label:
+          event.payload.phase === "commentary"
+            ? "Progress message"
+            : event.payload.phase === "final"
+              ? "Final answer"
+              : "Completed message",
+        tone: "neutral",
+      };
     case "output.text.delta":
       return {
         detail: boundedText(event.payload.text, "Text output was recorded without a preview."),

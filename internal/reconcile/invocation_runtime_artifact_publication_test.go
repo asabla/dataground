@@ -59,7 +59,7 @@ func TestInvocationRuntimeDriverPublishesDeclaredArtifactsBeforeSuccess(t *testi
 		provider,
 		&runtimeAdapterFactoryStub{adapter: &runtimeAdapterStub{turn: &runtimeTurnStub{
 			events: runtimeEvents(
-				dgruntime.Event{Sequence: 1, Type: "output.text.delta", Payload: map[string]any{"text": "done"}},
+				dgruntime.Event{Sequence: 1, Type: dgruntime.MessageCompletedEvent, Payload: map[string]any{"text": "done", "phase": "final"}},
 				dgruntime.Event{Sequence: 2, Type: "lifecycle.succeeded", Payload: map[string]any{"message": "finished"}},
 			),
 		}}},
@@ -135,7 +135,7 @@ func TestInvocationRuntimeDriverRejectsMismatchedArtifactExport(t *testing.T) {
 		}},
 		provider,
 		&runtimeAdapterFactoryStub{adapter: &runtimeAdapterStub{turn: &runtimeTurnStub{
-			events: runtimeEvents(dgruntime.Event{Sequence: 1, Type: "output.text.delta", Payload: map[string]any{"text": "done"}}),
+			events: runtimeEvents(dgruntime.Event{Sequence: 1, Type: dgruntime.MessageCompletedEvent, Payload: map[string]any{"text": "done", "phase": "final"}}),
 		}}},
 		finalizer,
 		InvocationRuntimeDriverConfig{LeaseDuration: time.Minute, RenewInterval: time.Second},

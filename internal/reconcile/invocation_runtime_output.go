@@ -1,10 +1,10 @@
 package reconcile
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 
 	dgruntime "github.com/asabla/dataground/internal/runtime"
 )
@@ -17,11 +17,13 @@ const (
 var ErrInvocationRuntimeOutputInvalid = errors.New("invocation runtime output is invalid")
 
 type invocationRuntimeOutput struct {
-	structured bool
-	text       bytes.Buffer
-	seen       map[uint64]struct{}
-	validator  *invocationRuntimeOutputSchema
-	invalid    bool
+	structured      bool
+	text            string
+	messageSequence uint64
+	sawDelta        bool
+	seen            map[uint64]struct{}
+	validator       *invocationRuntimeOutputSchema
+	invalid         bool
 }
 
 func newInvocationRuntimeOutput(
@@ -41,7 +43,11 @@ func newInvocationRuntimeOutput(
 // Observe accepts only events already acknowledged by the fenced event sink.
 // Runtime-source replay is ignored so it cannot duplicate the declared output.
 func (output *invocationRuntimeOutput) Observe(event dgruntime.Event) {
-	if event.Type != "output.text.delta" {
+	if event.Type == "output.text.delta" {
+		output.sawDelta = true
+		return
+	}
+	if event.Type != dgruntime.MessageCompletedEvent {
 		return
 	}
 	if _, found := output.seen[event.Sequence]; found {
@@ -52,28 +58,29 @@ func (output *invocationRuntimeOutput) Observe(event dgruntime.Event) {
 		return
 	}
 	output.seen[event.Sequence] = struct{}{}
-	value, ok := event.Payload["text"].(string)
-	if !ok {
+	message, err := dgruntime.ParseCompletedMessage(event.Payload)
+	if err != nil || event.Sequence == 0 {
 		output.invalid = true
 		return
 	}
-	if len(value) > maximumInvocationRuntimeOutputBytes-output.text.Len() {
-		output.invalid = true
-		return
+	// Completion snapshots replace previews. Commentary is retained in the
+	// event journal, but cannot become the invocation's declared result.
+	if message.Phase != "commentary" && event.Sequence > output.messageSequence {
+		output.text = message.Text
+		output.messageSequence = event.Sequence
 	}
-	_, _ = output.text.WriteString(value)
 }
 
 func (output *invocationRuntimeOutput) Result() (map[string]any, error) {
-	if output.invalid {
+	if output.invalid || (output.messageSequence == 0 && (output.sawDelta || len(output.seen) > 0)) {
 		return nil, ErrInvocationRuntimeOutputInvalid
 	}
-	var value any = map[string]any{"text": output.text.String()}
+	var value any = map[string]any{"text": output.text}
 	if output.structured {
-		if output.text.Len() == 0 {
+		if output.messageSequence == 0 || len(output.text) == 0 {
 			return nil, ErrInvocationRuntimeOutputInvalid
 		}
-		decoder := json.NewDecoder(bytes.NewReader(output.text.Bytes()))
+		decoder := json.NewDecoder(strings.NewReader(output.text))
 		decoder.UseNumber()
 		if err := decoder.Decode(&value); err != nil {
 			return nil, ErrInvocationRuntimeOutputInvalid

@@ -644,6 +644,7 @@ func codexProbeScripts(runID string) []func(*codexProbeServer) {
 				"turnId":   "native-turn",
 				"delta":    eventMarker,
 			})
+			server.notify("item/completed", map[string]any{"threadId": "native-thread", "turnId": "native-turn", "item": map[string]any{"id": "native-message", "type": "agentMessage", "text": eventMarker, "phase": "final_answer"}})
 			server.notify("turn/completed", map[string]any{
 				"threadId": "native-thread",
 				"turn":     map[string]any{"id": "native-turn", "status": "completed", "items": []any{}},
@@ -669,6 +670,7 @@ func successScript(marker string) func(*codexProbeServer) {
 			"turnId":   "native-turn",
 			"delta":    marker,
 		})
+		server.notify("item/completed", map[string]any{"threadId": "native-thread", "turnId": "native-turn", "item": map[string]any{"id": "native-message", "type": "agentMessage", "text": marker, "phase": "final_answer"}})
 		server.notify("turn/completed", map[string]any{
 			"threadId": "native-thread",
 			"turn":     map[string]any{"id": "native-turn", "status": "completed", "items": []any{}},

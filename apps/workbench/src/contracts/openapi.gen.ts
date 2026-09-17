@@ -455,6 +455,15 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        RuntimeCompletedMessage: {
+            /** @description Authoritative completed message text. Runtime ingestion also enforces a 64 KiB UTF-8 byte limit. */
+            text: string;
+            /**
+             * @description Commentary is progress only. Final is an explicitly classified answer. Unspecified preserves a runtime that does not classify message phases.
+             * @enum {string}
+             */
+            phase: "commentary" | "final" | "unspecified";
+        };
         HealthResponse: {
             /** @constant */
             status: "ok";
@@ -847,7 +856,7 @@ export interface components {
             /** @constant */
             closeReason: "expired";
         });
-        EventEnvelope: {
+        EventEnvelope: ({
             /**
              * @description Trusted event origin class. Runtime lifecycle events describe a native turn and do not establish terminal platform invocation state. Durable reads derive this value from retained journal provenance without changing event identity, sequence, type, or payload. Older envelopes may omit it.
              * @enum {string}
@@ -879,7 +888,7 @@ export interface components {
             };
         } & {
             [key: string]: unknown;
-        };
+        }) & unknown;
         ArtifactDescriptor: {
             metadata: components["schemas"]["ResourceMetadata"];
             invocationId: components["schemas"]["InvocationId"];

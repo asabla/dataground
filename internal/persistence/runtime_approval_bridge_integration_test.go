@@ -162,7 +162,7 @@ func (transport *approvalBridgeTransport) Start(_ context.Context, request dgrun
 	for sequence := 1; sequence <= 2; sequence++ {
 		transport.turn.events <- dgruntime.Event{Sequence: uint64(sequence), Type: "interaction.approval.requested", Payload: map[string]any{"approvalId": "approval-" + strconv.Itoa(sequence), "action": "process.execute"}}
 	}
-	transport.turn.events <- dgruntime.Event{Sequence: 3, Type: "output.text.delta", Payload: map[string]any{"text": "Approval bridge complete."}}
+	transport.turn.events <- dgruntime.Event{Sequence: 3, Type: dgruntime.MessageCompletedEvent, Payload: map[string]any{"text": "Approval bridge complete.", "phase": "final"}}
 	return transport.turn, nil
 }
 

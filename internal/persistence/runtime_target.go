@@ -13,6 +13,7 @@ import (
 	"github.com/asabla/dataground/internal/domain"
 	"github.com/asabla/dataground/internal/identity"
 	invocationlifecycle "github.com/asabla/dataground/internal/lifecycle/invocation"
+	dgruntime "github.com/asabla/dataground/internal/runtime"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -199,6 +200,11 @@ func (repository *Repository) RecordInvocationRuntimeEvent(
 
 	if event.Type == "usage.recorded" {
 		if _, err := domain.ParseUsageSnapshot(encodedPayload); err != nil {
+			return domain.EventEnvelope{}, ErrInvocationRuntimeEventInvalid
+		}
+	}
+	if event.Type == dgruntime.MessageCompletedEvent {
+		if _, err := dgruntime.ParseCompletedMessage(event.Payload); err != nil {
 			return domain.EventEnvelope{}, ErrInvocationRuntimeEventInvalid
 		}
 	}

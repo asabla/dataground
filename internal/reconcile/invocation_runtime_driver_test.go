@@ -29,7 +29,7 @@ func TestInvocationRuntimeDriverRunsOneFencedTurn(t *testing.T) {
 	}
 	turn := &runtimeTurnStub{
 		events: runtimeEvents(
-			dgruntime.Event{Sequence: 1, Type: "output.text.delta", Payload: map[string]any{"text": "persisted output"}},
+			dgruntime.Event{Sequence: 1, Type: dgruntime.MessageCompletedEvent, Payload: map[string]any{"text": "persisted output", "phase": "final"}},
 			dgruntime.Event{Sequence: 2, Type: "usage.recorded", Payload: domain.Usage{InputTokens: 12, OutputTokens: 8, TotalTokens: 20}.SnapshotPayload()},
 			dgruntime.Event{Sequence: 3, Type: "lifecycle.succeeded", Payload: map[string]any{"message": "finished"}},
 		),
@@ -183,8 +183,8 @@ func TestInvocationRuntimeDriverRejectsInvalidDeclaredOutput(t *testing.T) {
 	turn := &runtimeTurnStub{events: runtimeEvents(
 		dgruntime.Event{
 			Sequence: 1,
-			Type:     "output.text.delta",
-			Payload:  map[string]any{"text": "{\"answer\":42}"},
+			Type:     dgruntime.MessageCompletedEvent,
+			Payload:  map[string]any{"text": "{\"answer\":42}", "phase": "final"},
 		},
 		dgruntime.Event{
 			Sequence: 2,

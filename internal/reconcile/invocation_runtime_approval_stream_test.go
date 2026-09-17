@@ -91,6 +91,11 @@ func TestInvocationRuntimeApprovalWaitDrainsEventsAndRenewsLease(t *testing.T) {
 				return
 			}
 		}
+		select {
+		case events <- dgruntime.Event{Sequence: 502, Type: dgruntime.MessageCompletedEvent, Payload: map[string]any{"text": "done", "phase": "final"}}:
+		case <-ctx.Done():
+			return
+		}
 		close(release)
 	}()
 	output, err := newInvocationRuntimeOutput(nil)
@@ -102,7 +107,7 @@ func TestInvocationRuntimeApprovalWaitDrainsEventsAndRenewsLease(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-produced
-	if len(runtimeStore.events) != 500 || runtimeStore.renewCalls == 0 || runtimeStore.completeCalls != 1 || !store.completed || turn.decisionID != "approval-1" {
+	if len(runtimeStore.events) != 501 || runtimeStore.renewCalls == 0 || runtimeStore.completeCalls != 1 || !store.completed || turn.decisionID != "approval-1" {
 		t.Fatal("approval wait blocked stream, renewal, or completion")
 	}
 	for _, event := range runtimeStore.events {
@@ -117,7 +122,7 @@ func TestInvocationRuntimeApprovalQueuedAtCompletionIsClosedWithoutDecision(t *t
 	store := &runtimeApprovalStoreStub{}
 	runtimeStore := &runtimeStoreStub{}
 	driver := &InvocationRuntimeDriver{store: runtimeStore, approvalStore: store, approvalAuthorizer: &approvalAuthorizerStub{}, leaseDuration: time.Minute, renewInterval: time.Second}
-	turn := &streamingApprovalTurn{events: runtimeEvents(approvalStreamEvent(), dgruntime.Event{Sequence: 2, Type: "output.text.delta", Payload: map[string]any{"text": "done"}}), done: make(chan struct{})}
+	turn := &streamingApprovalTurn{events: runtimeEvents(approvalStreamEvent(), dgruntime.Event{Sequence: 2, Type: dgruntime.MessageCompletedEvent, Payload: map[string]any{"text": "done", "phase": "final"}}), done: make(chan struct{})}
 	close(turn.done)
 	output, err := newInvocationRuntimeOutput(nil)
 	if err != nil {
@@ -239,7 +244,7 @@ func TestInvocationRuntimeApprovalAndQuestionCanWaitTogether(t *testing.T) {
 	questions.driver.renewInterval = 10 * time.Millisecond
 	approvalEvent := approvalStreamEvent()
 	approvalEvent.Sequence = 2
-	turn := &combinedInteractionTurn{questionTurnStub: questionTurnStub{active: true}, events: runtimeEvents(questionEvent, approvalEvent, dgruntime.Event{Sequence: 3, Type: "output.text.delta", Payload: map[string]any{"text": "both complete"}}), done: make(chan struct{})}
+	turn := &combinedInteractionTurn{questionTurnStub: questionTurnStub{active: true}, events: runtimeEvents(questionEvent, approvalEvent, dgruntime.Event{Sequence: 3, Type: dgruntime.MessageCompletedEvent, Payload: map[string]any{"text": "both complete", "phase": "final"}}), done: make(chan struct{})}
 	output, err := newInvocationRuntimeOutput(nil)
 	if err != nil {
 		t.Fatal(err)

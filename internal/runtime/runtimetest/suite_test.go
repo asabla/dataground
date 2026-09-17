@@ -84,6 +84,13 @@ func (m *modelAdapter) release() {
 		return
 	}
 	switch m.scenario {
+	case CompletedMessages:
+		for _, message := range []dgruntime.CompletedMessage{{Text: "Progress.", Phase: "commentary"}, {Text: "Legacy answer.", Phase: "unspecified"}, {Text: OutputText, Phase: "final"}} {
+			m.emit("output.text.delta", map[string]any{"text": "Partial preview."})
+			m.emit(dgruntime.MessageCompletedEvent, message.Payload())
+		}
+		m.emit("lifecycle.succeeded", map[string]any{"message": "Runtime turn completed."})
+		m.finish(nil)
 	case Success:
 		m.emit("output.text.delta", map[string]any{"text": OutputText})
 		for _, kind := range []string{"tool", "process", "file"} {
@@ -91,6 +98,7 @@ func (m *modelAdapter) release() {
 			m.emit("activity."+kind+".started", map[string]any{"kind": value})
 			m.emit("activity."+kind+".completed", map[string]any{"kind": value})
 		}
+		m.emit(dgruntime.MessageCompletedEvent, dgruntime.CompletedMessage{Text: OutputText, Phase: "final"}.Payload())
 		m.emit("lifecycle.succeeded", map[string]any{"message": "Runtime turn completed."})
 		m.finish(nil)
 	case UsageSnapshots:

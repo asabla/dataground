@@ -670,18 +670,20 @@ func valueExposesNativeProtocol(value any) bool {
 }
 
 func textOutput(events []dgruntime.Event) string {
-	var result strings.Builder
+	var result string
 	for _, event := range events {
-		if event.Type != "output.text.delta" {
+		if event.Type != dgruntime.MessageCompletedEvent {
 			continue
 		}
-		text, ok := event.Payload["text"].(string)
-		if !ok {
+		message, err := dgruntime.ParseCompletedMessage(event.Payload)
+		if err != nil {
 			return ""
 		}
-		result.WriteString(text)
+		if message.Phase != "commentary" {
+			result = message.Text
+		}
 	}
-	return result.String()
+	return result
 }
 
 func hasEvent(events []dgruntime.Event, eventType string, kind string) bool {

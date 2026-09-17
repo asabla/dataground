@@ -233,6 +233,23 @@ describe("EventTimeline", () => {
     assert.doesNotMatch(markup, /role="log"/u);
   });
 
+  it("distinguishes completed messages from progress without implying invocation success", () => {
+    for (const [phase, label] of [
+      ["commentary", "Progress message"],
+      ["final", "Final answer"],
+      ["unspecified", "Completed message"],
+    ]) {
+      const presentation = presentTimelineEvent({
+        ...baseEvent,
+        payload: { phase, text: "x".repeat(700) },
+        type: "output.message.completed",
+      });
+      assert.equal(presentation.label, label);
+      assert.equal(presentation.tone, "neutral");
+      assert.equal(presentation.detail.length, 481);
+    }
+  });
+
   it("bounds text previews and treats nonzero process exits as critical", () => {
     const text = presentTimelineEvent({
       ...baseEvent,
