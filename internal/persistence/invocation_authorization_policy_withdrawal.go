@@ -195,6 +195,10 @@ func (repository *Repository) GetActiveInvocationAuthorizationPolicy(
 		isolationDomainID == "" || serviceID == "" || revisionID == "" {
 		return InvocationAuthorizationPolicyRecord{}, ErrInvocationAuthorizationPolicyRecordInvalid
 	}
+	return getActiveInvocationAuthorizationPolicy(ctx, repository.pool, isolationDomainID, serviceID, revisionID)
+}
+
+func getActiveInvocationAuthorizationPolicy(ctx context.Context, querier invocationAuthorizationPolicyQuerier, isolationDomainID, serviceID, revisionID string) (InvocationAuthorizationPolicyRecord, error) {
 	var (
 		record                    InvocationAuthorizationPolicyRecord
 		installedPolicyDigest     []byte
@@ -202,7 +206,7 @@ func (repository *Repository) GetActiveInvocationAuthorizationPolicy(
 		activatedEffectiveDigest  []byte
 		activatedEntityGeneration int64
 	)
-	err := repository.pool.QueryRow(ctx, `
+	err := querier.QueryRow(ctx, `
 		SELECT
 			policy.contract,
 			policy.isolation_domain_id,
