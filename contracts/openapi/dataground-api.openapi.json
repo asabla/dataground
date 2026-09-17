@@ -966,6 +966,67 @@
           "503": { "$ref": "#/components/responses/Error" }
         }
       }
+    },
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/approvals": {
+      "get": {
+        "operationId": "listInvocationApprovals",
+        "summary": "List invocation approvals",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "$ref": "#/components/parameters/InvocationId"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A bounded page of provider-neutral approval resources.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvocationApprovalPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "description": "Lists all retained approval states, newest creation first with identifier tie-breaking. Pages contain current state, not a frozen snapshot. Refresh from the first page to discover new approvals or state changes. The cursor is bound to the isolation domain and invocation and grants no authority. A dedicated listInvocationApprovals grant on the invocation is required; reading or resolving an individual approval requires its separate grant. Reference invocations return an empty page."
+      }
     }
   },
   "components": {
@@ -1390,6 +1451,25 @@
             "maxItems": 100,
             "items": {
               "$ref": "#/components/schemas/ServiceAlias"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        }
+      },
+      "InvocationApprovalPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/InvocationApproval"
             }
           },
           "nextCursor": {

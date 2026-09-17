@@ -1,5 +1,20 @@
 {
   "fixtures": [
+    {
+      "file": "valid/invocation-approval-page.json",
+      "schema": "InvocationApprovalPage",
+      "valid": true
+    },
+    {
+      "file": "valid/invocation-approval-page-empty.json",
+      "schema": "InvocationApprovalPage",
+      "valid": true
+    },
+    {
+      "file": "invalid/invocation-approval-page-native-routing.json",
+      "schema": "InvocationApprovalPage",
+      "valid": false
+    },
     { "file": "valid/event-question-answered.json", "schema": "EventEnvelope", "valid": true },
     { "file": "valid/event-approval-expired.json", "schema": "EventEnvelope", "valid": true },
     {

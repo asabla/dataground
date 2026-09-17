@@ -161,6 +161,7 @@
             "cancelInvocation",
             "readInvocationQuestion",
             "answerInvocationQuestion",
+            "listInvocationApprovals",
             "readInvocationApproval",
             "resolveInvocationApproval",
             "readInvocationEvents",
