@@ -37,12 +37,53 @@ func TestDockerTopologyLiveIdentityAndCleanup(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
+	// The independent observer requires configuration staged before startup
+	// with a full-second gap for uncertain inode timestamp ordering.
+	time.Sleep(2 * time.Second)
 	if err := topology.Start(ctx); err != nil {
 		t.Fatalf("start and verify exact live gateway: %v", err)
+	}
+	observerConfig := ObservedDockerTopologyConfig{RunID: runID, ContainerID: topology.state.containerID, StartedAt: topology.state.startedAt, WorkspaceRoot: workspace, DockerBinary: topology.state.binary, GatewayConfigSHA256: runtimeGatewayConfigSHA256}
+	t.Setenv("DOCKER_HOST", "tcp://127.0.0.1:1")
+	t.Setenv("DOCKER_CONTEXT", "must-not-cross")
+	t.Setenv("DOCKER_CONFIG", "/unavailable-registry-configuration")
+	observer, err := NewObservedDockerTopology(observerConfig)
+	if err != nil {
+		t.Fatal("open read-only deployment observation failed", err)
+	}
+	t.Cleanup(func() { _ = observer.Close() })
+	if err := observer.Check(ctx); err != nil {
+		t.Fatal("observe exact running deployment failed", err)
+	}
+	if err := observer.Close(); err != nil {
+		t.Fatal(err)
 	}
 	if err := topology.Check(ctx); err != nil {
 		t.Fatalf("recheck live gateway: %v", err)
 	}
+	rewritten, err := NewObservedDockerTopology(observerConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = rewritten.Close() })
+	content, err := os.ReadFile(topology.state.workspace.gatewayPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(topology.state.workspace.gatewayPath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	originalTime := topology.state.workspace.gatewayInfo.ModTime()
+	if err := os.Chtimes(topology.state.workspace.gatewayPath, originalTime, originalTime); err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(rewritten.Check(ctx), ErrDockerTopologyDrift) {
+		t.Fatal("post-start configuration rewrite accepted")
+	}
+	if rewritten.Check(ctx) == nil {
+		t.Fatal("poisoned deployment observation retried")
+	}
+	_ = rewritten.Close()
 	// A health response alone would also pass with the image's inherited
 	// wildcard listener. Check the host socket tables for that regression.
 	for _, path := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
