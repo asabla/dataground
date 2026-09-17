@@ -227,6 +227,12 @@ assert.ok(
 const ajv = new Ajv2020({ allErrors: true, strict: false });
 addFormats(ajv);
 ajv.addSchema(openApi, "urn:dataground:openapi:v1");
+const validateApprovalPage = ajv.compile({
+  $ref: "urn:dataground:openapi:v1#/components/schemas/InvocationApprovalPage",
+});
+const approvalPage = await readJson("contracts/fixtures/valid/invocation-approval-page.json");
+assert.equal(validateApprovalPage({ items: Array(100).fill(approvalPage.items[0]) }), true);
+assert.equal(validateApprovalPage({ items: Array(101).fill(approvalPage.items[0]) }), false);
 const validateReleaseManifest = ajv.compile(releaseManifest);
 ajv.addSchema(authorizationAuditExport);
 ajv.addSchema(operatorAuditExport);

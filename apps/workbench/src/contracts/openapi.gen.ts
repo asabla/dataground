@@ -371,6 +371,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List invocation approvals
+         * @description Lists all retained approval states, newest creation first with identifier tie-breaking. Pages contain current state, not a frozen snapshot. Refresh from the first page to discover new approvals or state changes. The cursor is bound to the isolation domain and invocation and grants no authority. A dedicated listInvocationApprovals grant on the invocation is required; reading or resolving an individual approval requires its separate grant. Reference invocations return an empty page.
+         */
+        get: operations["listInvocationApprovals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -552,6 +572,10 @@ export interface components {
             nextCursor?: string;
         } & {
             [key: string]: unknown;
+        };
+        InvocationApprovalPage: {
+            items: components["schemas"]["InvocationApproval"][];
+            nextCursor?: string;
         };
         InvocationPage: {
             items: components["schemas"]["InvocationSummary"][];
@@ -1673,6 +1697,37 @@ export interface operations {
                     "application/json": components["schemas"]["ArtifactDescriptor"];
                 };
             };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    listInvocationApprovals: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                invocationId: components["parameters"]["InvocationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A bounded page of provider-neutral approval resources. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvocationApprovalPage"];
+                };
+            };
+            400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
