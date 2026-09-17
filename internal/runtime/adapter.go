@@ -83,6 +83,13 @@ type Event struct {
 	Payload  map[string]any
 }
 
+// Adapter owns one isolated runtime session. Start is single-use, including
+// after a completed turn. A new invocation requires a new adapter.
+type Adapter interface {
+	Start(context.Context, StartRequest) (Turn, error)
+	Close() error
+}
+
 // Turn is the stable worker-facing surface for one active runtime turn.
 type Turn interface {
 	Events() <-chan Event
