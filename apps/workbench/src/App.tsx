@@ -19,8 +19,8 @@ import {
   readServiceRevision,
   resumeServiceRevision,
   type ServiceRevisionFailure,
-  ServiceRevisionHistoryPanel,
   type ServiceRevisionHistoryResource,
+  ServiceRevisionHistoryWorkflow,
   type ServiceRevisionResource,
 } from "./revisions";
 import { ServiceRevisionRetireWorkflow } from "./revisions/ServiceRevisionRetireWorkflow";
@@ -786,7 +786,10 @@ export function DevelopmentWorkbench({
                 </nav>
                 <div className="workbench-stage">
                   {openedService && (
-                    <ServiceRevisionHistoryPanel
+                    <ServiceRevisionHistoryWorkflow
+                      client={client}
+                      isolationDomainId={isolationDomainId}
+                      serviceId={openedService.metadata.id}
                       error={revisionListError}
                       isLoading={revisionListLoading}
                       isLoadingMore={revisionListLoadingMore}

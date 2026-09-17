@@ -36,6 +36,7 @@ export {
   ServiceRevisionHistoryPanel,
   type ServiceRevisionHistoryPanelProps,
 } from "./ServiceRevisionHistoryPanel";
+export { ServiceRevisionHistoryWorkflow } from "./ServiceRevisionHistoryWorkflow";
 export {
   createPublicationIdempotencyKey,
   ServiceRevisionPublishWorkflow,

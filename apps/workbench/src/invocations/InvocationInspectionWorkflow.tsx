@@ -6,6 +6,7 @@ import {
   type InvocationApprovalReference,
 } from "../approvals";
 import { ArtifactWorkflow, type InvocationArtifactReference } from "../artifacts";
+import { ResourceAuditWorkflow } from "../audit/ResourceAuditWorkflow";
 import type { DataGroundClient } from "../contracts/client";
 import { EventTimelineWorkflow } from "../events";
 import {
@@ -107,6 +108,14 @@ export function InvocationInspectionWorkflow({
         disabledReason={cancellationDisabledReason}
         onInspectArtifact={onInspectArtifact}
         reference={reference}
+      />
+      <ResourceAuditWorkflow
+        client={client}
+        reference={{
+          isolationDomainId: reference.isolationDomainId,
+          resourceType: "invocation",
+          resourceId: reference.invocationId,
+        }}
       />
       <EventTimelineWorkflow
         client={client}
