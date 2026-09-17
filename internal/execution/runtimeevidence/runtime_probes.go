@@ -139,7 +139,7 @@ func (probes *CodexProbes) Initialize(
 			}
 			return false, nil
 		}, "lifecycle.cancelled")
-		if err != nil || !interrupted || turn.Wait(ctx) != nil || closeTurn() != nil {
+		if err != nil || !interrupted || !errors.Is(turn.Wait(ctx), dgruntime.ErrTurnInterrupted) || closeTurn() != nil {
 			return codexProbeObservation{}, ErrCodexProbeObservation
 		}
 		return codexProbeObservation{events: events, outcome: "initialized-and-interrupted"}, nil
@@ -258,7 +258,7 @@ func (probes *CodexProbes) Interrupt(
 			interrupted = true
 			return false, turn.Interrupt(ctx)
 		}, "lifecycle.cancelled")
-		if err != nil || !interrupted || turn.Wait(ctx) != nil || closeTurn() != nil {
+		if err != nil || !interrupted || !errors.Is(turn.Wait(ctx), dgruntime.ErrTurnInterrupted) || closeTurn() != nil {
 			return codexProbeObservation{}, ErrCodexProbeObservation
 		}
 		return codexProbeObservation{events: events, outcome: "interrupted"}, nil
@@ -369,7 +369,7 @@ func (probes *CodexProbes) approval(
 		if err != nil || !interrupted {
 			return codexProbeObservation{}, state.approvalFailure(name, "interrupt-observation")
 		}
-		if turn.Wait(ctx) != nil {
+		if !errors.Is(turn.Wait(ctx), dgruntime.ErrTurnInterrupted) {
 			return codexProbeObservation{}, state.approvalFailure(name, "turn-completion")
 		}
 		if closeTurn() != nil {

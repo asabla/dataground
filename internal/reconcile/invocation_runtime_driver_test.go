@@ -119,6 +119,57 @@ func TestInvocationRuntimeDriverPersistsDeterministicTurnFailure(t *testing.T) {
 	}
 }
 
+func TestInvocationRuntimeDriverDoesNotCompleteInterruptedTurn(t *testing.T) {
+	for _, test := range []struct{ waitErr, receiptErr error }{{}, {waitErr: dgruntime.ErrTurnInterrupted}, {waitErr: dgruntime.ErrTurnInterrupted, receiptErr: errors.New("receipt unavailable")}} {
+		claim, effect, target := runtimeDriverFixture()
+		store := &runtimeStoreStub{target: target, failErr: test.receiptErr}
+		turn := &runtimeTurnStub{
+			events: runtimeEvents(dgruntime.Event{
+				Sequence: 1,
+				Type:     "lifecycle.cancelled",
+				Payload:  map[string]any{"reason": "runtime interruption"},
+			}),
+			waitErr: test.waitErr,
+		}
+		driver := newRuntimeDriverForTest(
+			t,
+			store,
+			&runtimeAuthorizerStub{},
+			&runtimeExecutionSourceStub{value: execution.Execution{
+				IsolationDomainID: target.IsolationDomainID,
+				ID:                "exe_runtime",
+				State:             "ready",
+			}},
+			&runtimeProviderStub{observation: execution.Observation{
+				IsolationDomainID: target.IsolationDomainID,
+				ExecutionID:       "exe_runtime",
+				State:             "ready",
+			}},
+			&runtimeAdapterFactoryStub{adapter: &runtimeAdapterStub{turn: turn}},
+		)
+
+		_, err := driver.ApplyClaimed(context.Background(), claim, effect)
+		if test.receiptErr != nil {
+			if !errors.Is(err, ErrAmbiguousEffect) || errors.Is(err, ErrEffectTerminal) || !errors.Is(err, test.receiptErr) || store.completeCalls != 0 {
+				t.Fatal("unrecorded interruption released a terminal result", err)
+			}
+			continue
+		}
+		if !errors.Is(err, ErrEffectTerminal) || !errors.Is(err, dgruntime.ErrTurnInterrupted) {
+			t.Fatalf("runtime failure = %v", err)
+		}
+		if store.failCalls != 1 || store.completeCalls != 0 ||
+			store.attempt.Result["code"] != "RUNTIME_TURN_INTERRUPTED" {
+			t.Fatalf("failed attempt = %#v", store.attempt)
+		}
+		starts := driver.provider.(*runtimeProviderStub).startCalls
+		outcome, found, err := driver.ObserveClaimed(context.Background(), claim, effect)
+		if found || !errors.Is(err, ErrEffectTerminal) || !errors.Is(err, dgruntime.ErrTurnInterrupted) || outcome["code"] != "RUNTIME_TURN_INTERRUPTED" || driver.provider.(*runtimeProviderStub).startCalls != starts {
+			t.Fatal("interruption observation lost terminal outcome", err)
+		}
+	}
+}
+
 func TestInvocationRuntimeDriverRejectsInvalidDeclaredOutput(t *testing.T) {
 	claim, effect, target := runtimeDriverFixture()
 	target.OutputSchema = map[string]any{
@@ -377,6 +428,7 @@ type runtimeStoreStub struct {
 	targetErr     error
 	attempt       persistence.InvocationRuntimeAttempt
 	attemptErr    error
+	failErr       error
 	eventErr      error
 	events        []persistence.InvocationRuntimeEvent
 	beginCalls    int
@@ -437,6 +489,9 @@ func (stub *runtimeStoreStub) FailInvocationRuntimeAttempt(
 	result map[string]any,
 ) (persistence.InvocationRuntimeAttempt, error) {
 	stub.failCalls++
+	if stub.failErr != nil {
+		return persistence.InvocationRuntimeAttempt{}, stub.failErr
+	}
 	stub.attempt.Status = "failed"
 	stub.attempt.Result = result
 	return stub.attempt, nil

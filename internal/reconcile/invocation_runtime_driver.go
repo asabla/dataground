@@ -231,7 +231,11 @@ func (driver *InvocationRuntimeDriver) ObserveClaimed(
 	case "succeeded":
 		return attempt.Result, true, nil
 	case "failed":
-		return attempt.Result, false, errors.Join(ErrEffectTerminal, dgruntime.ErrTurnFailed)
+		failure := dgruntime.ErrTurnFailed
+		if attempt.Result["code"] == "RUNTIME_TURN_INTERRUPTED" {
+			failure = dgruntime.ErrTurnInterrupted
+		}
+		return attempt.Result, false, errors.Join(ErrEffectTerminal, failure)
 	case "reserved":
 		return nil, false, errors.Join(
 			ErrAmbiguousEffect,
@@ -398,6 +402,7 @@ func (driver *InvocationRuntimeDriver) runTurn(
 		}
 	}()
 	ended := false
+	interrupted := false
 	consume := func(event dgruntime.Event) error {
 		if handled, err := questions.record(runCtx, claim, event, ended); handled {
 			return err
@@ -407,6 +412,9 @@ func (driver *InvocationRuntimeDriver) runTurn(
 		}
 		if err := driver.recordRuntimeEvent(runCtx, claim, event); err != nil {
 			return err
+		}
+		if event.Type == "lifecycle.cancelled" {
+			interrupted = true
 		}
 		output.Observe(event)
 		return nil
@@ -462,9 +470,19 @@ func (driver *InvocationRuntimeDriver) runTurn(
 			if err := approvals.close(runCtx, claim, "runtime-ended"); err != nil {
 				return nil, errors.Join(ErrAmbiguousEffect, err)
 			}
+			// A native cancellation is not successful invocation completion.
+			// The normalized event independently rules out success even if an
+			// adapter incorrectly returns a nil wait result.
+			if waitErr == nil && interrupted {
+				waitErr = dgruntime.ErrTurnInterrupted
+			}
 			if waitErr != nil {
-				if errors.Is(waitErr, dgruntime.ErrTurnFailed) {
-					result := map[string]any{"code": "RUNTIME_TURN_FAILED", "status": "failed"}
+				if errors.Is(waitErr, dgruntime.ErrTurnFailed) || errors.Is(waitErr, dgruntime.ErrTurnInterrupted) {
+					code := "RUNTIME_TURN_FAILED"
+					if errors.Is(waitErr, dgruntime.ErrTurnInterrupted) {
+						code = "RUNTIME_TURN_INTERRUPTED"
+					}
+					result := map[string]any{"code": code, "status": "failed"}
 					if _, err := driver.store.FailInvocationRuntimeAttempt(
 						runCtx,
 						claim,

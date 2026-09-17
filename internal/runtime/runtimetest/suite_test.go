@@ -120,7 +120,7 @@ func (m *modelAdapter) Interrupt(context.Context) error {
 	}
 	m.interrupts++
 	m.emit("lifecycle.cancelled", map[string]any{"reason": "runtime interruption"})
-	m.finish(nil)
+	m.finish(dgruntime.ErrTurnInterrupted)
 	return nil
 }
 func (m *modelAdapter) Wait(ctx context.Context) error {

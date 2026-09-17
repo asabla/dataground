@@ -129,7 +129,7 @@ func newRuntimeQuestionFixtureWithReservation(t *testing.T, ctx context.Context,
 		ctx,
 		*claim,
 		"run-invocation",
-		sha256.Sum256([]byte(domainID+":"+invocation.OperationID+":question-runtime")),
+		sha256.Sum256([]byte(domainID+":"+invocation.OperationID+":run-invocation")),
 	)
 	if err != nil {
 		t.Fatal(err)

@@ -279,6 +279,9 @@ func run(t *testing.T, f Fixture, scenario Scenario) {
 		t.Fatal("unknown runtime contract scenario")
 	}
 	want := error(nil)
+	if scenario == Interrupt {
+		want = dgruntime.ErrTurnInterrupted
+	}
 	if scenario == Failure {
 		want = dgruntime.ErrTurnFailed
 	}
