@@ -81,7 +81,7 @@ func (repository *Repository) PublishDevelopmentRevision(ctx context.Context, in
 	target := input.Target
 	idem := Idempotency{IsolationDomainID: target.IsolationDomainID, Method: "POST", Path: "/internal/development-publication/" + target.RevisionID, Key: input.CorrelationID, RequestDigest: sha256.Sum256(encoded)}
 	result, err := repository.execute(ctx, idem, func(tx pgx.Tx, _ time.Time) (int, any, error) {
-		verified, err := verifyDevelopmentPublication(ctx, tx, input, verify)
+		verified, err := verifyDevelopmentPublication(ctx, tx, input, verify, "dataground.invocation-authorization-policy/v3", nil)
 		if err != nil {
 			return 0, nil, err
 		}
@@ -118,7 +118,7 @@ type verifiedDevelopmentPublication struct {
 	grantGeneration int64
 }
 
-func verifyDevelopmentPublication(ctx context.Context, tx pgx.Tx, input DevelopmentPublicationInput, verify DevelopmentPublicationVerifier) (verifiedDevelopmentPublication, error) {
+func verifyDevelopmentPublication(ctx context.Context, tx pgx.Tx, input DevelopmentPublicationInput, verify DevelopmentPublicationVerifier, policyContract string, authorize func(context.Context) error) (verifiedDevelopmentPublication, error) {
 	target := input.Target
 	// Use the policy administrator's lock order before taking the revision lock.
 	if err := lockInvocationAuthorizationPolicyScope(ctx, tx, target.IsolationDomainID, target.ServiceID, target.RevisionID); err != nil {
@@ -135,7 +135,7 @@ func verifyDevelopmentPublication(ctx context.Context, tx pgx.Tx, input Developm
 		return verifiedDevelopmentPublication{}, ErrDevelopmentPublicationUnavailable
 	}
 	policy, err := getActiveInvocationAuthorizationPolicy(ctx, tx, target.IsolationDomainID, target.ServiceID, target.RevisionID)
-	if err != nil || policy.Contract != "dataground.invocation-authorization-policy/v3" || "sha256:"+hex.EncodeToString(policy.PolicyDigest) != input.PolicyDigest {
+	if err != nil || policy.Contract != policyContract || "sha256:"+hex.EncodeToString(policy.PolicyDigest) != input.PolicyDigest {
 		return verifiedDevelopmentPublication{}, ErrDevelopmentPublicationUnavailable
 	}
 	var planDigest, image, enforcement string
@@ -166,6 +166,11 @@ func verifyDevelopmentPublication(ctx context.Context, tx pgx.Tx, input Developm
 	evidence, err := verify(ctx)
 	if err != nil || !publicationAcceptancePattern.MatchString(evidence.AcceptanceID) || evidence.Generation == 0 || evidence.Generation > 9007199254740991 || evidence.Profile != StrictDevelopmentPublicationProfile || evidence.ImageReference != image {
 		return verifiedDevelopmentPublication{}, ErrDevelopmentPublicationUnavailable
+	}
+	if authorize != nil {
+		if err := authorize(ctx); err != nil {
+			return verifiedDevelopmentPublication{}, err
+		}
 	}
 	// Read database time after every lock wait and external read. Neither an old
 	// acceptance nor a grant that expired during verification can publish.

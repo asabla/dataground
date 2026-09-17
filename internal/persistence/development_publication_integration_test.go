@@ -298,6 +298,11 @@ type developmentPublicationFixture struct {
 
 func newDevelopmentPublicationFixture(t *testing.T, ctx context.Context, repo *persistence.Repository, store *executionpostgres.Store) developmentPublicationFixture {
 	t.Helper()
+	return newDevelopmentPublicationFixtureWithPolicy(t, ctx, repo, store, nil)
+}
+
+func newDevelopmentPublicationFixtureWithPolicy(t *testing.T, ctx context.Context, repo *persistence.Repository, store *executionpostgres.Store, policies []byte) developmentPublicationFixture {
+	t.Helper()
 	scope, service, revision := identity.New("iso"), identity.New("svc"), identity.New("rev")
 	idem := func(key string) persistence.Idempotency {
 		return persistence.Idempotency{IsolationDomainID: scope, Method: "POST", Path: "/fixture", Key: key, RequestDigest: sha256.Sum256([]byte(key))}
@@ -309,6 +314,9 @@ func newDevelopmentPublicationFixture(t *testing.T, ctx context.Context, repo *p
 		t.Fatal(err)
 	}
 	policy, err := reconcile.NewInvocationAuthorizationPolicyWithApprovalEntities(reconcile.InvocationAuthorizationPolicyScope{IsolationDomainID: scope, ServiceID: service, RevisionID: revision}, "publication-policy", reconcile.CanonicalInvocationCedarApprovalSchema(), []byte("permit(principal, action, resource);"), persistenceEntityFixture(t))
+	if policies != nil {
+		policy, err = reconcile.NewInvocationAuthorizationPolicyWithPublicationEntities(reconcile.InvocationAuthorizationPolicyScope{IsolationDomainID: scope, ServiceID: service, RevisionID: revision}, "publication-policy", reconcile.CanonicalPublicationCedarSchema(), policies, persistenceEntityFixture(t))
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

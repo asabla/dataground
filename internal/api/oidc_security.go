@@ -27,6 +27,7 @@ type DurableOIDCDPoPConfig struct {
 	MaximumProofAge               time.Duration
 	DPoPNonce                     authn.DPoPNoncePolicy
 	InvocationDispatchTarget      *persistence.InvocationDispatchTarget
+	PublicationTarget             *persistence.DevelopmentPublicationInput
 }
 
 // ReleaseCertificationReadiness keeps serving bound to the validity window of
@@ -62,6 +63,14 @@ func NewDurableOIDCDPoPAssembly(
 	}
 	if !config.KeysetRefresh.Valid() {
 		return nil, errors.New("durable OIDC DPoP keyset refresh policy is invalid")
+	}
+	if config.PublicationTarget != nil {
+		if config.InvocationDispatchTarget != nil {
+			return nil, errors.New("select publication or invocation dispatch configuration")
+		}
+		if err := config.Repository.RequirePublicationDispatchTarget(ctx, *config.PublicationTarget); err != nil {
+			return nil, err
+		}
 	}
 	if config.InvocationDispatchTarget != nil {
 		if err := config.Repository.RequireInvocationDispatchTarget(
@@ -105,13 +114,19 @@ func NewDurableOIDCDPoPAssembly(
 	if err != nil {
 		return nil, err
 	}
+	dispatchTarget := config.InvocationDispatchTarget
+	if config.PublicationTarget != nil {
+		target := config.PublicationTarget.Target
+		dispatchTarget = &target
+	}
 	handler, err := newDurableHandler(
 		config.Repository,
 		auditedAuthenticator,
 		auditedAuthorizer,
 		binder,
 		config.RateLimiter,
-		config.InvocationDispatchTarget,
+		dispatchTarget,
+		config.PublicationTarget,
 	)
 	if err != nil {
 		return nil, err

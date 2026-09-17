@@ -286,7 +286,7 @@
       "post": {
         "operationId": "publishServiceRevision",
         "summary": "Publish a revision immutably",
-        "description": "Both input and output schemas must compile without external resource loading before publication is accepted. Invalid contracts return non-retryable 409 REVISION_INPUT_SCHEMA_INVALID or REVISION_OUTPUT_SCHEMA_INVALID without schema details.",
+        "description": "Both input and output schemas must compile without external resource loading before publication is accepted. Invalid contracts return non-retryable 409 REVISION_INPUT_SCHEMA_INVALID or REVISION_OUTPUT_SCHEMA_INVALID without schema details. In the explicitly configured loopback governed publishing profile, the authenticated actor must also have current publication authority for the exact reviewed revision. Deployment configuration supplies the reviewed plan, policy and verification digests; public bodies cannot override them. Acceptance returns a durable version 4 operation with status 202. A separate configured worker verifies current authority and runtime evidence before atomic publication. A denied publication decision returns 403 PUBLICATION_FORBIDDEN; unavailable authority or dependencies return retryable 503 PUBLICATION_UNAVAILABLE. Reference publication retains its existing behavior.",
         "parameters": [
           { "$ref": "#/components/parameters/IsolationDomainId" },
           { "$ref": "#/components/parameters/RevisionId" },

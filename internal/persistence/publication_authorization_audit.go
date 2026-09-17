@@ -21,7 +21,7 @@ func (repository *Repository) RecordPublicationAuthorizationDecision(ctx context
       AND ($8='entry' OR EXISTS (
         SELECT 1 FROM service_publication_operations operation JOIN governed_publication_requests request
           ON request.isolation_domain_id=operation.isolation_domain_id AND request.operation_id=operation.id
-        WHERE operation.isolation_domain_id=$2 AND operation.id=$5 AND operation.revision_id=$4 AND operation.state_machine_version=3
+        WHERE operation.isolation_domain_id=$2 AND operation.id=$5 AND operation.revision_id=$4 AND operation.state_machine_version IN (3,4)
           AND operation.observed_state='validating' AND operation.lease_token=$10 AND operation.lease_expires_at>clock_timestamp() AND operation.deadline_at>clock_timestamp()
           AND COALESCE(operation.effect_actor_id,operation.actor_id)=$6 AND COALESCE(operation.effect_correlation_id,operation.correlation_id)=$7
           AND request.service_id=$3 AND request.revision_id=$4 AND request.expected_version=$9

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/asabla/dataground/internal/authz"
 	"github.com/asabla/dataground/internal/domain"
 	"github.com/asabla/dataground/internal/persistence"
 )
@@ -185,5 +186,65 @@ func TestPublicationConsumerRecoversLostTerminalReceipt(t *testing.T) {
 	var output bytes.Buffer
 	if err := consumeDevelopmentPublication(context.Background(), store, config, "replacement", verify, &output); err != nil || calls != 1 || store.claimed != before || output.Len() == 0 {
 		t.Fatal("lost acknowledgement repeated publication", err)
+	}
+}
+
+func (store *publicationConsumerStore) RequireAuthorizedDevelopmentPublication(ctx context.Context, id string, input persistence.DevelopmentPublicationInput) error {
+	if store.operation.StateMachineVersion != 4 {
+		return persistence.ErrDevelopmentPublicationUnavailable
+	}
+	return store.RequireDevelopmentPublication(ctx, id, input)
+}
+func (store *publicationConsumerStore) ClaimAuthorizedDevelopmentPublication(ctx context.Context, id string, input persistence.DevelopmentPublicationInput, worker string, lease time.Duration) (*persistence.OperationClaim, error) {
+	claim, err := store.ClaimDevelopmentPublication(ctx, id, input, worker, lease)
+	if claim != nil {
+		claim.StateMachineVersion = 4
+		claim.FencingToken = 2
+	}
+	return claim, err
+}
+func (store *publicationConsumerStore) CompleteAuthorizedDevelopmentPublication(ctx context.Context, claim persistence.OperationClaim, input persistence.DevelopmentPublicationInput, verify persistence.DevelopmentPublicationVerifier, authorize persistence.PublicationAuthorization) error {
+	if claim.StateMachineVersion != 4 || authorize == nil {
+		return persistence.ErrDevelopmentPublicationUnavailable
+	}
+	if err := authorize(ctx, authz.PublicationRequest{ActorID: claim.ActorID, CorrelationID: claim.CorrelationID, Phase: "effect", FencingToken: claim.FencingToken}); err != nil {
+		return err
+	}
+	return store.CompleteDevelopmentPublication(ctx, claim, input, verify)
+}
+func TestAuthorizedPublicationConsumerRequiresAuthorityAndExactVersion(t *testing.T) {
+	config, store := newPublicationConsumerFixture(t)
+	config.command = "reconcile-authorized-publication"
+	store.operation.StateMachineVersion = 4
+	verify := func(context.Context) (persistence.DevelopmentPublicationEvidence, error) {
+		return persistence.DevelopmentPublicationEvidence{}, nil
+	}
+	var output bytes.Buffer
+	if err := consumeDevelopmentPublication(context.Background(), store, config, "worker", verify, &output); err == nil {
+		t.Fatal("operator consumer selected authorized operation")
+	}
+	if err := consumeAuthorizedDevelopmentPublication(context.Background(), store, config, "worker", verify, nil, &output); err == nil {
+		t.Fatal("missing authorizer admitted")
+	}
+	calls := 0
+	authorize := func(_ context.Context, request authz.PublicationRequest) error {
+		calls++
+		if request.ActorID != "repair-operator" || request.CorrelationID != "cor_0123456789abcdefghij" || request.Phase != "effect" || request.FencingToken != 2 {
+			t.Fatal("authority lost claim binding")
+		}
+		return nil
+	}
+	if err := consumeAuthorizedDevelopmentPublication(context.Background(), store, config, "worker", verify, authorize, &output); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || store.completed != 1 || store.operation.ObservedState != "published" {
+		t.Fatal("authorized completion lost")
+	}
+	if err := consumeAuthorizedDevelopmentPublication(context.Background(), store, config, "replacement", verify, authorize, &output); err != nil || calls != 1 {
+		t.Fatal("terminal replay reevaluated", err)
+	}
+	store.operation.StateMachineVersion = 3
+	if err := consumeAuthorizedDevelopmentPublication(context.Background(), store, config, "worker", verify, authorize, &output); err == nil {
+		t.Fatal("authorized consumer selected operator operation")
 	}
 }

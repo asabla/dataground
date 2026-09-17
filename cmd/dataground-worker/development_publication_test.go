@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -80,7 +81,7 @@ func (source publicationPolicies) ResolveInvocationAuthorizationPolicy(context.C
 }
 
 func TestDevelopmentPublicationVerifiesActualMaterialAndAcceptance(t *testing.T) {
-	for _, mode := range []string{"valid", "plan scope", "image", "plan digest", "bundle scope", "bundle identity", "bytes", "policy scope", "policy digest", "expired acceptance", "deployment", "verifier", "cancelled"} {
+	for _, mode := range []string{"valid", "authorized", "authorized older policy", "operator publication policy", "plan scope", "image", "plan digest", "bundle scope", "bundle identity", "bytes", "policy scope", "policy digest", "expired acceptance", "deployment", "verifier", "cancelled"} {
 		t.Run(mode, func(t *testing.T) {
 			config, err := loadDevelopmentPublication(publicationArguments(), mapEnvironment(validStrictAcceptanceEnvironment()))
 			if err != nil {
@@ -113,6 +114,13 @@ func TestDevelopmentPublicationVerifiesActualMaterialAndAcceptance(t *testing.T)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			switch mode {
+			case "authorized":
+				config.command = "reconcile-authorized-publication"
+				policy.Contract = reconcile.InvocationAuthorizationPolicyPublicationContract
+			case "authorized older policy":
+				config.command = "reconcile-authorized-publication"
+			case "operator publication policy":
+				policy.Contract = reconcile.InvocationAuthorizationPolicyPublicationContract
 			case "plan scope":
 				plan.RevisionID = "rev_00000000000000000001"
 			case "image":
@@ -137,7 +145,7 @@ func TestDevelopmentPublicationVerifiesActualMaterialAndAcceptance(t *testing.T)
 				cancel()
 			}
 			proof, err := verifyDevelopmentPublication(ctx, config, publicationPlans{plan: plan}, publicationBundles{bundle}, publicationPolicies{policy}, checker)
-			if mode == "valid" {
+			if mode == "valid" || mode == "authorized" {
 				if err != nil || proof.Profile != persistence.StrictDevelopmentPublicationProfile || proof.ImageReference != config.acceptance.image || !proof.ExpiresAt.After(time.Now()) || deployment.checks.Load() != 1 {
 					t.Fatal("verified publication failed", err)
 				}
@@ -145,5 +153,35 @@ func TestDevelopmentPublicationVerifiesActualMaterialAndAcceptance(t *testing.T)
 				t.Fatal("invalid publication admitted or dependency detail disclosed", err)
 			}
 		})
+	}
+}
+
+func TestPreparePublicationConfigurationMatchesAuthorizedConsumerPins(t *testing.T) {
+	args := append([]string{"prepare-publication-configuration"}, publicationArguments()[1:7]...)
+	config, err := loadDevelopmentPublication(args, mapEnvironment(validStrictAcceptanceEnvironment()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := writePublicPublicationConfiguration(&output, config.input); err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(output.Bytes(), &fields); err != nil {
+		t.Fatal(err)
+	}
+	if len(fields) != 9 || fields["contract"] != "dataground.api-governed-publication/v1" || fields["verificationDigest"] != config.input.VerificationDigest {
+		t.Fatal(fields)
+	}
+	consumerArgs := append([]string{"reconcile-authorized-publication"}, args[1:]...)
+	consumerArgs = append(consumerArgs, "--operation-id", "op_00000000000000000001")
+	consumer, err := loadDevelopmentPublication(consumerArgs, mapEnvironment(validStrictAcceptanceEnvironment()))
+	if err != nil || consumer.input.VerificationDigest != config.input.VerificationDigest || consumer.input.ActorID != "" || consumer.publicationPolicyContract() != reconcile.InvocationAuthorizationPolicyPublicationContract {
+		t.Fatal(consumer, err)
+	}
+	for _, invalid := range [][]string{append(args, "--actor", "operator"), append(consumerArgs, "--actor", "operator"), consumerArgs[:len(consumerArgs)-2]} {
+		if _, err := loadDevelopmentPublication(invalid, mapEnvironment(validStrictAcceptanceEnvironment())); err == nil {
+			t.Fatal("ambiguous authority accepted")
+		}
 	}
 }
