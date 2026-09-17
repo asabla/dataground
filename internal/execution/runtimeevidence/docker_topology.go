@@ -60,24 +60,25 @@ type DockerTopology struct {
 }
 
 type dockerTopologyState struct {
-	containerID string
-	startedAt   string
-	candidate   candidateTopologyBinding
-	mu          sync.Mutex
-	runID       string
-	resources   Resources
-	runner      dockerTopologyRunner
-	binary      string
-	project     string
-	environment []string
-	wait        func(context.Context) error
-	workspace   *runtimeTopologyWorkspace
-	started     bool
-	starting    bool
-	active      bool
-	cleaning    bool
-	removed     bool
-	failed      bool
+	containerID    string
+	startedAt      string
+	candidate      candidateTopologyBinding
+	mu             sync.Mutex
+	runID          string
+	resources      Resources
+	runner         dockerTopologyRunner
+	binary         string
+	project        string
+	environment    []string
+	wait           func(context.Context) error
+	checkListeners func(context.Context, int, string) error
+	workspace      *runtimeTopologyWorkspace
+	started        bool
+	starting       bool
+	active         bool
+	cleaning       bool
+	removed        bool
+	failed         bool
 }
 
 type dockerTopologyDependencies struct {
@@ -85,6 +86,7 @@ type dockerTopologyDependencies struct {
 	wait            func(context.Context) error
 	resolveBinary   func(string) (string, error)
 	processIdentity func() (int, int, int, error)
+	checkListeners  func(context.Context, int, string) error
 }
 
 type dockerTopologyRunner interface {
@@ -102,6 +104,7 @@ func NewDockerTopology(config DockerTopologyConfig) (*DockerTopology, error) {
 		wait:            waitForRuntimeTopology,
 		resolveBinary:   resolveRuntimeTopologyBinary,
 		processIdentity: runtimeDockerProcessIdentity,
+		checkListeners:  checkGatewayProcessListeners,
 	})
 }
 
@@ -115,7 +118,7 @@ func newDockerTopology(
 		dependencies.runner == nil ||
 		dependencies.wait == nil ||
 		dependencies.resolveBinary == nil ||
-		dependencies.processIdentity == nil {
+		dependencies.processIdentity == nil || dependencies.checkListeners == nil {
 		return nil, ErrDockerTopologyConfiguration
 	}
 	repositoryRoot, err := resolveRuntimeTopologyDirectory(config.RepositoryRoot, false)
@@ -191,8 +194,9 @@ func newDockerTopology(
 			groupID,
 			dockerGroupID,
 		),
-		wait:      dependencies.wait,
-		workspace: workspace,
+		wait:           dependencies.wait,
+		checkListeners: dependencies.checkListeners,
+		workspace:      workspace,
 	}}, nil
 }
 

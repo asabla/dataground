@@ -45,6 +45,10 @@ func (runner *fakeDockerTopologyRunner) Run(
 		binary:      binary,
 		args:        append([]string(nil), args...),
 	})
+	if runner.topology != nil && len(args) == 5 && args[0] == "network" && args[3] == gatewayBridgeInspection {
+		runner.mu.Unlock()
+		return []byte(testGatewayBridge), nil
+	}
 	if runner.topology != nil && len(args) == 4 && args[0] == "inspect" && args[2] == runningGatewayInspection {
 		value, _ := validRunningGateway(runner.topology, args[3])
 		output, err := json.Marshal(value)
@@ -101,7 +105,7 @@ func TestDockerTopologyStartsExactProjectAndObservesCleanup(t *testing.T) {
 	runner.mu.Lock()
 	calls := append([]dockerTopologyCall(nil), runner.calls...)
 	runner.mu.Unlock()
-	if len(calls) != 8 {
+	if len(calls) != 10 {
 		t.Fatalf("command count = %d", len(calls))
 	}
 	project := "dg_runtime_" + testRunID
@@ -110,17 +114,17 @@ func TestDockerTopologyStartsExactProjectAndObservesCleanup(t *testing.T) {
 	}) || calls[0].args[5] != "up" {
 		t.Fatalf("compose up arguments = %#v", calls[0].args)
 	}
-	if !reflect.DeepEqual(calls[5].args[len(calls[5].args)-3:], []string{
+	if !reflect.DeepEqual(calls[7].args[len(calls[7].args)-3:], []string{
 		"down", "--volumes", "--remove-orphans",
 	}) {
-		t.Fatalf("compose down arguments = %#v", calls[5].args)
+		t.Fatalf("compose down arguments = %#v", calls[7].args)
 	}
-	if !reflect.DeepEqual(calls[7].args, []string{
+	if !reflect.DeepEqual(calls[9].args, []string{
 		"volume", "ls", "--filter",
 		"label=com.docker.compose.project=" + project,
 		"--quiet",
 	}) {
-		t.Fatalf("volume observation arguments = %#v", calls[7].args)
+		t.Fatalf("volume observation arguments = %#v", calls[9].args)
 	}
 	environment := strings.Join(calls[0].environment, "\n")
 	if strings.Contains(environment, "must-not-cross") {
@@ -142,7 +146,7 @@ func TestDockerTopologyStartsExactProjectAndObservesCleanup(t *testing.T) {
 	if err := topology.Cleanup(context.Background()); err != nil {
 		t.Fatalf("idempotent Cleanup() error = %v", err)
 	}
-	if len(runner.calls) != 8 {
+	if len(runner.calls) != 10 {
 		t.Fatal("idempotent cleanup repeated native mutation")
 	}
 }
@@ -295,8 +299,9 @@ func newTestDockerTopology(
 			DockerBinary:   "/usr/bin/docker",
 		},
 		dockerTopologyDependencies{
-			runner: runner,
-			wait:   wait,
+			checkListeners: func(context.Context, int, string) error { return nil },
+			runner:         runner,
+			wait:           wait,
 			resolveBinary: func(value string) (string, error) {
 				return value, nil
 			},

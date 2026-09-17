@@ -223,3 +223,26 @@ func TestFrozenTopologyRejectsDirectoryReplacementWithOriginalFiles(t *testing.T
 		t.Fatal("directory replacement accepted")
 	}
 }
+
+func TestGatewayProcessChangeDuringSocketObservationFailsClosed(t *testing.T) {
+	id := strings.Repeat("a", 64)
+	for name, mutate := range map[string]func(*runningGateway){
+		"pid":           func(v *runningGateway) { v.PID++ },
+		"restart":       func(v *runningGateway) { v.StartedAt = "2026-01-02T00:00:00Z" },
+		"paused":        func(v *runningGateway) { v.Paused = true },
+		"configuration": func(v *runningGateway) { v.Cmd = []string{"--other"} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			topology, _ := newTestDockerTopology(t, &fakeDockerTopologyRunner{}, func(context.Context) error { return nil })
+			value, image := validRunningGateway(topology.state, id)
+			first, _ := json.Marshal(value)
+			imageBytes, _ := json.Marshal(image)
+			mutate(&value)
+			last, _ := json.Marshal(value)
+			topology.state.runner = &fakeDockerTopologyRunner{results: []dockerTopologyResult{{output: string(first)}, {output: string(imageBytes)}, {output: testGatewayBridge}, {output: string(last)}}}
+			if _, err := topology.state.verifyRunningConfiguration(context.Background(), id); !errors.Is(err, ErrDockerTopologyDrift) {
+				t.Fatal("process change during socket observation accepted")
+			}
+		})
+	}
+}
