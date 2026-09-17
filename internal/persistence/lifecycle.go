@@ -69,7 +69,7 @@ func (repository *Repository) ClaimNext(
 	workerID string,
 	leaseDuration time.Duration,
 ) (*OperationClaim, error) {
-	return repository.claimNext(ctx, kind, "", "", "", "", workerID, leaseDuration)
+	return repository.claimNext(ctx, kind, "", "", "", "", workerID, leaseDuration, "", 0)
 }
 
 // ClaimNextInIsolationDomain leases only work owned by one exact isolation
@@ -85,7 +85,7 @@ func (repository *Repository) ClaimNextInIsolationDomain(
 	if isolationDomainID == "" {
 		return nil, errors.New("isolation-scoped claim requires a domain")
 	}
-	return repository.claimNext(ctx, kind, isolationDomainID, "", "", "", workerID, leaseDuration)
+	return repository.claimNext(ctx, kind, isolationDomainID, "", "", "", workerID, leaseDuration, "", 0)
 }
 
 // ClaimNextForServiceRevision leases work only for one exact service revision.
@@ -104,7 +104,7 @@ func (repository *Repository) ClaimNextForServiceRevision(
 		return nil, errors.New("service-revision-scoped claim requires complete scope")
 	}
 	return repository.claimNext(
-		ctx, kind, isolationDomainID, serviceID, revisionID, "", workerID, leaseDuration,
+		ctx, kind, isolationDomainID, serviceID, revisionID, "", workerID, leaseDuration, "", 0,
 	)
 }
 
@@ -121,7 +121,7 @@ func (repository *Repository) ClaimNextForRuntimeProfile(
 	if runtimeProfile == "" {
 		return nil, errors.New("runtime-profile-scoped claim requires a profile")
 	}
-	return repository.claimNext(ctx, kind, "", "", "", runtimeProfile, workerID, leaseDuration)
+	return repository.claimNext(ctx, kind, "", "", "", runtimeProfile, workerID, leaseDuration, "", 0)
 }
 
 func (repository *Repository) claimNext(
@@ -133,6 +133,8 @@ func (repository *Repository) claimNext(
 	runtimeProfile string,
 	workerID string,
 	leaseDuration time.Duration,
+	operationID string,
+	stateMachineVersion int,
 ) (*OperationClaim, error) {
 	table, resourceColumn, terminalStates, err := operationTable(kind)
 	if err != nil {
@@ -159,7 +161,16 @@ func (repository *Repository) claimNext(
 		resourceScope = "AND ($6 = '' OR (resource.service_id = $6 AND resource.revision_id = $7))"
 		runtimeProfileScope = "AND ($8 = '' OR target_revision.runtime_profile = $8)"
 	}
-	now := repository.now()
+	var now time.Time
+	if operationID != "" {
+		// Exact governed publication consumers use database time so a worker
+		// clock that is ahead cannot reclaim another consumer's active lease.
+		if err := repository.pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
+			return nil, ErrDevelopmentPublicationUnavailable
+		}
+	} else {
+		now = repository.now()
+	}
 	query := fmt.Sprintf(`
 		WITH per_domain AS (
 			SELECT DISTINCT ON (operation.isolation_domain_id)
@@ -168,6 +179,8 @@ func (repository *Repository) claimNext(
 			%s
 			WHERE operation.observed_state <> ALL($1)
 			  AND ($5 = '' OR operation.isolation_domain_id = $5)
+			  AND ($9 = '' OR operation.id = $9)
+			  AND ($10 = 0 OR operation.state_machine_version = $10)
 			  %s
 			  %s
 			  AND (operation.command <> 'repair' OR (operation.effect_actor_id IS NOT NULL AND operation.effect_correlation_id IS NOT NULL))
@@ -216,6 +229,8 @@ func (repository *Repository) claimNext(
 		serviceID,
 		revisionID,
 		runtimeProfile,
+		operationID,
+		stateMachineVersion,
 	).Scan(
 		&claim.IsolationDomainID,
 		&claim.ID,

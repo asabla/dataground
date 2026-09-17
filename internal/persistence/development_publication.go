@@ -55,9 +55,14 @@ type DevelopmentPublicationEvidence struct {
 type DevelopmentPublicationVerifier func(context.Context) (DevelopmentPublicationEvidence, error)
 
 func (input DevelopmentPublicationInput) Valid() bool {
+	return input.ValidReviewedInputs() && validProviderCredentialText(input.ActorID, 256) && providerCredentialCorrelationPattern.MatchString(input.CorrelationID)
+}
+
+// ValidReviewedInputs checks the immutable deployment-owned publication pins.
+// Actor and correlation are supplied separately by the accepted command or claim.
+func (input DevelopmentPublicationInput) ValidReviewedInputs() bool {
 	return input.Contract == DevelopmentPublicationContract && input.Target.Valid() && input.ExpectedVersion > 0 &&
-		publicationDigestPattern.MatchString(input.PlanDigest) && publicationDigestPattern.MatchString(input.PolicyDigest) && publicationDigestPattern.MatchString(input.VerificationDigest) &&
-		validProviderCredentialText(input.ActorID, 256) && providerCredentialCorrelationPattern.MatchString(input.CorrelationID)
+		publicationDigestPattern.MatchString(input.PlanDigest) && publicationDigestPattern.MatchString(input.PolicyDigest) && publicationDigestPattern.MatchString(input.VerificationDigest)
 }
 
 // PublishDevelopmentRevision performs a database-only publication after bounded

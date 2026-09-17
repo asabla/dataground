@@ -337,4 +337,84 @@ func TestQueuedGovernedPublicationFencesVerificationAndPreservesRecovery(t *test
 			t.Fatal("repair audit attributed to original caller", err)
 		}
 	})
+	t.Run("consumer claims only independently pinned exact operation", func(t *testing.T) {
+		f, idem := newFixture(t)
+		result, err := repo.QueueDevelopmentPublication(ctx, idem, f.input, time.Now().Add(time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var operation domain.Operation
+		if json.Unmarshal(result.Body, &operation) != nil {
+			t.Fatal("invalid acceptance")
+		}
+		input := f.input
+		input.ActorID, input.CorrelationID = "", ""
+		for _, field := range []string{"domain", "service", "revision", "version", "plan", "policy", "verification", "operation"} {
+			changed, id := input, operation.Metadata.ID
+			switch field {
+			case "domain":
+				changed.Target.IsolationDomainID = identity.New("iso")
+			case "service":
+				changed.Target.ServiceID = identity.New("svc")
+			case "revision":
+				changed.Target.RevisionID = identity.New("rev")
+			case "version":
+				changed.ExpectedVersion++
+			case "plan":
+				changed.PlanDigest = "sha256:" + strings.Repeat("0", 64)
+			case "policy":
+				changed.PolicyDigest = "sha256:" + strings.Repeat("0", 64)
+			case "verification":
+				changed.VerificationDigest = "sha256:" + strings.Repeat("0", 64)
+			case "operation":
+				id = identity.New("op")
+			}
+			if c, err := repo.ClaimDevelopmentPublication(ctx, id, changed, "substituted-worker", time.Minute); err == nil || c != nil {
+				t.Fatal("changed consumer input claimed operation", field)
+			}
+		}
+		getClaim := func(worker string) *persistence.OperationClaim {
+			t.Helper()
+			for attempt := 0; attempt < 100; attempt++ {
+				c, err := repo.ClaimDevelopmentPublication(ctx, operation.Metadata.ID, input, worker, 2*time.Minute)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if c != nil {
+					return c
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			t.Fatal("exact consumer did not claim operation")
+			return nil
+		}
+		first := getClaim("consumer-a")
+		if first.Attempt != 1 || first.ID != operation.Metadata.ID || first.ActorID != f.input.ActorID {
+			t.Fatal("rejected claims changed accepted operation")
+		}
+		if c, err := repo.ClaimDevelopmentPublication(ctx, operation.Metadata.ID, input, "contender", time.Minute); err != nil || c != nil {
+			t.Fatal("contender stole active lease", err)
+		}
+		if _, err := pool.Exec(ctx, `UPDATE service_publication_operations SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE isolation_domain_id=$1 AND id=$2`, first.IsolationDomainID, first.ID); err != nil {
+			t.Fatal(err)
+		}
+		replacement := getClaim("consumer-b")
+		if replacement.FencingToken <= first.FencingToken {
+			t.Fatal("replacement did not fence old consumer")
+		}
+		if err := repo.Advance(ctx, *replacement, "validating", nil); err != nil {
+			t.Fatal(err)
+		}
+		validating := getClaim("consumer-b")
+		if err := repo.CompleteDevelopmentPublication(ctx, *validating, f.input, func(context.Context) (persistence.DevelopmentPublicationEvidence, error) { return f.evidence, nil }); err != nil {
+			t.Fatal(err)
+		}
+		if err := persistence.NewRepository(pool).RequireDevelopmentPublication(ctx, operation.Metadata.ID, input); err != nil {
+			t.Fatal("replacement could not inspect exact terminal operation", err)
+		}
+		if c, err := repo.ClaimDevelopmentPublication(ctx, operation.Metadata.ID, input, "terminal-replay", time.Minute); err != nil || c != nil {
+			t.Fatal("terminal operation reclaimed", err)
+		}
+	})
+
 }
