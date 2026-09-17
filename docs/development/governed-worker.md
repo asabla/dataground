@@ -176,6 +176,8 @@ go run ./cmd/dataground-provider-credential-grant \
 
 Use the next sequential generation with `-operation revoke` and omit both time flags for local revocation. Exact replay of the same generation is read-only; changed attribution or scope conflicts. Grant activation and revocation commit with the closed safe operator audit record. Every governed admission then records a separate append-only allow or deny for each requested profile at the admission boundary and again immediately before sandbox creation. Missing scope, a different domain or revision, an unregistered or substituted profile, expiry, and local revocation deny before the relevant provider effect.
 
+Grant changes and authorization share the PostgreSQL sequence trigger's exact scope lock, including changes made through administrative SQL. Authorization waits for a pending change and checks the committed generation and PostgreSQL time after the lock is acquired. A cancelled wait records no completed authorization decision.
+
 This boundary does not acquire, refresh, rotate, distribute, inspect, or revoke the actual provider credential. It does not prove provider-side revocation, OpenShell configuration, model routing, direct-provider reachability denial, or production readiness. Those remain deployment and certification gates.
 
 ## Recover approval discovery

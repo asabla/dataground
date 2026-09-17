@@ -264,12 +264,11 @@ func lockProviderCredentialGrant(
 	providerProfile string,
 	purpose string,
 ) error {
+	// Match the sequence trigger's newline-delimited key so authorization also
+	// serializes with administrative SQL changes, not only repository writers.
 	if _, err := querier.Exec(ctx, `
-		SELECT pg_advisory_xact_lock(hashtextextended(
-			'provider-credential-grant' || E'\\n' || $1 || E'\\n' || $2 || E'\\n' || $3 || E'\\n' || $4,
-			0
-		))
-	`, isolationDomainID, revisionID, providerProfile, purpose); err != nil {
+		SELECT pg_advisory_xact_lock(hashtextextended($1, 0))
+	`, "provider-credential-grant\n"+isolationDomainID+"\n"+revisionID+"\n"+providerProfile+"\n"+purpose); err != nil {
 		return fmt.Errorf("lock provider credential grant scope: %w", err)
 	}
 	return nil
