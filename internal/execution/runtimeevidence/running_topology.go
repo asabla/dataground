@@ -124,6 +124,20 @@ func (state *dockerTopologyState) verifyRunningConfiguration(ctx context.Context
 	if err := state.verifyFrozenTopology(); err != nil {
 		return "", err
 	}
+	bridgeAddress, err := state.gatewayBridgeAddress(ctx)
+	if err != nil || state.checkListeners == nil || state.checkListeners(ctx, value.PID, bridgeAddress) != nil {
+		return "", ErrDockerTopologyDrift
+	}
+	// Socket observation must still refer to this exact running process.
+	confirmation, err := state.runner.Run(ctx, state.environment, state.binary, "inspect", "--format", runningGatewayInspection, containerID)
+	if err != nil {
+		return "", ErrDockerTopologyDrift
+	}
+	defer clear(confirmation)
+	var confirmed runningGateway
+	if decodeTopologyInspection(confirmation, &confirmed) != nil || confirmed.PID != value.PID || confirmed.StartedAt != value.StartedAt || state.validateRunningConfiguration(containerID, confirmed, image) != nil {
+		return "", ErrDockerTopologyDrift
+	}
 	if ctx.Err() != nil {
 		return "", errors.Join(ErrDockerTopologyDrift, ctx.Err())
 	}
