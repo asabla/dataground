@@ -269,3 +269,118 @@ export async function resolveInvocationApproval(
     return unavailableResult();
   }
 }
+
+export type InvocationApprovalListReference = Omit<InvocationApprovalReference, "approvalId">;
+export type ApprovalListResult =
+  | { ok: true; page: components["schemas"]["InvocationApprovalPage"] }
+  | { ok: false; error: ApprovalFailure };
+
+export async function listInvocationApprovals(
+  client: DataGroundClient,
+  reference: InvocationApprovalListReference,
+  cursor?: string,
+): Promise<ApprovalListResult> {
+  const invalid: ApprovalListResult = {
+    ok: false,
+    error: {
+      code: "WORKBENCH_INVALID_RESPONSE",
+      message: "DataGround returned an approval page the Workbench could not interpret.",
+      retryable: false,
+    },
+  };
+  if (
+    !patterns.invocationId.test(reference.invocationId) ||
+    !patterns.isolationDomainId.test(reference.isolationDomainId) ||
+    (cursor !== undefined &&
+      (cursor.length < 1 || cursor.length > 512 || !/^[A-Za-z0-9_-]+$/u.test(cursor)))
+  ) {
+    return {
+      ok: false,
+      error: {
+        code: "WORKBENCH_INVALID_REQUEST",
+        message: "The approval discovery reference is invalid.",
+        retryable: false,
+      },
+    };
+  }
+  try {
+    const { data, error, response } = await client.GET(
+      "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/approvals",
+      {
+        params: {
+          path: reference,
+          query: { limit: 50, ...(cursor === undefined ? {} : { cursor }) },
+        },
+      },
+    );
+    if (response.status !== 200) {
+      const result = failedResult(error, response.status);
+      return result.ok ? invalid : result;
+    }
+    if (
+      !isRecord(data) ||
+      Object.keys(data).some((key) => !["items", "nextCursor"].includes(key)) ||
+      !Array.isArray(data.items) ||
+      data.items.length > 50
+    )
+      return invalid;
+    if (
+      data.nextCursor !== undefined &&
+      (typeof data.nextCursor !== "string" ||
+        data.nextCursor.length < 1 ||
+        data.nextCursor.length > 512 ||
+        !/^[A-Za-z0-9_-]+$/u.test(data.nextCursor) ||
+        data.nextCursor === cursor ||
+        data.items.length === 0)
+    )
+      return invalid;
+    const seen = new Set<string>();
+    const items: InvocationApproval[] = [];
+    for (const item of data.items) {
+      if (
+        !isRecord(item) ||
+        typeof item.id !== "string" ||
+        !patterns.approvalId.test(item.id) ||
+        seen.has(item.id) ||
+        Object.keys(item).some(
+          (key) =>
+            ![
+              "schemaVersion",
+              "id",
+              "isolationDomainId",
+              "invocationId",
+              "requestedAction",
+              "state",
+              "version",
+              "decision",
+              "resolvedBy",
+              "resolvedAt",
+              "createdAt",
+              "updatedAt",
+              "expiresAt",
+              "closedAt",
+              "closeReason",
+            ].includes(key),
+        )
+      )
+        return invalid;
+      const matched = matchedApprovalResult(item, { ...reference, approvalId: item.id });
+      if (!matched.ok) return matched;
+      seen.add(item.id);
+      items.push(matched.approval);
+    }
+    return {
+      ok: true,
+      page: { items, ...(data.nextCursor === undefined ? {} : { nextCursor: data.nextCursor }) },
+    };
+  } catch {
+    return {
+      ok: false,
+      error: {
+        code: "WORKBENCH_NETWORK_UNAVAILABLE",
+        message: "The Workbench could not load approvals. Refresh to try again.",
+        retryable: true,
+      },
+    };
+  }
+}

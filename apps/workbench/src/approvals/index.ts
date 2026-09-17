@@ -1,3 +1,4 @@
+export { ApprovalDiscoveryWorkflow } from "./ApprovalDiscoveryWorkflow";
 export {
   ApprovalWorkflow,
   type ApprovalWorkflowProps,

@@ -1,6 +1,10 @@
 import { Button, StatusBadge } from "@dataground/ui";
 import { useId } from "react";
-import { ApprovalWorkflow, type InvocationApprovalReference } from "../approvals";
+import {
+  ApprovalDiscoveryWorkflow,
+  ApprovalWorkflow,
+  type InvocationApprovalReference,
+} from "../approvals";
 import { ArtifactWorkflow, type InvocationArtifactReference } from "../artifacts";
 import type { DataGroundClient } from "../contracts/client";
 import { EventTimelineWorkflow } from "../events";
@@ -106,6 +110,11 @@ export function InvocationInspectionWorkflow({
         onInspectApproval={onInspectApproval}
         onInspectArtifact={onInspectArtifact}
         reference={reference}
+      />
+      <ApprovalDiscoveryWorkflow
+        client={client}
+        reference={reference}
+        onInspectApproval={onInspectApproval}
       />
       {selectedQuestion &&
         (isQuestionSelectedForInvocation(selectedQuestion, reference) ? (

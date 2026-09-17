@@ -321,7 +321,7 @@ describe("AgentServiceAuthoringWorkflow", () => {
 
     assert.equal(isApprovalSelectedForInvocation(approvalReference, invocationReference), true);
     assert.match(markup, /Approval request/u);
-    assert.match(markup, /Loading approval/u);
+    assert.match(markup, />Loading approval</u);
     assert.match(markup, /Close approval/u);
     assert.doesNotMatch(markup, /Approval review unavailable/u);
   });
@@ -347,7 +347,7 @@ describe("AgentServiceAuthoringWorkflow", () => {
       false,
     );
     assert.match(markup, /Approval review unavailable/u);
-    assert.doesNotMatch(markup, /Loading approval/u);
+    assert.doesNotMatch(markup, />Loading approval</u);
     assert.doesNotMatch(markup, /inv_00000000000000000002/u);
     assert.doesNotMatch(markup, /apr_00000000000000000001/u);
   });
