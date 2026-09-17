@@ -8,6 +8,10 @@ const profile = JSON.parse(
 );
 const compose = await readFile(resolve(root, "deploy/storage/seaweedfs-conformance.yml"), "utf8");
 const workflow = await readFile(resolve(root, ".github/workflows/ci.yml"), "utf8");
+const storageWorkflow = workflow
+  .split(/(?=^  [a-z][a-z0-9-]*:)/m)
+  .filter((job) => /^  (s3-enforcement-conformance|postgres-failover-conformance):/.test(job))
+  .join("\n");
 const recoverySuite = await readFile(
   resolve(root, "internal/execution/recoveryconformance/suite.go"),
   "utf8",
@@ -951,11 +955,11 @@ if (
   !workflow.includes("--phase failover-rejoin-observe") ||
   !workflow.includes("DATAGROUND_TEST_DATABASE_URL") ||
   !workflow.includes("deploy/storage/seaweedfs-conformance.yml up --detach") ||
-  workflow.split("printf '%s' 'dataground-s3-ready'").length !== 3 ||
-  workflow.split("--fail --max-time 2 --silent").length !== 5 ||
-  workflow.split('--upload-file "$readiness_expected"').length !== 3 ||
-  workflow.split('--output "$readiness_observed"').length !== 3 ||
-  workflow.split('cmp --silent "$readiness_expected" "$readiness_observed"').length !== 3 ||
+  storageWorkflow.split("printf '%s' 'dataground-s3-ready'").length !== 3 ||
+  storageWorkflow.split("--fail --max-time 2 --silent").length !== 5 ||
+  storageWorkflow.split('--upload-file "$readiness_expected"').length !== 3 ||
+  storageWorkflow.split('--output "$readiness_observed"').length !== 3 ||
+  storageWorkflow.split('cmp --silent "$readiness_expected" "$readiness_observed"').length !== 3 ||
   !workflow.includes("deploy/storage/seaweedfs-conformance.yml down --volumes")
 ) {
   fail("CI does not enforce the pinned live conformance profile");
