@@ -52,49 +52,10 @@ func TestGovernedDevelopmentPublicationIsAtomicScopedAndReplayable(t *testing.T)
 			t.Error(err)
 		}
 	}()
-	type fixture struct {
-		input    persistence.DevelopmentPublicationInput
-		evidence persistence.DevelopmentPublicationEvidence
-		grant    persistence.ProviderCredentialGrantChange
-		policy   persistence.InvocationAuthorizationPolicyRecord
+	create := func(t *testing.T) developmentPublicationFixture {
+		return newDevelopmentPublicationFixture(t, ctx, repo, store)
 	}
-	create := func(t *testing.T) fixture {
-		t.Helper()
-		scope, service, revision := identity.New("iso"), identity.New("svc"), identity.New("rev")
-		idem := func(key string) persistence.Idempotency {
-			return persistence.Idempotency{IsolationDomainID: scope, Method: "POST", Path: "/fixture", Key: key, RequestDigest: sha256.Sum256([]byte(key))}
-		}
-		if _, err := repo.CreateService(ctx, idem("create-service"), persistence.CreateServiceInput{ID: service, Name: "publication fixture", ActorID: "operator", CorrelationID: identity.New("cor")}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := repo.CreateRevision(ctx, idem("create-revision"), persistence.CreateRevisionInput{ID: revision, ServiceID: service, RuntimeProfile: persistence.GovernedInvocationRuntimeProfile, RequiredCapabilities: []string{persistence.GovernedInvocationRuntimeProfile}, ActorID: "operator", CorrelationID: identity.New("cor")}); err != nil {
-			t.Fatal(err)
-		}
-		policy, err := reconcile.NewInvocationAuthorizationPolicyWithApprovalEntities(reconcile.InvocationAuthorizationPolicyScope{IsolationDomainID: scope, ServiceID: service, RevisionID: revision}, "publication-policy", reconcile.CanonicalInvocationCedarApprovalSchema(), []byte("permit(principal, action, resource);"), persistenceEntityFixture(t))
-		if err != nil {
-			t.Fatal(err)
-		}
-		reason := sha256.Sum256([]byte("reviewed fixture"))
-		record := persistence.InvocationAuthorizationPolicyRecord{Contract: policy.Contract, IsolationDomainID: scope, ServiceID: service, RevisionID: revision, PolicySetID: policy.PolicySetID, PolicyDigest: policy.Digest[:], Schema: policy.Schema, Policies: policy.Policies, Entities: policy.Entities, InstalledBy: "operator", InstallationCorrelationID: identity.New("cor"), ReasonDigest: reason[:]}
-		if err := repo.InstallInvocationAuthorizationPolicy(ctx, record); err != nil {
-			t.Fatal(err)
-		}
-		digest := "sha256:a1d56c0470c3264c4c37183352d783ebb67911d92ef2eb6ec5f7c76c61f69f39"
-		bundle := execution.EnforcementBundleRecord{SchemaVersion: execution.EnforcementBundleSchemaV1, IsolationDomainID: scope, RevisionID: revision, ID: "strict-fixture", Digest: digest, MediaType: execution.EnforcementBundleMediaType, SizeBytes: 10, Provenance: execution.EnforcementBundleProvenance{Producer: "rosetta", SourceRevision: strings.Repeat("a", 40), CompilerVersion: "1.0.0", CatalogVersion: "rosetta/v1", TargetContractVersion: "rosetta/openshell-policy-v1", Mode: "strict", InputDigest: "sha256:" + strings.Repeat("a", 64), BindingDigest: "sha256:" + strings.Repeat("b", 64)}}
-		if _, err := store.BindEnforcementBundle(ctx, execution.EnforcementBundleBinding{Record: bundle, ActorID: "operator", CorrelationID: identity.New("cor")}); err != nil {
-			t.Fatal(err)
-		}
-		plan := execution.ExecutionPlan{SchemaVersion: execution.ExecutionPlanSchemaV1, IsolationDomainID: scope, RevisionID: revision, RuntimeProfile: persistence.GovernedInvocationRuntimeProfile, EnvironmentRevisionID: "environment", ImageReference: "ghcr.io/asabla/dataground-codex-candidate@sha256:" + strings.Repeat("c", 64), EnvironmentManifestDigest: "sha256:" + strings.Repeat("d", 64), EnforcementBundleID: bundle.ID, EnforcementBundleDigest: digest, RuntimeMatrixID: "matrix", RuntimeMatrixDigest: "sha256:" + strings.Repeat("e", 64), ProviderProfiles: []string{"codex"}, RequiredCapabilities: []string{persistence.GovernedInvocationRuntimeProfile}}
-		if _, err := store.BindExecutionPlan(ctx, execution.ExecutionPlanBinding{Plan: plan, ActorID: "operator", CorrelationID: identity.New("cor")}); err != nil {
-			t.Fatal(err)
-		}
-		planDigest, _ := execution.DigestExecutionPlan(plan)
-		grant := persistence.ProviderCredentialGrantChange{Contract: persistence.ProviderCredentialGrantContract, IsolationDomainID: scope, RevisionID: revision, ProviderProfile: "codex", Purpose: persistence.ProviderCredentialPurposeAgentInference, Generation: 1, Operation: "activate", ActivatedAt: time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond), ExpiresAt: time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond), ActorID: "operator", ReasonDigest: reason[:], CorrelationID: identity.New("cor")}
-		if err := repo.ChangeProviderCredentialGrant(ctx, grant); err != nil {
-			t.Fatal(err)
-		}
-		return fixture{input: persistence.DevelopmentPublicationInput{Contract: persistence.DevelopmentPublicationContract, Target: persistence.InvocationDispatchTarget{IsolationDomainID: scope, ServiceID: service, RevisionID: revision, RuntimeProfile: persistence.GovernedInvocationRuntimeProfile}, ExpectedVersion: 1, PlanDigest: planDigest, PolicyDigest: "sha256:" + hex.EncodeToString(policy.Digest[:]), VerificationDigest: "sha256:" + strings.Repeat("f", 64), ActorID: "operator", CorrelationID: identity.New("cor")}, evidence: persistence.DevelopmentPublicationEvidence{AcceptanceID: identity.New("rtlocal"), Generation: 1, Profile: persistence.StrictDevelopmentPublicationProfile, ImageReference: plan.ImageReference, ExpiresAt: time.Now().UTC().Add(time.Hour)}, grant: grant, policy: record}
-	}
+
 	t.Run("concurrent replay and retirement", func(t *testing.T) {
 		fixture := create(t)
 		var calls atomic.Int32
@@ -326,4 +287,49 @@ func TestGovernedDevelopmentPublicationIsAtomicScopedAndReplayable(t *testing.T)
 			}
 		})
 	}
+}
+
+type developmentPublicationFixture struct {
+	input    persistence.DevelopmentPublicationInput
+	evidence persistence.DevelopmentPublicationEvidence
+	grant    persistence.ProviderCredentialGrantChange
+	policy   persistence.InvocationAuthorizationPolicyRecord
+}
+
+func newDevelopmentPublicationFixture(t *testing.T, ctx context.Context, repo *persistence.Repository, store *executionpostgres.Store) developmentPublicationFixture {
+	t.Helper()
+	scope, service, revision := identity.New("iso"), identity.New("svc"), identity.New("rev")
+	idem := func(key string) persistence.Idempotency {
+		return persistence.Idempotency{IsolationDomainID: scope, Method: "POST", Path: "/fixture", Key: key, RequestDigest: sha256.Sum256([]byte(key))}
+	}
+	if _, err := repo.CreateService(ctx, idem("create-service"), persistence.CreateServiceInput{ID: service, Name: "publication fixture", ActorID: "operator", CorrelationID: identity.New("cor")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CreateRevision(ctx, idem("create-revision"), persistence.CreateRevisionInput{ID: revision, ServiceID: service, RuntimeProfile: persistence.GovernedInvocationRuntimeProfile, RequiredCapabilities: []string{persistence.GovernedInvocationRuntimeProfile}, ActorID: "operator", CorrelationID: identity.New("cor")}); err != nil {
+		t.Fatal(err)
+	}
+	policy, err := reconcile.NewInvocationAuthorizationPolicyWithApprovalEntities(reconcile.InvocationAuthorizationPolicyScope{IsolationDomainID: scope, ServiceID: service, RevisionID: revision}, "publication-policy", reconcile.CanonicalInvocationCedarApprovalSchema(), []byte("permit(principal, action, resource);"), persistenceEntityFixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reason := sha256.Sum256([]byte("reviewed fixture"))
+	record := persistence.InvocationAuthorizationPolicyRecord{Contract: policy.Contract, IsolationDomainID: scope, ServiceID: service, RevisionID: revision, PolicySetID: policy.PolicySetID, PolicyDigest: policy.Digest[:], Schema: policy.Schema, Policies: policy.Policies, Entities: policy.Entities, InstalledBy: "operator", InstallationCorrelationID: identity.New("cor"), ReasonDigest: reason[:]}
+	if err := repo.InstallInvocationAuthorizationPolicy(ctx, record); err != nil {
+		t.Fatal(err)
+	}
+	digest := "sha256:a1d56c0470c3264c4c37183352d783ebb67911d92ef2eb6ec5f7c76c61f69f39"
+	bundle := execution.EnforcementBundleRecord{SchemaVersion: execution.EnforcementBundleSchemaV1, IsolationDomainID: scope, RevisionID: revision, ID: "strict-fixture", Digest: digest, MediaType: execution.EnforcementBundleMediaType, SizeBytes: 10, Provenance: execution.EnforcementBundleProvenance{Producer: "rosetta", SourceRevision: strings.Repeat("a", 40), CompilerVersion: "1.0.0", CatalogVersion: "rosetta/v1", TargetContractVersion: "rosetta/openshell-policy-v1", Mode: "strict", InputDigest: "sha256:" + strings.Repeat("a", 64), BindingDigest: "sha256:" + strings.Repeat("b", 64)}}
+	if _, err := store.BindEnforcementBundle(ctx, execution.EnforcementBundleBinding{Record: bundle, ActorID: "operator", CorrelationID: identity.New("cor")}); err != nil {
+		t.Fatal(err)
+	}
+	plan := execution.ExecutionPlan{SchemaVersion: execution.ExecutionPlanSchemaV1, IsolationDomainID: scope, RevisionID: revision, RuntimeProfile: persistence.GovernedInvocationRuntimeProfile, EnvironmentRevisionID: "environment", ImageReference: "ghcr.io/asabla/dataground-codex-candidate@sha256:" + strings.Repeat("c", 64), EnvironmentManifestDigest: "sha256:" + strings.Repeat("d", 64), EnforcementBundleID: bundle.ID, EnforcementBundleDigest: digest, RuntimeMatrixID: "matrix", RuntimeMatrixDigest: "sha256:" + strings.Repeat("e", 64), ProviderProfiles: []string{"codex"}, RequiredCapabilities: []string{persistence.GovernedInvocationRuntimeProfile}}
+	if _, err := store.BindExecutionPlan(ctx, execution.ExecutionPlanBinding{Plan: plan, ActorID: "operator", CorrelationID: identity.New("cor")}); err != nil {
+		t.Fatal(err)
+	}
+	planDigest, _ := execution.DigestExecutionPlan(plan)
+	grant := persistence.ProviderCredentialGrantChange{Contract: persistence.ProviderCredentialGrantContract, IsolationDomainID: scope, RevisionID: revision, ProviderProfile: "codex", Purpose: persistence.ProviderCredentialPurposeAgentInference, Generation: 1, Operation: "activate", ActivatedAt: time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond), ExpiresAt: time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond), ActorID: "operator", ReasonDigest: reason[:], CorrelationID: identity.New("cor")}
+	if err := repo.ChangeProviderCredentialGrant(ctx, grant); err != nil {
+		t.Fatal(err)
+	}
+	return developmentPublicationFixture{input: persistence.DevelopmentPublicationInput{Contract: persistence.DevelopmentPublicationContract, Target: persistence.InvocationDispatchTarget{IsolationDomainID: scope, ServiceID: service, RevisionID: revision, RuntimeProfile: persistence.GovernedInvocationRuntimeProfile}, ExpectedVersion: 1, PlanDigest: planDigest, PolicyDigest: "sha256:" + hex.EncodeToString(policy.Digest[:]), VerificationDigest: "sha256:" + strings.Repeat("f", 64), ActorID: "operator", CorrelationID: identity.New("cor")}, evidence: persistence.DevelopmentPublicationEvidence{AcceptanceID: identity.New("rtlocal"), Generation: 1, Profile: persistence.StrictDevelopmentPublicationProfile, ImageReference: plan.ImageReference, ExpiresAt: time.Now().UTC().Add(time.Hour)}, grant: grant, policy: record}
 }

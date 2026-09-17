@@ -8,6 +8,10 @@ const StateMachineVersion = 1
 // validation and database effects commit together, without queued effects.
 const AtomicDevelopmentVersion = 2
 
+// QueuedDevelopmentVersion verifies and commits one governed publication under
+// its current lease. It has no reference or external publication effect.
+const QueuedDevelopmentVersion = 3
+
 type State string
 
 const (
