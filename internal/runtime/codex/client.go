@@ -663,6 +663,8 @@ func (client *Client) handleNotification(message wireMessage) {
 			return
 		}
 		client.emit("output.text.delta", map[string]any{"text": params.Delta})
+	case "thread/tokenUsage/updated":
+		client.handleTokenUsage(message)
 	case "item/started", "item/completed":
 		client.handleItemLifecycle(message)
 	case "turn/completed":

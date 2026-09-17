@@ -19,6 +19,7 @@ type Scenario string
 
 const (
 	Success         Scenario = "success"
+	UsageSnapshots  Scenario = "usage-snapshots"
 	Failure         Scenario = "failure"
 	Interrupt       Scenario = "interrupt"
 	ProtocolFailure Scenario = "protocol-failure"
@@ -60,7 +61,7 @@ func Run(t *testing.T, factory Factory, features Features) {
 	if factory == nil {
 		t.Fatal("runtime contract fixture factory is absent")
 	}
-	scenarios := []Scenario{Success, Failure, Interrupt, ProtocolFailure, ScopeViolation, ProcessFailure, Ownership, Validation}
+	scenarios := []Scenario{Success, UsageSnapshots, Failure, Interrupt, ProtocolFailure, ScopeViolation, ProcessFailure, Ownership, Validation}
 	if features.Approvals {
 		scenarios = append(scenarios, Approve, Deny)
 	} else {
@@ -163,6 +164,16 @@ func run(t *testing.T, f Fixture, scenario Scenario) {
 				if event.Payload["kind"] != want {
 					t.Fatal("activity classification changed")
 				}
+			}
+		}
+		stream.next("lifecycle.succeeded")
+	case UsageSnapshots:
+		for _, want := range []domain.Usage{{InputTokens: 12, OutputTokens: 8, TotalTokens: 20}, {InputTokens: 12, OutputTokens: 8, TotalTokens: 20}, {InputTokens: 10, OutputTokens: 6, TotalTokens: 16}} {
+			event := stream.next("usage.recorded")
+			encoded, err := json.Marshal(event.Payload)
+			got, parseErr := domain.ParseUsageSnapshot(encoded)
+			if err != nil || parseErr != nil || got != want {
+				t.Fatal("usage snapshot was accumulated or changed")
 			}
 		}
 		stream.next("lifecycle.succeeded")

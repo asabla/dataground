@@ -91,6 +91,12 @@ func (m *modelAdapter) release() {
 			m.emit("activity."+kind+".started", map[string]any{"kind": value})
 			m.emit("activity."+kind+".completed", map[string]any{"kind": value})
 		}
+		m.emit("lifecycle.succeeded", map[string]any{"message": "Runtime turn completed."})
+		m.finish(nil)
+	case UsageSnapshots:
+		for _, counts := range [][3]int{{12, 8, 20}, {12, 8, 20}, {10, 6, 16}} {
+			m.emit("usage.recorded", map[string]any{"inputTokens": counts[0], "outputTokens": counts[1], "totalTokens": counts[2]})
+		}
 		fallthrough
 	case Ownership, Validation:
 		m.emit("lifecycle.succeeded", map[string]any{"message": "Runtime turn completed."})
