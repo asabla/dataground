@@ -122,3 +122,5 @@ See [design-system guidance](design-system.md) before changing token source, com
 ## Contract changes
 
 The OpenAPI and release-manifest files are compatibility surfaces even in alpha form. Change their schema identities or semantics deliberately, update examples and checks together, and do not add public infrastructure endpoints or provider-native concepts. See [`contracts/README.md`](../../contracts/README.md) for the compatibility rules and generation workflow.
+
+[Public resource audit reads](resource-audit.md) expose scoped lifecycle and publication or invocation authorization records through separate read permissions. These reads require PostgreSQL and commit a disclosure receipt for each returned page.

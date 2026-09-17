@@ -31,6 +31,8 @@ func TestDevelopmentCedarAuthorizerBindsPrincipalDomainAndClosedActions(t *testi
 		request(principal, authz.ListAgentServices, authz.IsolationDomain, testDomain),
 		request(principal, authz.CreateServiceRevision, authz.AgentService, "svc_00000000000000000001"),
 		request(principal, authz.ListServiceRevisions, authz.AgentService, "svc_00000000000000000001"),
+		request(principal, authz.ReadServiceRevisionAudit, authz.ServiceRevision, "rev_00000000000000000001"),
+		request(principal, authz.ReadInvocationAudit, authz.Invocation, "inv_00000000000000000001"),
 		request(principal, authz.ReadServiceRevision, authz.ServiceRevision, "rev_00000000000000000001"),
 		request(principal, authz.PublishServiceRevision, authz.ServiceRevision, "rev_00000000000000000001"),
 		request(principal, authz.RetireServiceRevision, authz.ServiceRevision, "rev_00000000000000000001"),
