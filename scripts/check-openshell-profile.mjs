@@ -816,7 +816,11 @@ if (
 ) {
   fail("the Docker topology does not match its recorded content digests");
 }
-if (!compose.includes(profile.artifacts.gateway) || !compose.includes("network_mode: host")) {
+if (
+  !compose.includes(profile.artifacts.gateway) ||
+  !compose.includes("network_mode: host") ||
+  !compose.includes('command: ["--config", "/etc/openshell/gateway.toml"]')
+) {
   fail("Docker Compose does not match the pinned loopback gateway profile");
 }
 if (
@@ -877,6 +881,7 @@ if (
 }
 if (
   !localCompose.includes(`image: ${profile.artifacts.gateway}`) ||
+  !localCompose.includes('command: ["--config", "/etc/openshell/gateway.toml"]') ||
   !localCompose.includes('user: "0"') ||
   !localCompose.includes('- "127.0.0.1:8080:8080"') ||
   !localCompose.includes('- "127.0.0.1:8081:8081"') ||
@@ -898,7 +903,7 @@ if (
 if (
   !localGatewayConfig.includes(profile.artifacts.supervisor) ||
   !localGatewayConfig.includes(profile.artifacts.sandbox) ||
-  !localGatewayConfig.includes('bind_address = "127.0.0.1:8080"') ||
+  !localGatewayConfig.includes('bind_address = "0.0.0.0:8080"') ||
   !localGatewayConfig.includes('health_bind_address = "0.0.0.0:8081"') ||
   !localGatewayConfig.includes("[openshell.gateway.auth]") ||
   !localGatewayConfig.includes("allow_unauthenticated_users = true") ||
@@ -914,8 +919,7 @@ if (
   !localGatewayConfig.includes("ttl_secs = 0") ||
   !localGatewayConfig.includes('sandbox_namespace = "dataground-local"') ||
   !localGatewayConfig.includes("enable_bind_mounts = false") ||
-  localGatewayConfig.includes(":latest") ||
-  localGatewayConfig.includes('bind_address = "0.0.0.0:8080"')
+  localGatewayConfig.includes(":latest")
 ) {
   fail("the ordinary local gateway configuration is missing or unsafe");
 }

@@ -13,7 +13,7 @@ const (
 	sandboxImage                 = "ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e"
 	runtimeVersion               = "0.117.0"
 	runtimeSchemaCanonicalSHA256 = "0668eee0081dc5b643ecc7821938ad174f3d532a313a092f387fed3b469876ea"
-	credentialEvidenceSHA256     = "684e8e9e8b859e0822c8f287201d137a88abcad501f7b9f94ffac9c9aa9414e3"
+	credentialEvidenceSHA256     = "35abeed048bed669cd14bfb6a777dd8d024cc7561815bd2314295e79fb55322f"
 	gatewayEndpoint              = "http://127.0.0.1:8080"
 	driver                       = "docker"
 	runtimeComposeSHA256         = "23e7b8fefea1cb51ea3740b6f2c2b9b5a3cd341bbad873e8ace9bb5612c6ad53"
