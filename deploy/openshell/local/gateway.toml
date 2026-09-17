@@ -4,7 +4,9 @@
 version = 1
 
 [openshell.gateway]
-bind_address = "127.0.0.1:8080"
+# The container listener must receive Docker port forwarding; Compose exposes
+# this port only on the host loopback interface.
+bind_address = "0.0.0.0:8080"
 # Docker port forwarding reaches the container interface, while Compose keeps
 # the host publication restricted to 127.0.0.1:8081.
 health_bind_address = "0.0.0.0:8081"

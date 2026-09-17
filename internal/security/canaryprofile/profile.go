@@ -16,7 +16,7 @@ const (
 	Driver                = "docker"
 
 	ComposePath         = "deploy/openshell/docker-compose.yml"
-	ComposeSHA256       = "c20a9475cfd62db222a3c1b64c9e7dd26cbed31ea311cc623120f58c87aeb5ee"
+	ComposeSHA256       = "be9f5a8a32c38e2be8ed1514f8110b23be560b79f7673746c57fb11683b72983"
 	GatewayConfigPath   = "deploy/openshell/gateway.toml"
 	GatewayConfigSHA256 = "c2e2a4ec201edac242e47f28f49dba9ec8b4b520bf1969574f3d173441aa3830"
 	PolicyPath          = "deploy/openshell/policies/deny-all.yaml"

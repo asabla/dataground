@@ -4,7 +4,7 @@ services:
   gateway:
     image: ghcr.io/nvidia/openshell/gateway@sha256:e21f520a0678ba3cfe749957338b5fa78c75e8e52de13e4559ccbb582f781a0b
     restart: unless-stopped
-    command: []
+    command: ["--config", "/etc/openshell/gateway.toml"]
     user: "0"
     ports:
       - "127.0.0.1:8080:8080"

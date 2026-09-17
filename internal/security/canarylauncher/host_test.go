@@ -103,6 +103,7 @@ func TestComposeHostUsesRunBoundProjectAndObservesTeardown(t *testing.T) {
 	runner := &fakeCommandRunner{results: []hostCommandResult{
 		{},
 		{output: containerID + "\n"},
+		{output: strings.Join([]string{containerID, canaryprofile.GatewayImage, "host", "true", "false", `["--config","/etc/openshell/gateway.toml"]`}, "\n")},
 		{err: errors.New("lost down acknowledgement")},
 		{},
 		{},
@@ -131,7 +132,7 @@ func TestComposeHostUsesRunBoundProjectAndObservesTeardown(t *testing.T) {
 	if err := host.Stop(context.Background()); err != nil {
 		t.Fatalf("Stop() did not recover lost acknowledgement: %v", err)
 	}
-	if len(runner.calls) != 5 {
+	if len(runner.calls) != 6 {
 		t.Fatalf("command count = %d", len(runner.calls))
 	}
 	if !reflect.DeepEqual(runner.calls[0].args, []string{
@@ -141,24 +142,24 @@ func TestComposeHostUsesRunBoundProjectAndObservesTeardown(t *testing.T) {
 	}) {
 		t.Fatalf("compose up arguments = %#v", runner.calls[0].args)
 	}
-	if !reflect.DeepEqual(runner.calls[2].args, []string{
+	if !reflect.DeepEqual(runner.calls[3].args, []string{
 		"compose", "--project-name", "dg_canary_" + testRunID,
 		"--file", "/repository/deploy/openshell/docker-compose.yml",
 		"down", "--volumes", "--remove-orphans",
 	}) {
-		t.Fatalf("compose down arguments = %#v", runner.calls[2].args)
+		t.Fatalf("compose down arguments = %#v", runner.calls[3].args)
 	}
-	if !reflect.DeepEqual(runner.calls[4].args, []string{
+	if !reflect.DeepEqual(runner.calls[5].args, []string{
 		"volume", "ls", "--filter",
 		"label=com.docker.compose.project=dg_canary_" + testRunID,
 		"--quiet",
 	}) {
-		t.Fatalf("volume observation arguments = %#v", runner.calls[4].args)
+		t.Fatalf("volume observation arguments = %#v", runner.calls[5].args)
 	}
 	if err := host.Stop(context.Background()); err != nil {
 		t.Fatalf("idempotent Stop() error = %v", err)
 	}
-	if len(runner.calls) != 5 {
+	if len(runner.calls) != 6 {
 		t.Fatal("idempotent Stop() repeated native cleanup")
 	}
 }
@@ -276,5 +277,27 @@ func TestReadVerifiedFileRejectsContentAndSymlinkDrift(t *testing.T) {
 	}
 	if _, err := readVerifiedFile(link, digest); !errors.Is(err, ErrTopologyDrift) {
 		t.Fatalf("symlink topology error = %v", err)
+	}
+}
+
+func TestGatewayCommandInspectionRejectsInheritedOrSubstitutedLaunch(t *testing.T) {
+	id := strings.Repeat("a", 64)
+	value := strings.Join([]string{id, canaryprofile.GatewayImage, "host", "true", "false", `["--config","/etc/openshell/gateway.toml"]`}, "\n")
+	if !validGatewayCommandInspection([]byte(value+"\n"), id) {
+		t.Fatal("exact gateway command rejected")
+	}
+	for _, changed := range []string{
+		strings.Replace(value, id, strings.Repeat("b", 64), 1),
+		strings.Replace(value, canaryprofile.GatewayImage, "untrusted:latest", 1),
+		strings.Replace(value, "host", "bridge", 1),
+		strings.Replace(value, "true", "false", 1),
+		strings.Replace(value, "false", "true", 1),
+		strings.Replace(value, `["--config","/etc/openshell/gateway.toml"]`, `["--bind-address","0.0.0.0","--port","8080"]`, 1),
+		strings.Replace(value, `["--config","/etc/openshell/gateway.toml"]`, `[]`, 1),
+		value + "\nextra", "", strings.Repeat("a", maxCommandOutputBytes+1),
+	} {
+		if validGatewayCommandInspection([]byte(changed), id) {
+			t.Fatal("unreviewed gateway launch accepted")
+		}
 	}
 }

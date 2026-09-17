@@ -28,7 +28,7 @@
     "tls": false,
     "scope": "loopback development only",
     "composeFile": "deploy/openshell/docker-compose.yml",
-    "composeSHA256": "c20a9475cfd62db222a3c1b64c9e7dd26cbed31ea311cc623120f58c87aeb5ee",
+    "composeSHA256": "be9f5a8a32c38e2be8ed1514f8110b23be560b79f7673746c57fb11683b72983",
     "gatewayConfigFile": "deploy/openshell/gateway.toml",
     "gatewayConfigSHA256": "c2e2a4ec201edac242e47f28f49dba9ec8b4b520bf1969574f3d173441aa3830",
     "gatewayState": "unique run-derived same-path bind directory removed before evidence release",
@@ -246,13 +246,13 @@
       },
       "acceptedEvidence": {
         "file": "deploy/openshell/evidence/openshell-credential-non-exposure-v3.json",
-        "sha256": "684e8e9e8b859e0822c8f287201d137a88abcad501f7b9f94ffac9c9aa9414e3",
-        "runID": "641b1588e015d28e4d9c09176f5f6c3a",
+        "sha256": "35abeed048bed669cd14bfb6a777dd8d024cc7561815bd2314295e79fb55322f",
+        "runID": "d6b3fc1e61c236726dc5a2c5490999f0",
         "workflow": ".github/workflows/openshell-credential-evidence.yml",
-        "workflowRunID": 30568233656,
-        "headCommit": "65447454052b27c608531963f1141fb4776d58eb",
-        "artifactID": 8769719427,
-        "artifactArchiveDigest": "sha256:5ab0a4aaa121caeccf62d5f77166549daef7f523fd465bea2981ddd1e4e097cf"
+        "workflowRunID": 35193970724,
+        "headCommit": "38c413417a010b91c9a32914567ae32ea12059fc",
+        "artifactID": 10484777643,
+        "artifactArchiveDigest": "sha256:76664cb5ae50c22d6785540a64a4ef29b0bb5409155f241d43772eb1fff83112"
       }
     }
   },

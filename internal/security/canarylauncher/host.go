@@ -171,7 +171,24 @@ func (host *composeHost) Start(ctx context.Context) (string, error) {
 	if !containerIDPattern.MatchString(containerID) {
 		return "", ErrLaunch
 	}
+	inspection, err := host.runner.Run(ctx, host.environment, host.binary, "inspect", "--format", strings.Join([]string{
+		"{{.Id}}", "{{.Config.Image}}", "{{.HostConfig.NetworkMode}}", "{{.State.Running}}", "{{.State.Paused}}", "{{json .Config.Cmd}}",
+	}, "\n"), containerID)
+	defer clear(inspection)
+	if err != nil || !validGatewayCommandInspection(inspection, containerID) {
+		return "", ErrLaunch
+	}
 	return containerID, nil
+}
+
+// The image's default command overrides the TOML listener address. Evidence
+// requires the explicit command observed on this exact running container.
+func validGatewayCommandInspection(output []byte, containerID string) bool {
+	if len(output) == 0 || len(output) > maxCommandOutputBytes || !containerIDPattern.MatchString(containerID) {
+		return false
+	}
+	expected := strings.Join([]string{containerID, canaryprofile.GatewayImage, "host", "true", "false", `["--config","/etc/openshell/gateway.toml"]`}, "\n")
+	return strings.TrimSuffix(string(output), "\n") == expected
 }
 
 func (host *composeHost) Stop(ctx context.Context) error {
