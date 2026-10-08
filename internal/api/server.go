@@ -179,6 +179,9 @@ func (server *Server) handler(
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}", protected(
 		authz.ReadInvocation, authz.Invocation, "invocationId", server.getInvocation,
 	))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts/{artifactId}/content", protected(
+		authz.ReadInvocationArtifactContent, authz.Artifact, "artifactId", artifactContentUnavailable,
+	))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/operations/{operationId}", protected(
 		authz.ReadOperation, authz.Operation, "operationId", server.getOperation,
 	))

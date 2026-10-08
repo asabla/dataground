@@ -942,6 +942,64 @@
         }
       }
     },
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts/{artifactId}/content": {
+      "get": {
+        "operationId": "readInvocationArtifactContent",
+        "summary": "Read verified invocation artifact content",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "$ref": "#/components/parameters/InvocationId"
+          },
+          {
+            "$ref": "#/components/parameters/ArtifactId"
+          }
+        ],
+        "description": "Requires independent readInvocationArtifactContent authorization. Returns the complete verified object as an attachment; no range or conditional responses. Metadata alone grants no content access. The default profile has no content reader and returns ARTIFACT_CONTENT_UNAVAILABLE. Configured transfer is bounded to at most 16 MiB.",
+        "responses": {
+          "200": {
+            "description": "Exact bytes verified against the scoped immutable artifact digest and size.",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts/{artifactId}": {
       "get": {
         "operationId": "getInvocationArtifact",
@@ -953,7 +1011,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Artifact metadata. Content retrieval is added with the object-store boundary.",
+            "description": "Artifact metadata. Content requires independent authorization at the content endpoint.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ArtifactDescriptor" }

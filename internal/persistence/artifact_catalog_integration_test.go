@@ -40,6 +40,12 @@ func TestInvocationArtifactCatalogIsFencedAtomicAuditedAndReplayable(t *testing.
 		t.Fatal(err)
 	}
 	defer pool.Close()
+	defer func() {
+		// Clear only this disposable fixture's append-only stream for later tests.
+		if _, err := pool.Exec(context.Background(), `TRUNCATE api_authorization_decisions`); err != nil {
+			t.Error(err)
+		}
+	}()
 
 	now := time.Now().UTC()
 	domainID := identity.New("iso")
@@ -175,6 +181,29 @@ func TestInvocationArtifactCatalogIsFencedAtomicAuditedAndReplayable(t *testing.
 		public.Digest != record.Digest ||
 		public.Sensitive != record.Sensitive {
 		t.Fatalf("public invocation artifact = (%#v, %v)", public, err)
+	}
+
+	verifyArtifactContentAPI(t, ctx, repository, record, content)
+	var contentDecisions, contentCorrelations int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*), count(DISTINCT correlation_id)
+		FROM api_authorization_decisions
+		WHERE isolation_domain_id = $1 AND resource_id = $2
+		  AND action = 'readInvocationArtifactContent' AND outcome = 'allowed'
+	`, domainID, record.ID).Scan(&contentDecisions, &contentCorrelations); err != nil {
+		t.Fatal(err)
+	}
+	if contentDecisions != 7 || contentCorrelations != 3 {
+		t.Fatalf("content decision count = %d, correlations = %d", contentDecisions, contentCorrelations)
+	}
+	rollbackDB, err := persistence.OpenSQL(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollbackErr := persistence.MigrateDownTo(ctx, rollbackDB, 62)
+	rollbackDB.Close()
+	if rollbackErr == nil {
+		t.Fatal("downgrade removed content authorization evidence")
 	}
 
 	if endpoint, bucket := os.Getenv("DATAGROUND_TEST_S3_ENDPOINT"), os.Getenv("DATAGROUND_TEST_S3_BUCKET"); endpoint != "" || bucket != "" {

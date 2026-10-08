@@ -169,3 +169,19 @@ func request(
 		ResourceID: resourceID, IsolationDomainID: testDomain,
 	}
 }
+
+func TestArtifactMetadataPermissionDoesNotGrantContent(t *testing.T) {
+	authorizer, err := authz.NewStaticCedarAuthorizer(authz.StaticCedarConfig{PolicySetID: "metadata-only", Schema: authz.CanonicalAPICedarSchema(), Policies: []byte(`permit(principal, action == DataGround::Action::"readInvocationArtifact", resource);`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal := newPrincipal(t, testActor, testDomain)
+	metadata := request(principal, authz.ReadInvocationArtifact, authz.Artifact, "art_00000000000000000001")
+	if err := authorizer.Authorize(context.Background(), metadata); err != nil {
+		t.Fatal(err)
+	}
+	metadata.Action = authz.ReadInvocationArtifactContent
+	if err := authorizer.Authorize(context.Background(), metadata); !errors.Is(err, authz.ErrDenied) {
+		t.Fatalf("metadata granted content: %v", err)
+	}
+}
