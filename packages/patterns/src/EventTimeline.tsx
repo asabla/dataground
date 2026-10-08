@@ -199,6 +199,12 @@ export function presentTimelineEvent(event: TimelineEvent): EventPresentation {
         label: "Invocation cancelled",
         tone: "warning",
       };
+    case "output.command.artifact":
+      return {
+        detail: boundedText(event.payload.preview, "The command output is stored as an artifact."),
+        label: "Command output artifact",
+        tone: "neutral",
+      };
     case "output.message.artifact":
       return {
         detail: boundedText(
@@ -248,6 +254,13 @@ export function presentTimelineEvent(event: TimelineEvent): EventPresentation {
       };
     case "activity.process.completed": {
       const exitCode = boundedNumber(event.payload.exitCode);
+      if (event.payload.status === "denied" || event.payload.status === "failed") {
+        return {
+          detail: exitCode === undefined ? "No exit code was reported." : `Exit code: ${exitCode}.`,
+          label: event.payload.status === "denied" ? "Process denied" : "Process failed",
+          tone: "critical",
+        };
+      }
       return {
         detail: exitCode === undefined ? "The process completed." : `Exit code: ${exitCode}.`,
         label: "Process completed",
@@ -356,7 +369,9 @@ export function timelineArtifactReference(
   event: TimelineEvent,
 ): TimelineArtifactReference | undefined {
   const artifactId = event.payload.artifactId;
-  return (event.type === "artifact.available" || event.type === "output.message.artifact") &&
+  return (event.type === "artifact.available" ||
+    event.type === "output.message.artifact" ||
+    event.type === "output.command.artifact") &&
     typeof artifactId === "string" &&
     artifactIdPattern.test(artifactId)
     ? {

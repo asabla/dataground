@@ -365,3 +365,40 @@ it("keeps artifact-backed message references scoped and previews untrusted", () 
     undefined,
   );
 });
+
+it("keeps command output separate from process outcome and answer completion", () => {
+  const event: TimelineEvent = {
+    ...baseEvent,
+    type: "output.command.artifact",
+    payload: {
+      artifactId: "art_00000000000000000001",
+      status: "failed",
+      exitCode: 1,
+      preview: "<script>untrusted</script>\u001b[31m",
+    },
+  };
+  assert.equal(presentTimelineEvent(event).label, "Command output artifact");
+  assert.deepEqual(timelineArtifactReference(event), {
+    ...reference,
+    artifactId: event.payload.artifactId,
+  });
+  const markup = renderToStaticMarkup(
+    <EventTimeline
+      connectionState="current"
+      events={[event]}
+      onInspectArtifact={() => undefined}
+      reference={reference}
+    />,
+  );
+  assert.match(markup, /&lt;script&gt;untrusted&lt;\/script&gt;/u);
+  assert.doesNotMatch(markup, /<script>|Invocation succeeded|Final answer/u);
+  for (const status of ["failed", "denied"]) {
+    const presentation = presentTimelineEvent({
+      ...event,
+      type: "activity.process.completed",
+      payload: { status, exitCode: null },
+    });
+    assert.equal(presentation.tone, "critical");
+    assert.equal(presentation.label, status === "failed" ? "Process failed" : "Process denied");
+  }
+});

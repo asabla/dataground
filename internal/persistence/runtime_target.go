@@ -203,6 +203,14 @@ func (repository *Repository) RecordInvocationRuntimeEvent(
 			return domain.EventEnvelope{}, ErrInvocationRuntimeEventInvalid
 		}
 	}
+	if event.Type == dgruntime.CommandCompletedEvent {
+		return domain.EventEnvelope{}, ErrInvocationRuntimeEventInvalid
+	}
+	if event.Type == dgruntime.CommandArtifactEvent {
+		if _, err := dgruntime.ParseCommandArtifact(event.Payload); err != nil {
+			return domain.EventEnvelope{}, ErrInvocationRuntimeEventInvalid
+		}
+	}
 	if event.Type == dgruntime.MessageCompletedEvent {
 		if message, err := dgruntime.ParseCompletedMessage(event.Payload); err != nil || len(message.Text) > dgruntime.MaximumInlineMessageTextBytes {
 			return domain.EventEnvelope{}, ErrInvocationRuntimeEventInvalid
@@ -242,6 +250,13 @@ func (repository *Repository) RecordInvocationRuntimeEvent(
 	if event.Type == dgruntime.MessageArtifactEvent {
 		reference, _ := dgruntime.ParseMessageArtifact(event.Payload)
 		if _, err := getRuntimeMessageArtifact(ctx, tx, target.IsolationDomainID, target.InvocationID, claim.ID, event.SourceSequence, reference); err != nil {
+			return domain.EventEnvelope{}, err
+		}
+	}
+
+	if event.Type == dgruntime.CommandArtifactEvent {
+		reference, _ := dgruntime.ParseCommandArtifact(event.Payload)
+		if _, err := getRuntimeCommandArtifact(ctx, tx, target.IsolationDomainID, target.InvocationID, claim.ID, event.SourceSequence, reference); err != nil {
 			return domain.EventEnvelope{}, err
 		}
 	}

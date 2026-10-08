@@ -31,6 +31,11 @@ func codexContractFixture(t *testing.T, scenario runtimetest.Scenario) runtimete
 			server.notify("turn/completed", map[string]any{"threadId": threadID, "turn": map[string]any{"id": turnID, "status": status, "error": map[string]any{"message": runtimetest.NativeCanary + "error"}}})
 		}
 		switch scenario {
+		case runtimetest.CompletedCommands:
+			params := map[string]any{"threadId": threadID, "turnId": turnID, "item": map[string]any{"id": runtimetest.NativeCanary + "command", "type": "commandExecution", "status": "failed", "exitCode": 1, "aggregatedOutput": runtimetest.OutputText, "command": runtimetest.NativeCanary + "command", "cwd": runtimetest.NativeCanary + "path"}}
+			server.notify("item/completed", params)
+			server.notify("item/completed", params)
+			complete("completed")
 		case runtimetest.CompletedMessages:
 			for i, message := range []struct {
 				text  string
@@ -47,7 +52,7 @@ func codexContractFixture(t *testing.T, scenario runtimetest.Scenario) runtimete
 			server.notify("item/agentMessage/delta", map[string]any{"threadId": threadID, "turnId": turnID, "itemId": runtimetest.NativeCanary + "message", "delta": runtimetest.OutputText})
 			for _, kind := range []string{"mcpToolCall", "commandExecution", "fileChange"} {
 				for _, state := range []string{"started", "completed"} {
-					server.notify("item/"+state, map[string]any{"threadId": threadID, "turnId": turnID, "item": map[string]any{"id": runtimetest.NativeCanary + "item", "type": kind, "command": runtimetest.NativeCanary + "command", "path": runtimetest.NativeCanary + "path"}})
+					server.notify("item/"+state, map[string]any{"threadId": threadID, "turnId": turnID, "item": map[string]any{"id": runtimetest.NativeCanary + "item", "type": kind, "status": "completed", "command": runtimetest.NativeCanary + "command", "path": runtimetest.NativeCanary + "path"}})
 				}
 			}
 			server.notify("item/completed", nativeMessageParams(threadID, turnID, runtimetest.NativeCanary+"message", runtimetest.OutputText, "final_answer"))

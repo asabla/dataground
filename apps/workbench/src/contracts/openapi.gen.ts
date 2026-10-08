@@ -898,6 +898,17 @@ export interface components {
             /** @constant */
             closeReason: "expired";
         });
+        /** @description Bounded reference to the exact completed command stdout/stderr snapshot. Native command text, paths and routing identifiers are excluded. Content access requires separate artifact authorization. */
+        RuntimeCommandArtifact: {
+            artifactId: components["schemas"]["ArtifactId"];
+            digest: string;
+            sizeBytes: number;
+            /** @description Untrusted UTF-8 preview bounded to 1024 bytes at ingestion. The full snapshot is retained in the referenced sensitive artifact. */
+            preview: string;
+            /** @enum {unknown} */
+            status: "completed" | "failed" | "denied";
+            exitCode: number | null;
+        };
         EventEnvelope: ({
             /**
              * @description Trusted event origin class. Runtime lifecycle events describe a native turn and do not establish terminal platform invocation state. Durable reads derive this value from retained journal provenance without changing event identity, sequence, type, or payload. Older envelopes may omit it.
@@ -930,7 +941,7 @@ export interface components {
             };
         } & {
             [key: string]: unknown;
-        }) & (unknown & unknown);
+        }) & (unknown & unknown & unknown);
         ArtifactDescriptor: {
             metadata: components["schemas"]["ResourceMetadata"];
             invocationId: components["schemas"]["InvocationId"];

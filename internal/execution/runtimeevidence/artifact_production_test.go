@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 )
 
 func artifactProductionScript(server *codexProbeServer) {
@@ -28,7 +29,7 @@ func artifactEvents(server *codexProbeServer, command bool, status string) {
 		for _, method := range []string{"item/started", "item/completed"} {
 			server.notify(method, map[string]any{
 				"threadId": "native-thread", "turnId": "native-turn",
-				"item": map[string]any{"type": "commandExecution"},
+				"item": map[string]any{"id": "native-command", "type": "commandExecution", "status": "completed"},
 			})
 		}
 	}
@@ -104,5 +105,30 @@ func TestArtifactProductionUsesLocalMediatedModel(t *testing.T) {
 	}
 	if fixture.runtime.opened != 1 || fixture.provider.exportCalls != 1 {
 		t.Fatal("artifact flow did not produce and export exactly once")
+	}
+}
+
+func TestArtifactProductionProtocolFailureStopsBeforeDeadline(t *testing.T) {
+	fixture := newOpenShellProbeFixture()
+	fixture.runtime.scripts[0] = func(server *codexProbeServer) {
+		server.start()
+		server.notify("item/completed", map[string]any{
+			"threadId": "native-thread", "turnId": "native-turn",
+			"item": map[string]any{"id": "native-command", "type": "commandExecution", "status": "completed", "aggregatedOutput": 42},
+		})
+	}
+	probes := fixture.open(t)
+	request := testProbeRequest()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := probes.GatewayReady(ctx, request); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := probes.SandboxReady(ctx, request); err != nil {
+		t.Fatal(err)
+	}
+	result, err := probes.ArtifactExport(ctx, request)
+	if !errors.Is(err, ErrOpenShellProbeObservation) || ctx.Err() != nil || result.ObservationSHA256 != ([32]byte{}) || fixture.provider.exportCalls != 0 {
+		t.Fatal("protocol failure waited for deadline or reached export", err, ctx.Err())
 	}
 }

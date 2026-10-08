@@ -35,7 +35,7 @@ func TestRuntimeMessageArtifactUsesCurrentAuthorityAndBoundedJournal(t *testing.
 			case "native-reference":
 				event.Type = dgruntime.MessageArtifactEvent
 			}
-			reference, err := driver.recordCompletedRuntimeMessage(context.Background(), claim, effect, target, event)
+			reference, err := driver.recordRuntimeOutput(context.Background(), claim, effect, target, event)
 			if boundary != "success" && boundary != "escaped-inline" {
 				if err == nil || reference != nil || len(store.events) != 0 {
 					t.Fatal("failed publication escaped into journal", err)

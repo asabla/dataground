@@ -2698,6 +2698,40 @@
           }
         ]
       },
+      "RuntimeCommandArtifact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifactId", "digest", "sizeBytes", "preview", "status", "exitCode"],
+        "properties": {
+          "artifactId": {
+            "$ref": "#/components/schemas/ArtifactId"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1048576
+          },
+          "preview": {
+            "type": "string",
+            "maxLength": 1024,
+            "pattern": "^[^\\u0000]*$",
+            "description": "Untrusted UTF-8 preview bounded to 1024 bytes at ingestion. The full snapshot is retained in the referenced sensitive artifact."
+          },
+          "status": {
+            "enum": ["completed", "failed", "denied"]
+          },
+          "exitCode": {
+            "type": ["integer", "null"],
+            "minimum": -2147483648,
+            "maximum": 2147483647
+          }
+        },
+        "description": "Bounded reference to the exact completed command stdout/stderr snapshot. Native command text, paths and routing identifiers are excluded. Content access requires separate artifact authorization."
+      },
       "EventEnvelope": {
         "type": "object",
         "additionalProperties": true,
@@ -2747,6 +2781,23 @@
               "properties": {
                 "payload": {
                   "$ref": "#/components/schemas/RuntimeMessageArtifact"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "output.command.artifact"
+                }
+              },
+              "required": ["type"]
+            },
+            "then": {
+              "properties": {
+                "payload": {
+                  "$ref": "#/components/schemas/RuntimeCommandArtifact"
                 }
               }
             }

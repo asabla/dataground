@@ -595,34 +595,58 @@ func observeTurn(
 	onEvent func(dgruntime.Event) (bool, error),
 	stopType string,
 ) ([]dgruntime.Event, error) {
+	// Protocol/process failures can end Wait without emitting a terminal event.
+	// Stop the waiter when an early probe condition is satisfied.
+	observationCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	waited := make(chan error, 1)
+	go func() { waited <- turn.Wait(observationCtx) }()
+	finished := false
 	events := make([]dgruntime.Event, 0, 16)
 	for {
-		select {
-		case event, ok := <-turn.Events():
-			if !ok || len(events) >= maxCodexProbeEvents {
+		var event dgruntime.Event
+		var ok bool
+		if finished {
+			// A completed turn must already have queued its terminal event.
+			select {
+			case event, ok = <-turn.Events():
+			default:
 				return nil, ErrCodexProbeObservation
 			}
-			events = append(events, event)
-			switch event.Type {
-			case "lifecycle.succeeded", "lifecycle.failed", "lifecycle.cancelled":
-				if event.Type != stopType {
+		} else {
+			select {
+			case event, ok = <-turn.Events():
+			case err := <-waited:
+				if err != nil && !errors.Is(err, dgruntime.ErrTurnFailed) && !errors.Is(err, dgruntime.ErrTurnInterrupted) {
 					return nil, ErrCodexProbeObservation
 				}
+				finished = true
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
 			}
-			if onEvent != nil {
-				stop, err := onEvent(event)
-				if err != nil {
-					return nil, err
-				}
-				if stop {
-					return events, nil
-				}
+		}
+		if !ok || len(events) >= maxCodexProbeEvents {
+			return nil, ErrCodexProbeObservation
+		}
+		events = append(events, event)
+		switch event.Type {
+		case "lifecycle.succeeded", "lifecycle.failed", "lifecycle.cancelled":
+			if event.Type != stopType {
+				return nil, ErrCodexProbeObservation
 			}
-			if event.Type == stopType {
+		}
+		if onEvent != nil {
+			stop, err := onEvent(event)
+			if err != nil {
+				return nil, err
+			}
+			if stop {
 				return events, nil
 			}
-		case <-ctx.Done():
-			return nil, ctx.Err()
+		}
+		if event.Type == stopType {
+			return events, nil
 		}
 	}
 }
