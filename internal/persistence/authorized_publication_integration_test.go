@@ -223,7 +223,9 @@ func TestAuthorizedPublicationAPIToFencedCompletion(t *testing.T) {
 			if err := repo.Advance(ctx, *claim, "validating", nil); err != nil {
 				t.Fatal(err)
 			}
-			claim, err = repo.ClaimAuthorizedDevelopmentPublication(ctx, operationID, f.input, "authorized-worker", time.Minute)
+			claim, err = waitForDuePublicationClaim(ctx, func() (*persistence.OperationClaim, error) {
+				return repo.ClaimAuthorizedDevelopmentPublication(ctx, operationID, f.input, "authorized-worker", time.Minute)
+			})
 			if err != nil || claim == nil {
 				t.Fatal("validating claim", err)
 			}
