@@ -287,3 +287,31 @@ export const InteractionOutcomes: Story = {
     await expect(canvas.queryByText("Unknown event", { exact: true })).toBeNull();
   },
 };
+
+export const CommandOutputArtifact: Story = {
+  args: {
+    events: [
+      event(1, "activity.process.completed", { kind: "command", status: "failed", exitCode: 1 }),
+      event(2, "output.command.artifact", {
+        artifactId: "art_00000000000000000001",
+        status: "failed",
+        exitCode: 1,
+        preview: "Test failed. Full output is retained.",
+      }),
+    ],
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Process failed", { exact: true })).toBeVisible();
+    await expect(canvas.getByText("Command output artifact", { exact: true })).toBeVisible();
+    const inspect = canvas.getByRole("button", { name: "Inspect artifact metadata" });
+    inspect.focus();
+    await expect(inspect).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await expect(args.onInspectArtifact).toHaveBeenCalledWith({
+      ...reference,
+      artifactId: "art_00000000000000000001",
+    });
+    await expect(canvas.queryByText("Invocation succeeded", { exact: true })).toBeNull();
+  },
+};

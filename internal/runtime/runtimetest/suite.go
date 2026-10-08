@@ -21,6 +21,7 @@ const (
 	Success           Scenario = "success"
 	UsageSnapshots    Scenario = "usage-snapshots"
 	CompletedMessages Scenario = "completed-messages"
+	CompletedCommands Scenario = "completed-commands"
 	Failure           Scenario = "failure"
 	Interrupt         Scenario = "interrupt"
 	ProtocolFailure   Scenario = "protocol-failure"
@@ -62,7 +63,7 @@ func Run(t *testing.T, factory Factory, features Features) {
 	if factory == nil {
 		t.Fatal("runtime contract fixture factory is absent")
 	}
-	scenarios := []Scenario{Success, UsageSnapshots, CompletedMessages, Failure, Interrupt, ProtocolFailure, ScopeViolation, ProcessFailure, Ownership, Validation}
+	scenarios := []Scenario{Success, UsageSnapshots, CompletedMessages, CompletedCommands, Failure, Interrupt, ProtocolFailure, ScopeViolation, ProcessFailure, Ownership, Validation}
 	if features.Approvals {
 		scenarios = append(scenarios, Approve, Deny)
 	} else {
@@ -153,6 +154,13 @@ func run(t *testing.T, f Fixture, scenario Scenario) {
 	}
 	f.Release()
 	switch scenario {
+	case CompletedCommands:
+		stream.next("activity.process.completed")
+		command, err := dgruntime.ParseCompletedCommand(stream.next(dgruntime.CommandCompletedEvent).Payload)
+		if err != nil || command.Text != OutputText || command.Status != "failed" || command.ExitCode == nil || *command.ExitCode != 1 {
+			t.Fatal("completed command changed", command, err)
+		}
+		stream.next("lifecycle.succeeded")
 	case CompletedMessages:
 		for _, want := range []dgruntime.CompletedMessage{{Text: "Progress.", Phase: "commentary"}, {Text: "Legacy answer.", Phase: "unspecified"}, {Text: OutputText, Phase: "final"}} {
 			stream.next("output.text.delta")

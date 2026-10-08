@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "dataground.event/v1",
+  "id": "evt_00000000000000000001",
+  "isolationDomainId": "iso_00000000000000000001",
+  "invocationId": "inv_00000000000000000001",
+  "sequence": 2,
+  "type": "output.command.artifact",
+  "occurredAt": "2026-07-16T08:00:00Z",
+  "recordedAt": "2026-07-16T08:00:00.001Z",
+  "correlationId": "correlation-fixture",
+  "actorId": "fixture",
+  "serviceId": "svc_00000000000000000001",
+  "revisionId": "rev_00000000000000000001",
+  "payload": {
+    "artifactId": "art_00000000000000000001",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "sizeBytes": 70000,
+    "preview": "Completed answer preview.",
+    "objectKey": "private/storage/key",
+    "status": "failed",
+    "exitCode": 1
+  },
+  "source": "runtime"
+}

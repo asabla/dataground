@@ -60,8 +60,8 @@ func TestClientPerformsHandshakeAndNormalizesTurn(t *testing.T) {
 		server.notify("turn/started", map[string]any{"threadId": turnParams.ThreadID, "turn": map[string]any{"id": "native-turn-sensitive", "status": "inProgress", "items": []any{}}})
 		server.respond(turn.ID, map[string]any{"turn": map[string]any{"id": "native-turn-sensitive", "status": "inProgress", "items": []any{}}})
 		server.notify("item/agentMessage/delta", map[string]any{"threadId": turnParams.ThreadID, "turnId": "native-turn-sensitive", "itemId": "native-item-sensitive", "delta": "done"})
-		server.notify("item/started", map[string]any{"threadId": turnParams.ThreadID, "turnId": "native-turn-sensitive", "item": map[string]any{"id": "native-command-sensitive", "type": "commandExecution"}})
-		server.notify("item/completed", map[string]any{"threadId": turnParams.ThreadID, "turnId": "native-turn-sensitive", "item": map[string]any{"id": "native-command-sensitive", "type": "commandExecution"}})
+		server.notify("item/started", map[string]any{"threadId": turnParams.ThreadID, "turnId": "native-turn-sensitive", "item": map[string]any{"id": "native-command-sensitive", "type": "commandExecution", "status": "completed"}})
+		server.notify("item/completed", map[string]any{"threadId": turnParams.ThreadID, "turnId": "native-turn-sensitive", "item": map[string]any{"id": "native-command-sensitive", "type": "commandExecution", "status": "completed"}})
 		server.notify("turn/completed", map[string]any{"threadId": turnParams.ThreadID, "turn": map[string]any{"id": "native-turn-sensitive", "status": "completed", "items": []any{}}})
 	})
 
