@@ -25,7 +25,17 @@ The API command leaves content transfer disabled by default. Process-local mode 
 
 Set `DATAGROUND_API_ARTIFACT_CONTENT_CONFIG_FILE` to that file when starting `pnpm dev:api`, together with the existing `DATAGROUND_DATABASE_URL` and development identity configuration. The example bucket must be replaced if the governed worker uses another bucket. The file reader rejects duplicate or unknown fields, non-loopback endpoints, URL credentials, paths, query strings, invalid buckets, and unsupported limits. HTTP proxy use and redirects are disabled. No object-store credentials are acquired or passed to clients.
 
-The API accepts this opt-in with ordinary durable mode, exact governed dispatch, or reviewed publication dispatch. It does not establish an OIDC-certified content profile. The Workbench still inspects metadata only; its explicit content-read journey remains separate work. Production storage authentication, retention and access policy, larger transfers, and release acceptance remain unresolved.
+The API accepts this opt-in with ordinary durable mode, exact governed dispatch, or reviewed publication dispatch. It does not establish an OIDC-certified content profile. Production storage authentication, retention and access policy, larger transfers, and release acceptance remain unresolved.
+
+## Workbench content reads
+
+Artifact inspection first loads metadata. “Read content” makes a separate request with the current client identity. The Workbench bounds the successful body to the declared size, at most 16 MiB, and bounds error bodies to 8 KiB. It rejects redirects, unexpected status or media type, size or ETag changes, truncated or extra bytes, and SHA-256 mismatch. Upstream error messages are not displayed. A read has a 30-second abort signal, and cancellation also cancels its body reader.
+
+Only verified bytes can create a local download link. “Download verified file” uses an artifact-ID filename with a `.bin` extension and `application/octet-stream`; the original bytes are unchanged. Plain UTF-8 text and JSON up to 1 MiB also appear as escaped plain text. Controls that could alter text direction or terminal-style presentation are shown as Unicode escapes. Other media, invalid UTF-8, and larger files remain available through the verified download. No HTML, Markdown, image, or document renderer executes artifact content.
+
+“Hide content,” metadata refresh, identity or scope changes, and navigation cancel pending reads and revoke local download URLs. Late responses cannot restore content. Deleted, unknown-state, oversized, or unconfirmed artifacts have no active content-read control. Failed reads leave metadata inspection available and permit a new explicit attempt.
+
+The shared content pattern keeps keyboard focus on the read, cancel, or hide action. Its text region is keyboard-scrollable, and waiting, completion, and error messages have semantic status or alert roles, following [WCAG status-message guidance](https://www.w3.org/WAI/WCAG22/Understanding/status-messages.html). Browser tests verify the complete metadata-to-verified-content flow, byte-exact download URLs, cancellation, corruption, identity and scope replacement, refresh, and URL revocation. Storybook covers keyboard operation and accessibility. These checks do not establish a production deployment or user-study result.
 
 ## Verification
 

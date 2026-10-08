@@ -9,6 +9,7 @@ import {
 } from "./ArtifactWorkflow";
 import type { InvocationArtifact } from "./client";
 
+const client = {} as DataGroundClient;
 const reference = {
   artifactId: "art_00000000000000000001",
   invocationId: "inv_00000000000000000001",
@@ -47,8 +48,9 @@ describe("ArtifactWorkflow", () => {
   });
 
   it("retains confirmed metadata when a refresh fails", () => {
-    const current = { artifact, loading: true, referenceKey };
+    const current = { client, artifact, loading: true, referenceKey };
     const state = artifactWorkflowReducer(current, {
+      client,
       referenceKey,
       result: {
         error: {
@@ -69,6 +71,7 @@ describe("ArtifactWorkflow", () => {
   it("keeps confirmed metadata visible while clearing an old error for refresh", () => {
     const state = artifactWorkflowReducer(
       {
+        client,
         artifact,
         error: {
           code: "WORKBENCH_NETWORK_UNAVAILABLE",
@@ -78,7 +81,7 @@ describe("ArtifactWorkflow", () => {
         loading: false,
         referenceKey,
       },
-      { referenceKey, type: "load-started" },
+      { client, referenceKey, type: "load-started" },
     );
 
     assert.equal(state.artifact, artifact);
@@ -89,8 +92,9 @@ describe("ArtifactWorkflow", () => {
   it("replaces stale confirmed metadata after a successful refresh", () => {
     const refreshed: InvocationArtifact = { ...artifact, state: "deleted" };
     const state = artifactWorkflowReducer(
-      { artifact, loading: true, referenceKey },
+      { client, artifact, loading: true, referenceKey },
       {
+        client,
         referenceKey,
         result: { artifact: refreshed, ok: true },
         type: "load-finished",
@@ -104,8 +108,9 @@ describe("ArtifactWorkflow", () => {
 
   it("clears prior scope immediately when another artifact starts loading", () => {
     const state = artifactWorkflowReducer(
-      { artifact, loading: false, referenceKey },
+      { client, artifact, loading: false, referenceKey },
       {
+        client,
         referenceKey: `${reference.isolationDomainId}:${reference.invocationId}:art_00000000000000000002`,
         type: "load-started",
       },
@@ -117,10 +122,12 @@ describe("ArtifactWorkflow", () => {
 
   it("ignores late metadata from a prior artifact scope", () => {
     const state = {
+      client,
       loading: true,
       referenceKey: `${reference.isolationDomainId}:${reference.invocationId}:art_00000000000000000002`,
     };
     const completed = artifactWorkflowReducer(state, {
+      client,
       referenceKey,
       result: { artifact, ok: true },
       type: "load-finished",
@@ -128,4 +135,23 @@ describe("ArtifactWorkflow", () => {
 
     assert.equal(completed, state);
   });
+});
+
+it("clears metadata when the identity changes on the same artifact reference", () => {
+  const otherClient = {} as DataGroundClient;
+  const state = artifactWorkflowReducer(
+    { client, artifact, loading: false, referenceKey },
+    { client: otherClient, referenceKey, type: "load-started" },
+  );
+  assert.equal(state.artifact, undefined);
+  assert.equal(state.client, otherClient);
+  assert.equal(
+    artifactWorkflowReducer(state, {
+      client,
+      referenceKey,
+      type: "load-finished",
+      result: { ok: true, artifact },
+    }),
+    state,
+  );
 });

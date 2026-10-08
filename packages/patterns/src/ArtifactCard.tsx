@@ -190,8 +190,8 @@ export function ArtifactCard({
         <>
           {artifact.sensitive && (
             <p className="dg-artifact-card__sensitive">
-              This artifact is marked sensitive. Only governed metadata is shown; content is not
-              loaded into this surface.
+              This artifact is marked sensitive. Reading its content requires separate
+              authorization.
             </p>
           )}
 
@@ -258,8 +258,8 @@ export function ArtifactCard({
 
           {!artifact.sensitive && (
             <p className="dg-artifact-card__boundary">
-              This surface exposes metadata only. Artifact content delivery requires a separate
-              governed object-store boundary.
+              This card shows metadata only. Use an explicit content read to inspect or download the
+              file.
             </p>
           )}
         </>
