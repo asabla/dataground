@@ -74,7 +74,10 @@ func (repository *Repository) BindInvocationArtifact(
 		 AND attempt.effect_id = effect.effect_id
 		 AND attempt.lease_owner = operation.lease_owner
 		 AND attempt.fencing_token = operation.lease_token
-		 AND attempt.status = 'reserved'
+		 AND (attempt.status = 'reserved' OR (attempt.status = 'output_invalid'
+             AND attempt.result->>'artifactId' = $10 AND attempt.result->>'artifactDigest' = $11
+             AND (attempt.result->>'sizeBytes')::bigint = $12
+             AND $13))
 		WHERE operation.isolation_domain_id = $1
 		  AND operation.id = $2
 		  AND invocation.id = $3
@@ -98,6 +101,10 @@ func (repository *Repository) BindInvocationArtifact(
 		normalized.ActorID,
 		normalized.Record.EffectID,
 		normalized.CorrelationID,
+		normalized.Record.ID,
+		normalized.Record.Digest,
+		normalized.Record.SizeBytes,
+		normalized.Record.Name == "Invalid runtime result" && normalized.Record.Kind == "file" && normalized.Record.MediaType == "text/plain; charset=utf-8" && normalized.Record.Sensitive,
 	).Scan(&invocationID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return artifact.Record{}, ErrLeaseLost
