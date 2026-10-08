@@ -90,7 +90,9 @@ func TestPublicationAuthorizationPersistsExactPhasesAndRetainsEvidence(t *testin
 	if err := repo.Advance(ctx, *claim, "validating", nil); err != nil {
 		t.Fatal(err)
 	}
-	claim, err = repo.ClaimDevelopmentPublication(ctx, operationID, input, "publication-worker", time.Minute)
+	claim, err = waitForDuePublicationClaim(ctx, func() (*persistence.OperationClaim, error) {
+		return repo.ClaimDevelopmentPublication(ctx, operationID, input, "publication-worker", time.Minute)
+	})
 	if err != nil || claim == nil {
 		t.Fatal(err)
 	}
@@ -189,5 +191,24 @@ func TestPublicationAuthorizationPersistsExactPhasesAndRetainsEvidence(t *testin
 	}
 	if err := authorizer.AuthorizePublication(ctx, request); err != reconcile.ErrPublicationAuthorizationUnavailable {
 		t.Fatal("withdrawn policy authorized publication", err)
+	}
+}
+
+// A transition uses the worker clock, while exact publication claims use the
+// database clock. A small offset can leave the next transition briefly not due.
+// Wait only for absence; authorization, lease, and database errors fail at once.
+func waitForDuePublicationClaim(ctx context.Context, claim func() (*persistence.OperationClaim, error)) (*persistence.OperationClaim, error) {
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		value, err := claim()
+		if value != nil || err != nil {
+			return value, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+		}
 	}
 }
