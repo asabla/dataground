@@ -301,7 +301,10 @@ func (repository *Repository) RecordInvocationRuntimeEvent(
 		  AND operation.lease_token = $19
 		  AND operation.lease_expires_at > clock_timestamp()
 		  AND operation.deadline_at > clock_timestamp()
-	`, value.IsolationDomainID, value.InvocationID, value.ID, value.Sequence, value.SchemaVersion,
+          AND NOT EXISTS (SELECT 1 FROM invocation_runtime_attempts AS attempt
+              WHERE attempt.isolation_domain_id=operation.isolation_domain_id AND attempt.operation_id=operation.id
+                AND attempt.result->>'code'='RUNTIME_OUTPUT_INVALID' AND attempt.result ? 'sourceSequence')
+    `, value.IsolationDomainID, value.InvocationID, value.ID, value.Sequence, value.SchemaVersion,
 		value.Type, value.OccurredAt, value.RecordedAt, value.CorrelationID, value.ActorID,
 		value.ServiceID, value.RevisionID, encodedPayload, event.SourceSequence,
 		claim.ID, claim.Command, claim.ObservedState, claim.LeaseOwner, claim.FencingToken,

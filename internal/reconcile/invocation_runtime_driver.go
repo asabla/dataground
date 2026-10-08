@@ -33,6 +33,7 @@ var (
 )
 
 type InvocationRuntimeStore interface {
+	PrepareInvocationRuntimeOutputFailure(context.Context, persistence.OperationClaim, persistence.EffectRecord, uint64) (persistence.InvocationRuntimeOutputFailure, error)
 	GetClaimedInvocationRuntimeTarget(context.Context, persistence.OperationClaim) (persistence.InvocationRuntimeTarget, error)
 	GetInvocationRuntimeAttempt(context.Context, string, string) (persistence.InvocationRuntimeAttempt, error)
 	BeginInvocationRuntimeAttempt(context.Context, persistence.OperationClaim, persistence.EffectRecord) (persistence.InvocationRuntimeAttempt, error)
@@ -232,10 +233,16 @@ func (driver *InvocationRuntimeDriver) ObserveClaimed(
 		return attempt.Result, true, nil
 	case "failed":
 		failure := dgruntime.ErrTurnFailed
-		if attempt.Result["code"] == "RUNTIME_TURN_INTERRUPTED" {
+		switch attempt.Result["code"] {
+		case "RUNTIME_TURN_INTERRUPTED":
 			failure = dgruntime.ErrTurnInterrupted
+		case "RUNTIME_OUTPUT_INVALID":
+			failure = ErrInvocationRuntimeOutputInvalid
 		}
 		return attempt.Result, false, errors.Join(ErrEffectTerminal, failure)
+	case "output_invalid":
+		err := driver.retainInvalidRuntimeOutput(ctx, claim, effect, 0)
+		return nil, false, err
 	case "reserved":
 		return nil, false, errors.Join(
 			ErrAmbiguousEffect,
@@ -497,6 +504,9 @@ func (driver *InvocationRuntimeDriver) runTurn(
 			}
 			result, resultErr := output.Result()
 			if resultErr != nil {
+				if output.messageSequence > 0 {
+					return nil, driver.retainInvalidRuntimeOutput(runCtx, claim, effect, output.messageSequence)
+				}
 				failure := map[string]any{"code": "RUNTIME_OUTPUT_INVALID", "status": "failed"}
 				if _, err := driver.store.FailInvocationRuntimeAttempt(
 					runCtx,

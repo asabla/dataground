@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -217,6 +218,13 @@ func TestInvocationRuntimeDriverRejectsInvalidDeclaredOutput(t *testing.T) {
 	if store.failCalls != 1 || store.completeCalls != 0 ||
 		store.attempt.Result["code"] != "RUNTIME_OUTPUT_INVALID" {
 		t.Fatalf("invalid output attempt = %#v", store.attempt)
+	}
+	finalizer := driver.artifacts.(*runtimeArtifactFinalizerStub)
+	if len(finalizer.values) != 1 || string(finalizer.values[0].Content) != `{"answer":42}` {
+		t.Fatal("invalid result did not retain exact completed text", finalizer.values)
+	}
+	if driver.authorizer.(*runtimeAuthorizerStub).calls != 2 {
+		t.Fatal("retention did not reauthorize")
 	}
 }
 
@@ -435,6 +443,21 @@ type runtimeStoreStub struct {
 	completeCalls int
 	failCalls     int
 	renewCalls    int
+}
+
+func (stub *runtimeStoreStub) PrepareInvocationRuntimeOutputFailure(_ context.Context, _ persistence.OperationClaim, _ persistence.EffectRecord, sequence uint64) (persistence.InvocationRuntimeOutputFailure, error) {
+	if sequence == 0 {
+		sequence, _ = strconv.ParseUint(stub.attempt.Result["sourceSequence"].(string), 10, 64)
+	}
+	stub.attempt.Status = "output_invalid"
+	stub.attempt.Result = map[string]any{"code": "RUNTIME_OUTPUT_INVALID", "status": "failed", "sourceSequence": strconv.FormatUint(sequence, 10), "artifactId": "art_retained"}
+	var content []byte
+	for _, event := range stub.events {
+		if event.SourceSequence == sequence {
+			content = []byte(event.Payload["text"].(string))
+		}
+	}
+	return persistence.InvocationRuntimeOutputFailure{Result: stub.attempt.Result, Artifact: artifact.Finalization{Content: content}}, nil
 }
 
 func (stub *runtimeStoreStub) GetClaimedInvocationRuntimeTarget(
