@@ -354,6 +354,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts/{artifactId}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read verified invocation artifact content
+         * @description Requires independent readInvocationArtifactContent authorization. Returns the complete verified object as an attachment; no range or conditional responses. Metadata alone grants no content access. The default profile has no content reader and returns ARTIFACT_CONTENT_UNAVAILABLE. Configured transfer is bounded to at most 16 MiB.
+         */
+        get: operations["readInvocationArtifactContent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts/{artifactId}": {
         parameters: {
             query?: never;
@@ -1815,6 +1835,37 @@ export interface operations {
             503: components["responses"]["Error"];
         };
     };
+    readInvocationArtifactContent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                invocationId: components["parameters"]["InvocationId"];
+                artifactId: components["parameters"]["ArtifactId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Exact bytes verified against the scoped immutable artifact digest and size. */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
     getInvocationArtifact: {
         parameters: {
             query?: never;
@@ -1828,7 +1879,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Artifact metadata. Content retrieval is added with the object-store boundary. */
+            /** @description Artifact metadata. Content requires independent authorization at the content endpoint. */
             200: {
                 headers: {
                     [name: string]: unknown;

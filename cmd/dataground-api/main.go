@@ -136,6 +136,10 @@ func assembleAPIRuntime(ctx context.Context, address string) (*apiRuntime, error
 	if ctx == nil {
 		return nil, errors.New("API startup context is required")
 	}
+	artifactContent, err := loadArtifactContentConfiguration(os.LookupEnv)
+	if err != nil {
+		return nil, err
+	}
 	dispatchTarget, err := loadGovernedDispatchTarget(os.LookupEnv)
 	if err != nil {
 		return nil, err
@@ -234,9 +238,9 @@ func assembleAPIRuntime(ctx context.Context, address string) (*apiRuntime, error
 		return nil, fmt.Errorf("durable authorization audit assembly: %w", err)
 	}
 	if publicationTarget != nil {
-		handler, err = api.NewPublishingDurableHandler(ctx, repository, auditedAuthenticator, auditedAuthorizer, *publicationTarget)
+		handler, err = api.NewPublishingDurableHandler(ctx, repository, auditedAuthenticator, auditedAuthorizer, *publicationTarget, artifactContent...)
 	} else if dispatchTarget == nil {
-		handler, err = api.NewDurableHandler(repository, auditedAuthenticator, auditedAuthorizer)
+		handler, err = api.NewDurableHandler(repository, auditedAuthenticator, auditedAuthorizer, artifactContent...)
 	} else {
 		handler, err = api.NewGovernedDurableHandler(
 			ctx,
@@ -244,6 +248,7 @@ func assembleAPIRuntime(ctx context.Context, address string) (*apiRuntime, error
 			auditedAuthenticator,
 			auditedAuthorizer,
 			*dispatchTarget,
+			artifactContent...,
 		)
 	}
 	if err != nil {

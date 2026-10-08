@@ -95,7 +95,7 @@ The API listens on `127.0.0.1:8082` by default. Ports `8080` and `8081` remain r
 
 The Workbench development server proxies same-origin `/v1` requests to the default loopback API. Opening a scope requires the configured isolation-domain identifier and bearer token; the Workbench retains the token only in component memory and clears its local client on disconnect. Readiness is not treated as credential validation because `/readyz` is intentionally unauthenticated.
 
-The internal enforcement-object S3 protocol boundary and its remaining backend certification requirements are documented in [S3 enforcement-object guidance](s3-enforcement-objects.md). The narrower invocation-artifact transport evidence and exclusions are documented in [S3 invocation-artifact guidance](s3-invocation-artifacts.md).
+The internal enforcement-object S3 protocol boundary and its remaining backend certification requirements are documented in [S3 enforcement-object guidance](s3-enforcement-objects.md). The narrower invocation-artifact transport evidence and exclusions are documented in [S3 invocation-artifact guidance](s3-invocation-artifacts.md). The [governed artifact-content API](artifact-content.md) adds independently authorized, verified downloads through an explicit durable loopback development configuration.
 
 To run durable mode, migrate a PostgreSQL database and start the API and worker with the same `DATAGROUND_DATABASE_URL`:
 

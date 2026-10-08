@@ -55,8 +55,9 @@ func NewDurableHandler(
 	repository *persistence.Repository,
 	authenticator authn.Authenticator,
 	authorizer authz.Authorizer,
+	content ...DurableArtifactContentConfig,
 ) (http.Handler, error) {
-	return newDurableHandler(repository, authenticator, authorizer, nil, nil, nil, nil)
+	return newDurableHandler(repository, authenticator, authorizer, nil, nil, nil, nil, content...)
 }
 
 func NewGovernedDurableHandler(
@@ -65,6 +66,7 @@ func NewGovernedDurableHandler(
 	authenticator authn.Authenticator,
 	authorizer authz.Authorizer,
 	dispatchTarget persistence.InvocationDispatchTarget,
+	content ...DurableArtifactContentConfig,
 ) (http.Handler, error) {
 	if !dispatchTarget.Valid() {
 		return nil, errors.New("governed invocation dispatch target is invalid")
@@ -72,16 +74,16 @@ func NewGovernedDurableHandler(
 	if err := repository.RequireInvocationDispatchTarget(ctx, dispatchTarget); err != nil {
 		return nil, err
 	}
-	return newDurableHandler(repository, authenticator, authorizer, nil, nil, &dispatchTarget, nil)
+	return newDurableHandler(repository, authenticator, authorizer, nil, nil, &dispatchTarget, nil, content...)
 }
 
 // NewPublishingDurableHandler explicitly enables draft publication bootstrap.
 // The ordinary governed constructor retains its published-target prerequisite.
-func NewPublishingDurableHandler(ctx context.Context, repository *persistence.Repository, authenticator authn.Authenticator, authorizer authz.Authorizer, target persistence.DevelopmentPublicationInput) (http.Handler, error) {
+func NewPublishingDurableHandler(ctx context.Context, repository *persistence.Repository, authenticator authn.Authenticator, authorizer authz.Authorizer, target persistence.DevelopmentPublicationInput, content ...DurableArtifactContentConfig) (http.Handler, error) {
 	if err := repository.RequirePublicationDispatchTarget(ctx, target); err != nil {
 		return nil, err
 	}
-	return newDurableHandler(repository, authenticator, authorizer, nil, nil, &target.Target, &target)
+	return newDurableHandler(repository, authenticator, authorizer, nil, nil, &target.Target, &target, content...)
 }
 
 func NewDurableDPoPBoundHandler(
@@ -120,6 +122,7 @@ func newDurableHandler(
 	rateLimiter AuthenticationRateLimiter,
 	dispatchTarget *persistence.InvocationDispatchTarget,
 	publicationTarget *persistence.DevelopmentPublicationInput,
+	content ...DurableArtifactContentConfig,
 ) (http.Handler, error) {
 	if repository == nil || !repository.Configured() {
 		return nil, errors.New("durable repository is required")
@@ -162,6 +165,10 @@ func newDurableHandler(
 		repository,
 		invocationAuthorizer,
 	)
+	if err != nil {
+		return nil, err
+	}
+	contentHandler, err := newArtifactContentHandler(repository, authorizer, content...)
 	if err != nil {
 		return nil, err
 	}
@@ -235,6 +242,9 @@ func newDurableHandler(
 	))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts/{artifactId}", protected(
 		authz.ReadInvocationArtifact, authz.Artifact, "artifactId", server.getInvocationArtifact,
+	))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts/{artifactId}/content", protected(
+		authz.ReadInvocationArtifactContent, authz.Artifact, "artifactId", contentHandler,
 	))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/operations/{operationId}", protected(
 		authz.ReadOperation, authz.Operation, "operationId", server.getOperation,
