@@ -38,6 +38,10 @@ func newRuntimeQuestionFixtureWithReservation(t *testing.T, ctx context.Context,
 }
 
 func newRuntimeQuestionFixtureWithSchema(t *testing.T, ctx context.Context, reserve bool, schema map[string]any) *runtimeQuestionFixture {
+	return newRuntimeQuestionFixtureWithProfile(t, ctx, reserve, schema, "reference/v1")
+}
+
+func newRuntimeQuestionFixtureWithProfile(t *testing.T, ctx context.Context, reserve bool, schema map[string]any, profile string) *runtimeQuestionFixture {
 	t.Helper()
 	pool := resetOperatorAuditDatabase(t, ctx)
 	t.Cleanup(pool.Close)
@@ -62,31 +66,41 @@ func newRuntimeQuestionFixtureWithSchema(t *testing.T, ctx context.Context, rese
 		ctx,
 		testIdempotency(domainID, "question-revision"),
 		persistence.CreateRevisionInput{
-			ID: revisionID, ServiceID: serviceID, RuntimeProfile: "reference/v1", OutputSchema: schema,
+			ID: revisionID, ServiceID: serviceID, RuntimeProfile: profile, OutputSchema: schema,
 			RequiredCapabilities: []string{"tool"}, ActorID: "creator",
 			CorrelationID: identity.New("cor"),
 		},
 	); err != nil {
 		t.Fatal(err)
 	}
-	published, err := repository.AcceptPublication(
-		ctx,
-		testIdempotency(domainID, "question-publish"),
-		persistence.AcceptPublicationInput{
-			RevisionID: revisionID, ExpectedVersion: 1, ActorID: "publisher",
-			CorrelationID: identity.New("cor"), Deadline: time.Now().Add(time.Minute),
-		},
-		reference.Capabilities(),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var publication domain.Operation
-	if err := json.Unmarshal(published.Body, &publication); err != nil {
-		t.Fatal(err)
-	}
 	worker := reconcile.New(repository, reconcile.NewReferenceDriver(pool), "question-setup")
-	runToTerminal(t, ctx, worker, repository, domainID, publication.Metadata.ID, "published")
+	var dispatch *persistence.InvocationDispatchTarget
+	if profile == "reference/v1" {
+		published, err := repository.AcceptPublication(
+			ctx,
+			testIdempotency(domainID, "question-publish"),
+			persistence.AcceptPublicationInput{
+				RevisionID: revisionID, ExpectedVersion: 1, ActorID: "publisher",
+				CorrelationID: identity.New("cor"), Deadline: time.Now().Add(time.Minute),
+			},
+			reference.Capabilities(),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var publication domain.Operation
+		if err := json.Unmarshal(published.Body, &publication); err != nil {
+			t.Fatal(err)
+		}
+		runToTerminal(t, ctx, worker, repository, domainID, publication.Metadata.ID, "published")
+	} else {
+		// This fixture supplies a published revision and deterministic admission.
+		// It tests the governed result path, not runtime deployment certification.
+		if _, err := pool.Exec(ctx, `UPDATE service_revisions SET state='published' WHERE isolation_domain_id=$1 AND id=$2`, domainID, revisionID); err != nil {
+			t.Fatal(err)
+		}
+		dispatch = &persistence.InvocationDispatchTarget{IsolationDomainID: domainID, ServiceID: serviceID, RevisionID: revisionID, RuntimeProfile: profile}
+	}
 	if _, err := repository.AssignAlias(
 		ctx,
 		testIdempotency(domainID, "question-alias"),
@@ -103,7 +117,7 @@ func newRuntimeQuestionFixtureWithSchema(t *testing.T, ctx context.Context, rese
 		ctx,
 		testIdempotency(domainID, "question-invocation"),
 		persistence.AcceptInvocationInput{
-			ID: invocationID, ServiceID: serviceID, Alias: "stable",
+			ID: invocationID, ServiceID: serviceID, Alias: "stable", DispatchTarget: dispatch,
 			Input: map[string]any{"prompt": "change a file"}, ActorID: "requester",
 			CorrelationID: identity.New("cor"), Deadline: time.Now().Add(time.Minute),
 		},

@@ -4,6 +4,7 @@ import { useId } from "react";
 export interface InvocationResultProps {
   error?: { message: string; correlationId?: string };
   isLoading?: boolean;
+  onInspectArtifact?: () => void;
   onHide?: () => void;
   onShow?: () => void;
   text?: string;
@@ -12,6 +13,7 @@ export interface InvocationResultProps {
 export function InvocationResult({
   error,
   isLoading = false,
+  onInspectArtifact,
   onHide,
   onShow,
   text,
@@ -40,6 +42,9 @@ export function InvocationResult({
         <p>Show the completed result using your current access.</p>
       )}
       <div className="dg-invocation-result__actions">
+        {text !== undefined && onInspectArtifact ? (
+          <Button onPress={onInspectArtifact}>Inspect result artifact</Button>
+        ) : null}
         <Button onPress={text !== undefined || isLoading ? onHide : onShow}>
           {text !== undefined || isLoading
             ? "Hide result"

@@ -417,13 +417,17 @@ func (driver *InvocationRuntimeDriver) runTurn(
 		if handled, err := approvals.record(runCtx, claim, event, ended); handled {
 			return err
 		}
-		if err := driver.recordRuntimeEvent(runCtx, claim, event); err != nil {
+		reference, err := driver.recordCompletedRuntimeMessage(runCtx, claim, effect, target, event)
+		if err != nil {
 			return err
 		}
 		if event.Type == "lifecycle.cancelled" {
 			interrupted = true
 		}
 		output.Observe(event)
+		if event.Type == dgruntime.MessageCompletedEvent && output.messageSequence == event.Sequence {
+			output.artifact = reference
+		}
 		return nil
 	}
 	var interactionPoll <-chan time.Time

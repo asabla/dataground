@@ -17,6 +17,7 @@ import (
 type InvocationRuntimeOutputFailure struct {
 	Artifact artifact.Finalization
 	Result   map[string]any
+	Retained bool
 }
 
 // PrepareInvocationRuntimeOutputFailure freezes the already journaled completed
@@ -67,8 +68,27 @@ func (repository *Repository) PrepareInvocationRuntimeOutputFailure(ctx context.
 	if err != nil {
 		return InvocationRuntimeOutputFailure{}, err
 	}
-	message, parseErr := dgruntime.ParseCompletedMessage(event.Payload)
-	if !found || event.Type != dgruntime.MessageCompletedEvent || parseErr != nil || message.Phase == "commentary" {
+	if !found {
+		return InvocationRuntimeOutputFailure{}, ErrInvocationRuntimeAttemptInvalid
+	}
+	var message dgruntime.CompletedMessage
+	var retained artifact.Record
+	switch event.Type {
+	case dgruntime.MessageCompletedEvent:
+		message, err = dgruntime.ParseCompletedMessage(event.Payload)
+		if err != nil || len(message.Text) > dgruntime.MaximumInlineMessageTextBytes || message.Phase == "commentary" {
+			return InvocationRuntimeOutputFailure{}, ErrInvocationRuntimeAttemptInvalid
+		}
+	case dgruntime.MessageArtifactEvent:
+		reference, parseErr := dgruntime.ParseMessageArtifact(event.Payload)
+		if parseErr != nil || reference.Phase == "commentary" {
+			return InvocationRuntimeOutputFailure{}, ErrInvocationRuntimeAttemptInvalid
+		}
+		retained, err = getRuntimeMessageArtifact(ctx, tx, claim.IsolationDomainID, invocationID, claim.ID, sequence, reference)
+		if err != nil {
+			return InvocationRuntimeOutputFailure{}, err
+		}
+	default:
 		return InvocationRuntimeOutputFailure{}, ErrInvocationRuntimeAttemptInvalid
 	}
 	var complete bool
@@ -77,7 +97,7 @@ func (repository *Repository) PrepareInvocationRuntimeOutputFailure(ctx context.
             AND source_kind='runtime' AND event_type='lifecycle.succeeded' AND source_sequence > $3)
         AND NOT EXISTS (SELECT 1 FROM invocation_events WHERE isolation_domain_id=$1 AND invocation_id=$2
             AND source_kind='runtime' AND (event_type IN ('lifecycle.failed','lifecycle.cancelled')
-                OR (event_type='output.message.completed' AND payload->>'phase' <> 'commentary' AND source_sequence > $3)))`, claim.IsolationDomainID, invocationID, sequence).Scan(&complete)
+                OR (event_type IN ('output.message.completed', 'output.message.artifact') AND payload->>'phase' <> 'commentary' AND source_sequence > $3)))`, claim.IsolationDomainID, invocationID, sequence).Scan(&complete)
 	if err != nil {
 		return InvocationRuntimeOutputFailure{}, err
 	}
@@ -102,6 +122,11 @@ func (repository *Repository) PrepareInvocationRuntimeOutputFailure(ctx context.
 		Digest:            "sha256:" + hex.EncodeToString(digest[:]),
 		Sensitive:         true,
 	}
+	if retained.ID != "" {
+		record = retained
+		content = nil
+	}
+
 	result := map[string]any{
 		"code": "RUNTIME_OUTPUT_INVALID", "status": "failed",
 		"sourceSequence": strconv.FormatUint(sequence, 10),
@@ -132,7 +157,8 @@ func (repository *Repository) PrepareInvocationRuntimeOutputFailure(ctx context.
 		return InvocationRuntimeOutputFailure{}, err
 	}
 	return InvocationRuntimeOutputFailure{
-		Result: result,
+		Result:   result,
+		Retained: retained.ID != "",
 		Artifact: artifact.Finalization{
 			Binding: artifact.Binding{
 				Record: record, ActorID: claim.ActorID, CorrelationID: claim.CorrelationID,

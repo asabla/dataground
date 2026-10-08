@@ -199,6 +199,18 @@ export function presentTimelineEvent(event: TimelineEvent): EventPresentation {
         label: "Invocation cancelled",
         tone: "warning",
       };
+    case "output.message.artifact":
+      return {
+        detail: boundedText(
+          event.payload.preview,
+          "The completed message is stored as an artifact.",
+        ),
+        label:
+          event.payload.phase === "commentary"
+            ? "Progress message artifact"
+            : "Completed answer artifact",
+        tone: "neutral",
+      };
     case "output.message.completed":
       return {
         detail: boundedText(event.payload.text, "The completed message has no text preview."),
@@ -344,7 +356,7 @@ export function timelineArtifactReference(
   event: TimelineEvent,
 ): TimelineArtifactReference | undefined {
   const artifactId = event.payload.artifactId;
-  return event.type === "artifact.available" &&
+  return (event.type === "artifact.available" || event.type === "output.message.artifact") &&
     typeof artifactId === "string" &&
     artifactIdPattern.test(artifactId)
     ? {

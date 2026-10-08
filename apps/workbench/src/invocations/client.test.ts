@@ -469,6 +469,48 @@ describe("explicit invocation result reads", () => {
     });
     assert.doesNotMatch(result.text, /must not reach|nativeEndpoint|reference-runtime/);
   });
+  it("rejects a foreign, unversioned, or malformed result artifact", async () => {
+    const artifactId = "art_00000000000000000001";
+    const outputArtifact = {
+      artifactId,
+      digest: `sha256:${"a".repeat(64)}`,
+      sizeBytes: 70000,
+      mediaType: "text/plain; charset=utf-8",
+    };
+    const valid = {
+      schemaVersion: "dataground.invocation-artifact-result/v1",
+      status: "succeeded",
+      outputArtifact,
+    };
+    for (const [index, result] of [
+      valid,
+      { ...valid, schemaVersion: "unknown" },
+      { ...valid, outputArtifact: { ...outputArtifact, sizeBytes: 1.5 } },
+      { ...valid, outputArtifact: { ...outputArtifact, objectKey: "private" } },
+    ].entries()) {
+      const read = await readInvocationResult(
+        successClient({
+          ...invocation,
+          state: "succeeded",
+          artifactIds: index === 0 ? [] : [artifactId],
+          result,
+        }),
+        resultReference,
+      );
+      assert.equal(read.ok, false);
+    }
+    const accepted = await readInvocationResult(
+      successClient({
+        ...invocation,
+        state: "succeeded",
+        artifactIds: [artifactId],
+        result: valid,
+      }),
+      resultReference,
+    );
+    assert.ok(accepted.ok);
+    assert.equal(accepted.artifactId, artifactId);
+  });
   it("rejects mismatched scope, incomplete runs, missing results and oversized or deeply nested data", async () => {
     let nested: unknown = null;
     for (let index = 0; index < 20; index++) nested = { child: nested };

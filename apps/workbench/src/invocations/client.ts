@@ -689,7 +689,7 @@ export interface InvocationResultReference extends InvocationReference {
 }
 
 export type InvocationResultRead =
-  | { ok: true; text: string }
+  | { ok: true; text: string; artifactId?: string }
   | { ok: false; error: InvocationFailure };
 
 function formatInvocationResult(value: unknown): string | undefined {
@@ -763,13 +763,40 @@ export async function readInvocationResult(
         "WORKBENCH_INVOCATION_RESULT_UNAVAILABLE",
         "A successful invocation result is not available.",
       );
+    let artifactId: string | undefined;
+    if (isRecord(data.result) && "outputArtifact" in data.result) {
+      const output = data.result.outputArtifact;
+      if (
+        data.result.schemaVersion !== "dataground.invocation-artifact-result/v1" ||
+        data.result.status !== "succeeded" ||
+        Object.keys(data.result).length !== 3 ||
+        !isRecord(output) ||
+        Object.keys(output).length !== 4 ||
+        typeof output.artifactId !== "string" ||
+        !/^art_[0-9a-z]{20,32}$/u.test(output.artifactId) ||
+        !invocation.artifactIds.includes(output.artifactId) ||
+        typeof output.digest !== "string" ||
+        !/^sha256:[0-9a-f]{64}$/u.test(output.digest) ||
+        typeof output.sizeBytes !== "number" ||
+        !Number.isInteger(output.sizeBytes) ||
+        output.sizeBytes <= 0 ||
+        output.sizeBytes > 1048576 ||
+        output.mediaType !== "text/plain; charset=utf-8"
+      ) {
+        return failure(
+          "WORKBENCH_INVOCATION_RESULT_UNAVAILABLE",
+          "The result artifact reference is invalid.",
+        );
+      }
+      artifactId = output.artifactId;
+    }
     const text = formatInvocationResult(data.result);
     return text === undefined
       ? failure(
           "WORKBENCH_INVOCATION_RESULT_UNAVAILABLE",
           "The result is missing or exceeds the Workbench display limits.",
         )
-      : { ok: true, text };
+      : { ok: true, text, ...(artifactId ? { artifactId } : {}) };
   } catch {
     return failure(
       "WORKBENCH_NETWORK_UNAVAILABLE",

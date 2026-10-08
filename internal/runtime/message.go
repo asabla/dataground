@@ -3,7 +3,7 @@ package runtime
 import "unicode/utf8"
 
 const MessageCompletedEvent = "output.message.completed"
-const MaximumMessageTextBytes = 64 << 10
+const MaximumMessageTextBytes = 1 << 20
 
 // CompletedMessage is an authoritative message snapshot, not an accumulation
 // of streamed previews. Unspecified phase preserves a runtime's legacy answer

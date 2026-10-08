@@ -19,6 +19,7 @@ var ErrInvocationRuntimeOutputInvalid = errors.New("invocation runtime output is
 type invocationRuntimeOutput struct {
 	structured      bool
 	text            string
+	artifact        *dgruntime.MessageArtifact
 	messageSequence uint64
 	sawDelta        bool
 	seen            map[uint64]struct{}
@@ -92,6 +93,12 @@ func (output *invocationRuntimeOutput) Result() (map[string]any, error) {
 		if err := output.validator.Validate(value); err != nil {
 			return nil, errors.Join(ErrInvocationRuntimeOutputInvalid, err)
 		}
+	}
+	if output.artifact != nil {
+		return map[string]any{"schemaVersion": "dataground.invocation-artifact-result/v1", "status": "succeeded", "outputArtifact": map[string]any{
+			"artifactId": output.artifact.ArtifactID, "digest": output.artifact.Digest,
+			"sizeBytes": output.artifact.SizeBytes, "mediaType": "text/plain; charset=utf-8",
+		}}, nil
 	}
 	result := map[string]any{"status": "succeeded", "output": value}
 	encoded, err := json.Marshal(result)

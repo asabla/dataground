@@ -339,3 +339,29 @@ describe("EventTimeline", () => {
     assert.equal(timelineApprovalReference(nativeHandleEvent), undefined);
   });
 });
+
+it("keeps artifact-backed message references scoped and previews untrusted", () => {
+  const event: TimelineEvent = {
+    ...baseEvent,
+    isolationDomainId: "iso_00000000000000000001",
+    invocationId: "inv_00000000000000000001",
+    type: "output.message.artifact",
+    payload: {
+      artifactId: "art_00000000000000000001",
+      preview: "<script>untrusted</script>",
+      phase: "final",
+    },
+  };
+  assert.deepEqual(timelineArtifactReference(event), {
+    isolationDomainId: event.isolationDomainId,
+    invocationId: event.invocationId,
+    artifactId: event.payload.artifactId,
+  });
+  assert.equal(
+    timelineArtifactReference({
+      ...event,
+      payload: { ...event.payload, artifactId: "https://untrusted.example" },
+    }),
+    undefined,
+  );
+});

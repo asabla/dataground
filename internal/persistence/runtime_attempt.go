@@ -134,6 +134,15 @@ func (repository *Repository) finishInvocationRuntimeAttempt(
 	if err := verifyInvocationRuntimeEffect(ctx, tx, effect); err != nil {
 		return InvocationRuntimeAttempt{}, err
 	}
+	if _, hasArtifact := result["outputArtifact"]; hasArtifact || result["schemaVersion"] == "dataground.invocation-artifact-result/v1" {
+		if status != "succeeded" {
+			return InvocationRuntimeAttempt{}, ErrInvocationRuntimeAttemptInvalid
+		}
+		if err := verifyRuntimeArtifactResult(ctx, tx, claim, encodedResult); err != nil {
+			return InvocationRuntimeAttempt{}, err
+		}
+	}
+
 	now := repository.now()
 	update, err := tx.Exec(ctx, `
 		UPDATE invocation_runtime_attempts
@@ -143,19 +152,19 @@ func (repository *Repository) finishInvocationRuntimeAttempt(
 		  AND effect_id = $3
 		  AND lease_owner = $4
 		  AND fencing_token = $5
-		  AND (status = 'reserved' OR (
+          AND EXISTS (
+              SELECT 1 FROM invocation_execution_operations AS operation
+              WHERE operation.isolation_domain_id = $1 AND operation.id = $2
+                AND operation.command IN ('invoke', 'repair') AND operation.observed_state = 'running'
+                AND operation.lease_owner = $4 AND operation.lease_token = $5
+                AND operation.lease_expires_at > clock_timestamp() AND operation.deadline_at > clock_timestamp()
+          )
+          AND (status = 'reserved' OR (
               status = 'output_invalid' AND $6 = 'failed' AND result = $7::jsonb
               AND EXISTS (
                   SELECT 1 FROM invocation_artifact_objects AS object
                   WHERE object.isolation_domain_id = $1 AND object.operation_id = $2 AND object.effect_id = $3
                     AND object.id = $7::jsonb->>'artifactId' AND object.artifact_digest = $7::jsonb->>'artifactDigest'
-              )
-              AND EXISTS (
-                  SELECT 1 FROM invocation_execution_operations AS operation
-                  WHERE operation.isolation_domain_id = $1 AND operation.id = $2
-                    AND operation.command IN ('invoke', 'repair') AND operation.observed_state = 'running'
-                    AND operation.lease_owner = $4 AND operation.lease_token = $5
-                    AND operation.lease_expires_at > clock_timestamp() AND operation.deadline_at > clock_timestamp()
               )
           ))
     `, effect.IsolationDomainID, effect.OperationID, effect.EffectID,
