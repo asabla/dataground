@@ -71,3 +71,19 @@ export const StructuredResult: Story = {
     ),
   },
 };
+
+export const ArtifactResult: Story = {
+  args: {
+    text: '{"schemaVersion":"dataground.invocation-artifact-result/v1","status":"succeeded","outputArtifact":{"artifactId":"art_00000000000000000001"}}',
+    onInspectArtifact: fn(),
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.tab();
+    await userEvent.tab();
+    const button = canvas.getByRole("button", { name: "Inspect result artifact" });
+    await expect(button).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await expect(args.onInspectArtifact).toHaveBeenCalledOnce();
+  },
+};

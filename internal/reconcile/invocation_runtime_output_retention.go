@@ -47,8 +47,10 @@ func (driver *InvocationRuntimeDriver) retainInvalidRuntimeOutput(ctx context.Co
 	if err != nil {
 		return errors.Join(ErrAmbiguousEffect, err)
 	}
-	if _, err := driver.artifacts.Finalize(ctx, failure.Artifact); err != nil {
-		return errors.Join(ErrAmbiguousEffect, err)
+	if !failure.Retained {
+		if _, err := driver.artifacts.Finalize(ctx, failure.Artifact); err != nil {
+			return errors.Join(ErrAmbiguousEffect, err)
+		}
 	}
 	if err := driver.ready(ctx); err != nil {
 		return errors.Join(ErrAmbiguousEffect, err)

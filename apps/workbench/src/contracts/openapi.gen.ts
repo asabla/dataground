@@ -464,6 +464,28 @@ export interface components {
              */
             phase: "commentary" | "final" | "unspecified";
         };
+        RuntimeMessageArtifact: {
+            artifactId: components["schemas"]["ArtifactId"];
+            digest: string;
+            sizeBytes: number;
+            /** @enum {string} */
+            phase: "commentary" | "final" | "unspecified";
+            /** @description Untrusted UTF-8 preview bounded to 1024 bytes at ingestion. The full snapshot is retained in the referenced sensitive artifact. */
+            preview: string;
+        };
+        RuntimeArtifactResult: {
+            /** @constant */
+            schemaVersion: "dataground.invocation-artifact-result/v1";
+            /** @constant */
+            status: "succeeded";
+            outputArtifact: {
+                artifactId: components["schemas"]["ArtifactId"];
+                digest: string;
+                sizeBytes: number;
+                /** @constant */
+                mediaType: "text/plain; charset=utf-8";
+            };
+        };
         HealthResponse: {
             /** @constant */
             status: "ok";
@@ -685,7 +707,7 @@ export interface components {
             };
             result?: {
                 [key: string]: unknown;
-            };
+            } & unknown;
             error?: components["schemas"]["Error"];
             usage?: components["schemas"]["Usage"];
             correlationId: string;
@@ -888,7 +910,7 @@ export interface components {
             };
         } & {
             [key: string]: unknown;
-        }) & unknown;
+        }) & (unknown & unknown);
         ArtifactDescriptor: {
             metadata: components["schemas"]["ResourceMetadata"];
             invocationId: components["schemas"]["InvocationId"];

@@ -1326,6 +1326,69 @@
           }
         }
       },
+      "RuntimeMessageArtifact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifactId", "digest", "sizeBytes", "phase", "preview"],
+        "properties": {
+          "artifactId": {
+            "$ref": "#/components/schemas/ArtifactId"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1048576
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["commentary", "final", "unspecified"]
+          },
+          "preview": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "Untrusted UTF-8 preview bounded to 1024 bytes at ingestion. The full snapshot is retained in the referenced sensitive artifact."
+          }
+        }
+      },
+      "RuntimeArtifactResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schemaVersion", "status", "outputArtifact"],
+        "properties": {
+          "schemaVersion": {
+            "const": "dataground.invocation-artifact-result/v1"
+          },
+          "status": {
+            "const": "succeeded"
+          },
+          "outputArtifact": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["artifactId", "digest", "sizeBytes", "mediaType"],
+            "properties": {
+              "artifactId": {
+                "$ref": "#/components/schemas/ArtifactId"
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "sizeBytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1048576
+              },
+              "mediaType": {
+                "const": "text/plain; charset=utf-8"
+              }
+            }
+          }
+        }
+      },
       "HealthResponse": {
         "type": "object",
         "additionalProperties": false,
@@ -1886,7 +1949,25 @@
             ]
           },
           "input": { "type": "object", "additionalProperties": true },
-          "result": { "type": "object", "additionalProperties": true },
+          "result": {
+            "type": "object",
+            "additionalProperties": true,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "schemaVersion": {
+                      "const": "dataground.invocation-artifact-result/v1"
+                    }
+                  },
+                  "required": ["schemaVersion"]
+                },
+                "then": {
+                  "$ref": "#/components/schemas/RuntimeArtifactResult"
+                }
+              }
+            ]
+          },
           "error": { "$ref": "#/components/schemas/Error" },
           "usage": { "$ref": "#/components/schemas/Usage" },
           "correlationId": { "type": "string", "minLength": 1, "maxLength": 128 },
@@ -2591,6 +2672,23 @@
               "properties": {
                 "payload": {
                   "$ref": "#/components/schemas/RuntimeCompletedMessage"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "output.message.artifact"
+                }
+              },
+              "required": ["type"]
+            },
+            "then": {
+              "properties": {
+                "payload": {
+                  "$ref": "#/components/schemas/RuntimeMessageArtifact"
                 }
               }
             }

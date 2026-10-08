@@ -87,3 +87,39 @@ func TestCompletedMessageRejectsConflictingReplay(t *testing.T) {
 		t.Fatal("changed completion accepted", err)
 	}
 }
+
+func TestCompletedMessageCarriesLargeSnapshotToGovernedSink(t *testing.T) {
+	text := strings.Repeat("answer", 20000)
+	session := newScriptedSession(t, func(server *scriptServer) {
+		server.completeStart("thread", "turn")
+		server.notify("item/completed", nativeMessageParams("thread", "turn", "message", text, "final_answer"))
+		server.notify("turn/completed", map[string]any{"threadId": "thread", "turn": map[string]any{"id": "turn", "status": "completed", "error": nil}})
+	})
+	client, err := codex.New(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	turn, err := client.Start(ctx, dgruntime.StartRequest{Prompt: "message"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := turn.Wait(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		select {
+		case event := <-turn.Events():
+			if event.Type == dgruntime.MessageCompletedEvent {
+				if event.Payload["text"] != text {
+					t.Fatal("snapshot changed")
+				}
+				return
+			}
+		default:
+			t.Fatal("large snapshot missing")
+		}
+	}
+}

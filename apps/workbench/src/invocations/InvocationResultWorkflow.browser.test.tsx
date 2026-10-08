@@ -130,3 +130,48 @@ it("does not restore content after unmounting during a read", async () => {
   await source.finish();
   expect(host.textContent).toBe("");
 });
+
+it("opens only a result artifact bound to the invocation after an explicit read", async () => {
+  const artifactId = "art_00000000000000000001";
+  const inspected: string[] = [];
+  let reads = 0;
+  const client = {
+    GET: async () => {
+      reads++;
+      return {
+        data: {
+          ...invocation,
+          artifactIds: [artifactId],
+          result: {
+            schemaVersion: "dataground.invocation-artifact-result/v1",
+            status: "succeeded",
+            outputArtifact: {
+              artifactId,
+              digest: `sha256:${"a".repeat(64)}`,
+              sizeBytes: 70000,
+              mediaType: "text/plain; charset=utf-8",
+            },
+          },
+        },
+        response: new Response(null, { status: 200 }),
+      };
+    },
+  } as unknown as DataGroundClient;
+  await act(async () =>
+    root.render(
+      <InvocationResultWorkflow
+        client={client}
+        reference={reference}
+        onInspectArtifact={(id) => inspected.push(id)}
+      />,
+    ),
+  );
+  expect(reads).toBe(0);
+  await click("Show result");
+  expect(inspected).toEqual([]);
+  await click("Inspect result artifact");
+  expect(inspected).toEqual([artifactId]);
+  expect(reads).toBe(1);
+  await click("Hide result");
+  expect(host.textContent).not.toContain("Inspect result artifact");
+});

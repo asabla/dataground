@@ -33,7 +33,7 @@ func (client *Client) handleCompletedMessage(item json.RawMessage) {
 		}
 	}
 	if _, err := dgruntime.ParseCompletedMessage(message.Payload()); err != nil {
-		client.fail(fmt.Errorf("%w: completed message exceeds the inline contract", dgruntime.ErrProtocol))
+		client.fail(fmt.Errorf("%w: completed message exceeds the snapshot limit", dgruntime.ErrProtocol))
 		return
 	}
 	// Only the single inbound reader owns this bounded map. Native identifiers

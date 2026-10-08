@@ -1,5 +1,21 @@
 {
   "fixtures": [
+    {
+      "file": "valid/runtime-artifact-result.json",
+      "schema": "RuntimeArtifactResult",
+      "valid": true
+    },
+    {
+      "file": "invalid/runtime-artifact-result-missing-digest.json",
+      "schema": "RuntimeArtifactResult",
+      "valid": false
+    },
+    { "file": "valid/event-message-artifact.json", "schema": "EventEnvelope", "valid": true },
+    {
+      "file": "invalid/event-message-artifact-routing.json",
+      "schema": "EventEnvelope",
+      "valid": false
+    },
     { "file": "valid/event-completed-message.json", "schema": "EventEnvelope", "valid": true },
     {
       "file": "invalid/event-completed-message-phase.json",

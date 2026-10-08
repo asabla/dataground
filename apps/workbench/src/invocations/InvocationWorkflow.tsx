@@ -350,6 +350,11 @@ export function InvocationWorkflow({
       {visibleInvocation?.state === "succeeded" && !state.loading && !state.error ? (
         <InvocationResultWorkflow
           client={client}
+          onInspectArtifact={
+            onInspectArtifact
+              ? (artifactId) => onInspectArtifact({ ...stableReference, artifactId })
+              : undefined
+          }
           reference={{
             ...stableReference,
             serviceId: visibleInvocation.serviceId,

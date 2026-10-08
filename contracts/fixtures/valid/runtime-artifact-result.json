@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "dataground.invocation-artifact-result/v1",
+  "status": "succeeded",
+  "outputArtifact": {
+    "artifactId": "art_00000000000000000001",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "sizeBytes": 70000,
+    "mediaType": "text/plain; charset=utf-8"
+  }
+}

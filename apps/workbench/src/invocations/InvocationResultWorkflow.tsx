@@ -10,7 +10,9 @@ import {
 export function InvocationResultWorkflow({
   client,
   reference,
+  onInspectArtifact,
 }: {
+  onInspectArtifact?: (artifactId: string) => void;
   client: DataGroundClient;
   reference: InvocationResultReference;
 }) {
@@ -53,6 +55,14 @@ export function InvocationResultWorkflow({
     <InvocationResult
       error={visible?.result && !visible.result.ok ? visible.result.error : undefined}
       isLoading={visible?.loading}
+      onInspectArtifact={
+        visible?.result?.ok && visible.result.artifactId && onInspectArtifact
+          ? () => {
+              if (visible.result?.ok && visible.result.artifactId)
+                onInspectArtifact(visible.result.artifactId);
+            }
+          : undefined
+      }
       onHide={hide}
       onShow={() => void show()}
       text={visible?.result?.ok ? visible.result.text : undefined}
