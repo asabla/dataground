@@ -204,7 +204,7 @@ export function InvocationInspectionWorkflow({
                 <h2 id={artifactInspectionTitleId}>Artifact inspection</h2>
               </div>
               <Button onPress={onCloseArtifact} variant="quiet">
-                Close metadata
+                Close artifact
               </Button>
             </div>
             <ArtifactWorkflow client={client} reference={selectedArtifact} />
@@ -219,7 +219,7 @@ export function InvocationInspectionWorkflow({
             <h2 id={artifactBlockedTitleId}>Artifact inspection unavailable</h2>
             <p>
               The selected artifact does not belong to the active invocation. Reopen it from the
-              confirmed event timeline before inspecting metadata.
+              confirmed event timeline before inspecting the artifact.
             </p>
           </section>
         ))}

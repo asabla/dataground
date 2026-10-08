@@ -304,7 +304,7 @@ describe("AgentServiceAuthoringWorkflow", () => {
     assert.match(markup, /Artifact inspection/u);
     assert.match(markup, /Loading metadata/u);
     assert.match(markup, /art_00000000000000000001/u);
-    assert.match(markup, /Close metadata/u);
+    assert.match(markup, /Close artifact/u);
   });
 
   it("opens governed approval review only for the active invocation", () => {

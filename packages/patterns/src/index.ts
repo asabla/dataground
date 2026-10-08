@@ -19,6 +19,7 @@ export {
   type ArtifactReference,
   type ArtifactResource,
 } from "./ArtifactCard";
+export { ArtifactContent, type ArtifactContentProps } from "./ArtifactContent";
 export {
   EventTimeline,
   type EventTimelineProps,
