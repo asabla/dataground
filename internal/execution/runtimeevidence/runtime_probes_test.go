@@ -632,12 +632,12 @@ func codexProbeScripts(runID string) []func(*codexProbeServer) {
 			server.notify("item/started", map[string]any{
 				"threadId": "native-thread",
 				"turnId":   "native-turn",
-				"item":     map[string]any{"type": "commandExecution"},
+				"item":     map[string]any{"id": "native-command", "type": "commandExecution", "status": "completed"},
 			})
 			server.notify("item/completed", map[string]any{
 				"threadId": "native-thread",
 				"turnId":   "native-turn",
-				"item":     map[string]any{"type": "commandExecution"},
+				"item":     map[string]any{"id": "native-command", "type": "commandExecution", "status": "completed"},
 			})
 			server.notify("item/agentMessage/delta", map[string]any{
 				"threadId": "native-thread",

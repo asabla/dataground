@@ -417,7 +417,7 @@ func (driver *InvocationRuntimeDriver) runTurn(
 		if handled, err := approvals.record(runCtx, claim, event, ended); handled {
 			return err
 		}
-		reference, err := driver.recordCompletedRuntimeMessage(runCtx, claim, effect, target, event)
+		reference, err := driver.recordRuntimeOutput(runCtx, claim, effect, target, event)
 		if err != nil {
 			return err
 		}

@@ -16,9 +16,12 @@ import (
 
 // The native adapter supplies full snapshots. Only this governed boundary can
 // replace their content with a catalog-bound public artifact reference.
-func (driver *InvocationRuntimeDriver) recordCompletedRuntimeMessage(ctx context.Context, claim persistence.OperationClaim, effect persistence.EffectRecord, target persistence.InvocationRuntimeTarget, event dgruntime.Event) (*dgruntime.MessageArtifact, error) {
-	if event.Type == dgruntime.MessageArtifactEvent {
+func (driver *InvocationRuntimeDriver) recordRuntimeOutput(ctx context.Context, claim persistence.OperationClaim, effect persistence.EffectRecord, target persistence.InvocationRuntimeTarget, event dgruntime.Event) (*dgruntime.MessageArtifact, error) {
+	if event.Type == dgruntime.MessageArtifactEvent || event.Type == dgruntime.CommandArtifactEvent {
 		return nil, dgruntime.ErrProtocol
+	}
+	if event.Type == dgruntime.CommandCompletedEvent {
+		return nil, driver.recordCompletedRuntimeCommand(ctx, claim, effect, target, event)
 	}
 	if event.Type != dgruntime.MessageCompletedEvent {
 		return nil, driver.recordRuntimeEvent(ctx, claim, event)
@@ -36,46 +39,8 @@ func (driver *InvocationRuntimeDriver) recordCompletedRuntimeMessage(ctx context
 	if len(message.Text) <= dgruntime.MaximumInlineMessageTextBytes && len(encoded) <= 128<<10 {
 		return nil, driver.recordRuntimeEvent(ctx, claim, event)
 	}
-	if err := driver.ready(ctx); err != nil {
-		return nil, err
-	}
-	request, err := driver.requests.BuildInvocationRuntimeRequest(target)
+	record, err := driver.finalizeRuntimeTextArtifact(ctx, claim, effect, target, event.Sequence, "runtime-message", "Completed runtime message", "file", message.Text)
 	if err != nil {
-		return nil, err
-	}
-	if err := driver.validateInvocationRuntimeRequest(request); err != nil {
-		return nil, err
-	}
-	if err := driver.authorizer.AuthorizeInvocationRuntime(ctx, target, request); err != nil {
-		return nil, err
-	}
-	claim, err = driver.store.RenewLease(ctx, claim, driver.leaseDuration)
-	if err != nil {
-		return nil, err
-	}
-	if err := driver.ready(ctx); err != nil {
-		return nil, err
-	}
-	content := []byte(message.Text)
-	digest := sha256.Sum256(content)
-	record := artifact.Record{
-		SchemaVersion: artifact.InvocationArtifactSchemaV1, IsolationDomainID: claim.IsolationDomainID,
-		ID:           identity.Derived("art", claim.IsolationDomainID+":"+target.InvocationID+":runtime-message:"+strconv.FormatUint(event.Sequence, 10)),
-		InvocationID: target.InvocationID, OperationID: claim.ID, EffectID: effect.EffectID,
-		Name: "Completed runtime message", Kind: "file", MediaType: "text/plain; charset=utf-8",
-		SizeBytes: int64(len(content)), Digest: "sha256:" + hex.EncodeToString(digest[:]), Sensitive: true,
-	}
-	bound, err := driver.artifacts.Finalize(ctx, artifact.Finalization{Binding: artifact.Binding{
-		Record: record, ActorID: claim.ActorID, CorrelationID: claim.CorrelationID,
-		LeaseOwner: claim.LeaseOwner, FencingToken: claim.FencingToken, StateMachineVersion: claim.StateMachineVersion,
-	}, Content: content})
-	if err != nil {
-		return nil, err
-	}
-	if bound.ID != record.ID || bound.Digest != record.Digest || bound.SizeBytes != record.SizeBytes {
-		return nil, artifact.ErrInvocationArtifactConflict
-	}
-	if err := driver.ready(ctx); err != nil {
 		return nil, err
 	}
 	reference := &dgruntime.MessageArtifact{ArtifactID: record.ID, Digest: record.Digest, SizeBytes: record.SizeBytes, Phase: message.Phase, Preview: dgruntime.MessagePreview(message.Text)}
@@ -84,4 +49,50 @@ func (driver *InvocationRuntimeDriver) recordCompletedRuntimeMessage(ctx context
 		return nil, err
 	}
 	return reference, nil
+}
+
+func (driver *InvocationRuntimeDriver) finalizeRuntimeTextArtifact(ctx context.Context, claim persistence.OperationClaim, effect persistence.EffectRecord, target persistence.InvocationRuntimeTarget, sequence uint64, namespace, name, kind, text string) (artifact.Record, error) {
+	if err := driver.ready(ctx); err != nil {
+		return artifact.Record{}, err
+	}
+	request, err := driver.requests.BuildInvocationRuntimeRequest(target)
+	if err != nil {
+		return artifact.Record{}, err
+	}
+	if err := driver.validateInvocationRuntimeRequest(request); err != nil {
+		return artifact.Record{}, err
+	}
+	if err := driver.authorizer.AuthorizeInvocationRuntime(ctx, target, request); err != nil {
+		return artifact.Record{}, err
+	}
+	claim, err = driver.store.RenewLease(ctx, claim, driver.leaseDuration)
+	if err != nil {
+		return artifact.Record{}, err
+	}
+	if err := driver.ready(ctx); err != nil {
+		return artifact.Record{}, err
+	}
+	content := []byte(text)
+	digest := sha256.Sum256(content)
+	record := artifact.Record{
+		SchemaVersion: artifact.InvocationArtifactSchemaV1, IsolationDomainID: claim.IsolationDomainID,
+		ID:           identity.Derived("art", claim.IsolationDomainID+":"+target.InvocationID+":"+namespace+":"+strconv.FormatUint(sequence, 10)),
+		InvocationID: target.InvocationID, OperationID: claim.ID, EffectID: effect.EffectID,
+		Name: name, Kind: kind, MediaType: "text/plain; charset=utf-8",
+		SizeBytes: int64(len(content)), Digest: "sha256:" + hex.EncodeToString(digest[:]), Sensitive: true,
+	}
+	bound, err := driver.artifacts.Finalize(ctx, artifact.Finalization{Binding: artifact.Binding{
+		Record: record, ActorID: claim.ActorID, CorrelationID: claim.CorrelationID,
+		LeaseOwner: claim.LeaseOwner, FencingToken: claim.FencingToken, StateMachineVersion: claim.StateMachineVersion,
+	}, Content: content})
+	if err != nil {
+		return artifact.Record{}, err
+	}
+	if bound.ID != record.ID || bound.Digest != record.Digest || bound.SizeBytes != record.SizeBytes {
+		return artifact.Record{}, artifact.ErrInvocationArtifactConflict
+	}
+	if err := driver.ready(ctx); err != nil {
+		return artifact.Record{}, err
+	}
+	return record, nil
 }

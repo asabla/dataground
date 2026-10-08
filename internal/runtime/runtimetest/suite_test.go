@@ -84,6 +84,12 @@ func (m *modelAdapter) release() {
 		return
 	}
 	switch m.scenario {
+	case CompletedCommands:
+		code := int32(1)
+		m.emit("activity.process.completed", map[string]any{"kind": "command", "status": "failed", "exitCode": code})
+		m.emit(dgruntime.CommandCompletedEvent, dgruntime.CompletedCommand{Text: OutputText, Status: "failed", ExitCode: &code}.Payload())
+		m.emit("lifecycle.succeeded", map[string]any{"message": "Runtime turn completed."})
+		m.finish(nil)
 	case CompletedMessages:
 		for _, message := range []dgruntime.CompletedMessage{{Text: "Progress.", Phase: "commentary"}, {Text: "Legacy answer.", Phase: "unspecified"}, {Text: OutputText, Phase: "final"}} {
 			m.emit("output.text.delta", map[string]any{"text": "Partial preview."})
