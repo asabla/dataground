@@ -64,6 +64,23 @@ jobs:
           candidate_image=$(docker image inspect --format '{{.Id}}' dataground-codex-compatibility:ci)
           printf 'image=%s\n' "$candidate_image" >> "$GITHUB_OUTPUT"
 
+      - name: Verify sequential turns with offline model fixtures
+        env:
+          CANDIDATE_IMAGE: ${{ steps.candidate.outputs.image }}
+        run: |
+          CGO_ENABLED=0 go test -c -o "$RUNNER_TEMP/codex-session-tests" ./internal/runtime/codex
+          session_container="dg-session-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          trap 'docker rm -f "$session_container" >/dev/null 2>&1 || true' EXIT
+          for codex_binary in /opt/dataground-compatibility/stock-codex /opt/dataground-compatibility/codex; do
+            docker run --rm --name "$session_container" --network none --read-only \
+              --cap-drop ALL --security-opt no-new-privileges \
+              --tmpfs /tmp:rw,exec,size=256m \
+              --mount "type=bind,source=$RUNNER_TEMP/codex-session-tests,target=/opt/dataground-session-tests,readonly" \
+              --env "DATAGROUND_TEST_CODEX_SESSION_BINARY=$codex_binary" \
+              --entrypoint /opt/dataground-session-tests "$CANDIDATE_IMAGE" \
+              -test.run '^TestNativeCodexSequentialSession$' -test.v -test.timeout=90s
+          done
+
       - name: Extract checksum-verified OpenShell CLI
         id: openshell
         env:
