@@ -31,6 +31,11 @@ func codexContractFixture(t *testing.T, scenario runtimetest.Scenario) runtimete
 			server.notify("turn/completed", map[string]any{"threadId": threadID, "turn": map[string]any{"id": turnID, "status": status, "error": map[string]any{"message": runtimetest.NativeCanary + "error"}}})
 		}
 		switch scenario {
+		case runtimetest.CompletedImages:
+			params := map[string]any{"threadId": threadID, "turnId": turnID, "item": map[string]any{"id": runtimetest.NativeCanary + "image", "type": "imageGeneration", "status": "completed", "result": runtimetest.ImageData, "savedPath": runtimetest.NativeCanary + "path", "revisedPrompt": runtimetest.NativeCanary + "prompt"}}
+			server.notify("item/completed", params)
+			server.notify("item/completed", params)
+			complete("completed")
 		case runtimetest.CompletedPatches:
 			params := map[string]any{"threadId": threadID, "turnId": turnID, "item": map[string]any{"id": runtimetest.NativeCanary + "patch", "type": "fileChange", "status": "completed", "changes": []any{map[string]any{"path": "/workspace/result.txt", "kind": map[string]any{"type": "add"}, "diff": runtimetest.OutputText}}}}
 			server.notify("item/completed", params)

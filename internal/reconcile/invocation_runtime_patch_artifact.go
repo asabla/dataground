@@ -23,7 +23,7 @@ func (driver *InvocationRuntimeDriver) recordCompletedRuntimePatch(ctx context.C
 	if err != nil {
 		return err
 	}
-	record, err := driver.finalizeRuntimeTextArtifact(ctx, claim, effect, target, event.Sequence, "runtime-patch", "Completed file patch", "structured-output", "application/json", string(content))
+	record, err := driver.finalizeRuntimeArtifact(ctx, claim, effect, target, event.Sequence, "runtime-patch", "Completed file patch", "structured-output", "application/json", content)
 	if err != nil {
 		return err
 	}

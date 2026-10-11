@@ -58,19 +58,21 @@ type Client struct {
 	nextID  uint64
 	pending map[uint64]chan wireMessage
 
-	started            bool
-	threadID           string
-	workingDir         string
-	turnID             string
-	approvalMode       dgruntime.ApprovalMode
-	interactionsClosed bool
-	nextSequence       uint64
-	nextApproval       uint64
-	approvals          map[string]approval
-	nativeRequests     map[string]struct{}
-	completedMessages  map[string][32]byte
-	completedCommands  map[string][32]byte
-	completedPatches   map[string][32]byte
+	started             bool
+	threadID            string
+	workingDir          string
+	turnID              string
+	approvalMode        dgruntime.ApprovalMode
+	interactionsClosed  bool
+	nextSequence        uint64
+	nextApproval        uint64
+	approvals           map[string]approval
+	nativeRequests      map[string]struct{}
+	completedMessages   map[string][32]byte
+	completedCommands   map[string][32]byte
+	completedPatches    map[string][32]byte
+	completedImages     map[string][32]byte
+	completedImageBytes int
 
 	questionMode    dgruntime.QuestionMode
 	questionTimeout time.Duration
@@ -114,6 +116,7 @@ func newClient(session execution.RuntimeSession, openShellProvider bool) (*Clien
 		completedMessages: make(map[string][32]byte),
 		completedCommands: make(map[string][32]byte),
 		completedPatches:  make(map[string][32]byte),
+		completedImages:   make(map[string][32]byte),
 		inbound:           make(chan wireMessage, inboundLimit),
 		events:            make(chan dgruntime.Event, eventLimit),
 		done:              make(chan struct{}),
@@ -715,6 +718,10 @@ func (client *Client) handleItemLifecycle(message wireMessage) {
 	}
 	if item.Type == "commandExecution" && message.Method == "item/completed" {
 		client.handleCompletedCommand(params.Item)
+		return
+	}
+	if item.Type == "imageGeneration" && message.Method == "item/completed" {
+		client.handleCompletedImage(params.Item)
 		return
 	}
 	if item.Type == "fileChange" && message.Method == "item/completed" {

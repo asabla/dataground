@@ -204,8 +204,13 @@ func (repository *Repository) RecordInvocationRuntimeEvent(
 			return domain.EventEnvelope{}, ErrInvocationRuntimeEventInvalid
 		}
 	}
-	if event.Type == dgruntime.CommandCompletedEvent || event.Type == dgruntime.PatchCompletedEvent {
+	if event.Type == dgruntime.CommandCompletedEvent || event.Type == dgruntime.PatchCompletedEvent || event.Type == dgruntime.ImageCompletedEvent {
 		return domain.EventEnvelope{}, ErrInvocationRuntimeEventInvalid
+	}
+	if event.Type == dgruntime.ImageArtifactEvent {
+		if _, err := dgruntime.ParseImageArtifact(event.Payload); err != nil {
+			return domain.EventEnvelope{}, ErrInvocationRuntimeEventInvalid
+		}
 	}
 	if event.Type == dgruntime.PatchArtifactEvent {
 		if _, err := dgruntime.ParsePatchArtifact(event.Payload); err != nil {
@@ -260,6 +265,12 @@ func (repository *Repository) RecordInvocationRuntimeEvent(
 		}
 	}
 
+	if event.Type == dgruntime.ImageArtifactEvent {
+		reference, _ := dgruntime.ParseImageArtifact(event.Payload)
+		if _, err := getRuntimeImageArtifact(ctx, tx, target.IsolationDomainID, target.InvocationID, claim.ID, event.SourceSequence, reference); err != nil {
+			return domain.EventEnvelope{}, err
+		}
+	}
 	if event.Type == dgruntime.PatchArtifactEvent {
 		reference, _ := dgruntime.ParsePatchArtifact(event.Payload)
 		if _, err := getRuntimePatchArtifact(ctx, tx, target.IsolationDomainID, target.InvocationID, claim.ID, event.SourceSequence, reference); err != nil {

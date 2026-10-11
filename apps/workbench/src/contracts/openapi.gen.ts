@@ -475,6 +475,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description A governed generated-image reference. Runtime ingestion bounds width times height to 16777216 pixels and checks the first image after bounding its decoded allocation. Exact original bytes are retained. */
+        RuntimeImageArtifact: {
+            artifactId: components["schemas"]["ArtifactId"];
+            digest: string;
+            sizeBytes: number;
+            /** @enum {string} */
+            mediaType: "image/png" | "image/jpeg" | "image/gif";
+            width: number;
+            height: number;
+            /** @constant */
+            preview: "Generated image retained.";
+        };
         RuntimeCompletedMessage: {
             /** @description Authoritative completed message text. Runtime ingestion also enforces a 64 KiB UTF-8 byte limit. Snapshots containing NUL use governed artifacts. */
             text: string;
@@ -967,7 +979,7 @@ export interface components {
             };
         } & {
             [key: string]: unknown;
-        }) & (unknown & unknown & unknown & unknown);
+        }) & (unknown & unknown & unknown & unknown & unknown);
         ArtifactDescriptor: {
             metadata: components["schemas"]["ResourceMetadata"];
             invocationId: components["schemas"]["InvocationId"];

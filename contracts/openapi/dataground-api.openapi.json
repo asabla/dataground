@@ -1367,6 +1367,51 @@
       }
     },
     "schemas": {
+      "RuntimeImageArtifact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifactId",
+          "digest",
+          "sizeBytes",
+          "mediaType",
+          "width",
+          "height",
+          "preview"
+        ],
+        "properties": {
+          "artifactId": {
+            "$ref": "#/components/schemas/ArtifactId"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4194304
+          },
+          "mediaType": {
+            "type": "string",
+            "enum": ["image/png", "image/jpeg", "image/gif"]
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8192
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8192
+          },
+          "preview": {
+            "const": "Generated image retained."
+          }
+        },
+        "description": "A governed generated-image reference. Runtime ingestion bounds width times height to 16777216 pixels and checks the first image after bounding its decoded allocation. Exact original bytes are retained."
+      },
       "RuntimeCompletedMessage": {
         "type": "object",
         "additionalProperties": false,
@@ -2906,6 +2951,15 @@
                   "$ref": "#/components/schemas/RuntimeCommandArtifact"
                 }
               }
+            }
+          },
+          {
+            "if": {
+              "properties": { "type": { "const": "output.image.artifact" } },
+              "required": ["type"]
+            },
+            "then": {
+              "properties": { "payload": { "$ref": "#/components/schemas/RuntimeImageArtifact" } }
             }
           },
           {

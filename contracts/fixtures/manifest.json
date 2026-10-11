@@ -1,5 +1,11 @@
 {
   "fixtures": [
+    { "file": "valid/event-image-artifact.json", "schema": "EventEnvelope", "valid": true },
+    {
+      "file": "invalid/event-image-artifact-routing.json",
+      "schema": "EventEnvelope",
+      "valid": false
+    },
     {
       "file": "invalid/event-message-artifact-nul.json",
       "schema": "EventEnvelope",

@@ -199,6 +199,12 @@ export function presentTimelineEvent(event: TimelineEvent): EventPresentation {
         label: "Invocation cancelled",
         tone: "warning",
       };
+    case "output.image.artifact":
+      return {
+        detail: "The generated image is stored as an artifact.",
+        label: "Generated image artifact",
+        tone: "neutral",
+      };
     case "output.patch.artifact":
       return {
         detail: boundedText(event.payload.preview, "The patch is stored as an artifact."),
@@ -398,7 +404,8 @@ export function timelineArtifactReference(
   return (event.type === "artifact.available" ||
     event.type === "output.message.artifact" ||
     event.type === "output.command.artifact" ||
-    event.type === "output.patch.artifact") &&
+    event.type === "output.patch.artifact" ||
+    event.type === "output.image.artifact") &&
     typeof artifactId === "string" &&
     artifactIdPattern.test(artifactId)
     ? {
