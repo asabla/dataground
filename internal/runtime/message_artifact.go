@@ -3,6 +3,7 @@ package runtime
 import (
 	"encoding/json"
 	"regexp"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -39,7 +40,7 @@ func ParseMessageArtifact(payload map[string]any) (MessageArtifact, error) {
 	if err != nil || len(payload) != 5 || json.Unmarshal(encoded, &message) != nil ||
 		!runtimeArtifactID.MatchString(message.ArtifactID) || !runtimeArtifactDigest.MatchString(message.Digest) ||
 		message.SizeBytes <= 0 || message.SizeBytes > MaximumMessageTextBytes ||
-		len(message.Preview) > MaximumMessagePreviewBytes || !utf8.ValidString(message.Preview) {
+		len(message.Preview) > MaximumMessagePreviewBytes || !utf8.ValidString(message.Preview) || strings.ContainsRune(message.Preview, 0) {
 		return MessageArtifact{}, ErrProtocol
 	}
 	for _, key := range []string{"artifactId", "digest", "sizeBytes", "phase", "preview"} {
@@ -54,11 +55,26 @@ func ParseMessageArtifact(payload map[string]any) (MessageArtifact, error) {
 	return MessageArtifact{}, ErrProtocol
 }
 
+// PostgreSQL JSONB cannot retain NUL. Escape it only in the bounded preview;
+// the governed artifact retains the original bytes.
 func MessagePreview(text string) string {
-	if len(text) <= MaximumMessagePreviewBytes {
+	return runtimeTextPreview(text, MaximumMessagePreviewBytes)
+}
+
+// Streamed deltas are display previews, not the authoritative completed text.
+func MessageDeltaPreview(text string) string {
+	return runtimeTextPreview(text, MaximumInlineMessageTextBytes)
+}
+
+func runtimeTextPreview(text string, maximum int) string {
+	return truncateTextPreview(strings.ReplaceAll(truncateTextPreview(text, maximum), "\x00", `\u0000`), maximum)
+}
+
+func truncateTextPreview(text string, maximum int) string {
+	if len(text) <= maximum {
 		return text
 	}
-	preview := text[:MaximumMessagePreviewBytes]
+	preview := text[:maximum]
 	for !utf8.ValidString(preview) {
 		preview = preview[:len(preview)-1]
 	}

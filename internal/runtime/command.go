@@ -82,8 +82,6 @@ func ParseCommandArtifact(payload map[string]any) (CommandArtifact, error) {
 	return command, nil
 }
 
-// PostgreSQL JSONB cannot retain a NUL character. Escape it only in the bounded
-// preview; the governed object retains every original snapshot byte.
 func CommandPreview(text string) string {
-	return MessagePreview(strings.ReplaceAll(MessagePreview(text), "\x00", `\u0000`))
+	return MessagePreview(text)
 }

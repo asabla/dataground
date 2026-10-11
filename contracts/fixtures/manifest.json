@@ -1,5 +1,15 @@
 {
   "fixtures": [
+    {
+      "file": "invalid/event-message-artifact-nul.json",
+      "schema": "EventEnvelope",
+      "valid": false
+    },
+    {
+      "file": "invalid/event-completed-message-nul.json",
+      "schema": "EventEnvelope",
+      "valid": false
+    },
     { "file": "valid/event-patch-artifact.json", "schema": "EventEnvelope", "valid": true },
     {
       "file": "invalid/event-patch-artifact-routing.json",

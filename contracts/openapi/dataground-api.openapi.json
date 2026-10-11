@@ -1375,7 +1375,8 @@
           "text": {
             "type": "string",
             "maxLength": 65536,
-            "description": "Authoritative completed message text. Runtime ingestion also enforces a 64 KiB UTF-8 byte limit."
+            "pattern": "^[^\\u0000]*$",
+            "description": "Authoritative completed message text. Runtime ingestion also enforces a 64 KiB UTF-8 byte limit. Snapshots containing NUL use governed artifacts."
           },
           "phase": {
             "type": "string",
@@ -1408,7 +1409,8 @@
           "preview": {
             "type": "string",
             "maxLength": 1024,
-            "description": "Untrusted UTF-8 preview bounded to 1024 bytes at ingestion. The full snapshot is retained in the referenced sensitive artifact."
+            "pattern": "^[^\\u0000]*$",
+            "description": "Untrusted UTF-8 preview bounded to 1024 bytes at ingestion. NUL is escaped as a literal backslash-u0000 sequence. The full snapshot is retained in the referenced sensitive artifact."
           }
         }
       },
@@ -2719,7 +2721,7 @@
             "type": "string",
             "maxLength": 1024,
             "pattern": "^[^\\u0000]*$",
-            "description": "Untrusted UTF-8 preview bounded to 1024 bytes at ingestion. The full snapshot is retained in the referenced sensitive artifact."
+            "description": "Untrusted UTF-8 preview bounded to 1024 bytes at ingestion. NUL is escaped as a literal backslash-u0000 sequence. The full snapshot is retained in the referenced sensitive artifact."
           },
           "status": {
             "enum": ["completed", "failed", "denied"]
