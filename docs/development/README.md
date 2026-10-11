@@ -15,6 +15,7 @@ PostgreSQL 18 is required for durable integration tests and durable control-plan
 | `cmd/dataground-migrate` | PostgreSQL schema migration and compatibility check |
 | `cmd/dataground-repair` | Audited failed-operation repair command |
 | `cmd/dataground-execution-plan-install` | Reviewed immutable revision execution-plan installer |
+| `cmd/dataground-workspace-source-install` | Database-authorized source catalog installation into loopback development storage |
 | `cmd/dataground-workspace-materialize` | Internal bounded source archive helper for sandbox provisioning |
 | `cmd/dataground-policy-install` | Audited immutable invocation-policy installer |
 | `cmd/dataground-policy-withdraw` | Audited exact-digest invocation-policy withdrawal |
@@ -53,7 +54,7 @@ PostgreSQL 18 is required for durable integration tests and durable control-plan
 
 Do not create directories from the proposed blueprint until code has a verified consumer for them.
 
-The [workspace source materializer](workspace-source-materialization.md) validates and installs a bounded source tree inside a sandbox. It remains separate from the public workspace resource and worker lifecycle.
+The [workspace source materializer](workspace-source-materialization.md) validates and installs a bounded source tree inside a sandbox. The [source catalog installer](workspace-source-catalog.md) binds a reviewed archive to an existing durable workspace and immutable development storage. Source use remains separate from the worker lifecycle.
 
 ## Commands
 
