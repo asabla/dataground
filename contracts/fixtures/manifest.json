@@ -1,5 +1,17 @@
 {
   "fixtures": [
+    { "file": "valid/event-tool-artifact.json", "schema": "EventEnvelope", "valid": true },
+    {
+      "file": "invalid/event-tool-artifact-routing.json",
+      "schema": "EventEnvelope",
+      "valid": false
+    },
+    { "file": "valid/runtime-tool-output.json", "schema": "RuntimeToolOutput", "valid": true },
+    {
+      "file": "invalid/runtime-tool-output-status.json",
+      "schema": "RuntimeToolOutput",
+      "valid": false
+    },
     { "file": "valid/event-image-artifact.json", "schema": "EventEnvelope", "valid": true },
     {
       "file": "invalid/event-image-artifact-routing.json",

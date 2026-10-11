@@ -475,6 +475,26 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description Normalized, untrusted tool result data retained as sensitive JSON. Ingestion enforces a 1 MiB encoded snapshot and nesting depth of 64 for content values. URLs are data only and are not fetched or rendered. */
+        RuntimeToolOutput: {
+            /** @constant */
+            schemaVersion: "dataground.runtime-tool-output/v1";
+            /** @enum {unknown} */
+            status: "completed" | "failed";
+            content: unknown[];
+            structuredContent: unknown;
+            error: string | null;
+        } & unknown;
+        RuntimeToolArtifact: {
+            artifactId: components["schemas"]["ArtifactId"];
+            digest: string;
+            sizeBytes: number;
+            /** @enum {unknown} */
+            status: "completed" | "failed";
+            contentCount: number;
+            /** @constant */
+            preview: "Tool output retained.";
+        };
         /** @description A governed generated-image reference. Runtime ingestion bounds width times height to 16777216 pixels and checks the first image after bounding its decoded allocation. Exact original bytes are retained. */
         RuntimeImageArtifact: {
             artifactId: components["schemas"]["ArtifactId"];
@@ -979,7 +999,7 @@ export interface components {
             };
         } & {
             [key: string]: unknown;
-        }) & (unknown & unknown & unknown & unknown & unknown);
+        }) & (unknown & unknown & unknown & unknown & unknown & unknown);
         ArtifactDescriptor: {
             metadata: components["schemas"]["ResourceMetadata"];
             invocationId: components["schemas"]["InvocationId"];

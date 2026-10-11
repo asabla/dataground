@@ -22,6 +22,7 @@ const (
 	UsageSnapshots    Scenario = "usage-snapshots"
 	CompletedMessages Scenario = "completed-messages"
 	CompletedCommands Scenario = "completed-commands"
+	CompletedTools    Scenario = "completed-tools"
 	CompletedImages   Scenario = "completed-images"
 	CompletedPatches  Scenario = "completed-patches"
 	Failure           Scenario = "failure"
@@ -65,7 +66,7 @@ func Run(t *testing.T, factory Factory, features Features) {
 	if factory == nil {
 		t.Fatal("runtime contract fixture factory is absent")
 	}
-	scenarios := []Scenario{Success, UsageSnapshots, CompletedMessages, CompletedCommands, CompletedPatches, CompletedImages, Failure, Interrupt, ProtocolFailure, ScopeViolation, ProcessFailure, Ownership, Validation}
+	scenarios := []Scenario{Success, UsageSnapshots, CompletedMessages, CompletedCommands, CompletedPatches, CompletedImages, CompletedTools, Failure, Interrupt, ProtocolFailure, ScopeViolation, ProcessFailure, Ownership, Validation}
 	if features.Approvals {
 		scenarios = append(scenarios, Approve, Deny)
 	} else {
@@ -156,6 +157,13 @@ func run(t *testing.T, f Fixture, scenario Scenario) {
 	}
 	f.Release()
 	switch scenario {
+	case CompletedTools:
+		stream.next("activity.tool.completed")
+		output, err := dgruntime.ParseCompletedToolOutput(stream.next(dgruntime.ToolCompletedEvent).Payload)
+		if err != nil || output.Status != "failed" || len(output.Content) != 1 || output.Content[0].(map[string]any)["text"] != OutputText {
+			t.Fatal("tool result changed", err)
+		}
+		stream.next("lifecycle.succeeded")
 	case CompletedImages:
 		image, err := dgruntime.ParseCompletedImage(stream.next(dgruntime.ImageCompletedEvent).Payload)
 		if err != nil || image.MediaType != "image/png" || image.Width != 1 || image.Height != 1 {
