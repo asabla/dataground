@@ -33,7 +33,7 @@ func TestQueuedApprovalRechecksTurnBeforeWriting(t *testing.T) {
 		t.Run(boundary, func(t *testing.T) {
 			wire := &approvalWire{}
 			client := &Client{
-				input: wire, threadID: "thread", turnID: "turn",
+				connection: &connection{input: wire, done: make(chan struct{}), closed: make(chan struct{})}, threadID: "thread", turnID: "turn",
 				approvals: map[string]approval{
 					"approval-1": {
 						requestID: json.RawMessage(`"native-request"`),
@@ -41,8 +41,8 @@ func TestQueuedApprovalRechecksTurnBeforeWriting(t *testing.T) {
 					},
 				},
 				nativeRequests: map[string]struct{}{"string:native-request": {}},
-				events:         make(chan dgruntime.Event, 4), done: make(chan struct{}),
-				closed: make(chan struct{}), terminalDone: make(chan struct{}),
+				events:         make(chan dgruntime.Event, 4),
+				terminalDone:   make(chan struct{}),
 			}
 			// Hold the transport busy while a human decision is accepted locally.
 			client.writeMu.Lock()

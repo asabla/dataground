@@ -110,12 +110,14 @@ func (client *Client) handleQuestionRequest(message wireMessage) {
 		current, exists := client.questions[id]
 		expired := exists && current == pending
 		if expired {
+			client.inFlightCommands++
 			client.closeInteractionsLocked()
 		}
 		client.stateMu.Unlock()
 		// An unanswered request never selects a default or sends an empty answer.
 		// Stop the transport so headless or abandoned turns cannot wait indefinitely.
 		if expired {
+			defer client.finishCommand()
 			client.fail(dgruntime.ErrQuestionExpired)
 		}
 	})
@@ -178,8 +180,10 @@ func (client *Client) AnswerQuestion(ctx context.Context, id string, answers []d
 		}
 	}
 	pending.resolving = true
+	client.inFlightCommands++
 	requestID := append(json.RawMessage(nil), pending.requestID...)
 	client.stateMu.Unlock()
+	defer client.finishCommand()
 	guard := func() error {
 		client.stateMu.Lock()
 		defer client.stateMu.Unlock()

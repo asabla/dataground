@@ -22,7 +22,7 @@ type queueSession struct {
 func (session *queueSession) Close() error { session.closed.Store(true); return nil }
 func queueFixture() (*Client, *queueSession) {
 	session := &queueSession{}
-	return &Client{input: &approvalWire{}, session: session, inbound: make(chan wireMessage, inboundLimit), events: make(chan dgruntime.Event, eventLimit), done: make(chan struct{}), closed: make(chan struct{}), terminalDone: make(chan struct{}), threadID: "thread", turnID: "turn"}, session
+	return &Client{connection: &connection{input: &approvalWire{}, session: session, inbound: make(chan wireMessage, inboundLimit), done: make(chan struct{}), closed: make(chan struct{})}, events: make(chan dgruntime.Event, eventLimit), terminalDone: make(chan struct{}), threadID: "thread", turnID: "turn"}, session
 }
 func TestEventQueueFailsPromptlyOnBytesAndCount(t *testing.T) {
 	for _, tc := range []struct {

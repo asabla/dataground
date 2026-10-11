@@ -19,7 +19,7 @@ func (cancelledQuestionWriteSession) Close() error { return nil }
 
 func TestQuestionWriteRechecksItsDeliveryContextAfterTheGuard(t *testing.T) {
 	wire := &approvalWire{}
-	client := &Client{input: wire, session: cancelledQuestionWriteSession{}, done: make(chan struct{}), closed: make(chan struct{})}
+	client := &Client{connection: &connection{input: wire, session: cancelledQuestionWriteSession{}, done: make(chan struct{}), closed: make(chan struct{})}}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	err := client.writeGuarded(ctx, map[string]any{"result": "bounded answer"}, func() error { cancel(); return nil })
@@ -44,7 +44,7 @@ func TestQueuedQuestionAnswerCannotOutliveNativeClearance(t *testing.T) {
 		expiresAt: time.Now().Add(time.Minute), timer: time.NewTimer(time.Minute),
 	}
 	defer pending.timer.Stop()
-	client := &Client{input: wire, threadID: "thread", turnID: "turn", questions: map[string]*pendingQuestion{"question-1": pending}, nativeRequests: map[string]struct{}{"string:native-request": {}}, done: make(chan struct{}), closed: make(chan struct{})}
+	client := &Client{connection: &connection{input: wire, done: make(chan struct{}), closed: make(chan struct{})}, threadID: "thread", turnID: "turn", questions: map[string]*pendingQuestion{"question-1": pending}, nativeRequests: map[string]struct{}{"string:native-request": {}}}
 	client.writeMu.Lock()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

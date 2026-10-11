@@ -45,8 +45,12 @@ func (client *Client) handleTokenUsage(message wireMessage) {
 		client.fail(fmt.Errorf("%w: runtime usage snapshot is invalid", dgruntime.ErrProtocol))
 		return
 	}
-	// Start creates one fresh ephemeral thread for one invocation. The thread
-	// total is therefore the invocation snapshot; last is not an additive delta.
+	// Native totals belong to the thread. A single-use client maps that thread
+	// to one invocation; a sequential session must retain session scope.
 	usage := domain.Usage{InputTokens: *params.Usage.Total.Input, OutputTokens: *params.Usage.Total.Output, TotalTokens: *params.Usage.Total.Total}
-	client.emit("usage.recorded", usage.SnapshotPayload())
+	eventType := "usage.recorded"
+	if client.sequential {
+		eventType = "usage.session.recorded"
+	}
+	client.emit(eventType, usage.SnapshotPayload())
 }
