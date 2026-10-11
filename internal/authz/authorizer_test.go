@@ -25,6 +25,9 @@ func TestDevelopmentCedarAuthorizerBindsPrincipalDomainAndClosedActions(t *testi
 	}
 	principal := newPrincipal(t, testActor, testDomain)
 	requests := []authz.Request{
+		request(principal, authz.CreateWorkspace, authz.IsolationDomain, testDomain),
+		request(principal, authz.ListWorkspaces, authz.IsolationDomain, testDomain),
+		request(principal, authz.ReadWorkspace, authz.Workspace, "wsp_00000000000000000001"),
 		request(principal, authz.ListInvocationQuestions, authz.Invocation, "inv_00000000000000000001"),
 		request(principal, authz.ListInvocationApprovals, authz.Invocation, "inv_00000000000000000001"),
 		request(principal, authz.CreateAgentService, authz.IsolationDomain, testDomain),
@@ -183,5 +186,26 @@ func TestArtifactMetadataPermissionDoesNotGrantContent(t *testing.T) {
 	metadata.Action = authz.ReadInvocationArtifactContent
 	if err := authorizer.Authorize(context.Background(), metadata); !errors.Is(err, authz.ErrDenied) {
 		t.Fatalf("metadata granted content: %v", err)
+	}
+}
+
+func TestWorkspaceReadPermissionDoesNotGrantCreationDiscoveryOrExecution(t *testing.T) {
+	authorizer, err := authz.NewStaticCedarAuthorizer(authz.StaticCedarConfig{PolicySetID: "workspace-read", Schema: authz.CanonicalAPICedarSchema(), Policies: []byte(`permit(principal, action == DataGround::Action::"readWorkspace", resource);`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal := newPrincipal(t, testActor, testDomain)
+	if err := authorizer.Authorize(context.Background(), request(principal, authz.ReadWorkspace, authz.Workspace, "wsp_00000000000000000001")); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []authz.Request{request(principal, authz.CreateWorkspace, authz.IsolationDomain, testDomain), request(principal, authz.ListWorkspaces, authz.IsolationDomain, testDomain), request(principal, authz.InvokeAgentService, authz.AgentService, "svc_00000000000000000001"), request(principal, authz.ReadInvocationArtifactContent, authz.Artifact, "art_00000000000000000001")} {
+		if err := authorizer.Authorize(context.Background(), r); !errors.Is(err, authz.ErrDenied) {
+			t.Fatal("workspace permission expanded", r.Action, err)
+		}
+	}
+	for _, r := range []authz.Request{request(principal, authz.ReadWorkspace, authz.AgentService, "wsp_00000000000000000001"), request(principal, authz.CreateWorkspace, authz.Workspace, "wsp_00000000000000000001")} {
+		if err := authorizer.Authorize(context.Background(), r); !errors.Is(err, authz.ErrInvalid) {
+			t.Fatal("wrong resource kind accepted", err)
+		}
 	}
 }

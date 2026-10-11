@@ -38,6 +38,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/isolation-domains/{isolationDomainId}/workspaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List workspaces in an isolation domain
+         * @description Returns one bounded newest-first metadata page. Cursors bind the isolation domain and the last timestamp and identifier. List authorization is distinct from exact workspace read authorization.
+         */
+        get: operations["listWorkspaces"];
+        put?: never;
+        /**
+         * Create a workspace
+         * @description Creates a stable isolation-scoped workspace identity and display metadata. This does not provision storage or a sandbox, import source, or grant runtime access.
+         */
+        post: operations["createWorkspace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/isolation-domains/{isolationDomainId}/workspaces/{workspaceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read an exact workspace
+         * @description Reads display metadata for one isolation-scoped workspace by stable identity. Requires readWorkspace authorization on that exact workspace. This does not grant access to source or execution.
+         */
+        get: operations["readWorkspace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/isolation-domains/{isolationDomainId}/agent-services": {
         parameters: {
             query?: never;
@@ -651,6 +695,28 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** @description Names are trimmed and bounded to 128 UTF-8 bytes; descriptions are bounded to 2048 UTF-8 bytes. NUL and invalid UTF-8 are rejected. */
+        Workspace: {
+            metadata: components["schemas"]["ResourceMetadata"] & {
+                id?: components["schemas"]["WorkspaceId"];
+            };
+            name: string;
+            description?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        WorkspacePage: {
+            items: components["schemas"]["Workspace"][];
+            nextCursor?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description Names are trimmed and bounded to 128 UTF-8 bytes; descriptions are bounded to 2048 UTF-8 bytes. NUL and invalid UTF-8 are rejected. */
+        CreateWorkspaceRequest: {
+            name: string;
+            description?: string;
+        };
+        WorkspaceId: string;
         AgentService: {
             metadata: components["schemas"]["ResourceMetadata"];
             name: string;
@@ -1136,6 +1202,7 @@ export interface components {
         };
     };
     parameters: {
+        WorkspaceId: components["schemas"]["WorkspaceId"];
         IsolationDomainId: components["schemas"]["IsolationDomainId"];
         ServiceId: components["schemas"]["ServiceId"];
         RevisionId: components["schemas"]["RevisionId"];
@@ -1193,6 +1260,98 @@ export interface operations {
                     "application/json": components["schemas"]["HealthResponse"];
                 };
             };
+        };
+    };
+    listWorkspaces: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded workspace page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspacePage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    createWorkspace: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque caller key scoped to the isolation domain, HTTP method, and route. Reuse with a different body fails with IDEMPOTENCY_KEY_REUSED. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkspaceRequest"];
+            };
+        };
+        responses: {
+            /** @description Workspace created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workspace"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            415: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    readWorkspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The exact workspace. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workspace"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     listAgentServices: {

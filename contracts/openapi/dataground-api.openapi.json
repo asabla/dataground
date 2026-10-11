@@ -42,6 +42,158 @@
         }
       }
     },
+    "/v1/isolation-domains/{isolationDomainId}/workspaces": {
+      "get": {
+        "operationId": "listWorkspaces",
+        "summary": "List workspaces in an isolation domain",
+        "description": "Returns one bounded newest-first metadata page. Cursors bind the isolation domain and the last timestamp and identifier. List authorization is distinct from exact workspace read authorization.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded workspace page.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspacePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createWorkspace",
+        "summary": "Create a workspace",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkspaceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Workspace created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "description": "Creates a stable isolation-scoped workspace identity and display metadata. This does not provision storage or a sandbox, import source, or grant runtime access."
+      }
+    },
+    "/v1/isolation-domains/{isolationDomainId}/workspaces/{workspaceId}": {
+      "get": {
+        "operationId": "readWorkspace",
+        "summary": "Read an exact workspace",
+        "description": "Reads display metadata for one isolation-scoped workspace by stable identity. Requires readWorkspace authorization on that exact workspace. This does not grant access to source or execution.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The exact workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/v1/isolation-domains/{isolationDomainId}/agent-services": {
       "get": {
         "operationId": "listAgentServices",
@@ -1278,6 +1430,14 @@
       }
     },
     "parameters": {
+      "WorkspaceId": {
+        "name": "workspaceId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/WorkspaceId"
+        }
+      },
       "IsolationDomainId": {
         "name": "isolationDomainId",
         "in": "path",
@@ -1806,6 +1966,81 @@
           "fencingToken": { "type": "integer", "minimum": 1 },
           "expiresAt": { "type": "string", "format": "date-time" }
         }
+      },
+      "Workspace": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["metadata", "name"],
+        "properties": {
+          "metadata": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ResourceMetadata"
+              },
+              {
+                "properties": {
+                  "id": {
+                    "$ref": "#/components/schemas/WorkspaceId"
+                  }
+                }
+              }
+            ]
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[^\\u0000]*$"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2048,
+            "pattern": "^[^\\u0000]*$"
+          }
+        },
+        "description": "Names are trimmed and bounded to 128 UTF-8 bytes; descriptions are bounded to 2048 UTF-8 bytes. NUL and invalid UTF-8 are rejected."
+      },
+      "WorkspacePage": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/Workspace"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        }
+      },
+      "CreateWorkspaceRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[^\\u0000]*$"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2048,
+            "pattern": "^[^\\u0000]*$"
+          }
+        },
+        "description": "Names are trimmed and bounded to 128 UTF-8 bytes; descriptions are bounded to 2048 UTF-8 bytes. NUL and invalid UTF-8 are rejected."
+      },
+      "WorkspaceId": {
+        "type": "string",
+        "pattern": "^wsp_[0-9a-z]{20,32}$"
       },
       "AgentService": {
         "type": "object",

@@ -180,6 +180,9 @@ func newDurableHandler(
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", healthHandler)
 	mux.HandleFunc("GET /readyz", server.ready)
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/workspaces", protected(authz.CreateWorkspace, authz.IsolationDomain, "", server.createWorkspace))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/workspaces", protected(authz.ListWorkspaces, authz.IsolationDomain, "", server.listWorkspaces))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/workspaces/{workspaceId}", protected(authz.ReadWorkspace, authz.Workspace, "workspaceId", server.getWorkspace))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/agent-services", protected(
 		authz.ListAgentServices, authz.IsolationDomain, "", server.listAgentServices,
 	))

@@ -16,6 +16,12 @@ type ResourceMetadata struct {
 	Labels            map[string]string `json:"labels,omitempty"`
 }
 
+type Workspace struct {
+	Metadata    ResourceMetadata `json:"metadata"`
+	Name        string           `json:"name"`
+	Description string           `json:"description,omitempty"`
+}
+
 type AgentService struct {
 	Metadata    ResourceMetadata `json:"metadata"`
 	Name        string           `json:"name"`

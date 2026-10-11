@@ -1,5 +1,17 @@
 {
   "fixtures": [
+    { "file": "valid/workspace-page-empty.json", "schema": "WorkspacePage", "valid": true },
+    {
+      "file": "invalid/create-workspace-nul.json",
+      "schema": "CreateWorkspaceRequest",
+      "valid": false
+    },
+    {
+      "file": "invalid/create-workspace-path.json",
+      "schema": "CreateWorkspaceRequest",
+      "valid": false
+    },
+    { "file": "valid/create-workspace.json", "schema": "CreateWorkspaceRequest", "valid": true },
     { "file": "valid/runtime-plan-snapshot.json", "schema": "RuntimePlanSnapshot", "valid": true },
     { "file": "invalid/runtime-plan-status.json", "schema": "RuntimePlanSnapshot", "valid": false },
     { "file": "valid/event-plan-artifact.json", "schema": "EventEnvelope", "valid": true },
