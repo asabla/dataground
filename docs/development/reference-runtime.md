@@ -119,3 +119,13 @@ leases with monotonically increasing fencing tokens, transactional outbox and au
 deterministic external effect IDs. A replacement worker observes the persistent provider receipt
 before repeating an ambiguous effect. Operational limits and recovery procedures are documented
 in [durable control-plane operations](durable-control-plane.md).
+
+## Workspace identities
+
+The reference and durable APIs expose `POST` and `GET /v1/isolation-domains/{isolationDomainId}/workspaces` and `GET /v1/isolation-domains/{isolationDomainId}/workspaces/{workspaceId}`. Creation accepts a name and optional description under the existing idempotency contract. The name is trimmed and limited to 128 UTF-8 bytes; descriptions are limited to 2,048 UTF-8 bytes. Invalid UTF-8, NUL, null descriptions and unknown request fields are rejected. IDs use the `wsp_` namespace and are scoped by isolation domain. Names are display metadata and need not be unique.
+
+The API evaluates `createWorkspace` and `listWorkspaces` against the isolation domain and `readWorkspace` against the exact workspace. These permissions are separate. A workspace grant does not grant source, artifact or execution access. Lists return at most 100 metadata records in descending creation-time and ID order, with a default limit of 50. Canonical cursors bind that boundary to one isolation domain. Each page and exact read requires fresh authorization.
+
+Durable creation commits the identity, original idempotency response, safe audit receipt and outbox event in one PostgreSQL transaction. Concurrent retries return one stable identity; a changed request under the same key conflicts. Migration 64 also extends the closed API authorization-audit vocabulary and refuses downgrade while workspace resources or their authorization evidence exist. Process-local mode retains its documented restart limitation.
+
+This establishes workspace identity and metadata for later session and source bindings. It does not provision storage, import a repository, create a source snapshot, grant a host mount, start a session, or add workspace update/deletion operations. Those lifecycle and execution boundaries remain required work before release acceptance.

@@ -43,6 +43,7 @@ type storedResponse struct {
 
 type Server struct {
 	mu                   sync.RWMutex
+	workspaces           map[string]domain.Workspace
 	services             map[string]AgentService
 	revisions            map[string]ServiceRevision
 	revisionCounts       map[string]int
@@ -78,6 +79,7 @@ func NewRateLimitedDPoPHandler(
 
 func NewServer() *Server {
 	return &Server{
+		workspaces:           make(map[string]domain.Workspace),
 		services:             make(map[string]AgentService),
 		revisions:            make(map[string]ServiceRevision),
 		revisionCounts:       make(map[string]int),
@@ -137,6 +139,9 @@ func (server *Server) handler(
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", healthHandler)
 	mux.HandleFunc("GET /readyz", healthHandler)
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/workspaces", protected(authz.CreateWorkspace, authz.IsolationDomain, "", server.createWorkspace))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/workspaces", protected(authz.ListWorkspaces, authz.IsolationDomain, "", server.listWorkspaces))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/workspaces/{workspaceId}", protected(authz.ReadWorkspace, authz.Workspace, "workspaceId", server.getWorkspace))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/agent-services", protected(
 		authz.ListAgentServices, authz.IsolationDomain, "", server.listAgentServices,
 	))
