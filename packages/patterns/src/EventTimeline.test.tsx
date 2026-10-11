@@ -439,3 +439,30 @@ it("offers scoped patch inspection without exposing paths or implying invocation
     );
   }
 });
+
+it("offers scoped generated-image inspection without exposing paths or implying invocation success", () => {
+  const event: TimelineEvent = {
+    ...baseEvent,
+    type: "output.image.artifact",
+    payload: {
+      artifactId: "art_00000000000000000001",
+      preview: "Generated image retained.",
+      path: "/native/private",
+      status: "failed",
+    },
+  };
+  assert.deepEqual(timelineArtifactReference(event), {
+    ...reference,
+    artifactId: event.payload.artifactId,
+  });
+  const markup = renderToStaticMarkup(
+    <EventTimeline
+      connectionState="current"
+      events={[event]}
+      onInspectArtifact={() => undefined}
+      reference={reference}
+    />,
+  );
+  assert.match(markup, /Generated image artifact/u);
+  assert.doesNotMatch(markup, /native|Invocation succeeded/u);
+});

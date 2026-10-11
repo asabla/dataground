@@ -15,7 +15,7 @@ func (driver *InvocationRuntimeDriver) recordCompletedRuntimeCommand(ctx context
 	if err != nil || event.Sequence == 0 || event.Sequence > math.MaxInt64 {
 		return dgruntime.ErrProtocol
 	}
-	record, err := driver.finalizeRuntimeTextArtifact(ctx, claim, effect, target, event.Sequence, "runtime-command", "Completed command output", "log", "text/plain; charset=utf-8", command.Text)
+	record, err := driver.finalizeRuntimeArtifact(ctx, claim, effect, target, event.Sequence, "runtime-command", "Completed command output", "log", "text/plain; charset=utf-8", []byte(command.Text))
 	if err != nil {
 		return err
 	}

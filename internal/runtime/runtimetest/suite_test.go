@@ -84,6 +84,10 @@ func (m *modelAdapter) release() {
 		return
 	}
 	switch m.scenario {
+	case CompletedImages:
+		m.emit(dgruntime.ImageCompletedEvent, dgruntime.CompletedImage{Data: ImageData}.Payload())
+		m.emit("lifecycle.succeeded", map[string]any{"message": "Runtime turn completed."})
+		m.finish(nil)
 	case CompletedPatches:
 		m.emit("activity.file.completed", map[string]any{"kind": "change", "status": "completed", "changeCount": 1})
 		m.emit(dgruntime.PatchCompletedEvent, dgruntime.CompletedPatch{SchemaVersion: dgruntime.PatchSchemaV1, Status: "completed", Changes: []dgruntime.PatchChange{{Path: "result.txt", Kind: "add", Diff: OutputText}}}.Payload())

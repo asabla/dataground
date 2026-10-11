@@ -19,8 +19,11 @@ import (
 // The native adapter supplies full snapshots. Only this governed boundary can
 // replace their content with a catalog-bound public artifact reference.
 func (driver *InvocationRuntimeDriver) recordRuntimeOutput(ctx context.Context, claim persistence.OperationClaim, effect persistence.EffectRecord, target persistence.InvocationRuntimeTarget, event dgruntime.Event) (*dgruntime.MessageArtifact, error) {
-	if event.Type == dgruntime.MessageArtifactEvent || event.Type == dgruntime.CommandArtifactEvent || event.Type == dgruntime.PatchArtifactEvent {
+	if event.Type == dgruntime.MessageArtifactEvent || event.Type == dgruntime.CommandArtifactEvent || event.Type == dgruntime.PatchArtifactEvent || event.Type == dgruntime.ImageArtifactEvent {
 		return nil, dgruntime.ErrProtocol
+	}
+	if event.Type == dgruntime.ImageCompletedEvent {
+		return nil, driver.recordCompletedRuntimeImage(ctx, claim, effect, target, event)
 	}
 	if event.Type == dgruntime.PatchCompletedEvent {
 		return nil, driver.recordCompletedRuntimePatch(ctx, claim, effect, target, event)
@@ -52,7 +55,7 @@ func (driver *InvocationRuntimeDriver) recordRuntimeOutput(ctx context.Context, 
 	if len(message.Text) <= dgruntime.MaximumInlineMessageTextBytes && len(encoded) <= 128<<10 && !messageContainsNUL(message.Text, target.OutputSchema != nil) {
 		return nil, driver.recordRuntimeEvent(ctx, claim, event)
 	}
-	record, err := driver.finalizeRuntimeTextArtifact(ctx, claim, effect, target, event.Sequence, "runtime-message", "Completed runtime message", "file", "text/plain; charset=utf-8", message.Text)
+	record, err := driver.finalizeRuntimeArtifact(ctx, claim, effect, target, event.Sequence, "runtime-message", "Completed runtime message", "file", "text/plain; charset=utf-8", []byte(message.Text))
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +67,7 @@ func (driver *InvocationRuntimeDriver) recordRuntimeOutput(ctx context.Context, 
 	return reference, nil
 }
 
-func (driver *InvocationRuntimeDriver) finalizeRuntimeTextArtifact(ctx context.Context, claim persistence.OperationClaim, effect persistence.EffectRecord, target persistence.InvocationRuntimeTarget, sequence uint64, namespace, name, kind, mediaType, text string) (artifact.Record, error) {
+func (driver *InvocationRuntimeDriver) finalizeRuntimeArtifact(ctx context.Context, claim persistence.OperationClaim, effect persistence.EffectRecord, target persistence.InvocationRuntimeTarget, sequence uint64, namespace, name, kind, mediaType string, content []byte) (artifact.Record, error) {
 	if err := driver.ready(ctx); err != nil {
 		return artifact.Record{}, err
 	}
@@ -85,7 +88,6 @@ func (driver *InvocationRuntimeDriver) finalizeRuntimeTextArtifact(ctx context.C
 	if err := driver.ready(ctx); err != nil {
 		return artifact.Record{}, err
 	}
-	content := []byte(text)
 	digest := sha256.Sum256(content)
 	record := artifact.Record{
 		SchemaVersion: artifact.InvocationArtifactSchemaV1, IsolationDomainID: claim.IsolationDomainID,

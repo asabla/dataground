@@ -343,3 +343,30 @@ export const FilePatchArtifact: Story = {
     await expect(canvas.queryByText("Invocation succeeded", { exact: true })).toBeNull();
   },
 };
+
+export const GeneratedImageArtifact: Story = {
+  args: {
+    events: [
+      event(2, "output.image.artifact", {
+        artifactId: "art_00000000000000000001",
+        mediaType: "image/png",
+        width: 1,
+        height: 1,
+        preview: "Generated image retained.",
+      }),
+    ],
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Generated image artifact", { exact: true })).toBeVisible();
+    const inspect = canvas.getByRole("button", { name: "Inspect artifact metadata" });
+    inspect.focus();
+    await expect(inspect).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await expect(args.onInspectArtifact).toHaveBeenCalledWith({
+      ...reference,
+      artifactId: "art_00000000000000000001",
+    });
+    await expect(canvas.queryByText("Invocation succeeded", { exact: true })).toBeNull();
+  },
+};
