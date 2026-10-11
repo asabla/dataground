@@ -1410,6 +1410,83 @@
         ],
         "description": "Normalized, untrusted tool result data retained as sensitive JSON. Ingestion enforces a 1 MiB encoded snapshot and nesting depth of 64 for content values. URLs are data only and are not fetched or rendered."
       },
+      "RuntimePlanSnapshot": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schemaVersion", "explanation", "steps"],
+        "properties": {
+          "schemaVersion": {
+            "const": "dataground.runtime-plan/v1"
+          },
+          "explanation": {
+            "type": ["string", "null"]
+          },
+          "steps": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["text", "status"],
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "status": {
+                  "enum": ["pending", "in_progress", "completed"]
+                }
+              }
+            }
+          }
+        },
+        "description": "Untrusted plan snapshot retained as a sensitive JSON artifact. Ingestion enforces a 1 MiB encoded limit. Step status describes reported progress, not effect or invocation success."
+      },
+      "RuntimePlanArtifact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifactId",
+          "digest",
+          "sizeBytes",
+          "stepCount",
+          "completedCount",
+          "inProgressCount",
+          "preview"
+        ],
+        "properties": {
+          "artifactId": {
+            "$ref": "#/components/schemas/ArtifactId"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1048576
+          },
+          "stepCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 256
+          },
+          "completedCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 256
+          },
+          "inProgressCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 256
+          },
+          "preview": {
+            "const": "Plan update retained."
+          }
+        },
+        "description": "Ingestion also requires completedCount plus inProgressCount to be no greater than stepCount."
+      },
       "RuntimeToolArtifact": {
         "type": "object",
         "additionalProperties": false,
@@ -3025,6 +3102,15 @@
                   "$ref": "#/components/schemas/RuntimeCommandArtifact"
                 }
               }
+            }
+          },
+          {
+            "if": {
+              "properties": { "type": { "const": "output.plan.artifact" } },
+              "required": ["type"]
+            },
+            "then": {
+              "properties": { "payload": { "$ref": "#/components/schemas/RuntimePlanArtifact" } }
             }
           },
           {

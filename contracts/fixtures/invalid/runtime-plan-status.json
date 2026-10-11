@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "dataground.runtime-plan/v1",
+  "explanation": "Review\u0000the source.",
+  "steps": [
+    {
+      "text": "Read source",
+      "status": "succeeded"
+    },
+    {
+      "text": "Verify changes",
+      "status": "in_progress"
+    },
+    {
+      "text": "Report result",
+      "status": "pending"
+    }
+  ]
+}

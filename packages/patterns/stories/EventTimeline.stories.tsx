@@ -402,3 +402,33 @@ export const ToolOutputArtifact: Story = {
     await expect(canvas.queryByText("Invocation succeeded", { exact: true })).toBeNull();
   },
 };
+
+export const PlanProgress: Story = {
+  args: {
+    events: [
+      event(1, "output.plan.artifact", {
+        artifactId: "art_00000000000000000001",
+        stepCount: 3,
+        completedCount: 1,
+        inProgressCount: 1,
+        preview: "Plan update retained.",
+      }),
+    ],
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Plan updated", { exact: true })).toBeVisible();
+    await expect(
+      canvas.getByText("1 of 3 steps reported complete; 1 in progress.", { exact: true }),
+    ).toBeVisible();
+    await expect(canvas.queryByText("Invocation succeeded", { exact: true })).toBeNull();
+    const inspect = canvas.getByRole("button", { name: "Inspect artifact metadata" });
+    inspect.focus();
+    await expect(inspect).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await expect(args.onInspectArtifact).toHaveBeenCalledWith({
+      ...reference,
+      artifactId: "art_00000000000000000001",
+    });
+  },
+};

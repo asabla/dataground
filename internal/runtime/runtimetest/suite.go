@@ -23,6 +23,7 @@ const (
 	CompletedMessages Scenario = "completed-messages"
 	CompletedCommands Scenario = "completed-commands"
 	CompletedTools    Scenario = "completed-tools"
+	PlanUpdates       Scenario = "plan-updates"
 	CompletedImages   Scenario = "completed-images"
 	CompletedPatches  Scenario = "completed-patches"
 	Failure           Scenario = "failure"
@@ -66,7 +67,7 @@ func Run(t *testing.T, factory Factory, features Features) {
 	if factory == nil {
 		t.Fatal("runtime contract fixture factory is absent")
 	}
-	scenarios := []Scenario{Success, UsageSnapshots, CompletedMessages, CompletedCommands, CompletedPatches, CompletedImages, CompletedTools, Failure, Interrupt, ProtocolFailure, ScopeViolation, ProcessFailure, Ownership, Validation}
+	scenarios := []Scenario{Success, UsageSnapshots, CompletedMessages, CompletedCommands, CompletedPatches, CompletedImages, CompletedTools, PlanUpdates, Failure, Interrupt, ProtocolFailure, ScopeViolation, ProcessFailure, Ownership, Validation}
 	if features.Approvals {
 		scenarios = append(scenarios, Approve, Deny)
 	} else {
@@ -157,6 +158,14 @@ func run(t *testing.T, f Fixture, scenario Scenario) {
 	}
 	f.Release()
 	switch scenario {
+	case PlanUpdates:
+		for _, status := range []string{"pending", "in_progress", "completed"} {
+			plan, err := dgruntime.ParsePlanSnapshot(stream.next(dgruntime.PlanUpdatedEvent).Payload)
+			if err != nil || len(plan.Steps) != 1 || plan.Steps[0].Text != OutputText || plan.Steps[0].Status != status || plan.Explanation == nil || *plan.Explanation != "Progress." {
+				t.Fatal("plan snapshot changed", err)
+			}
+		}
+		stream.next("lifecycle.succeeded")
 	case CompletedTools:
 		stream.next("activity.tool.completed")
 		output, err := dgruntime.ParseCompletedToolOutput(stream.next(dgruntime.ToolCompletedEvent).Payload)

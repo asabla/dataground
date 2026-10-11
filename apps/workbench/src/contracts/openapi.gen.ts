@@ -485,6 +485,28 @@ export interface components {
             structuredContent: unknown;
             error: string | null;
         } & unknown;
+        /** @description Untrusted plan snapshot retained as a sensitive JSON artifact. Ingestion enforces a 1 MiB encoded limit. Step status describes reported progress, not effect or invocation success. */
+        RuntimePlanSnapshot: {
+            /** @constant */
+            schemaVersion: "dataground.runtime-plan/v1";
+            explanation: string | null;
+            steps: {
+                text: string;
+                /** @enum {unknown} */
+                status: "pending" | "in_progress" | "completed";
+            }[];
+        };
+        /** @description Ingestion also requires completedCount plus inProgressCount to be no greater than stepCount. */
+        RuntimePlanArtifact: {
+            artifactId: components["schemas"]["ArtifactId"];
+            digest: string;
+            sizeBytes: number;
+            stepCount: number;
+            completedCount: number;
+            inProgressCount: number;
+            /** @constant */
+            preview: "Plan update retained.";
+        };
         RuntimeToolArtifact: {
             artifactId: components["schemas"]["ArtifactId"];
             digest: string;
@@ -999,7 +1021,7 @@ export interface components {
             };
         } & {
             [key: string]: unknown;
-        }) & (unknown & unknown & unknown & unknown & unknown & unknown);
+        }) & (unknown & unknown & unknown & unknown & unknown & unknown & unknown);
         ArtifactDescriptor: {
             metadata: components["schemas"]["ResourceMetadata"];
             invocationId: components["schemas"]["InvocationId"];

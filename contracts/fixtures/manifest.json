@@ -1,5 +1,13 @@
 {
   "fixtures": [
+    { "file": "valid/runtime-plan-snapshot.json", "schema": "RuntimePlanSnapshot", "valid": true },
+    { "file": "invalid/runtime-plan-status.json", "schema": "RuntimePlanSnapshot", "valid": false },
+    { "file": "valid/event-plan-artifact.json", "schema": "EventEnvelope", "valid": true },
+    {
+      "file": "invalid/event-plan-artifact-routing.json",
+      "schema": "EventEnvelope",
+      "valid": false
+    },
     { "file": "valid/event-tool-artifact.json", "schema": "EventEnvelope", "valid": true },
     {
       "file": "invalid/event-tool-artifact-routing.json",

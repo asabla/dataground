@@ -75,6 +75,8 @@ type Client struct {
 	completedPatches    map[string][32]byte
 	completedImages     map[string][32]byte
 	completedTools      map[string][32]byte
+	lastPlanDigest      [32]byte
+	planUpdates         int
 	completedImageBytes int
 
 	questionMode    dgruntime.QuestionMode
@@ -691,6 +693,8 @@ func (client *Client) handleNotification(message wireMessage) {
 			return
 		}
 		client.emit("output.text.delta", map[string]any{"text": params.Delta})
+	case "turn/plan/updated":
+		client.handlePlanUpdated(message)
 	case "thread/tokenUsage/updated":
 		client.handleTokenUsage(message)
 	case "item/started", "item/completed":
