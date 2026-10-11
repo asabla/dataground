@@ -22,6 +22,7 @@ const (
 	UsageSnapshots    Scenario = "usage-snapshots"
 	CompletedMessages Scenario = "completed-messages"
 	CompletedCommands Scenario = "completed-commands"
+	CompletedPatches  Scenario = "completed-patches"
 	Failure           Scenario = "failure"
 	Interrupt         Scenario = "interrupt"
 	ProtocolFailure   Scenario = "protocol-failure"
@@ -63,7 +64,7 @@ func Run(t *testing.T, factory Factory, features Features) {
 	if factory == nil {
 		t.Fatal("runtime contract fixture factory is absent")
 	}
-	scenarios := []Scenario{Success, UsageSnapshots, CompletedMessages, CompletedCommands, Failure, Interrupt, ProtocolFailure, ScopeViolation, ProcessFailure, Ownership, Validation}
+	scenarios := []Scenario{Success, UsageSnapshots, CompletedMessages, CompletedCommands, CompletedPatches, Failure, Interrupt, ProtocolFailure, ScopeViolation, ProcessFailure, Ownership, Validation}
 	if features.Approvals {
 		scenarios = append(scenarios, Approve, Deny)
 	} else {
@@ -154,6 +155,13 @@ func run(t *testing.T, f Fixture, scenario Scenario) {
 	}
 	f.Release()
 	switch scenario {
+	case CompletedPatches:
+		stream.next("activity.file.completed")
+		patch, err := dgruntime.ParseCompletedPatch(stream.next(dgruntime.PatchCompletedEvent).Payload)
+		if err != nil || patch.Status != "completed" || len(patch.Changes) != 1 || patch.Changes[0].Path != "result.txt" || patch.Changes[0].Diff != OutputText {
+			t.Fatal("patch snapshot changed", patch, err)
+		}
+		stream.next("lifecycle.succeeded")
 	case CompletedCommands:
 		stream.next("activity.process.completed")
 		command, err := dgruntime.ParseCompletedCommand(stream.next(dgruntime.CommandCompletedEvent).Payload)

@@ -199,6 +199,32 @@ export function presentTimelineEvent(event: TimelineEvent): EventPresentation {
         label: "Invocation cancelled",
         tone: "warning",
       };
+    case "output.patch.artifact":
+      return {
+        detail: boundedText(event.payload.preview, "The patch is stored as an artifact."),
+        label: "File patch artifact",
+        tone: "neutral",
+      };
+    case "activity.file.started":
+      return {
+        detail: "The runtime started a file change.",
+        label: "File change started",
+        tone: "active",
+      };
+    case "activity.file.completed":
+      return {
+        detail: `Reported changes: ${boundedNumber(event.payload.changeCount) ?? "not reported"}.`,
+        label:
+          event.payload.status === "denied"
+            ? "File change denied"
+            : event.payload.status === "failed"
+              ? "File change failed"
+              : "File change completed",
+        tone:
+          event.payload.status === "failed" || event.payload.status === "denied"
+            ? "critical"
+            : "neutral",
+      };
     case "output.command.artifact":
       return {
         detail: boundedText(event.payload.preview, "The command output is stored as an artifact."),
@@ -371,7 +397,8 @@ export function timelineArtifactReference(
   const artifactId = event.payload.artifactId;
   return (event.type === "artifact.available" ||
     event.type === "output.message.artifact" ||
-    event.type === "output.command.artifact") &&
+    event.type === "output.command.artifact" ||
+    event.type === "output.patch.artifact") &&
     typeof artifactId === "string" &&
     artifactIdPattern.test(artifactId)
     ? {

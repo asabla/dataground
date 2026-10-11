@@ -26,7 +26,7 @@ func (command CompletedCommand) Payload() map[string]any {
 	return map[string]any{"text": command.Text, "status": command.Status, "exitCode": exit}
 }
 
-func validCommandStatus(status string) bool {
+func validOutputStatus(status string) bool {
 	return status == "completed" || status == "failed" || status == "denied"
 }
 
@@ -34,7 +34,7 @@ func ParseCompletedCommand(payload map[string]any) (CompletedCommand, error) {
 	var command CompletedCommand
 	text, ok := payload["text"].(string)
 	encoded, err := json.Marshal(payload)
-	if err != nil || len(payload) != 3 || !ok || !utf8.ValidString(text) || len(text) > MaximumCommandOutputBytes || json.Unmarshal(encoded, &command) != nil || !validCommandStatus(command.Status) {
+	if err != nil || len(payload) != 3 || !ok || !utf8.ValidString(text) || len(text) > MaximumCommandOutputBytes || json.Unmarshal(encoded, &command) != nil || !validOutputStatus(command.Status) {
 		return CompletedCommand{}, ErrProtocol
 	}
 	if _, ok := payload["exitCode"]; !ok {
@@ -71,7 +71,7 @@ func ParseCommandArtifact(payload map[string]any) (CommandArtifact, error) {
 		}
 	}
 	encoded, err := json.Marshal(payload)
-	if err != nil || len(payload) != 6 || json.Unmarshal(encoded, &command) != nil || !messageArtifactID.MatchString(command.ArtifactID) || !messageArtifactDigest.MatchString(command.Digest) || command.SizeBytes < 0 || command.SizeBytes > MaximumCommandOutputBytes || len(command.Preview) > MaximumMessagePreviewBytes || !validCommandStatus(command.Status) || strings.ContainsRune(command.Preview, 0) {
+	if err != nil || len(payload) != 6 || json.Unmarshal(encoded, &command) != nil || !runtimeArtifactID.MatchString(command.ArtifactID) || !runtimeArtifactDigest.MatchString(command.Digest) || command.SizeBytes < 0 || command.SizeBytes > MaximumCommandOutputBytes || len(command.Preview) > MaximumMessagePreviewBytes || !validOutputStatus(command.Status) || strings.ContainsRune(command.Preview, 0) {
 		return CommandArtifact{}, ErrProtocol
 	}
 	for _, key := range []string{"sizeBytes", "exitCode"} {

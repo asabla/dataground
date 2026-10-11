@@ -402,3 +402,40 @@ it("keeps command output separate from process outcome and answer completion", (
     assert.equal(presentation.label, status === "failed" ? "Process failed" : "Process denied");
   }
 });
+
+it("offers scoped patch inspection without exposing paths or implying invocation success", () => {
+  const event: TimelineEvent = {
+    ...baseEvent,
+    type: "output.patch.artifact",
+    payload: {
+      artifactId: "art_00000000000000000001",
+      preview: "Retained patch with 1 file change.",
+      path: "/native/private",
+      status: "failed",
+    },
+  };
+  assert.deepEqual(timelineArtifactReference(event), {
+    ...reference,
+    artifactId: event.payload.artifactId,
+  });
+  const markup = renderToStaticMarkup(
+    <EventTimeline
+      connectionState="current"
+      events={[event]}
+      onInspectArtifact={() => undefined}
+      reference={reference}
+    />,
+  );
+  assert.match(markup, /File patch artifact/u);
+  assert.doesNotMatch(markup, /native|Invocation succeeded/u);
+  for (const status of ["failed", "denied"]) {
+    assert.equal(
+      presentTimelineEvent({
+        ...event,
+        type: "activity.file.completed",
+        payload: { status, changeCount: 1 },
+      }).tone,
+      "critical",
+    );
+  }
+});

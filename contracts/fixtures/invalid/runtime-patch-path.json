@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "dataground.runtime-patch/v1",
+  "status": "completed",
+  "changes": [
+    {
+      "path": "../escape",
+      "kind": "update",
+      "diff": "-old\n+new\n",
+      "movePath": "src/renamed.txt"
+    }
+  ]
+}

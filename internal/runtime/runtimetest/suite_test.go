@@ -84,6 +84,11 @@ func (m *modelAdapter) release() {
 		return
 	}
 	switch m.scenario {
+	case CompletedPatches:
+		m.emit("activity.file.completed", map[string]any{"kind": "change", "status": "completed", "changeCount": 1})
+		m.emit(dgruntime.PatchCompletedEvent, dgruntime.CompletedPatch{SchemaVersion: dgruntime.PatchSchemaV1, Status: "completed", Changes: []dgruntime.PatchChange{{Path: "result.txt", Kind: "add", Diff: OutputText}}}.Payload())
+		m.emit("lifecycle.succeeded", map[string]any{"message": "Runtime turn completed."})
+		m.finish(nil)
 	case CompletedCommands:
 		code := int32(1)
 		m.emit("activity.process.completed", map[string]any{"kind": "command", "status": "failed", "exitCode": code})
