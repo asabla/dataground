@@ -10,7 +10,7 @@ import (
 const inboundByteLimit = 16 << 20
 const eventByteLimit = 16 << 20
 
-func (client *Client) reserveInbound(size int) bool {
+func (client *connection) reserveInbound(size int) bool {
 	if size <= 0 || size > maxFrameBytes {
 		return false
 	}
@@ -28,6 +28,37 @@ func (client *Client) reserveInbound(size int) bool {
 func (client *Client) handleInbound(message wireMessage) {
 	// Keep the active handler within the same budget as queued native messages.
 	defer client.inboundBytes.Add(-int64(message.frameBytes))
+	if client.sequential {
+		if len(message.ID) > 0 && !client.registerSessionRequest(message) {
+			return
+		}
+		if len(message.ID) == 0 {
+			select {
+			case <-client.terminalDone:
+				return
+			default:
+			}
+		}
+		var scope struct {
+			ThreadID string `json:"threadId"`
+			TurnID   string `json:"turnId"`
+			Turn     struct {
+				ID string `json:"id"`
+			} `json:"turn"`
+		}
+		client.stateMu.Lock()
+		threadID := client.threadID
+		client.stateMu.Unlock()
+		if json.Unmarshal(message.Params, &scope) == nil && scope.ThreadID == threadID &&
+			(client.retiredTurn(scope.TurnID) || client.retiredTurn(scope.Turn.ID)) {
+			if len(message.ID) > 0 {
+				if err := client.respondError(message.ID, -32600, "turn is no longer active"); err != nil {
+					client.fail(err)
+				}
+			}
+			return
+		}
+	}
 	if len(message.ID) > 0 {
 		client.handleServerRequest(message)
 	} else {

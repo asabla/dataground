@@ -10,7 +10,7 @@ const openShellModelProvider = "dataground_openshell_codex"
 // injected. The caller owns the binding and its non-exposure boundary. This
 // client receives no credential values and accepts no alternate endpoint.
 func NewOpenShellConformance(session execution.RuntimeSession) (*Client, error) {
-	return newClient(session, true)
+	return newClient(session, true, false)
 }
 
 func openShellProviderConfig() map[string]any {

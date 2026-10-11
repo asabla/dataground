@@ -11,18 +11,21 @@ import (
 )
 
 var (
-	ErrClosed           = errors.New("runtime adapter is closed")
-	ErrProtocol         = errors.New("runtime protocol violation")
-	ErrTurnFailed       = errors.New("runtime turn failed")
-	ErrTurnInterrupted  = errors.New("runtime turn was interrupted")
-	ErrApprovalNotFound = errors.New("runtime approval not found")
-	ErrApprovalMode     = errors.New("runtime approval mode is invalid")
-	ErrApprovalDecision = errors.New("runtime approval decision is invalid")
-	ErrConcurrentTurn   = errors.New("runtime adapter already has an active turn")
-	ErrSandboxMode      = errors.New("runtime sandbox mode is invalid")
-	ErrQuestionMode     = errors.New("runtime question mode or timeout is invalid")
-	ErrQuestionNotFound = errors.New("runtime question not found")
-	ErrQuestionExpired  = errors.New("runtime question expired")
+	ErrClosed               = errors.New("runtime adapter is closed")
+	ErrProtocol             = errors.New("runtime protocol violation")
+	ErrTurnFailed           = errors.New("runtime turn failed")
+	ErrTurnInterrupted      = errors.New("runtime turn was interrupted")
+	ErrApprovalNotFound     = errors.New("runtime approval not found")
+	ErrApprovalMode         = errors.New("runtime approval mode is invalid")
+	ErrApprovalDecision     = errors.New("runtime approval decision is invalid")
+	ErrSessionConfiguration = errors.New("runtime session configuration cannot change")
+	ErrSessionLimit         = errors.New("runtime session turn limit reached")
+	ErrTurnEventsPending    = errors.New("previous runtime turn events must be consumed")
+	ErrConcurrentTurn       = errors.New("runtime adapter already has an active turn")
+	ErrSandboxMode          = errors.New("runtime sandbox mode is invalid")
+	ErrQuestionMode         = errors.New("runtime question mode or timeout is invalid")
+	ErrQuestionNotFound     = errors.New("runtime question not found")
+	ErrQuestionExpired      = errors.New("runtime question expired")
 )
 
 type QuestionMode string
@@ -115,4 +118,16 @@ type QuestionTurn interface {
 	Turn
 	QuestionPending(context.Context, string) (bool, error)
 	AnswerQuestion(context.Context, string, []domain.QuestionAnswer) error
+}
+
+// SessionAdapter is an explicit sequential-turn capability. Working directory,
+// model, sandbox, approval and question settings are fixed by the first start.
+// Each turn has its own event sequence and terminal result. Consumers must drain
+// its event queue before another start. Closing a completed turn cannot close the
+// session. usage.session.recorded contains cumulative session totals, never an
+// additive delta or a per-turn measurement. Platform lifecycle and authorization
+// remain the caller's responsibility; invocation Adapter remains single-use.
+type SessionAdapter interface {
+	StartTurn(context.Context, StartRequest) (Turn, error)
+	Close() error
 }

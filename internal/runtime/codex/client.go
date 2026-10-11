@@ -51,21 +51,16 @@ type approval struct {
 // Client owns one app-server transport and supports one active turn. A worker
 // creates a new client for each RuntimeSession returned by ExecutionProvider.
 type Client struct {
-	session           execution.RuntimeSession
-	input             io.WriteCloser
-	openShellProvider bool
-
-	writeMu sync.Mutex
-	stateMu sync.Mutex
-	nextID  uint64
-	pending map[uint64]chan wireMessage
-
+	*connection
+	stateMu             sync.Mutex
+	sequential          bool
 	started             bool
 	threadID            string
 	workingDir          string
 	turnID              string
 	approvalMode        dgruntime.ApprovalMode
 	interactionsClosed  bool
+	inFlightCommands    int
 	nextSequence        uint64
 	nextApproval        uint64
 	approvals           map[string]approval
@@ -84,29 +79,44 @@ type Client struct {
 	nextQuestion    uint64
 	questions       map[string]*pendingQuestion
 
-	inbound      chan wireMessage
-	inboundBytes atomic.Int64
 	eventMu      sync.Mutex
 	eventSizes   []int
 	eventBytes   int
 	events       chan dgruntime.Event
-	done         chan struct{}
-	closed       chan struct{}
-
-	failOnce     sync.Once
-	closeOnce    sync.Once
 	terminalOnce sync.Once
-	errMu        sync.Mutex
-	err          error
 	terminalDone chan struct{}
 	terminalErr  error
 }
 
-func New(session execution.RuntimeSession) (*Client, error) {
-	return newClient(session, false)
+type connection struct {
+	retiredTurns      map[string]struct{}
+	seenRequests      map[string]struct{}
+	session           execution.RuntimeSession
+	input             io.WriteCloser
+	openShellProvider bool
+
+	writeMu      sync.Mutex
+	connectionMu sync.Mutex
+	nextID       uint64
+	pending      map[uint64]chan wireMessage
+
+	inbound      chan wireMessage
+	inboundBytes atomic.Int64
+	done         chan struct{}
+	closed       chan struct{}
+	failOnce     sync.Once
+	closeOnce    sync.Once
+	errMu        sync.Mutex
+	err          error
+	active       *Client
+	dispatchMu   sync.Mutex
 }
 
-func newClient(session execution.RuntimeSession, openShellProvider bool) (*Client, error) {
+func New(session execution.RuntimeSession) (*Client, error) {
+	return newClient(session, false, false)
+}
+
+func newClient(session execution.RuntimeSession, openShellProvider, sequential bool) (*Client, error) {
 	if session == nil {
 		return nil, errors.New("runtime session streams are required")
 	}
@@ -114,25 +124,16 @@ func newClient(session execution.RuntimeSession, openShellProvider bool) (*Clien
 	if input == nil || output == nil || errorOutput == nil {
 		return nil, errors.New("runtime session streams are required")
 	}
-	client := &Client{
-		questions:         make(map[string]*pendingQuestion),
-		session:           session,
-		input:             input,
-		openShellProvider: openShellProvider,
-		pending:           make(map[uint64]chan wireMessage),
-		approvals:         make(map[string]approval),
-		nativeRequests:    make(map[string]struct{}),
-		completedMessages: make(map[string][32]byte),
-		completedCommands: make(map[string][32]byte),
-		completedPatches:  make(map[string][32]byte),
-		completedImages:   make(map[string][32]byte),
-		completedTools:    make(map[string][32]byte),
-		inbound:           make(chan wireMessage, inboundLimit),
-		events:            make(chan dgruntime.Event, eventLimit),
-		done:              make(chan struct{}),
-		closed:            make(chan struct{}),
-		terminalDone:      make(chan struct{}),
+	transport := &connection{
+		retiredTurns: make(map[string]struct{}), seenRequests: make(map[string]struct{}),
+		session: session, input: input, openShellProvider: openShellProvider,
+		pending: make(map[uint64]chan wireMessage),
+		inbound: make(chan wireMessage, inboundLimit),
+		done:    make(chan struct{}), closed: make(chan struct{}),
 	}
+	client := newTurnClient(transport)
+	client.sequential = sequential
+	transport.active = client
 	go client.readLoop(output)
 	go client.inboundLoop()
 	go func() {
@@ -142,9 +143,21 @@ func newClient(session execution.RuntimeSession, openShellProvider bool) (*Clien
 	return client, nil
 }
 
-func (client *Client) Start(ctx context.Context, request dgruntime.StartRequest) (dgruntime.Turn, error) {
+func newTurnClient(transport *connection) *Client {
+	return &Client{
+		connection: transport,
+		questions:  make(map[string]*pendingQuestion), approvals: make(map[string]approval),
+		nativeRequests:    make(map[string]struct{}),
+		completedMessages: make(map[string][32]byte), completedCommands: make(map[string][32]byte),
+		completedPatches: make(map[string][32]byte), completedImages: make(map[string][32]byte),
+		completedTools: make(map[string][32]byte),
+		events:         make(chan dgruntime.Event, eventLimit), terminalDone: make(chan struct{}),
+	}
+}
+
+func normalizeStartRequest(request dgruntime.StartRequest) (dgruntime.StartRequest, error) {
 	if request.Prompt == "" {
-		return nil, errors.New("runtime prompt is required")
+		return dgruntime.StartRequest{}, errors.New("runtime prompt is required")
 	}
 	if request.QuestionMode == "" {
 		request.QuestionMode = dgruntime.QuestionDisabled
@@ -152,22 +165,32 @@ func (client *Client) Start(ctx context.Context, request dgruntime.StartRequest)
 	if (request.QuestionMode != dgruntime.QuestionDisabled && request.QuestionMode != dgruntime.QuestionInteractive) ||
 		(request.QuestionMode == dgruntime.QuestionDisabled && request.QuestionTimeout != 0) ||
 		(request.QuestionMode == dgruntime.QuestionInteractive && (request.QuestionTimeout <= 0 || request.QuestionTimeout > 15*time.Minute)) {
-		return nil, dgruntime.ErrQuestionMode
+		return dgruntime.StartRequest{}, dgruntime.ErrQuestionMode
 	}
 	if request.ApprovalMode == "" {
 		request.ApprovalMode = dgruntime.ApprovalLocked
 	}
 	if request.ApprovalMode != dgruntime.ApprovalLocked && request.ApprovalMode != dgruntime.ApprovalInteractive {
-		return nil, dgruntime.ErrApprovalMode
+		return dgruntime.StartRequest{}, dgruntime.ErrApprovalMode
 	}
 	if request.SandboxMode == "" {
 		request.SandboxMode = dgruntime.SandboxReadOnly
 	}
 	if request.SandboxMode != dgruntime.SandboxReadOnly && request.SandboxMode != dgruntime.SandboxWorkspaceWrite {
-		return nil, dgruntime.ErrSandboxMode
+		return dgruntime.StartRequest{}, dgruntime.ErrSandboxMode
 	}
 	if request.WorkingDir != "" && !validWorkingDirectory(request.WorkingDir) {
-		return nil, errors.New("runtime working directory must be a clean absolute sandbox path")
+		return dgruntime.StartRequest{}, errors.New("runtime working directory must be a clean absolute sandbox path")
+	}
+
+	return request, nil
+}
+
+func (client *Client) Start(ctx context.Context, request dgruntime.StartRequest) (dgruntime.Turn, error) {
+	var err error
+	request, err = normalizeStartRequest(request)
+	if err != nil {
+		return nil, err
 	}
 
 	client.stateMu.Lock()
@@ -218,7 +241,7 @@ func (client *Client) Start(ctx context.Context, request dgruntime.StartRequest)
 	if err := client.request(ctx, "thread/start", threadParams, &threadResponse); err != nil {
 		return nil, err
 	}
-	if threadResponse.Thread.ID == "" {
+	if threadResponse.Thread.ID == "" || (client.sequential && len(threadResponse.Thread.ID) > 256) {
 		return nil, client.protocolFailure("thread/start response is missing its identifier")
 	}
 	if client.openShellProvider && threadResponse.ModelProvider != openShellModelProvider {
@@ -236,8 +259,12 @@ func (client *Client) Start(ctx context.Context, request dgruntime.StartRequest)
 	client.threadID = threadResponse.Thread.ID
 	client.stateMu.Unlock()
 
+	return client.startTurn(ctx, request)
+}
+
+func (client *Client) startTurn(ctx context.Context, request dgruntime.StartRequest) (dgruntime.Turn, error) {
 	turnParams := map[string]any{
-		"threadId": threadResponse.Thread.ID,
+		"threadId": client.threadID,
 		"input":    []map[string]any{{"type": "text", "text": request.Prompt}},
 	}
 	if request.OutputSchema != nil {
@@ -251,8 +278,8 @@ func (client *Client) Start(ctx context.Context, request dgruntime.StartRequest)
 	if err := client.request(ctx, "turn/start", turnParams, &turnResponse); err != nil {
 		return nil, err
 	}
-	if turnResponse.Turn.ID == "" {
-		return nil, client.protocolFailure("turn/start response is missing its identifier")
+	if turnResponse.Turn.ID == "" || (client.sequential && len(turnResponse.Turn.ID) > 256) || client.retiredTurn(turnResponse.Turn.ID) {
+		return nil, client.protocolFailure("turn/start response identifier is invalid")
 	}
 	client.stateMu.Lock()
 	if client.turnID != "" && client.turnID != turnResponse.Turn.ID {
@@ -269,8 +296,14 @@ func (client *Client) Events() <-chan dgruntime.Event { return client.events }
 func (client *Client) Interrupt(ctx context.Context) error {
 	client.stateMu.Lock()
 	threadID, turnID := client.threadID, client.turnID
+	if client.interactionsClosed {
+		client.stateMu.Unlock()
+		return dgruntime.ErrClosed
+	}
 	client.closeInteractionsLocked()
+	client.inFlightCommands++
 	client.stateMu.Unlock()
+	defer client.finishCommand()
 	if threadID == "" || turnID == "" {
 		return dgruntime.ErrClosed
 	}
@@ -302,6 +335,7 @@ func (client *Client) ResolveApproval(ctx context.Context, approvalID string, de
 	}
 	if ok {
 		pending.resolving = true
+		client.inFlightCommands++
 		client.approvals[approvalID] = pending
 	}
 	client.stateMu.Unlock()
@@ -309,6 +343,7 @@ func (client *Client) ResolveApproval(ctx context.Context, approvalID string, de
 		return dgruntime.ErrApprovalNotFound
 	}
 
+	defer client.finishCommand()
 	nativeDecision := "decline"
 	if decision == dgruntime.ApprovalApprove {
 		nativeDecision = "accept"
@@ -367,10 +402,36 @@ func (client *Client) Wait(ctx context.Context) error {
 }
 
 func (client *Client) Close() error {
-	client.closeOnce.Do(func() {
-		close(client.closed)
+	if client.sequential {
+		return client.connection.closeTurn(client)
+	}
+	return client.connection.Close()
+}
+
+func (client *connection) Close() error { return client.closeTurn(nil) }
+
+func (client *connection) closeTurn(turn *Client) error {
+	// Claim closure under the same lock used to install the next turn. Do not
+	// wait for dispatch: a native handler can itself be blocked on transport I/O.
+	client.connectionMu.Lock()
+	if turn != nil {
+		select {
+		case <-turn.terminalDone:
+			client.connectionMu.Unlock()
+			return nil
+		default:
+		}
+		if client.active != turn {
+			client.connectionMu.Unlock()
+			return nil
+		}
+	}
+	claimed := false
+	client.closeOnce.Do(func() { close(client.closed); claimed = true })
+	client.connectionMu.Unlock()
+	if claimed {
 		client.fail(dgruntime.ErrClosed)
-	})
+	}
 	return nil
 }
 
@@ -383,13 +444,13 @@ func approvalPolicy(mode dgruntime.ApprovalMode) string {
 	return "on-request"
 }
 
-func (client *Client) request(ctx context.Context, method string, params any, target any) error {
-	client.stateMu.Lock()
+func (client *connection) request(ctx context.Context, method string, params any, target any) error {
+	client.connectionMu.Lock()
 	client.nextID++
 	id := client.nextID
 	response := make(chan wireMessage, 1)
 	client.pending[id] = response
-	client.stateMu.Unlock()
+	client.connectionMu.Unlock()
 
 	if err := client.write(ctx, map[string]any{"id": id, "method": method, "params": params}); err != nil {
 		return err
@@ -413,7 +474,7 @@ func (client *Client) request(ctx context.Context, method string, params any, ta
 	}
 }
 
-func (client *Client) notify(ctx context.Context, method string, params any) error {
+func (client *connection) notify(ctx context.Context, method string, params any) error {
 	message := map[string]any{"method": method}
 	if params != nil {
 		message["params"] = params
@@ -421,7 +482,7 @@ func (client *Client) notify(ctx context.Context, method string, params any) err
 	return client.write(ctx, message)
 }
 
-func (client *Client) respond(ctx context.Context, id json.RawMessage, result any) error {
+func (client *connection) respond(ctx context.Context, id json.RawMessage, result any) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -433,11 +494,11 @@ func (client *Client) respond(ctx context.Context, id json.RawMessage, result an
 	return client.write(ctx, map[string]any{"id": id, "result": result})
 }
 
-func (client *Client) write(ctx context.Context, message any) error {
+func (client *connection) write(ctx context.Context, message any) error {
 	return client.writeGuarded(ctx, message, nil)
 }
 
-func (client *Client) writeGuarded(ctx context.Context, message any, guard func() error) error {
+func (client *connection) writeGuarded(ctx context.Context, message any, guard func() error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -462,6 +523,9 @@ func (client *Client) writeGuarded(ctx context.Context, message any, guard func(
 			return
 		}
 		select {
+		case <-client.closed:
+			result <- writeResult{err: dgruntime.ErrClosed}
+			return
 		case <-client.done:
 			result <- writeResult{err: client.failure()}
 			return
@@ -498,7 +562,7 @@ func (client *Client) writeGuarded(ctx context.Context, message any, guard func(
 	}
 }
 
-func (client *Client) readLoop(output io.Reader) {
+func (client *connection) readLoop(output io.Reader) {
 	scanner := bufio.NewScanner(output)
 	scanner.Buffer(make([]byte, 64<<10), maxFrameBytes)
 	for scanner.Scan() {
@@ -542,12 +606,12 @@ func (client *Client) readLoop(output io.Reader) {
 			client.fail(fmt.Errorf("%w: response must contain exactly one result or error", dgruntime.ErrProtocol))
 			return
 		}
-		client.stateMu.Lock()
+		client.connectionMu.Lock()
 		response, found := client.pending[id]
 		if found {
 			delete(client.pending, id)
 		}
-		client.stateMu.Unlock()
+		client.connectionMu.Unlock()
 		if !found {
 			client.fail(fmt.Errorf("%w: response identifier is unknown", dgruntime.ErrProtocol))
 			return
@@ -565,11 +629,16 @@ func (client *Client) readLoop(output io.Reader) {
 	}
 }
 
-func (client *Client) inboundLoop() {
+func (client *connection) inboundLoop() {
 	for {
 		select {
 		case message := <-client.inbound:
-			client.handleInbound(message)
+			client.dispatchMu.Lock()
+			client.connectionMu.Lock()
+			active := client.active
+			client.connectionMu.Unlock()
+			active.handleInbound(message)
+			client.dispatchMu.Unlock()
 		case <-client.done:
 			return
 		case <-client.closed:
@@ -665,7 +734,7 @@ func (client *Client) handleNotification(message wireMessage) {
 				ID string `json:"id"`
 			} `json:"turn"`
 		}
-		if json.Unmarshal(message.Params, &params) != nil || params.ThreadID == "" || params.Turn.ID == "" {
+		if json.Unmarshal(message.Params, &params) != nil || params.ThreadID == "" || params.Turn.ID == "" || (client.sequential && len(params.Turn.ID) > 256) || client.retiredTurn(params.Turn.ID) {
 			client.fail(fmt.Errorf("%w: turn/started payload is invalid", dgruntime.ErrProtocol))
 			return
 		}
@@ -702,6 +771,16 @@ func (client *Client) handleNotification(message wireMessage) {
 	case "turn/completed":
 		client.handleTurnCompleted(message)
 	case "error":
+		if client.sequential {
+			var scope struct {
+				ThreadID string `json:"threadId"`
+				TurnID   string `json:"turnId"`
+			}
+			if json.Unmarshal(message.Params, &scope) != nil || !client.matchesActiveTurn(scope.ThreadID, scope.TurnID) {
+				client.protocolFailure("runtime error scope does not match")
+				return
+			}
+		}
 		client.emit("error.occurred", map[string]any{"code": "RUNTIME_UPSTREAM_ERROR", "message": "The runtime reported an error.", "retryable": false})
 	default:
 		// Unknown notifications are optional capability drift. The pinned
@@ -836,7 +915,7 @@ func (client *Client) respondError(id json.RawMessage, code int, message string)
 	return client.write(ctx, map[string]any{"id": id, "error": map[string]any{"code": code, "message": message}})
 }
 
-func (client *Client) waitProcess() {
+func (client *connection) waitProcess() {
 	_ = client.session.Wait()
 	select {
 	case <-client.closed:
@@ -848,7 +927,7 @@ func (client *Client) waitProcess() {
 	client.fail(fmt.Errorf("%w: runtime process exited unexpectedly", dgruntime.ErrProtocol))
 }
 
-func (client *Client) protocolFailure(message string) error {
+func (client *connection) protocolFailure(message string) error {
 	err := fmt.Errorf("%w: %s", dgruntime.ErrProtocol, message)
 	client.fail(err)
 	return err
@@ -866,11 +945,16 @@ func (client *Client) closeInteractionsLocked() {
 	}
 }
 
-func (client *Client) fail(err error) {
+func (client *connection) fail(err error) {
 	client.failOnce.Do(func() {
-		client.stateMu.Lock()
-		client.closeInteractionsLocked()
-		client.stateMu.Unlock()
+		client.connectionMu.Lock()
+		active := client.active
+		client.connectionMu.Unlock()
+		if active != nil {
+			active.stateMu.Lock()
+			active.closeInteractionsLocked()
+			active.stateMu.Unlock()
+		}
 		client.errMu.Lock()
 		client.err = err
 		client.errMu.Unlock()
@@ -880,7 +964,7 @@ func (client *Client) fail(err error) {
 	})
 }
 
-func (client *Client) failure() error {
+func (client *connection) failure() error {
 	client.errMu.Lock()
 	defer client.errMu.Unlock()
 	if client.err != nil {
@@ -948,5 +1032,11 @@ func (client *Client) handleResolvedRequest(message wireMessage) {
 	}
 	// A confirmation can arrive after our response already removed its handle.
 	delete(client.nativeRequests, key)
+	client.stateMu.Unlock()
+}
+
+func (client *Client) finishCommand() {
+	client.stateMu.Lock()
+	client.inFlightCommands--
 	client.stateMu.Unlock()
 }
