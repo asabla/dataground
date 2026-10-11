@@ -12,6 +12,7 @@ import (
 	"io"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/asabla/dataground/internal/execution"
@@ -31,12 +32,13 @@ type wireError struct {
 }
 
 type wireMessage struct {
-	JSONRPC json.RawMessage `json:"jsonrpc,omitempty"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *wireError      `json:"error,omitempty"`
+	frameBytes int
+	JSONRPC    json.RawMessage `json:"jsonrpc,omitempty"`
+	ID         json.RawMessage `json:"id,omitempty"`
+	Method     string          `json:"method,omitempty"`
+	Params     json.RawMessage `json:"params,omitempty"`
+	Result     json.RawMessage `json:"result,omitempty"`
+	Error      *wireError      `json:"error,omitempty"`
 }
 
 type approval struct {
@@ -80,10 +82,14 @@ type Client struct {
 	nextQuestion    uint64
 	questions       map[string]*pendingQuestion
 
-	inbound chan wireMessage
-	events  chan dgruntime.Event
-	done    chan struct{}
-	closed  chan struct{}
+	inbound      chan wireMessage
+	inboundBytes atomic.Int64
+	eventMu      sync.Mutex
+	eventSizes   []int
+	eventBytes   int
+	events       chan dgruntime.Event
+	done         chan struct{}
+	closed       chan struct{}
 
 	failOnce     sync.Once
 	closeOnce    sync.Once
@@ -508,11 +514,18 @@ func (client *Client) readLoop(output io.Reader) {
 				client.fail(fmt.Errorf("%w: method frame contains response fields", dgruntime.ErrProtocol))
 				return
 			}
+			message.frameBytes = len(scanner.Bytes())
+			if !client.reserveInbound(message.frameBytes) {
+				client.fail(fmt.Errorf("%w: inbound byte budget exhausted", dgruntime.ErrProtocol))
+				return
+			}
 			select {
 			case client.inbound <- message:
 			case <-client.done:
+				client.inboundBytes.Add(-int64(message.frameBytes))
 				return
 			default:
+				client.inboundBytes.Add(-int64(message.frameBytes))
 				client.fail(fmt.Errorf("%w: inbound buffer exhausted", dgruntime.ErrProtocol))
 				return
 			}
@@ -554,11 +567,7 @@ func (client *Client) inboundLoop() {
 	for {
 		select {
 		case message := <-client.inbound:
-			if len(message.ID) > 0 {
-				client.handleServerRequest(message)
-			} else {
-				client.handleNotification(message)
-			}
+			client.handleInbound(message)
 		case <-client.done:
 			return
 		case <-client.closed:
@@ -765,15 +774,19 @@ func (client *Client) handleTurnCompleted(message wireMessage) {
 	client.closeInteractionsLocked()
 	client.stateMu.Unlock()
 	var terminalErr error
+	var emitted bool
 	switch params.Turn.Status {
 	case "completed":
-		client.emit("lifecycle.succeeded", map[string]any{"message": "Runtime turn completed."})
+		emitted = client.emit("lifecycle.succeeded", map[string]any{"message": "Runtime turn completed."})
 	case "interrupted":
 		terminalErr = dgruntime.ErrTurnInterrupted
-		client.emit("lifecycle.cancelled", map[string]any{"reason": "runtime interruption"})
+		emitted = client.emit("lifecycle.cancelled", map[string]any{"reason": "runtime interruption"})
 	case "failed":
 		terminalErr = dgruntime.ErrTurnFailed
-		client.emit("lifecycle.failed", map[string]any{"code": "RUNTIME_TURN_FAILED", "retryable": false})
+		emitted = client.emit("lifecycle.failed", map[string]any{"code": "RUNTIME_TURN_FAILED", "retryable": false})
+	}
+	if !emitted {
+		return
 	}
 	client.terminalOnce.Do(func() {
 		client.stateMu.Lock()
@@ -808,18 +821,6 @@ func (client *Client) matchesActiveTurn(threadID, turnID string) bool {
 	client.stateMu.Lock()
 	defer client.stateMu.Unlock()
 	return threadID != "" && turnID != "" && threadID == client.threadID && turnID == client.turnID
-}
-
-func (client *Client) emit(eventType string, payload map[string]any) {
-	client.stateMu.Lock()
-	client.nextSequence++
-	event := dgruntime.Event{Sequence: client.nextSequence, Type: eventType, Payload: payload}
-	client.stateMu.Unlock()
-	select {
-	case client.events <- event:
-	case <-client.done:
-	case <-client.closed:
-	}
 }
 
 func (client *Client) respondError(id json.RawMessage, code int, message string) error {
