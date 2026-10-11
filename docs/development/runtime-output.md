@@ -20,7 +20,7 @@ The pinned Codex 0.117.0 protocol supplies authoritative text through `item/comp
 
 The shared adapter kit covers completed commentary, unspecified and final messages, native duplicate completion, and authoritative text that differs from its preview. Focused worker tests cover schema validation, source ordering, replay, missing answers, malformed payloads, and bounded message count. PostgreSQL integration tests cover completed-result recovery, invalid-result retention after catalog outages and lost acknowledgements, immutable source binding, artifact substitution, cancellation, and stale or foreign claims. The timeline displays progress messages and final answers without implying invocation success.
 
-This remains the internal governed invocation boundary. Production artifact delivery, artifact storage for images, public multi-turn sessions, and certification of every runtime family remain separate release work. Passing these tests does not certify a runtime deployment or establish v1.0 acceptance.
+This remains the internal governed invocation boundary. Production artifact delivery, public multi-turn sessions, and certification of every runtime family remain separate release work. Passing these tests does not certify a runtime deployment or establish v1.0 acceptance.
 
 ## Completed command output
 
@@ -38,7 +38,7 @@ The adapter maps `declined` to `denied` and preserves `completed` and `failed`. 
 
 The worker retains the JSON as a sensitive `application/json` structured-output artifact named `Completed file patch` under the shared authorization, readiness and lease checks. Its deterministic identity includes the domain, invocation and runtime source sequence in a separate patch namespace. The public `output.patch.artifact` event contains only `artifactId`, `digest`, `sizeBytes`, `status`, `changeCount` and a fixed bounded summary. The journal requires its exact catalog binding and rejects raw patch snapshots. The Workbench exposes inspection and the existing explicit verified content read. It displays failed and denied file changes without claiming invocation success. A retained failed or denied patch is evidence of the reported attempt, not proof that its changes were applied.
 
-Patch output cannot replace the assistant answer. Recovery uses the persisted terminal receipt without repeating native execution. Storage or journal failure before that receipt remains ambiguous, as for command and answer artifacts. Image artifacts, production delivery, public multi-turn sessions and full release certification remain unresolved.
+Patch output cannot replace the assistant answer. Recovery uses the persisted terminal receipt without repeating native execution. Storage or journal failure before that receipt remains ambiguous, as for command and answer artifacts. Production delivery, public multi-turn sessions and full release certification remain unresolved.
 
 ## Generated images
 
@@ -59,3 +59,13 @@ The versioned `dataground.runtime-tool-output/v1` JSON artifact contains exactly
 The internal `output.tool.completed` payload cannot enter the public journal directly. The worker retains it as a sensitive `application/json` artifact named `Completed tool output`, using current authorization, readiness, lease renewal and immutable finalization. Its identity binds the isolation domain, invocation and source sequence. The public `output.tool.artifact` event contains only the artifact ID, digest, size, status, content count and a fixed summary. The journal verifies its exact catalog, operation and effect binding. Tool output does not replace the assistant answer. The Workbench reports tool failure independently of invocation outcome and offers the existing scoped artifact inspection and verified content read.
 
 This is output retention for the current development adapter. It does not establish tool-broker authorization, collaboration or search-result normalization, other runtime-family support, or release acceptance.
+
+## Plan updates
+
+Codex `turn/plan/updated` notifications become ordered plan snapshots. The adapter maps native `pending`, `inProgress` and `completed` step states to `pending`, `in_progress` and `completed`. Each versioned `dataground.runtime-plan/v1` snapshot contains exactly `schemaVersion`, nullable `explanation` and `steps`; each step contains `text` and `status`. Text is retained as reported, including empty strings and NUL. An explicit empty plan clears the reported steps; absent or null plans fail closed. Each snapshot is limited to 256 steps and 1 MiB of encoded JSON.
+
+The native notification has no stable update identifier. Adjacent identical normalized snapshots are suppressed. A changed snapshot, including a return to an earlier plan, creates another ordered update. One turn accepts at most 4,096 updates. Native thread and turn identifiers stay private; malformed scope or content fails closed, and updates after terminal completion are ignored.
+
+The internal `output.plan.updated` event is retained as a sensitive `application/json` artifact named `Plan update` under the current authorization, readiness, lease and immutable catalog boundaries. Its identity binds isolation domain, invocation and source sequence in the `runtime-plan` namespace. The public `output.plan.artifact` event contains only the artifact reference, digest, size, total step count, completed count, in-progress count and fixed summary. Persistence rejects raw snapshots and checks the exact catalog, operation and effect binding. The Workbench shows reported progress and scoped artifact inspection. A plan grants no execution authority, does not replace the assistant answer, and does not prove successful effects or invocation completion. Recovery uses the existing terminal receipt without repeating native execution; an unacknowledged native attempt remains ambiguous.
+
+These checks cover the development adapter. Public multi-turn sessions, other runtime families, tool-broker execution and production release acceptance remain separate work.

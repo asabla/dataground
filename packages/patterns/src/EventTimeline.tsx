@@ -199,6 +199,12 @@ export function presentTimelineEvent(event: TimelineEvent): EventPresentation {
         label: "Invocation cancelled",
         tone: "warning",
       };
+    case "output.plan.artifact":
+      return {
+        detail: planProgress(event.payload),
+        label: "Plan updated",
+        tone: "neutral",
+      };
     case "output.tool.artifact":
       return {
         detail: "The tool output is stored as an artifact.",
@@ -420,7 +426,8 @@ export function timelineArtifactReference(
     event.type === "output.command.artifact" ||
     event.type === "output.patch.artifact" ||
     event.type === "output.image.artifact" ||
-    event.type === "output.tool.artifact") &&
+    event.type === "output.tool.artifact" ||
+    event.type === "output.plan.artifact") &&
     typeof artifactId === "string" &&
     artifactIdPattern.test(artifactId)
     ? {
@@ -644,4 +651,25 @@ export function EventTimeline({
       )}
     </section>
   );
+}
+
+function planProgress(payload: Record<string, unknown>): string {
+  const { stepCount, completedCount, inProgressCount } = payload;
+  if (
+    typeof stepCount !== "number" ||
+    !Number.isInteger(stepCount) ||
+    stepCount < 0 ||
+    stepCount > 256 ||
+    typeof completedCount !== "number" ||
+    !Number.isInteger(completedCount) ||
+    completedCount < 0 ||
+    completedCount > stepCount ||
+    typeof inProgressCount !== "number" ||
+    !Number.isInteger(inProgressCount) ||
+    inProgressCount < 0 ||
+    inProgressCount > stepCount - completedCount
+  )
+    return "The plan is stored as an artifact.";
+  if (stepCount === 0) return "The plan has no steps.";
+  return `${completedCount} of ${stepCount} steps reported complete; ${inProgressCount} in progress.`;
 }

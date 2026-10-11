@@ -84,6 +84,13 @@ func (m *modelAdapter) release() {
 		return
 	}
 	switch m.scenario {
+	case PlanUpdates:
+		explanation := "Progress."
+		for _, status := range []string{"pending", "in_progress", "completed"} {
+			m.emit(dgruntime.PlanUpdatedEvent, dgruntime.PlanSnapshot{SchemaVersion: dgruntime.PlanSchemaV1, Explanation: &explanation, Steps: []dgruntime.PlanStep{{Text: OutputText, Status: status}}}.Payload())
+		}
+		m.emit("lifecycle.succeeded", map[string]any{"message": "Runtime turn completed."})
+		m.finish(nil)
 	case CompletedTools:
 		m.emit("activity.tool.completed", map[string]any{"kind": "tool", "status": "failed", "outputAvailable": true})
 		m.emit(dgruntime.ToolCompletedEvent, dgruntime.CompletedToolOutput{SchemaVersion: dgruntime.ToolOutputSchemaV1, Status: "failed", Content: []any{map[string]any{"type": "text", "text": OutputText}}}.Payload())

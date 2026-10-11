@@ -505,3 +505,53 @@ it("keeps reported tool failure separate from invocation success", () => {
     assert.equal(result.label, status === "failed" ? "Tool failed" : "Tool denied");
   }
 });
+
+it("shows plan progress with scoped inspection and no invocation success claim", () => {
+  const event: TimelineEvent = {
+    ...baseEvent,
+    type: "output.plan.artifact",
+    payload: {
+      artifactId: "art_00000000000000000001",
+      stepCount: 2,
+      completedCount: 2,
+      inProgressCount: 0,
+      explanation: "/native/private",
+      preview: "untrusted private text",
+    },
+  };
+  assert.deepEqual(timelineArtifactReference(event), {
+    ...reference,
+    artifactId: event.payload.artifactId,
+  });
+  const presented = presentTimelineEvent(event);
+  assert.equal(presented.label, "Plan updated");
+  assert.equal(presented.tone, "neutral");
+  assert.equal(presented.detail, "2 of 2 steps reported complete; 0 in progress.");
+  const markup = renderToStaticMarkup(
+    <EventTimeline
+      connectionState="current"
+      events={[event]}
+      onInspectArtifact={() => undefined}
+      reference={reference}
+    />,
+  );
+  assert.match(markup, /Plan updated/u);
+  assert.doesNotMatch(markup, /native|untrusted|Invocation succeeded/u);
+  assert.equal(
+    presentTimelineEvent({
+      ...event,
+      payload: { stepCount: 0, completedCount: 0, inProgressCount: 0 },
+    }).detail,
+    "The plan has no steps.",
+  );
+  for (const payload of [
+    { stepCount: 1, completedCount: 1, inProgressCount: 1 },
+    { stepCount: NaN, completedCount: 0, inProgressCount: 0 },
+    { stepCount: 1.5, completedCount: 0, inProgressCount: 0 },
+  ]) {
+    assert.equal(
+      presentTimelineEvent({ ...event, payload }).detail,
+      "The plan is stored as an artifact.",
+    );
+  }
+});

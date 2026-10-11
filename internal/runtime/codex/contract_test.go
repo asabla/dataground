@@ -31,6 +31,13 @@ func codexContractFixture(t *testing.T, scenario runtimetest.Scenario) runtimete
 			server.notify("turn/completed", map[string]any{"threadId": threadID, "turn": map[string]any{"id": turnID, "status": status, "error": map[string]any{"message": runtimetest.NativeCanary + "error"}}})
 		}
 		switch scenario {
+		case runtimetest.PlanUpdates:
+			for _, status := range []string{"pending", "inProgress", "completed"} {
+				params := map[string]any{"threadId": threadID, "turnId": turnID, "explanation": "Progress.", "plan": []any{map[string]any{"step": runtimetest.OutputText, "status": status}}}
+				server.notify("turn/plan/updated", params)
+				server.notify("turn/plan/updated", params)
+			}
+			complete("completed")
 		case runtimetest.CompletedTools:
 			params := map[string]any{"threadId": threadID, "turnId": turnID, "item": map[string]any{"id": runtimetest.NativeCanary + "tool", "type": "mcpToolCall", "status": "failed", "server": runtimetest.NativeCanary + "server", "tool": runtimetest.NativeCanary + "tool", "arguments": runtimetest.NativeCanary + "input", "result": map[string]any{"content": []any{map[string]any{"type": "text", "text": runtimetest.OutputText}}}}}
 			server.notify("item/completed", params)

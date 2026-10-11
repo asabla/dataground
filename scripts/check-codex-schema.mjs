@@ -34,6 +34,7 @@ for (const method of ["initialize", "thread/start", "turn/start", "turn/interrup
 }
 for (const method of [
   "turn/started",
+  "turn/plan/updated",
   "turn/completed",
   "serverRequest/resolved",
   "item/agentMessage/delta",

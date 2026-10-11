@@ -19,8 +19,11 @@ import (
 // The native adapter supplies full snapshots. Only this governed boundary can
 // replace their content with a catalog-bound public artifact reference.
 func (driver *InvocationRuntimeDriver) recordRuntimeOutput(ctx context.Context, claim persistence.OperationClaim, effect persistence.EffectRecord, target persistence.InvocationRuntimeTarget, event dgruntime.Event) (*dgruntime.MessageArtifact, error) {
-	if event.Type == dgruntime.MessageArtifactEvent || event.Type == dgruntime.CommandArtifactEvent || event.Type == dgruntime.PatchArtifactEvent || event.Type == dgruntime.ImageArtifactEvent || event.Type == dgruntime.ToolArtifactEvent {
+	if event.Type == dgruntime.MessageArtifactEvent || event.Type == dgruntime.CommandArtifactEvent || event.Type == dgruntime.PatchArtifactEvent || event.Type == dgruntime.ImageArtifactEvent || event.Type == dgruntime.ToolArtifactEvent || event.Type == dgruntime.PlanArtifactEvent {
 		return nil, dgruntime.ErrProtocol
+	}
+	if event.Type == dgruntime.PlanUpdatedEvent {
+		return nil, driver.recordRuntimePlan(ctx, claim, effect, target, event)
 	}
 	if event.Type == dgruntime.ToolCompletedEvent {
 		return nil, driver.recordCompletedRuntimeTool(ctx, claim, effect, target, event)
