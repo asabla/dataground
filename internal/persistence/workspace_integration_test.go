@@ -24,7 +24,7 @@ func TestDurableWorkspacesPreserveIdentityAuditAndConcurrentReplay(t *testing.T)
 	pool := resetOperatorAuditDatabase(t, ctx)
 	t.Cleanup(func() {
 		defer pool.Close()
-		if _, err := pool.Exec(context.Background(), `TRUNCATE workspaces, api_authorization_decisions`); err != nil {
+		if _, err := pool.Exec(context.Background(), `TRUNCATE workspace_source_completions, workspace_source_installations, workspaces, api_authorization_decisions`); err != nil {
 			t.Error(err)
 		}
 	})
