@@ -84,6 +84,11 @@ func (m *modelAdapter) release() {
 		return
 	}
 	switch m.scenario {
+	case CompletedTools:
+		m.emit("activity.tool.completed", map[string]any{"kind": "tool", "status": "failed", "outputAvailable": true})
+		m.emit(dgruntime.ToolCompletedEvent, dgruntime.CompletedToolOutput{SchemaVersion: dgruntime.ToolOutputSchemaV1, Status: "failed", Content: []any{map[string]any{"type": "text", "text": OutputText}}}.Payload())
+		m.emit("lifecycle.succeeded", map[string]any{"message": "Runtime turn completed."})
+		m.finish(nil)
 	case CompletedImages:
 		m.emit(dgruntime.ImageCompletedEvent, dgruntime.CompletedImage{Data: ImageData}.Payload())
 		m.emit("lifecycle.succeeded", map[string]any{"message": "Runtime turn completed."})

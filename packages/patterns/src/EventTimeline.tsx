@@ -199,6 +199,12 @@ export function presentTimelineEvent(event: TimelineEvent): EventPresentation {
         label: "Invocation cancelled",
         tone: "warning",
       };
+    case "output.tool.artifact":
+      return {
+        detail: "The tool output is stored as an artifact.",
+        label: "Tool output artifact",
+        tone: "neutral",
+      };
     case "output.image.artifact":
       return {
         detail: "The generated image is stored as an artifact.",
@@ -275,8 +281,16 @@ export function presentTimelineEvent(event: TimelineEvent): EventPresentation {
     case "activity.tool.completed":
       return {
         detail: `Result: ${boundedText(event.payload.status, "completed")}.`,
-        label: "Tool completed",
-        tone: "success",
+        label:
+          event.payload.status === "failed"
+            ? "Tool failed"
+            : event.payload.status === "denied"
+              ? "Tool denied"
+              : "Tool completed",
+        tone:
+          event.payload.status === "failed" || event.payload.status === "denied"
+            ? "critical"
+            : "neutral",
       };
     case "activity.process.started":
       return {
@@ -405,7 +419,8 @@ export function timelineArtifactReference(
     event.type === "output.message.artifact" ||
     event.type === "output.command.artifact" ||
     event.type === "output.patch.artifact" ||
-    event.type === "output.image.artifact") &&
+    event.type === "output.image.artifact" ||
+    event.type === "output.tool.artifact") &&
     typeof artifactId === "string" &&
     artifactIdPattern.test(artifactId)
     ? {

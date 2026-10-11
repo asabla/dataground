@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "dataground.runtime-tool-output/v1",
+  "status": "completed",
+  "content": [
+    {
+      "type": "text",
+      "text": "Result."
+    }
+  ],
+  "structuredContent": {
+    "count": 9007199254740993
+  },
+  "error": "Tool failed."
+}

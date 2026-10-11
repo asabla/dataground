@@ -1367,6 +1367,80 @@
       }
     },
     "schemas": {
+      "RuntimeToolOutput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schemaVersion", "status", "content", "structuredContent", "error"],
+        "properties": {
+          "schemaVersion": {
+            "const": "dataground.runtime-tool-output/v1"
+          },
+          "status": {
+            "enum": ["completed", "failed"]
+          },
+          "content": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {}
+          },
+          "structuredContent": {},
+          "error": {
+            "type": ["string", "null"],
+            "maxLength": 1048576
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              },
+              "required": ["error"]
+            },
+            "then": {
+              "properties": {
+                "status": {
+                  "const": "failed"
+                }
+              }
+            }
+          }
+        ],
+        "description": "Normalized, untrusted tool result data retained as sensitive JSON. Ingestion enforces a 1 MiB encoded snapshot and nesting depth of 64 for content values. URLs are data only and are not fetched or rendered."
+      },
+      "RuntimeToolArtifact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifactId", "digest", "sizeBytes", "status", "contentCount", "preview"],
+        "properties": {
+          "artifactId": {
+            "$ref": "#/components/schemas/ArtifactId"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1048576
+          },
+          "status": {
+            "enum": ["completed", "failed"]
+          },
+          "contentCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 256
+          },
+          "preview": {
+            "const": "Tool output retained."
+          }
+        }
+      },
+
       "RuntimeImageArtifact": {
         "type": "object",
         "additionalProperties": false,
@@ -2951,6 +3025,15 @@
                   "$ref": "#/components/schemas/RuntimeCommandArtifact"
                 }
               }
+            }
+          },
+          {
+            "if": {
+              "properties": { "type": { "const": "output.tool.artifact" } },
+              "required": ["type"]
+            },
+            "then": {
+              "properties": { "payload": { "$ref": "#/components/schemas/RuntimeToolArtifact" } }
             }
           },
           {

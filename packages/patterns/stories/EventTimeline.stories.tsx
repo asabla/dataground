@@ -370,3 +370,35 @@ export const GeneratedImageArtifact: Story = {
     await expect(canvas.queryByText("Invocation succeeded", { exact: true })).toBeNull();
   },
 };
+
+export const ToolOutputArtifact: Story = {
+  args: {
+    events: [
+      event(1, "activity.tool.completed", {
+        kind: "tool",
+        status: "failed",
+        outputAvailable: true,
+      }),
+      event(2, "output.tool.artifact", {
+        artifactId: "art_00000000000000000001",
+        status: "failed",
+        contentCount: 1,
+        preview: "Tool output retained.",
+      }),
+    ],
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Tool output artifact", { exact: true })).toBeVisible();
+    await expect(canvas.getByText("Tool failed", { exact: true })).toBeVisible();
+    const inspect = canvas.getByRole("button", { name: "Inspect artifact metadata" });
+    inspect.focus();
+    await expect(inspect).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await expect(args.onInspectArtifact).toHaveBeenCalledWith({
+      ...reference,
+      artifactId: "art_00000000000000000001",
+    });
+    await expect(canvas.queryByText("Invocation succeeded", { exact: true })).toBeNull();
+  },
+};

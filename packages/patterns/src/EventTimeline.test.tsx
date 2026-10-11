@@ -466,3 +466,42 @@ it("offers scoped generated-image inspection without exposing paths or implying 
   assert.match(markup, /Generated image artifact/u);
   assert.doesNotMatch(markup, /native|Invocation succeeded/u);
 });
+
+it("offers scoped tool output inspection without exposing paths or implying invocation success", () => {
+  const event: TimelineEvent = {
+    ...baseEvent,
+    type: "output.tool.artifact",
+    payload: {
+      artifactId: "art_00000000000000000001",
+      preview: "Tool output retained.",
+      path: "/native/private",
+      status: "failed",
+    },
+  };
+  assert.deepEqual(timelineArtifactReference(event), {
+    ...reference,
+    artifactId: event.payload.artifactId,
+  });
+  const markup = renderToStaticMarkup(
+    <EventTimeline
+      connectionState="current"
+      events={[event]}
+      onInspectArtifact={() => undefined}
+      reference={reference}
+    />,
+  );
+  assert.match(markup, /Tool output artifact/u);
+  assert.doesNotMatch(markup, /native|Invocation succeeded/u);
+});
+
+it("keeps reported tool failure separate from invocation success", () => {
+  for (const status of ["failed", "denied"]) {
+    const result = presentTimelineEvent({
+      ...baseEvent,
+      type: "activity.tool.completed",
+      payload: { status },
+    });
+    assert.equal(result.tone, "critical");
+    assert.equal(result.label, status === "failed" ? "Tool failed" : "Tool denied");
+  }
+});

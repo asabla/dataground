@@ -72,6 +72,7 @@ type Client struct {
 	completedCommands   map[string][32]byte
 	completedPatches    map[string][32]byte
 	completedImages     map[string][32]byte
+	completedTools      map[string][32]byte
 	completedImageBytes int
 
 	questionMode    dgruntime.QuestionMode
@@ -117,6 +118,7 @@ func newClient(session execution.RuntimeSession, openShellProvider bool) (*Clien
 		completedCommands: make(map[string][32]byte),
 		completedPatches:  make(map[string][32]byte),
 		completedImages:   make(map[string][32]byte),
+		completedTools:    make(map[string][32]byte),
 		inbound:           make(chan wireMessage, inboundLimit),
 		events:            make(chan dgruntime.Event, eventLimit),
 		done:              make(chan struct{}),
@@ -718,6 +720,10 @@ func (client *Client) handleItemLifecycle(message wireMessage) {
 	}
 	if item.Type == "commandExecution" && message.Method == "item/completed" {
 		client.handleCompletedCommand(params.Item)
+		return
+	}
+	if (item.Type == "mcpToolCall" || item.Type == "dynamicToolCall") && message.Method == "item/completed" {
+		client.handleCompletedTool(params.Item)
 		return
 	}
 	if item.Type == "imageGeneration" && message.Method == "item/completed" {
