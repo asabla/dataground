@@ -35,3 +35,13 @@ The completed-patch scenario emits `activity.file.completed`, then one `output.p
 The generated-image scenario requires an exact completed image snapshot and duplicate suppression. `output.image.completed` is an internal, single-field base64 payload consumed by the governed artifact sink; adapters cannot publish `output.image.artifact` references. See [runtime output](runtime-output.md#generated-images) for the checked raster formats, byte and pixel limits, replay rules and remaining viewed-image boundary.
 
 The completed-tool scenario requires an authoritative normalized result, exact duplicate suppression and a reported tool failure that remains separate from invocation success. `output.tool.completed` is an internal artifact-bound snapshot; native adapters cannot provide public `output.tool.artifact` references. [Tool-result retention](runtime-output.md#tool-results) defines the versioned JSON shape and its bounds.
+
+## Codex queue bounds
+
+The Codex adapter keeps separate 16 MiB byte limits for pending native messages and normalized events, in addition to each queue's 256-entry limit and the existing 8 MiB native-frame limit. Native accounting covers notifications and server requests, including the message currently being handled. A handler releases its reservation when it returns. Request-response frames retain their existing per-frame and request-lifecycle boundaries.
+
+Normalized-event accounting uses the encoded internal event size and rejects an individual event above 8 MiB. The single ordered publisher reclaims capacity for events already read by the consumer before it publishes the next event. A consumer can therefore receive more than 16 MiB over a turn; the limit applies to its unread backlog. These are encoded-data bounds, not a process-memory measurement, and exclude events already owned by the consumer.
+
+A full byte or entry budget fails with the existing safe runtime protocol classification and closes the native transport. The publisher does not wait for a stalled event consumer and does not drop events while continuing execution. Accepted buffered events remain ordered and readable. A native terminal status cannot become a successful wait result unless its terminal event was accepted by the queue. This preserves the worker's existing wait-and-drain behavior without a second dispatch queue or an acknowledgement protocol.
+
+Focused tests cover stalled consumers with large native snapshots, byte exhaustion below the entry limit, entry exhaustion, consumed-byte reuse, concurrent sequence ordering, native reservation release, and terminal-event overflow. These checks establish the development adapter's queue behavior; they do not establish production throughput or complete public SSE/WebSocket acceptance.

@@ -53,15 +53,25 @@ func TestCompletedImageRejectsMalformedOrChangedNativeOutput(t *testing.T) {
 	}
 }
 func TestCompletedImageBoundsTotalTurnContent(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	consumed := make(chan struct{})
 	session := newScriptedSession(t, func(server *scriptServer) {
 		server.completeStart("thread", "turn")
 		content, _ := base64.StdEncoding.DecodeString(runtimetest.ImageData)
 		content = append(content, make([]byte, dgruntime.MaximumImageBytes-len(content))...)
-		for _, id := range []string{"one", "two", "three", "four", "five"} {
+		for i, id := range []string{"one", "two", "three", "four", "five"} {
 			p := nativeImageParams()
 			p["item"].(map[string]any)["id"] = id
 			p["item"].(map[string]any)["result"] = base64.StdEncoding.EncodeToString(content)
 			server.notify("item/completed", p)
+			if i < 4 {
+				select {
+				case <-consumed:
+				case <-ctx.Done():
+					return
+				}
+			}
 		}
 	})
 	client, err := codex.New(session)
@@ -69,19 +79,32 @@ func TestCompletedImageBoundsTotalTurnContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	turn, err := client.Start(ctx, dgruntime.StartRequest{Prompt: "image"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Drain each accepted image before the producer sends the next one. This
+	// isolates the total-turn limit from the independent unread-queue budgets.
+	for images := 0; images < 4; {
+		select {
+		case event := <-turn.Events():
+			if event.Type != "output.image.completed" {
+				continue
+			}
+			if text, _ := event.Payload["data"].(string); strings.Contains(text, "private") {
+				t.Fatal("native metadata leaked")
+			}
+			images++
+			select {
+			case consumed <- struct{}{}:
+			case <-ctx.Done():
+				t.Fatal("image producer did not receive acknowledgement")
+			}
+		case <-ctx.Done():
+			t.Fatal("accepted image was not received")
+		}
+	}
 	if err := turn.Wait(ctx); !errors.Is(err, dgruntime.ErrProtocol) {
 		t.Fatal("turn image limit was not enforced", err)
-	}
-	events := collectEvents(t, turn.Events(), 5)
-	for _, event := range events {
-		if text, _ := event.Payload["data"].(string); strings.Contains(text, "private") {
-			t.Fatal("native metadata leaked")
-		}
 	}
 }
