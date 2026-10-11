@@ -1,5 +1,13 @@
 {
   "fixtures": [
+    { "file": "valid/event-patch-artifact.json", "schema": "EventEnvelope", "valid": true },
+    {
+      "file": "invalid/event-patch-artifact-routing.json",
+      "schema": "EventEnvelope",
+      "valid": false
+    },
+    { "file": "valid/runtime-patch.json", "schema": "RuntimePatch", "valid": true },
+    { "file": "invalid/runtime-patch-path.json", "schema": "RuntimePatch", "valid": false },
     { "file": "valid/event-command-artifact.json", "schema": "EventEnvelope", "valid": true },
     {
       "file": "invalid/event-command-artifact-routing.json",

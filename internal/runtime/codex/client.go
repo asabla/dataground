@@ -10,9 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -62,6 +60,7 @@ type Client struct {
 
 	started            bool
 	threadID           string
+	workingDir         string
 	turnID             string
 	approvalMode       dgruntime.ApprovalMode
 	interactionsClosed bool
@@ -71,6 +70,7 @@ type Client struct {
 	nativeRequests     map[string]struct{}
 	completedMessages  map[string][32]byte
 	completedCommands  map[string][32]byte
+	completedPatches   map[string][32]byte
 
 	questionMode    dgruntime.QuestionMode
 	questionTimeout time.Duration
@@ -113,6 +113,7 @@ func newClient(session execution.RuntimeSession, openShellProvider bool) (*Clien
 		nativeRequests:    make(map[string]struct{}),
 		completedMessages: make(map[string][32]byte),
 		completedCommands: make(map[string][32]byte),
+		completedPatches:  make(map[string][32]byte),
 		inbound:           make(chan wireMessage, inboundLimit),
 		events:            make(chan dgruntime.Event, eventLimit),
 		done:              make(chan struct{}),
@@ -152,7 +153,7 @@ func (client *Client) Start(ctx context.Context, request dgruntime.StartRequest)
 	if request.SandboxMode != dgruntime.SandboxReadOnly && request.SandboxMode != dgruntime.SandboxWorkspaceWrite {
 		return nil, dgruntime.ErrSandboxMode
 	}
-	if request.WorkingDir != "" && (!path.IsAbs(request.WorkingDir) || path.Clean(request.WorkingDir) != request.WorkingDir || strings.ContainsRune(request.WorkingDir, '\x00')) {
+	if request.WorkingDir != "" && !validWorkingDirectory(request.WorkingDir) {
 		return nil, errors.New("runtime working directory must be a clean absolute sandbox path")
 	}
 
@@ -196,6 +197,7 @@ func (client *Client) Start(ctx context.Context, request dgruntime.StartRequest)
 	}
 	var threadResponse struct {
 		ModelProvider string `json:"modelProvider"`
+		CWD           string `json:"cwd"`
 		Thread        struct {
 			ID string `json:"id"`
 		} `json:"thread"`
@@ -209,7 +211,15 @@ func (client *Client) Start(ctx context.Context, request dgruntime.StartRequest)
 	if client.openShellProvider && threadResponse.ModelProvider != openShellModelProvider {
 		return nil, client.protocolFailure("thread/start did not select the required provider")
 	}
+	root := request.WorkingDir
+	if threadResponse.CWD != "" {
+		if !validWorkingDirectory(threadResponse.CWD) || (root != "" && root != threadResponse.CWD) {
+			return nil, client.protocolFailure("thread/start workspace does not match")
+		}
+		root = threadResponse.CWD
+	}
 	client.stateMu.Lock()
+	client.workingDir = root
 	client.threadID = threadResponse.Thread.ID
 	client.stateMu.Unlock()
 
@@ -705,6 +715,10 @@ func (client *Client) handleItemLifecycle(message wireMessage) {
 	}
 	if item.Type == "commandExecution" && message.Method == "item/completed" {
 		client.handleCompletedCommand(params.Item)
+		return
+	}
+	if item.Type == "fileChange" && message.Method == "item/completed" {
+		client.handleCompletedPatch(params.Item)
 		return
 	}
 	eventPrefix, normalizedKind := normalizeItemType(item.Type)

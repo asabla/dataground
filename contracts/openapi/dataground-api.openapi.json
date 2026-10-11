@@ -2732,6 +2732,110 @@
         },
         "description": "Bounded reference to the exact completed command stdout/stderr snapshot. Native command text, paths and routing identifiers are excluded. Content access requires separate artifact authorization."
       },
+      "RuntimePatchPath": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096,
+        "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*/$)[^\\\\\\u0000-\\u001f\\u007f-\\u009f]+$",
+        "description": "Canonical workspace-relative descriptive path, bounded to 4096 UTF-8 bytes at ingestion. Not authority for filesystem access."
+      },
+      "RuntimePatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schemaVersion", "status", "changes"],
+        "properties": {
+          "schemaVersion": {
+            "const": "dataground.runtime-patch/v1"
+          },
+          "status": {
+            "enum": ["completed", "failed", "denied"]
+          },
+          "changes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 256,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "kind", "diff", "movePath"],
+              "properties": {
+                "path": {
+                  "$ref": "#/components/schemas/RuntimePatchPath"
+                },
+                "kind": {
+                  "enum": ["add", "delete", "update"]
+                },
+                "diff": {
+                  "type": "string",
+                  "maxLength": 1048576
+                },
+                "movePath": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RuntimePatchPath"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "enum": ["add", "delete"]
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "movePath": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "description": "Governed JSON artifact containing normalized paths and exact native diff text in original change order. Canonical encoded content is bounded to 1 MiB at ingestion. This is retained evidence, not an instruction or permission to apply changes."
+      },
+      "RuntimePatchArtifact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifactId", "digest", "sizeBytes", "status", "changeCount", "preview"],
+        "properties": {
+          "artifactId": {
+            "$ref": "#/components/schemas/ArtifactId"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1048576
+          },
+          "status": {
+            "enum": ["completed", "failed", "denied"]
+          },
+          "changeCount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 256
+          },
+          "preview": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^Retained patch with [1-9][0-9]{0,2} file changes?\\.$",
+            "description": "Platform-owned summary; contains no diff content or native paths."
+          }
+        }
+      },
       "EventEnvelope": {
         "type": "object",
         "additionalProperties": true,
@@ -2798,6 +2902,23 @@
               "properties": {
                 "payload": {
                   "$ref": "#/components/schemas/RuntimeCommandArtifact"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "output.patch.artifact"
+                }
+              },
+              "required": ["type"]
+            },
+            "then": {
+              "properties": {
+                "payload": {
+                  "$ref": "#/components/schemas/RuntimePatchArtifact"
                 }
               }
             }

@@ -10,8 +10,8 @@ const MessageArtifactEvent = "output.message.artifact"
 const MaximumMessagePreviewBytes = 1024
 const MaximumInlineMessageTextBytes = 64 << 10
 
-var messageArtifactID = regexp.MustCompile(`^art_[0-9a-z]{20,32}$`)
-var messageArtifactDigest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+var runtimeArtifactID = regexp.MustCompile(`^art_[0-9a-z]{20,32}$`)
+var runtimeArtifactDigest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 // MessageArtifact is a bounded public reference to an authoritative UTF-8
 // snapshot. The artifact catalog must separately prove its invocation scope.
@@ -37,7 +37,7 @@ func ParseMessageArtifact(payload map[string]any) (MessageArtifact, error) {
 	encoded, err := json.Marshal(payload)
 	var message MessageArtifact
 	if err != nil || len(payload) != 5 || json.Unmarshal(encoded, &message) != nil ||
-		!messageArtifactID.MatchString(message.ArtifactID) || !messageArtifactDigest.MatchString(message.Digest) ||
+		!runtimeArtifactID.MatchString(message.ArtifactID) || !runtimeArtifactDigest.MatchString(message.Digest) ||
 		message.SizeBytes <= 0 || message.SizeBytes > MaximumMessageTextBytes ||
 		len(message.Preview) > MaximumMessagePreviewBytes || !utf8.ValidString(message.Preview) {
 		return MessageArtifact{}, ErrProtocol

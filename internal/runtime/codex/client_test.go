@@ -500,7 +500,14 @@ func (server *scriptServer) completeStart(threadID, turnID string) {
 	server.requireMethod(server.read(), "initialized")
 	thread := server.read()
 	server.requireMethod(thread, "thread/start")
-	server.respond(thread.ID, map[string]any{"thread": map[string]any{"id": threadID}})
+	var request struct {
+		CWD string `json:"cwd"`
+	}
+	server.decodeParams(thread, &request)
+	if request.CWD == "" {
+		request.CWD = "/sandbox"
+	}
+	server.respond(thread.ID, map[string]any{"cwd": request.CWD, "thread": map[string]any{"id": threadID}})
 	turn := server.read()
 	server.requireMethod(turn, "turn/start")
 	server.notify("turn/started", map[string]any{"threadId": threadID, "turn": map[string]any{"id": turnID, "status": "inProgress", "items": []any{}}})

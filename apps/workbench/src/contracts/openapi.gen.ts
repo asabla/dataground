@@ -909,6 +909,32 @@ export interface components {
             status: "completed" | "failed" | "denied";
             exitCode: number | null;
         };
+        /** @description Canonical workspace-relative descriptive path, bounded to 4096 UTF-8 bytes at ingestion. Not authority for filesystem access. */
+        RuntimePatchPath: string;
+        /** @description Governed JSON artifact containing normalized paths and exact native diff text in original change order. Canonical encoded content is bounded to 1 MiB at ingestion. This is retained evidence, not an instruction or permission to apply changes. */
+        RuntimePatch: {
+            /** @constant */
+            schemaVersion: "dataground.runtime-patch/v1";
+            /** @enum {unknown} */
+            status: "completed" | "failed" | "denied";
+            changes: ({
+                path: components["schemas"]["RuntimePatchPath"];
+                /** @enum {unknown} */
+                kind: "add" | "delete" | "update";
+                diff: string;
+                movePath: components["schemas"]["RuntimePatchPath"] | null;
+            } & unknown)[];
+        };
+        RuntimePatchArtifact: {
+            artifactId: components["schemas"]["ArtifactId"];
+            digest: string;
+            sizeBytes: number;
+            /** @enum {unknown} */
+            status: "completed" | "failed" | "denied";
+            changeCount: number;
+            /** @description Platform-owned summary; contains no diff content or native paths. */
+            preview: string;
+        };
         EventEnvelope: ({
             /**
              * @description Trusted event origin class. Runtime lifecycle events describe a native turn and do not establish terminal platform invocation state. Durable reads derive this value from retained journal provenance without changing event identity, sequence, type, or payload. Older envelopes may omit it.
@@ -941,7 +967,7 @@ export interface components {
             };
         } & {
             [key: string]: unknown;
-        }) & (unknown & unknown & unknown);
+        }) & (unknown & unknown & unknown & unknown);
         ArtifactDescriptor: {
             metadata: components["schemas"]["ResourceMetadata"];
             invocationId: components["schemas"]["InvocationId"];
