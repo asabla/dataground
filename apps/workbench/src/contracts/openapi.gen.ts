@@ -476,7 +476,7 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         RuntimeCompletedMessage: {
-            /** @description Authoritative completed message text. Runtime ingestion also enforces a 64 KiB UTF-8 byte limit. */
+            /** @description Authoritative completed message text. Runtime ingestion also enforces a 64 KiB UTF-8 byte limit. Snapshots containing NUL use governed artifacts. */
             text: string;
             /**
              * @description Commentary is progress only. Final is an explicitly classified answer. Unspecified preserves a runtime that does not classify message phases.
@@ -490,7 +490,7 @@ export interface components {
             sizeBytes: number;
             /** @enum {string} */
             phase: "commentary" | "final" | "unspecified";
-            /** @description Untrusted UTF-8 preview bounded to 1024 bytes at ingestion. The full snapshot is retained in the referenced sensitive artifact. */
+            /** @description Untrusted UTF-8 preview bounded to 1024 bytes at ingestion. NUL is escaped as a literal backslash-u0000 sequence. The full snapshot is retained in the referenced sensitive artifact. */
             preview: string;
         };
         RuntimeArtifactResult: {
@@ -903,7 +903,7 @@ export interface components {
             artifactId: components["schemas"]["ArtifactId"];
             digest: string;
             sizeBytes: number;
-            /** @description Untrusted UTF-8 preview bounded to 1024 bytes at ingestion. The full snapshot is retained in the referenced sensitive artifact. */
+            /** @description Untrusted UTF-8 preview bounded to 1024 bytes at ingestion. NUL is escaped as a literal backslash-u0000 sequence. The full snapshot is retained in the referenced sensitive artifact. */
             preview: string;
             /** @enum {unknown} */
             status: "completed" | "failed" | "denied";

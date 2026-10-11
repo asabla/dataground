@@ -17,15 +17,28 @@ import (
 )
 
 func TestLargeRuntimeResultArtifactSurvivesReplacement(t *testing.T) {
-	for _, invalid := range []bool{false, true} {
-		name := "valid"
-		if invalid {
-			name = "invalid"
-		}
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		invalid bool
+		text    string
+		plain   bool
+	}{
+		{name: "valid"},
+		{name: "invalid", invalid: true},
+		{name: "plain-nul", text: "before\x00after 界", plain: true},
+		{name: "large-nul", text: "before\x00" + strings.Repeat("界", 30000), plain: true},
+		{name: "invalid-nul", text: "before\x00after", invalid: true},
+		{name: "structured-nul", text: `{"answer":"before\u0000after"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			invalid := tc.invalid
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			fixture := newRuntimeQuestionFixtureWithProfile(t, ctx, false, map[string]any{"type": "object", "properties": map[string]any{"answer": map[string]any{"type": "string"}}, "required": []any{"answer"}}, persistence.GovernedInvocationRuntimeProfile)
+			schema := map[string]any{"type": "object", "properties": map[string]any{"answer": map[string]any{"type": "string"}}, "required": []any{"answer"}}
+			if tc.plain {
+				schema = nil
+			}
+			fixture := newRuntimeQuestionFixtureWithProfile(t, ctx, false, schema, persistence.GovernedInvocationRuntimeProfile)
 			t.Cleanup(func() {
 				if _, err := fixture.pool.Exec(context.Background(), `DELETE FROM invocation_runtime_attempts WHERE isolation_domain_id=$1`, fixture.claim.IsolationDomainID); err != nil {
 					t.Error(err)
@@ -39,11 +52,18 @@ func TestLargeRuntimeResultArtifactSurvivesReplacement(t *testing.T) {
 				t.Fatal("large snapshot entered inline journal")
 			}
 
+			if _, err := fixture.repository.RecordInvocationRuntimeEvent(ctx, fixture.claim, persistence.InvocationRuntimeEvent{SourceSequence: 2, Type: dgruntime.MessageCompletedEvent, Payload: dgruntime.CompletedMessage{Text: "before\x00after", Phase: "final"}.Payload()}); !errors.Is(err, persistence.ErrInvocationRuntimeEventInvalid) {
+				t.Fatal("NUL snapshot did not fail before database insertion", err)
+			}
+
 			value := map[string]any{"answer": strings.Repeat("retained result ", 10000)}
 			if invalid {
 				value = map[string]any{"wrong": strings.Repeat("retained result ", 10000)}
 			}
 			content, _ := json.Marshal(value)
+			if tc.text != "" {
+				content = []byte(tc.text)
+			}
 			transport := &largeOutputTransport{interruptionTransport: interruptionTransport{questionBridgeTransport: questionBridgeTransport{scope: fixture.target.IsolationDomainID}}, text: string(content)}
 			objects := &retentionObjects{values: map[string][]byte{}}
 			finalizer, err := artifact.NewFinalizer(fixture.repository, objects, objects, artifact.FinalizerConfig{MaximumBytes: 1 << 20})
@@ -104,8 +124,14 @@ func TestLargeRuntimeResultArtifactSurvivesReplacement(t *testing.T) {
 				if len(encoded) > 8192 {
 					t.Fatal("large content escaped into public journal", event.Type, len(encoded))
 				}
+				if event.Type == "output.text.delta" && event.Payload["text"] != `before\u0000after` {
+					t.Fatal("unsafe delta preview")
+				}
 				if event.Type == dgruntime.MessageArtifactEvent {
 					messageEvents++
+					if strings.ContainsRune(event.Payload["preview"].(string), 0) {
+						t.Fatal("NUL escaped into JSONB preview")
+					}
 					if event.Payload["artifactId"] != artifactID || event.Payload["text"] != nil {
 						t.Fatal("incorrect snapshot reference")
 					}
@@ -115,7 +141,7 @@ func TestLargeRuntimeResultArtifactSurvivesReplacement(t *testing.T) {
 				t.Fatal("missing message reference", messageEvents)
 			}
 
-			if invalid {
+			if invalid && len(content) > dgruntime.MaximumInlineMessageTextBytes {
 				db, err := persistence.OpenSQL(ctx, testDatabaseURL(t))
 				if err != nil {
 					t.Fatal(err)
@@ -124,7 +150,7 @@ func TestLargeRuntimeResultArtifactSurvivesReplacement(t *testing.T) {
 					t.Fatal("large pending retention allowed incompatible downgrade")
 				}
 				db.Close()
-			} else {
+			} else if !invalid {
 				changed := map[string]any{"schemaVersion": result["schemaVersion"], "status": "succeeded", "outputArtifact": map[string]any{"artifactId": artifactID, "digest": "sha256:" + strings.Repeat("0", 64), "sizeBytes": len(content), "mediaType": "text/plain; charset=utf-8"}}
 				if _, err := fixture.repository.CompleteInvocationRuntimeAttempt(ctx, fixture.claim, fixture.effect, changed); err == nil {
 					t.Fatal("changed result artifact was accepted")
@@ -152,8 +178,12 @@ func (transport *largeOutputTransport) New(execution.RuntimeSession) (reconcile.
 }
 func (transport *largeOutputTransport) Start(context.Context, dgruntime.StartRequest) (dgruntime.Turn, error) {
 	transport.starts++
-	events := make(chan dgruntime.Event, 3)
-	events <- dgruntime.Event{Sequence: 1, Type: "lifecycle.started", Payload: map[string]any{"message": "started"}}
+	events := make(chan dgruntime.Event, 4)
+	if strings.ContainsRune(transport.text, 0) {
+		events <- dgruntime.Event{Sequence: 1, Type: "output.text.delta", Payload: map[string]any{"text": "before\x00after"}}
+	} else {
+		events <- dgruntime.Event{Sequence: 1, Type: "lifecycle.started", Payload: map[string]any{"message": "started"}}
+	}
 	events <- dgruntime.Event{Sequence: 2, Type: dgruntime.MessageCompletedEvent, Payload: dgruntime.CompletedMessage{Text: transport.text, Phase: "final"}.Payload()}
 	events <- dgruntime.Event{Sequence: 3, Type: "lifecycle.succeeded", Payload: map[string]any{"message": "completed"}}
 	close(events)

@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"math"
 	"strconv"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/asabla/dataground/internal/artifact"
 	"github.com/asabla/dataground/internal/identity"
@@ -26,6 +28,14 @@ func (driver *InvocationRuntimeDriver) recordRuntimeOutput(ctx context.Context, 
 	if event.Type == dgruntime.CommandCompletedEvent {
 		return nil, driver.recordCompletedRuntimeCommand(ctx, claim, effect, target, event)
 	}
+	if event.Type == "output.text.delta" {
+		text, ok := event.Payload["text"].(string)
+		if !ok || len(event.Payload) != 1 || !utf8.ValidString(text) || len(text) > dgruntime.MaximumInlineMessageTextBytes {
+			return nil, dgruntime.ErrProtocol
+		}
+		event.Payload = map[string]any{"text": dgruntime.MessageDeltaPreview(text)}
+		return nil, driver.recordRuntimeEvent(ctx, claim, event)
+	}
 	if event.Type != dgruntime.MessageCompletedEvent {
 		return nil, driver.recordRuntimeEvent(ctx, claim, event)
 	}
@@ -39,7 +49,7 @@ func (driver *InvocationRuntimeDriver) recordRuntimeOutput(ctx context.Context, 
 	}
 	// Bound encoded payloads as well as UTF-8 bytes; JSON escaping can otherwise
 	// exceed the journal or result limits even for a small raw snapshot.
-	if len(message.Text) <= dgruntime.MaximumInlineMessageTextBytes && len(encoded) <= 128<<10 {
+	if len(message.Text) <= dgruntime.MaximumInlineMessageTextBytes && len(encoded) <= 128<<10 && !messageContainsNUL(message.Text, target.OutputSchema != nil) {
 		return nil, driver.recordRuntimeEvent(ctx, claim, event)
 	}
 	record, err := driver.finalizeRuntimeTextArtifact(ctx, claim, effect, target, event.Sequence, "runtime-message", "Completed runtime message", "file", "text/plain; charset=utf-8", message.Text)
@@ -98,4 +108,27 @@ func (driver *InvocationRuntimeDriver) finalizeRuntimeTextArtifact(ctx context.C
 		return artifact.Record{}, err
 	}
 	return record, nil
+}
+
+// A structured result can decode a JSON escape into NUL even when its source
+// text is safe for JSONB. Inspect string tokens, including keys, without changing
+// the original snapshot or bypassing the later output-schema validation.
+func messageContainsNUL(text string, structured bool) bool {
+	if strings.ContainsRune(text, 0) {
+		return true
+	}
+	if !structured {
+		return false
+	}
+	decoder := json.NewDecoder(strings.NewReader(text))
+	decoder.UseNumber()
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return false
+		}
+		if value, ok := token.(string); ok && strings.ContainsRune(value, 0) {
+			return true
+		}
+	}
 }

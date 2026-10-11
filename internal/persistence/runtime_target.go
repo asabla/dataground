@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/asabla/dataground/internal/domain"
@@ -217,7 +218,7 @@ func (repository *Repository) RecordInvocationRuntimeEvent(
 		}
 	}
 	if event.Type == dgruntime.MessageCompletedEvent {
-		if message, err := dgruntime.ParseCompletedMessage(event.Payload); err != nil || len(message.Text) > dgruntime.MaximumInlineMessageTextBytes {
+		if message, err := dgruntime.ParseCompletedMessage(event.Payload); err != nil || len(message.Text) > dgruntime.MaximumInlineMessageTextBytes || strings.ContainsRune(message.Text, 0) {
 			return domain.EventEnvelope{}, ErrInvocationRuntimeEventInvalid
 		}
 	}
