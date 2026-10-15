@@ -126,15 +126,17 @@ func ReadSource(ctx context.Context, catalog SourceCatalog, objects SourceObject
 		return nil, ErrSourceUnavailable
 	}
 	snapshot, err := Inspect(data, use.Record.ArchiveDigest)
-	if err != nil || !sourceMatches(use.Record, snapshot, len(data)) {
+	if err != nil {
+		return nil, ErrSourceConflict
+	}
+	if !sourceMatches(use.Record, snapshot, len(data)) {
+		snapshot.discard()
 		return nil, ErrSourceConflict
 	}
 	deliveredOK := false
 	defer func() {
 		if !deliveredOK {
-			for _, entry := range snapshot.entries {
-				clear(entry.content)
-			}
+			snapshot.discard()
 		}
 	}()
 	current, err := catalog.GetWorkspaceSource(readCtx, use.Record.IsolationDomainID, use.Record.WorkspaceID, use.Record.ID)

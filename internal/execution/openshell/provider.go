@@ -468,6 +468,10 @@ func (provider *Provider) Observe(ctx context.Context, ref execution.ExecutionRe
 }
 
 func (provider *Provider) StartRuntime(ctx context.Context, ref execution.ExecutionRef) (execution.RuntimeSession, error) {
+	return provider.startSandboxCommand(ctx, ref, "codex app-server")
+}
+
+func (provider *Provider) startSandboxCommand(ctx context.Context, ref execution.ExecutionRef, command string) (execution.RuntimeSession, error) {
 	if ctx == nil || ctx.Err() != nil {
 		return nil, ErrRuntimeTransport
 	}
@@ -505,7 +509,7 @@ func (provider *Provider) StartRuntime(ctx context.Context, ref execution.Execut
 		}
 		return nil, ErrRuntimeTransport
 	}
-	return openSSHRuntime(ctx, proxy, cancel)
+	return openSSHCommand(ctx, proxy, cancel, command)
 }
 
 func (provider *Provider) Logs(ctx context.Context, request execution.LogRequest) ([]byte, error) {
