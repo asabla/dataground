@@ -61,7 +61,7 @@ func (*CedarInvocationAuthorizationEvaluator) EvaluateInvocationAuthorization(
 		return errInvocationCedarEvaluation
 	}
 	// A wildcard in an older policy never acquires question authority.
-	if input.Contract == InvocationCedarQuestionContract && policy.Contract != InvocationAuthorizationPolicyQuestionContract && policy.Contract != InvocationAuthorizationPolicyPublicationContract {
+	if input.Contract == InvocationCedarQuestionContract && policy.Contract != InvocationAuthorizationPolicyQuestionContract && policy.Contract != InvocationAuthorizationPolicyPublicationContract && policy.Contract != InvocationAuthorizationPolicySourceContract {
 		return ErrInvocationAuthorizationDenied
 	}
 	entities, err := validatedInvocationCedarEntities(policy, scope)
@@ -103,6 +103,10 @@ func validatedInvocationCedarPolicySet(
 		}
 	case InvocationAuthorizationPolicyApprovalContract:
 		if !bytes.Equal(policy.Schema, []byte(invocationCedarSchemaV3)) {
+			return nil, errInvocationCedarEvaluation
+		}
+	case InvocationAuthorizationPolicySourceContract:
+		if !bytes.Equal(policy.Schema, []byte(invocationCedarSchemaV6)) {
 			return nil, errInvocationCedarEvaluation
 		}
 	case InvocationAuthorizationPolicyPublicationContract:

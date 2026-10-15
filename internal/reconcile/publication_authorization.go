@@ -62,7 +62,7 @@ func (authorizer *PublicationAuthorizer) AuthorizePublication(ctx context.Contex
 func evaluatePublicationAuthorization(ctx context.Context, policy InvocationAuthorizationPolicy, request authz.PublicationRequest) error {
 	// An older wildcard policy never gains publication authority. Selecting the
 	// new contract is an explicit policy installation decision.
-	if policy.Contract != InvocationAuthorizationPolicyPublicationContract {
+	if policy.Contract != InvocationAuthorizationPolicyPublicationContract && policy.Contract != InvocationAuthorizationPolicySourceContract {
 		return ErrPublicationAuthorizationDenied
 	}
 	scope := InvocationAuthorizationPolicyScope{IsolationDomainID: request.IsolationDomainID, ServiceID: request.ServiceID, RevisionID: request.RevisionID}
