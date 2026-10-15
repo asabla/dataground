@@ -28,7 +28,7 @@ func TestWorkspaceSourcesBindDurableOwnershipAndRecoverStorage(t *testing.T) {
 	pool := resetOperatorAuditDatabase(t, ctx)
 	defer pool.Close()
 	defer func() {
-		_, err := pool.Exec(context.Background(), `TRUNCATE workspace_source_grants, workspace_source_use_decisions, workspace_source_completions, workspace_source_installations, workspaces`)
+		_, err := pool.Exec(context.Background(), `TRUNCATE invocation_workspace_completions, invocation_workspace_preparations, workspace_source_grants, workspace_source_use_decisions, workspace_source_completions, workspace_source_installations, workspaces`)
 		if err != nil {
 			t.Error(err)
 		}

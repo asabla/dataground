@@ -42,7 +42,7 @@ func TestWorkspaceSourceGrantsFenceReadsAndPersistDecisions(t *testing.T) {
 	pool := resetOperatorAuditDatabase(t, ctx)
 	defer pool.Close()
 	defer func() {
-		if _, err := pool.Exec(context.Background(), `TRUNCATE service_revision_execution_plans,workspace_source_grants,workspace_source_use_decisions,workspace_source_completions,workspace_source_installations,workspaces`); err != nil {
+		if _, err := pool.Exec(context.Background(), `TRUNCATE invocation_workspace_completions,invocation_workspace_preparations,service_revision_execution_plans,workspace_source_grants,workspace_source_use_decisions,workspace_source_completions,workspace_source_installations,workspaces`); err != nil {
 			t.Error(err)
 		}
 	}()

@@ -48,8 +48,12 @@ func testClaimedWorkspaceSource(t *testing.T, ctx context.Context, pool *pgxpool
 	if snapshot, err := read(*claim, effect, record, 1); snapshot != nil || err == nil || observed.reads.Load() != 0 {
 		t.Fatal("unreserved runtime accessed source", err)
 	}
+	preparation := testWorkspacePreparation(t, ctx, pool, claim, effect, record, objects)
 	if _, err := repo.BeginInvocationRuntimeAttempt(ctx, *claim, effect); err != nil {
 		t.Fatal(err)
+	}
+	if _, _, err := repo.ReadPreparingWorkspaceSource(ctx, *claim, effect, observed, preparation, &reconcile.SourceCedarEvaluator{}); err == nil || observed.reads.Load() != 0 {
+		t.Fatal("preparation continued after runtime reservation")
 	}
 	// Attribution and timestamps come from the stored operation, not these hints.
 	claim.ActorID = "forged-actor"
@@ -176,7 +180,7 @@ func testClaimedWorkspaceSource(t *testing.T, ctx context.Context, pool *pgxpool
 	if s, err := read(*claim, effect, record, 1); s != nil || !errors.Is(err, workspace.ErrSourceUnauthorized) || observed.reads.Load() != before {
 		t.Fatal("Cedar denial reached storage", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM workspace_source_use_decisions WHERE isolation_domain_id=$1 AND operation_id=$2 AND policy_outcome='denied' AND outcome='denied'`, scope, claim.ID).Scan(&count); err != nil || count != 2 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM workspace_source_use_decisions WHERE isolation_domain_id=$1 AND operation_id=$2 AND claim_contract='dataground.invocation-source-read/v3' AND policy_outcome='denied' AND outcome='denied'`, scope, claim.ID).Scan(&count); err != nil || count != 2 {
 		t.Fatal("Cedar denials not retained", count, err)
 	}
 	changeSourceReadMembership(t, ctx, pool, sourcePolicy, 2, true)
@@ -187,7 +191,7 @@ func testClaimedWorkspaceSource(t *testing.T, ctx context.Context, pool *pgxpool
 	if s, err := repo.ReadClaimedWorkspaceSource(ctx, *claim, effect, observed, record, 1, unavailableSourceEvaluator{}); s != nil || !errors.Is(err, workspace.ErrSourceUnavailable) || observed.reads.Load() != before {
 		t.Fatal("unavailable Cedar reached storage", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM workspace_source_use_decisions WHERE isolation_domain_id=$1 AND operation_id=$2 AND policy_outcome='unavailable' AND outcome='denied'`, scope, claim.ID).Scan(&count); err != nil || count != 1 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM workspace_source_use_decisions WHERE isolation_domain_id=$1 AND operation_id=$2 AND claim_contract='dataground.invocation-source-read/v3' AND policy_outcome='unavailable' AND outcome='denied'`, scope, claim.ID).Scan(&count); err != nil || count != 1 {
 		t.Fatal("unavailable evaluation not retained", count, err)
 	}
 	var missing *reconcile.SourceCedarEvaluator

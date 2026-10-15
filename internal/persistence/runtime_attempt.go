@@ -53,6 +53,9 @@ func (repository *Repository) BeginInvocationRuntimeAttempt(
 	if err := verifyInvocationRuntimeEffect(ctx, tx, effect); err != nil {
 		return InvocationRuntimeAttempt{}, err
 	}
+	if _, err := requireWorkspaceCompletion(ctx, tx, claim, effect); err != nil {
+		return InvocationRuntimeAttempt{}, err
+	}
 	now := repository.now()
 	result, err := tx.Exec(ctx, `
 		INSERT INTO invocation_runtime_attempts (
