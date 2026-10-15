@@ -198,6 +198,68 @@ test("supervisor diagnostics require independent image and realized topology bin
   assert.deepEqual(verifyDiagnostic(value, selected), []);
   assert.notEqual(verifyDiagnostic(value, expected).length, 0);
   assert.notEqual(verifyDiagnostic(record, selected).length, 0);
+  const source = structuredClone(value);
+  source.schemaVersion = "dataground.dev.openshell-runtime-diagnostic/v6";
+  source.workspaceSource = {
+    profile: "openshell-workspace-source-diagnostic/v1",
+    runId: source.run.id,
+    startedAt: new Date(Date.parse(source.run.startedAt) - 1000).toISOString(),
+    finishedAt: new Date(Date.parse(source.run.startedAt) - 1).toISOString(),
+    archiveDigest: "sha256:923eacd2ade97fcaa909d0427e23a1a868f5e7ee1c15f82c476d2207bfc7c613",
+    checks: [
+      "cross-domain-denial",
+      "source-installation",
+      "exact-read-back",
+      "substitution-denial",
+      "native-source-content",
+      "native-source-executable",
+    ],
+  };
+  const sourceSelected = { ...selected, workspaceSource: true };
+  assert.deepEqual(verifyDiagnostic(source, sourceSelected), []);
+  assert.notEqual(verifyDiagnostic(value, sourceSelected).length, 0);
+  assert.notEqual(verifyDiagnostic(source, { ...selected, workspaceSource: false }).length, 0);
+  for (const mutate of [
+    (v) => {
+      delete v.workspaceSource;
+    },
+    (v) => {
+      v.workspaceSource.runId = "f".repeat(32);
+    },
+    (v) => {
+      v.workspaceSource.checks.pop();
+    },
+    (v) => {
+      v.workspaceSource.checks.reverse();
+    },
+    (v) => {
+      v.workspaceSource.archiveDigest = `sha256:${"a".repeat(64)}`;
+    },
+    (v) => {
+      v.workspaceSource.finishedAt = v.run.finishedAt;
+    },
+    (v) => {
+      v.workspaceSource.startedAt = v.workspaceSource.finishedAt;
+    },
+    (v) => {
+      v.workspaceSource.startedAt = new Date(
+        Date.parse(v.workspaceSource.finishedAt) - 60001,
+      ).toISOString();
+    },
+    (v) => {
+      v.workspaceSource.extra = "private source";
+    },
+    (v) => {
+      v.schemaVersion = "dataground.dev.openshell-runtime-diagnostic/v5";
+    },
+    (v) => {
+      delete v.supervisorCandidate;
+    },
+  ]) {
+    const invalid = structuredClone(source);
+    mutate(invalid);
+    assert.notEqual(verifyDiagnostic(invalid, sourceSelected).length, 0);
+  }
   for (const mutate of [
     (v) => {
       v.profile.supervisorImage = `sha256:${"c".repeat(64)}`;

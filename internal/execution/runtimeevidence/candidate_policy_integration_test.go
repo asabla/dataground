@@ -163,7 +163,9 @@ func TestCodexProviderBoundSandboxCompatibility(t *testing.T) {
 				}
 			}
 			if candidate && sourceRequired == "true" {
-				verifyCandidateWorkspaceTransfer(t, ctx, ports.provider, ref)
+				if evidence, err := checkWorkspaceDiagnostic(ctx, runID, ports.provider, ref); err != nil || !validWorkspaceDiagnostic(evidence, runID) {
+					t.Fatal("source diagnostic failed through the provider-bound gateway")
+				}
 			}
 			session, err := ports.provider.StartRuntime(ctx, ref)
 			if err != nil {
