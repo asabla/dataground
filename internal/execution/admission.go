@@ -50,10 +50,11 @@ type AdmissionRequest struct {
 // It does not authorize, publish, or start a runtime; callers must complete
 // those platform-owned state-machine steps around this internal boundary.
 type Admission struct {
-	plans       ExecutionPlanStore
-	bundles     EnforcementBundleSource
-	provider    admissionProvider
-	credentials ProviderCredentialUseAuthorizer
+	workspacePlanDigest string
+	plans               ExecutionPlanStore
+	bundles             EnforcementBundleSource
+	provider            admissionProvider
+	credentials         ProviderCredentialUseAuthorizer
 }
 
 type admissionProvider interface {
@@ -89,6 +90,26 @@ func NewCredentialMediatedAdmission(
 	return admission, nil
 }
 
+// NewWorkspaceCredentialMediatedAdmission permits placement for one exact
+// source plan. It neither reads source bytes nor starts the runtime. Its owning
+// composition must complete claim-bound workspace preparation before startup.
+func NewWorkspaceCredentialMediatedAdmission(plans ExecutionPlanStore, bundles EnforcementBundleSource, provider admissionProvider, credentials ProviderCredentialUseAuthorizer, expected ExecutionPlan) (*Admission, error) {
+	normalized, err := NormalizeExecutionPlan(expected)
+	if err != nil || normalized.SchemaVersion != ExecutionPlanSchemaV2 || normalized.WorkspaceSource == nil {
+		return nil, ErrWorkspaceSourceProvisioningUnavailable
+	}
+	digest, err := DigestExecutionPlan(normalized)
+	if err != nil {
+		return nil, ErrWorkspaceSourceProvisioningUnavailable
+	}
+	admission, err := NewCredentialMediatedAdmission(plans, bundles, provider, credentials)
+	if err != nil {
+		return nil, err
+	}
+	admission.workspacePlanDigest = digest
+	return admission, nil
+}
+
 func (admission *Admission) Admit(ctx context.Context, request AdmissionRequest) (Execution, error) {
 	if !operationPattern.MatchString(request.OperationID) {
 		return Execution{}, errors.New("execution admission operation is invalid")
@@ -104,7 +125,12 @@ func (admission *Admission) Admit(ctx context.Context, request AdmissionRequest)
 	if err != nil || plan.IsolationDomainID != request.IsolationDomainID || plan.RevisionID != request.RevisionID {
 		return Execution{}, ErrExecutionPlanRevisionMismatch
 	}
-	if plan.WorkspaceSource != nil {
+	if admission.workspacePlanDigest != "" {
+		digest, err := DigestExecutionPlan(plan)
+		if err != nil || plan.WorkspaceSource == nil || digest != admission.workspacePlanDigest {
+			return Execution{}, ErrWorkspaceSourceProvisioningUnavailable
+		}
+	} else if plan.WorkspaceSource != nil {
 		return Execution{}, ErrWorkspaceSourceProvisioningUnavailable
 	}
 	if err := admission.authorizeProviderProfiles(ctx, request, plan, ProviderCredentialPhaseAdmission); err != nil {

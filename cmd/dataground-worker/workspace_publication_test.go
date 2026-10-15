@@ -28,7 +28,7 @@ func TestWorkspacePublicationRequiresSeparateProfileAndOperatorCommand(t *testin
 		}
 	}
 	if _, err := loadWorkerConfig(mapEnvironment(values)); err == nil {
-		t.Fatal("publication profile activated incomplete worker composition")
+		t.Fatal("publication profile activated a worker without source pins")
 	}
 	plan := execution.ExecutionPlan{SchemaVersion: execution.ExecutionPlanSchemaV2, IsolationDomainID: config.input.Target.IsolationDomainID, RevisionID: config.input.Target.RevisionID, RuntimeProfile: config.input.Target.RuntimeProfile, EnvironmentRevisionID: "environment", ImageReference: config.acceptance.image, EnvironmentManifestDigest: "sha256:" + strings.Repeat("a", 64), EnforcementBundleID: "strict-policy", EnforcementBundleDigest: strictLocalEnforcementDigest, RuntimeMatrixID: "matrix", RuntimeMatrixDigest: "sha256:" + strings.Repeat("b", 64), ProviderProfiles: []string{"codex"}, RequiredCapabilities: []string{config.input.Target.RuntimeProfile}}
 	plan.WorkspaceSource = &workspace.SourceRecord{SchemaVersion: workspace.SourceRecordV1, IsolationDomainID: plan.IsolationDomainID, WorkspaceID: "wsp_0123456789abcdefghij", ID: "src_0123456789abcdefghij", ArchiveDigest: "sha256:" + strings.Repeat("c", 64), StorageProfileDigest: "sha256:" + strings.Repeat("d", 64), ArchiveBytes: 2048, EntryCount: 1, SourceBytes: 1}
