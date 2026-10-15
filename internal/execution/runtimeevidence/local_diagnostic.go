@@ -19,6 +19,7 @@ var diagnosticModelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,12
 // LocalDiagnosticConfig deliberately has no workflow identity or acceptance
 // fields. A local run cannot produce the CI evidence used for certification.
 type LocalDiagnosticConfig struct {
+	WorkspaceSource          bool
 	SupervisorCandidateImage string
 	RepositoryRoot           string
 	WorkspaceRoot            string
@@ -46,7 +47,8 @@ func launchLocalDiagnostic(ctx context.Context, config LocalDiagnosticConfig, de
 	runCtx, cancel := context.WithTimeout(ctx, localDiagnosticTimeout)
 	defer cancel()
 	result, err := launch(runCtx, LauncherConfig{
-		RepositoryRoot: config.RepositoryRoot, WorkspaceRoot: config.WorkspaceRoot,
+		workspaceSource: config.WorkspaceSource,
+		RepositoryRoot:  config.RepositoryRoot, WorkspaceRoot: config.WorkspaceRoot,
 		CredentialDirectory: config.CredentialDirectory, OpenShellBinary: config.OpenShellBinary,
 		DockerBinary: config.DockerBinary, Provenance: Provenance{SourceCommit: config.SourceCommit},
 		diagnosticModel:          config.Model,
@@ -57,7 +59,7 @@ func launchLocalDiagnostic(ctx context.Context, config LocalDiagnosticConfig, de
 	if err != nil {
 		return LocalDiagnosticResult{}, err
 	}
-	if !result.complete || result.diagnosticModel != config.Model || result.candidateImage != config.CandidateImage || result.policyProfile != config.PolicyProfile || result.supervisorCandidateImage != config.SupervisorCandidateImage || result.record.Run.Provenance.WorkflowRunID != 0 || result.record.Run.Provenance.Workflow != "" || result.record.Run.Provenance.ArtifactName != "" {
+	if !result.complete || result.workspaceSourceRequired != config.WorkspaceSource || result.diagnosticModel != config.Model || result.candidateImage != config.CandidateImage || result.policyProfile != config.PolicyProfile || result.supervisorCandidateImage != config.SupervisorCandidateImage || result.record.Run.Provenance.WorkflowRunID != 0 || result.record.Run.Provenance.Workflow != "" || result.record.Run.Provenance.ArtifactName != "" {
 		return LocalDiagnosticResult{}, ErrLauncherRun
 	}
 	return LocalDiagnosticResult{result: result}, nil
@@ -107,8 +109,22 @@ func (result LocalDiagnosticResult) MarshalJSON() ([]byte, error) {
 		schema = supervisorDiagnosticSchemaVersion
 		supervisorCandidate = &diagnosticSupervisorCandidate{Profile: "openshell-supervisor-candidate/v1", SourceCommit: openShellCommit, PatchSHA256: openshell.SupervisorCandidatePatchSHA256}
 	}
+	if value.workspaceSourceRequired {
+		if supervisorCandidate == nil || !validWorkspaceDiagnostic(value.workspaceSource, value.record.Run.ID) {
+			return nil, ErrRunIncomplete
+		}
+		finished, _ := time.Parse(time.RFC3339Nano, value.workspaceSource.FinishedAt)
+		started, err := time.Parse(time.RFC3339Nano, value.record.Run.StartedAt)
+		if err != nil || finished.After(started) {
+			return nil, ErrRunIncomplete
+		}
+		schema = workspaceDiagnosticSchemaVersion
+	} else if value.workspaceSource != nil {
+		return nil, ErrRunIncomplete
+	}
 	// Use a closed local shape rather than serializing and editing CI evidence.
 	return json.Marshal(localDiagnosticRecord{
+		WorkspaceSource:     value.workspaceSource,
 		SupervisorCandidate: supervisorCandidate,
 		PolicySource:        policySource, SchemaVersion: schema, Profile: value.record.Profile, CandidateCredentialCheck: credentialCheck,
 		Run: localDiagnosticRun{ID: value.record.Run.ID, Resources: value.record.Run.Resources,
@@ -119,6 +135,7 @@ func (result LocalDiagnosticResult) MarshalJSON() ([]byte, error) {
 }
 
 type localDiagnosticRecord struct {
+	WorkspaceSource          *diagnosticWorkspaceSource     `json:"workspaceSource,omitempty"`
 	SupervisorCandidate      *diagnosticSupervisorCandidate `json:"supervisorCandidate,omitempty"`
 	PolicySource             *diagnosticPolicySource        `json:"policySource,omitempty"`
 	CandidateCredentialCheck string                         `json:"candidateCredentialCheck,omitempty"`

@@ -28,6 +28,7 @@ var (
 )
 
 type LauncherConfig struct {
+	workspaceSource          bool
 	diagnosticModel          string
 	candidateImage           string
 	policyProfile            string
@@ -71,6 +72,7 @@ type launcherPorts interface {
 }
 
 type launcherDependencies struct {
+	checkWorkspace func(context.Context, string, execution.Execution, launcherPorts) (*diagnosticWorkspaceSource, error)
 	checkCandidate func(context.Context, LauncherConfig) error
 	newRunID       func() (string, error)
 	readPolicy     func(LauncherConfig) ([]byte, error)
@@ -105,7 +107,7 @@ func launch(
 	config LauncherConfig,
 	dependencies launcherDependencies,
 ) (result Result, outcome error) {
-	if ctx == nil || !validLauncherConfig(config) || !validLauncherDependencies(dependencies) {
+	if ctx == nil || !validLauncherConfig(config) || !validLauncherDependencies(dependencies) || (config.workspaceSource && dependencies.checkWorkspace == nil) {
 		return Result{}, ErrLauncherConfiguration
 	}
 	if err := ctx.Err(); err != nil {
@@ -222,6 +224,14 @@ func launch(
 		return Result{}, launcherFailure(ctx, ErrLauncherRun)
 	}
 	state.executionCreated = true
+	var sourceEvidence *diagnosticWorkspaceSource
+	if config.workspaceSource {
+		phase = "workspace-source"
+		sourceEvidence, err = dependencies.checkWorkspace(ctx, runID, executionValue, ports)
+		if err != nil || !validWorkspaceDiagnostic(sourceEvidence, runID) {
+			return Result{}, ErrLauncherRun
+		}
+	}
 
 	phase = "harness"
 	harness, err := dependencies.newHarness(
@@ -249,11 +259,13 @@ func launch(
 	if err := topology.Check(ctx); err != nil {
 		return Result{}, launcherFailure(ctx, ErrLauncherRun)
 	}
+	result.workspaceSourceRequired, result.workspaceSource = config.workspaceSource, sourceEvidence
 	return result, nil
 }
 
 func defaultLauncherDependencies() launcherDependencies {
 	return launcherDependencies{
+		checkWorkspace: checkLauncherWorkspace,
 		checkCandidate: func(ctx context.Context, config LauncherConfig) error {
 			selection := canarylauncher.Config{
 				RepositoryRoot: config.RepositoryRoot, WorkspaceRoot: config.WorkspaceRoot,
@@ -281,7 +293,7 @@ func defaultLauncherDependencies() launcherDependencies {
 }
 
 func validLauncherConfig(config LauncherConfig) bool {
-	return validSupervisorSelection(config.supervisorCandidateImage, config.policyProfile, config.candidateImage, config.diagnosticModel) && config.candidateGatewaySHA256 == "" && config.RepositoryRoot != "" &&
+	return (!config.workspaceSource || config.supervisorCandidateImage != "") && validSupervisorSelection(config.supervisorCandidateImage, config.policyProfile, config.candidateImage, config.diagnosticModel) && config.candidateGatewaySHA256 == "" && config.RepositoryRoot != "" &&
 		config.WorkspaceRoot != "" &&
 		config.CredentialDirectory != "" &&
 		validRunProvenance(config.Provenance, config.diagnosticModel)

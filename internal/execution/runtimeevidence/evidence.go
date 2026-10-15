@@ -136,6 +136,8 @@ type runState struct {
 }
 
 type Result struct {
+	workspaceSourceRequired  bool
+	workspaceSource          *diagnosticWorkspaceSource
 	diagnosticModel          string
 	candidateImage           string
 	policyProfile            string

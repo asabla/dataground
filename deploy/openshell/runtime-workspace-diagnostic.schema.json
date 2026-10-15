@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v6.json",
+  "title": "DataGround local strict source-capable runtime diagnostic",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "certificationEligible",
+    "profile",
+    "run",
+    "checks",
+    "cleanup",
+    "result",
+    "candidateCredentialCheck",
+    "policySource",
+    "supervisorCandidate",
+    "workspaceSource"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "dataground.dev.openshell-runtime-diagnostic/v6"
+    },
+    "certificationEligible": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v5.json#/properties/certificationEligible"
+    },
+    "profile": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v5.json#/properties/profile"
+    },
+    "run": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v5.json#/properties/run"
+    },
+    "checks": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v5.json#/properties/checks"
+    },
+    "cleanup": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v5.json#/properties/cleanup"
+    },
+    "result": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v5.json#/properties/result"
+    },
+    "candidateCredentialCheck": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v5.json#/properties/candidateCredentialCheck"
+    },
+    "policySource": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v5.json#/properties/policySource"
+    },
+    "supervisorCandidate": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v5.json#/properties/supervisorCandidate"
+    },
+    "workspaceSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "runId",
+        "startedAt",
+        "finishedAt",
+        "archiveDigest",
+        "checks"
+      ],
+      "properties": {
+        "profile": {
+          "const": "openshell-workspace-source-diagnostic/v1"
+        },
+        "runId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "startedAt": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json#/$defs/timestamp"
+        },
+        "finishedAt": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json#/$defs/timestamp"
+        },
+        "archiveDigest": {
+          "const": "sha256:923eacd2ade97fcaa909d0427e23a1a868f5e7ee1c15f82c476d2207bfc7c613"
+        },
+        "checks": {
+          "const": [
+            "cross-domain-denial",
+            "source-installation",
+            "exact-read-back",
+            "substitution-denial",
+            "native-source-content",
+            "native-source-executable"
+          ]
+        }
+      }
+    }
+  }
+}
