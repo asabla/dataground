@@ -2,7 +2,9 @@ package persistence
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
+	"github.com/asabla/dataground/internal/authz"
 	"strconv"
 	"time"
 
@@ -135,6 +137,8 @@ func (repository *Repository) authorizeWorkspaceSource(ctx context.Context, use 
 	defer tx.Rollback(ctx)
 	var claimContract, invocationID, effectID, claimOwner, claimToken any
 	var claimExpires *time.Time
+	var policyContract, policySetID, policyDigest, policyOutcome, planDigest any
+	cedarOutcome := authz.OutcomeAllowed
 	if bound != nil {
 		target, expires, err := bound.lock(ctx, tx)
 		if err != nil {
@@ -143,7 +147,31 @@ func (repository *Repository) authorizeWorkspaceSource(ctx context.Context, use 
 		if bound.record != use.Record || target.IsolationDomainID != use.Record.IsolationDomainID || target.OperationID != use.OperationID || target.RevisionID != use.RevisionID || target.ActorID != use.ActorID || target.CorrelationID != use.CorrelationID {
 			return workspace.SourcePermit{}, workspace.ErrSourceUnauthorized
 		}
-		claimContract = "dataground.invocation-source-read/v2"
+		if err := lockInvocationAuthorizationPolicyScope(ctx, tx, target.IsolationDomainID, target.ServiceID, target.RevisionID); err != nil {
+			return workspace.SourcePermit{}, workspace.ErrSourceUnavailable
+		}
+		policy, err := getActiveInvocationAuthorizationPolicy(ctx, tx, target.IsolationDomainID, target.ServiceID, target.RevisionID)
+		if errors.Is(err, ErrInvocationAuthorizationPolicyRecordMissing) {
+			return workspace.SourcePermit{}, workspace.ErrSourceUnauthorized
+		}
+		if err != nil {
+			return workspace.SourcePermit{}, workspace.ErrSourceUnavailable
+		}
+		request := authz.SourceReadRequest{Use: use, ServiceID: target.ServiceID, InvocationID: target.InvocationID, EffectID: bound.effect.EffectID, FencingToken: bound.claim.FencingToken, PlanDigest: bound.planDigest, Phase: phase}
+		if !request.Valid() {
+			return workspace.SourcePermit{}, workspace.ErrSourceInvalid
+		}
+		cedarOutcome = bound.evaluator.EvaluateSourceRead(ctx, cloneInvocationAuthorizationPolicyRecord(policy), request)
+		switch cedarOutcome {
+		case authz.OutcomeAllowed, authz.OutcomeDenied, authz.OutcomeUnavailable:
+		default:
+			return workspace.SourcePermit{}, workspace.ErrSourceUnavailable
+		}
+		if ctx.Err() != nil {
+			return workspace.SourcePermit{}, workspace.ErrSourceUnavailable
+		}
+		policyContract, policySetID, policyDigest, policyOutcome, planDigest = policy.Contract, policy.PolicySetID, "sha256:"+hex.EncodeToString(policy.PolicyDigest), string(cedarOutcome), bound.planDigest
+		claimContract = "dataground.invocation-source-read/v3"
 		invocationID, effectID = target.InvocationID, bound.effect.EffectID
 		claimOwner, claimToken, claimExpires = bound.claim.LeaseOwner, bound.claim.FencingToken, &expires
 	}
@@ -168,7 +196,7 @@ func (repository *Repository) authorizeWorkspaceSource(ctx context.Context, use 
 	if err := tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
 		return workspace.SourcePermit{}, workspace.ErrSourceUnavailable
 	}
-	allowed := sourceErr == nil && source.Ready && source.Installation.Record == use.Record && published && found && grant.Record == use.Record && grant.Generation == use.GrantGeneration && grant.Operation == "activate" && !now.Before(grant.ActivatedAt) && now.Before(grant.ExpiresAt)
+	allowed := cedarOutcome == authz.OutcomeAllowed && sourceErr == nil && source.Ready && source.Installation.Record == use.Record && published && found && grant.Record == use.Record && grant.Generation == use.GrantGeneration && grant.Operation == "activate" && !now.Before(grant.ActivatedAt) && now.Before(grant.ExpiresAt)
 	var observed any
 	var expires *time.Time
 	if found {
@@ -185,17 +213,21 @@ func (repository *Repository) authorizeWorkspaceSource(ctx context.Context, use 
    isolation_domain_id,id,contract,workspace_id,source_id,revision_id,operation_id,
    archive_digest,storage_profile_digest,requested_generation,observed_generation,
    expires_at,phase,outcome,actor_id,correlation_id,
-   claim_contract,invocation_id,effect_id,claim_owner,claim_token,claim_expires_at
+   claim_contract,invocation_id,effect_id,claim_owner,claim_token,claim_expires_at,
+   policy_contract,policy_set_id,policy_digest,policy_outcome,plan_digest
   ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
     CASE WHEN $14::boolean AND $12::timestamptz>clock_timestamp()
      AND ($17::text IS NULL OR $22::timestamptz>clock_timestamp())
-     THEN 'allowed' ELSE 'denied' END,$15,$16,$17,$18,$19,$20,$21,$22)
+     THEN 'allowed' ELSE 'denied' END,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
   RETURNING outcome
- `, use.Record.IsolationDomainID, identity.New("sud"), use.Contract, use.Record.WorkspaceID, use.Record.ID, use.RevisionID, use.OperationID, use.Record.ArchiveDigest, use.Record.StorageProfileDigest, use.GrantGeneration, observed, expires, phase, allowed, use.ActorID, use.CorrelationID, claimContract, invocationID, effectID, claimOwner, claimToken, claimExpires).Scan(&outcome)
+ `, use.Record.IsolationDomainID, identity.New("sud"), use.Contract, use.Record.WorkspaceID, use.Record.ID, use.RevisionID, use.OperationID, use.Record.ArchiveDigest, use.Record.StorageProfileDigest, use.GrantGeneration, observed, expires, phase, allowed, use.ActorID, use.CorrelationID, claimContract, invocationID, effectID, claimOwner, claimToken, claimExpires, policyContract, policySetID, policyDigest, policyOutcome, planDigest).Scan(&outcome)
 	if err != nil {
 		return workspace.SourcePermit{}, workspace.ErrSourceUnavailable
 	}
 	if err := tx.Commit(ctx); err != nil {
+		return workspace.SourcePermit{}, workspace.ErrSourceUnavailable
+	}
+	if cedarOutcome == authz.OutcomeUnavailable {
 		return workspace.SourcePermit{}, workspace.ErrSourceUnavailable
 	}
 	if outcome != "allowed" || expires == nil || !time.Now().Before(*expires) || (claimExpires != nil && !time.Now().Before(*claimExpires)) {

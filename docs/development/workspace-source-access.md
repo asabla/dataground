@@ -26,15 +26,38 @@ Current governed publication and worker profiles accept only source-free version
 
 ## Invocation claim binding
 
-`Repository.ReadClaimedWorkspaceSource` is an internal read path for one reserved invocation runtime attempt. It takes an exact source record and grant generation, an operation claim, the prepared `run-invocation` effect, and a read-only object port. It derives the revision, initiating actor, and correlation from the durable invocation target and resolves that revision's version 2 execution plan in the same transaction. The supplied source record is an expected pin and must equal the complete stored selection; it cannot select a different source. A missing, source-free, or invalid plan prevents the read. Caller-carried attribution and deadline hints cannot replace those values. A repair operation retains its stored effect attribution.
+`Repository.ReadClaimedWorkspaceSource` is an internal read path for one reserved invocation runtime attempt. It takes an exact source record and grant generation, an operation claim, the prepared `run-invocation` effect, a read-only object port, and the required pure `SourceCedarEvaluator`. It derives the revision, initiating actor, and correlation from the durable invocation target and resolves that revision's version 2 execution plan in the same transaction. The supplied source record is an expected pin and must equal the complete stored selection; it cannot select a different source. A missing, source-free, or invalid plan prevents the read. Caller-carried attribution and deadline hints cannot replace those values. A repair operation retains its stored effect attribution.
 
 Before storage access and again before delivery, the grant transaction locks the invocation and exact operation, verifies the effect identity and request digest, and requires a reserved runtime attempt with the same owner and fencing token. The operation must still be running under the supported state-machine version, its admission effect must have succeeded, and both its lease and deadline must be current. Cancellation, replacement, completion, wrong scope, or a changed effect prevents delivery. Operation lock contention fails closed. Grant rotation and revocation use the same checks as administrative reads.
 
 The read context ends at the earliest of the caller deadline, the initially observed database lease expiry, the operation deadline, and the grant expiry. A later renewal cannot extend that read. The audit insert rechecks database time after lock waits. No transaction or operation lock remains open during object I/O.
 
-Migration 67 introduced the optional `dataground.invocation-source-read/v1` binding. Migration 68 retains that historical evidence and records new planned reads as `dataground.invocation-source-read/v2`. It records the invocation, effect, owner, fencing token, and earlier database lease/deadline expiry with each completed grant evaluation. All binding fields must be present together. Invalid or stale claims fail before a grant evaluation and do not create a source-use decision. Migration downgrade cannot remove retained claim evidence. Administrative decisions retain their existing grant-only contract and have no claim binding.
+Migration 67 introduced the optional `dataground.invocation-source-read/v1` binding. Migration 68 added planned reads as `dataground.invocation-source-read/v2`. Migration 69 preserves both historical forms and records new Cedar-authorized planned reads as `dataground.invocation-source-read/v3`. It records the invocation, effect, owner, fencing token, earlier database lease/deadline expiry, plan digest, active policy contract, policy-set identifier, effective policy digest, and Cedar outcome with each completed grant evaluation. All binding fields must be present together. Invalid or stale claims fail before a grant evaluation and do not create a source-use decision. Migration downgrade cannot remove retained claim evidence. Administrative decisions retain their existing grant-only contract and have no claim binding.
 
-This method is a read prerequisite, not a provisioning effect. The stored plan establishes exact selection but does not make a Cedar source-use decision, install a sandbox tree, or provide a reusable transfer permit. The caller must supply Cedar authority; a future transfer needs its own current effect authorization and recovery record. The governed worker does not call this method yet.
+This method is a read prerequisite, not a provisioning effect. The reader makes the source-use decision for this read. It does not install a sandbox tree or provide a reusable transfer permit; a future transfer needs its own current effect authorization and recovery record. The governed worker does not call this method yet.
+
+## Source-read Cedar policy
+
+Install `dataground.invocation-authorization-policy/v6` with the existing policy installer and its mutually exclusive `-source-capable` flag. This contract adds `read-source` to the version 5 actions and keeps the existing immutable policy, entity-generation, activation, and withdrawal boundaries. An older wildcard policy cannot grant the new action. The current governed worker and public publication profiles still require their existing policy versions; source-capable worker provisioning is not yet wired.
+
+For example, an explicitly installed source policy can restrict the actor role, exact source, revision, and both read phases:
+
+```cedar
+permit (
+  principal in DataGround::Role::"source-reader",
+  action == DataGround::Action::"read-source",
+  resource == DataGround::WorkspaceSource::"iso_00000000000000000001:wsp_00000000000000000001:src_00000000000000000001"
+) when {
+  context.revisionID == "rev_00000000000000000001" &&
+  (context.phase == "read-admission" || context.phase == "read-delivery")
+};
+```
+
+The resource identity includes the isolation domain, workspace, and source. The context carries the stored invocation and service identities, source and storage digests, plan digest, effect, fencing token, requested grant generation, phase, and correlation. It contains no source paths, archive bytes, credentials, or native endpoints. Actor and role membership come from the stored invocation attribution and current canonical entity generation.
+
+Each read phase holds the invocation claim, policy scope, and grant locks while evaluating Cedar and recording the result. The pure evaluator performs no database or storage calls. Direct SQL entity activation and policy withdrawal take the same policy-scope lock. Refresh, withdrawal, cancellation, expiry, or grant changes between phases therefore prevent delivery when the new state denies it. No locks remain open during object I/O.
+
+The effective policy digest and separate Cedar outcome commit atomically with the overall grant decision. A grant can deny a Cedar-allowed read; it cannot override a Cedar denial or unavailable result. Missing policy resolution and invalid claims fail before evaluation. Failed audit persistence or cancellation releases no content. Downgrade cannot discard source-policy evidence. The administrative verification command below retains its database-authorized, grant-only behavior.
 
 ## Development command
 
@@ -91,6 +114,6 @@ go run ./cmd/dataground-workspace-source-access revoke "${source_args[@]}" \
 
 Tests cover bounded validity, canonical input, concurrent activation replay, changed grants, cross-domain and workspace rejection, exact generation and digest binding, missing or expired grants, direct SQL revocation serialization, revocation and revision retirement during reads, grant and use-audit failure, immutable evidence, downgrade refusal, malformed content, storage substitution, and read deadlines. CI also composes the grant/read path with the pinned disposable S3 candidate and PostgreSQL. Successful verification proves that read only; it is not a lease or release certificate.
 
-Tests cover source-plan installation through the operator command, complete-record matching, incomplete-source rejection, concurrent replay, atomic audit failure, replay after publication, immutable selection, admission rejection, digest corruption, and downgrade refusal. They also exercise the claim-bound read with durable invocation acceptance, admission, and a reserved runtime attempt, including forged attribution and timestamps, stale claims, cancellation during storage access, attempt completion, lease renewal, expiry, failed delivery audit, and claim-evidence downgrade refusal.
+Tests cover source-policy installation through the operator command, old-wildcard rejection, context restrictions, membership removal between read phases, denied and unavailable audit outcomes, typed-nil evaluator rejection, direct SQL withdrawal serialization, and version 6 entity refresh. They also cover source-plan installation through the operator command, complete-record matching, incomplete-source rejection, concurrent replay, atomic audit failure, replay after publication, immutable selection, admission rejection, digest corruption, and downgrade refusal. They also exercise the claim-bound read with durable invocation acceptance, admission, and a reserved runtime attempt, including forged attribution and timestamps, stale claims, cancellation during storage access, attempt completion, lease renewal, expiry, failed delivery audit, and claim-evidence downgrade refusal.
 
 Public Cedar-authorized source operations, verified sandbox transfer, image integration, repository provenance and credentials, checkpoints, export, retention, deletion, and production certification remain required. The governed worker does not yet consume these source grants or snapshots.

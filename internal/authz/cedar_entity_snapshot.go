@@ -173,3 +173,7 @@ func validInvocationCedarEntityUID(uid invocationCedarEntityUID) bool {
 	}
 	return true
 }
+
+func InvocationAuthorizationPolicyV6Digest(schema, policies, entities []byte) [sha256.Size]byte {
+	return invocationAuthorizationPolicyEntityDigest("dataground.invocation-authorization-policy/v6\x00", schema, policies, entities)
+}
