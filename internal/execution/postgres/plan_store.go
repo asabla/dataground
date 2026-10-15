@@ -55,6 +55,26 @@ func (store *Store) BindExecutionPlan(
 		!slices.Equal(revisionCapabilities, normalized.Plan.RequiredCapabilities) {
 		return execution.ExecutionPlan{}, execution.ErrExecutionPlanRevisionMismatch
 	}
+	existing, existingErr := ReadExecutionPlan(ctx, transaction, normalized.Plan.IsolationDomainID, normalized.Plan.RevisionID)
+	if existingErr == nil {
+		if !execution.EqualExecutionPlans(existing, normalized.Plan) {
+			return execution.ExecutionPlan{}, execution.ErrExecutionPlanConflict
+		}
+		if err := transaction.Commit(ctx); err != nil {
+			return execution.ExecutionPlan{}, fmt.Errorf("commit execution plan replay: %w", ErrPersistence)
+		}
+		return existing, nil
+	}
+	if !errors.Is(existingErr, execution.ErrExecutionPlanMissing) {
+		return execution.ExecutionPlan{}, existingErr
+	}
+	var sourceJSON []byte
+	if normalized.Plan.WorkspaceSource != nil {
+		sourceJSON, err = json.Marshal(normalized.Plan.WorkspaceSource)
+		if err != nil {
+			return execution.ExecutionPlan{}, execution.ErrExecutionPlanConflict
+		}
+	}
 	now := store.now()
 	result, err := transaction.Exec(ctx, `
 		INSERT INTO service_revision_execution_plans (
@@ -62,9 +82,9 @@ func (store *Store) BindExecutionPlan(
 			environment_revision_id, image_reference, environment_manifest_digest,
 			enforcement_bundle_id, enforcement_bundle_digest,
 			runtime_matrix_id, runtime_matrix_digest, provider_profiles,
-			required_capabilities, plan_digest, bound_by, correlation_id, created_at
+			required_capabilities, plan_digest, bound_by, correlation_id, created_at, workspace_source
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
 		)
 		ON CONFLICT (isolation_domain_id, revision_id) DO NOTHING
 	`,
@@ -84,7 +104,7 @@ func (store *Store) BindExecutionPlan(
 		planDigest,
 		normalized.ActorID,
 		normalized.CorrelationID,
-		now,
+		now, sourceJSON,
 	)
 	if err != nil {
 		var databaseError *pgconn.PgError
@@ -93,7 +113,7 @@ func (store *Store) BindExecutionPlan(
 		}
 		return execution.ExecutionPlan{}, fmt.Errorf("bind execution plan: %w", ErrPersistence)
 	}
-	existing, err := getExecutionPlan(ctx, transaction, normalized.Plan.IsolationDomainID, normalized.Plan.RevisionID)
+	existing, err = ReadExecutionPlan(ctx, transaction, normalized.Plan.IsolationDomainID, normalized.Plan.RevisionID)
 	if err != nil {
 		return execution.ExecutionPlan{}, err
 	}
@@ -135,10 +155,11 @@ func (store *Store) GetExecutionPlan(
 	isolationDomainID string,
 	revisionID string,
 ) (execution.ExecutionPlan, error) {
-	return getExecutionPlan(ctx, store.pool, isolationDomainID, revisionID)
+	return ReadExecutionPlan(ctx, store.pool, isolationDomainID, revisionID)
 }
 
-func getExecutionPlan(
+// ReadExecutionPlan verifies the retained canonical digest through a pool or the caller's transaction.
+func ReadExecutionPlan(
 	ctx context.Context,
 	querier interface {
 		QueryRow(context.Context, string, ...any) pgx.Row
@@ -147,12 +168,14 @@ func getExecutionPlan(
 	revisionID string,
 ) (execution.ExecutionPlan, error) {
 	var plan execution.ExecutionPlan
+	var sourceJSON []byte
+	var storedDigest string
 	err := querier.QueryRow(ctx, `
 		SELECT schema_version, isolation_domain_id, revision_id, runtime_profile,
 		       environment_revision_id, image_reference, environment_manifest_digest,
 		       enforcement_bundle_id, enforcement_bundle_digest,
 		       runtime_matrix_id, runtime_matrix_digest, provider_profiles,
-		       required_capabilities
+		       required_capabilities,workspace_source,plan_digest
 		FROM service_revision_execution_plans
 		WHERE isolation_domain_id = $1 AND revision_id = $2
 	`, isolationDomainID, revisionID).Scan(
@@ -168,7 +191,7 @@ func getExecutionPlan(
 		&plan.RuntimeMatrixID,
 		&plan.RuntimeMatrixDigest,
 		&plan.ProviderProfiles,
-		&plan.RequiredCapabilities,
+		&plan.RequiredCapabilities, &sourceJSON, &storedDigest,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return execution.ExecutionPlan{}, execution.ErrExecutionPlanMissing
@@ -176,9 +199,18 @@ func getExecutionPlan(
 	if err != nil {
 		return execution.ExecutionPlan{}, fmt.Errorf("read execution plan: %w", ErrPersistence)
 	}
+	if len(sourceJSON) > 0 {
+		if err := json.Unmarshal(sourceJSON, &plan.WorkspaceSource); err != nil {
+			return execution.ExecutionPlan{}, fmt.Errorf("decode execution plan source: %w", ErrPersistence)
+		}
+	}
 	normalized, err := execution.NormalizeExecutionPlan(plan)
 	if err != nil {
 		return execution.ExecutionPlan{}, fmt.Errorf("validate persisted execution plan: %w", ErrPersistence)
+	}
+	digest, err := execution.DigestExecutionPlan(normalized)
+	if err != nil || digest != storedDigest {
+		return execution.ExecutionPlan{}, fmt.Errorf("verify execution plan digest: %w", ErrPersistence)
 	}
 	return normalized, nil
 }

@@ -414,6 +414,16 @@ func TestDurableExecutionPlanBindingIsImmutableAuditedAndScoped(t *testing.T) {
 		t.Fatalf("cross-domain plan lookup = %v, want ErrExecutionPlanMissing", err)
 	}
 
+	// Stored digests are verified on reload, including legacy source-free plans.
+	if _, err := pool.Exec(ctx, `UPDATE service_revision_execution_plans SET plan_digest=$3 WHERE isolation_domain_id=$1 AND revision_id=$2`, domainID, revisionID, "sha256:"+strings.Repeat("0", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetExecutionPlan(ctx, domainID, revisionID); err == nil {
+		t.Fatal("corrupted persisted plan digest was accepted")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE service_revision_execution_plans SET plan_digest=$3 WHERE isolation_domain_id=$1 AND revision_id=$2`, domainID, revisionID, digest); err != nil {
+		t.Fatal(err)
+	}
 	var auditCount int
 	var auditActor, auditCorrelation string
 	if err := pool.QueryRow(ctx, `

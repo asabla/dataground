@@ -3,6 +3,7 @@ package execution
 import (
 	"context"
 	"errors"
+	"github.com/asabla/dataground/internal/workspace"
 	"strings"
 	"sync"
 	"testing"
@@ -153,4 +154,96 @@ func slicesEqual(left, right []string) bool {
 		}
 	}
 	return true
+}
+
+func sourceExecutionPlan() ExecutionPlan {
+	plan := testExecutionPlan()
+	plan.SchemaVersion = ExecutionPlanSchemaV2
+	plan.WorkspaceSource = &workspace.SourceRecord{SchemaVersion: workspace.SourceRecordV1, IsolationDomainID: plan.IsolationDomainID, WorkspaceID: "wsp_" + strings.Repeat("a", 20), ID: "src_" + strings.Repeat("b", 20), ArchiveDigest: "sha256:" + strings.Repeat("c", 64), StorageProfileDigest: "sha256:" + strings.Repeat("d", 64), ArchiveBytes: 2048, EntryCount: 1, SourceBytes: 3}
+	return plan
+}
+func TestSourceExecutionPlanPinsAndCopiesCompleteRecord(t *testing.T) {
+	plan := sourceExecutionPlan()
+	normalized, err := NormalizeExecutionPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := DigestExecutionPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, change := range map[string]func(*ExecutionPlan){
+		"workspace": func(p *ExecutionPlan) { p.WorkspaceSource.WorkspaceID = "wsp_" + strings.Repeat("b", 20) },
+		"source":    func(p *ExecutionPlan) { p.WorkspaceSource.ID = "src_" + strings.Repeat("c", 20) },
+		"archive":   func(p *ExecutionPlan) { p.WorkspaceSource.ArchiveDigest = "sha256:" + strings.Repeat("d", 64) },
+		"storage":   func(p *ExecutionPlan) { p.WorkspaceSource.StorageProfileDigest = "sha256:" + strings.Repeat("e", 64) },
+		"bytes":     func(p *ExecutionPlan) { p.WorkspaceSource.ArchiveBytes += 512 },
+		"entries":   func(p *ExecutionPlan) { p.WorkspaceSource.EntryCount++ },
+		"contents":  func(p *ExecutionPlan) { p.WorkspaceSource.SourceBytes++ },
+	} {
+		t.Run(name, func(t *testing.T) {
+			changed := CloneExecutionPlan(plan)
+			change(&changed)
+			other, err := DigestExecutionPlan(changed)
+			if err != nil || other == digest || EqualExecutionPlans(changed, plan) {
+				t.Fatal("source changed without changing binding", err)
+			}
+		})
+	}
+	plan.WorkspaceSource.ID = "src_" + strings.Repeat("z", 20)
+	if normalized.WorkspaceSource.ID == plan.WorkspaceSource.ID {
+		t.Fatal("normalized source aliases input")
+	}
+	store := NewMemoryExecutionPlanStore()
+	binding := ExecutionPlanBinding{Plan: normalized, ActorID: "operator", CorrelationID: "correlation"}
+	saved, err := store.BindExecutionPlan(context.Background(), binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved.WorkspaceSource.EntryCount++
+	loaded, err := store.GetExecutionPlan(context.Background(), normalized.IsolationDomainID, normalized.RevisionID)
+	if err != nil || !EqualExecutionPlans(loaded, normalized) {
+		t.Fatal("source aliases memory store", err)
+	}
+	for name, change := range map[string]func(*ExecutionPlan){
+		"v1 with source":  func(p *ExecutionPlan) { p.SchemaVersion = ExecutionPlanSchemaV1 },
+		"missing source":  func(p *ExecutionPlan) { p.WorkspaceSource = nil },
+		"cross domain":    func(p *ExecutionPlan) { p.WorkspaceSource.IsolationDomainID = "iso_" + strings.Repeat("z", 20) },
+		"record version":  func(p *ExecutionPlan) { p.WorkspaceSource.SchemaVersion = "dataground.workspace-source/v2" },
+		"invalid archive": func(p *ExecutionPlan) { p.WorkspaceSource.ArchiveDigest = "latest" },
+		"invalid bounds":  func(p *ExecutionPlan) { p.WorkspaceSource.ArchiveBytes++ },
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := sourceExecutionPlan()
+			change(&p)
+			if _, err := NormalizeExecutionPlan(p); err == nil {
+				t.Fatal("invalid source accepted")
+			}
+		})
+	}
+}
+func TestAdmissionRejectsUnimplementedSourceProvisioning(t *testing.T) {
+	plan := sourceExecutionPlan()
+	plans := NewMemoryExecutionPlanStore()
+	if _, err := plans.BindExecutionPlan(context.Background(), ExecutionPlanBinding{Plan: plan, ActorID: "operator", CorrelationID: "correlation"}); err != nil {
+		t.Fatal(err)
+	}
+	source, provider := &admissionBundleSource{}, &admissionProviderStub{}
+	admission, err := NewAdmission(plans, source, provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admission.Admit(context.Background(), AdmissionRequest{IsolationDomainID: plan.IsolationDomainID, RevisionID: plan.RevisionID, OperationID: "op_" + strings.Repeat("a", 20)}); !errors.Is(err, ErrWorkspaceSourceProvisioningUnavailable) {
+		t.Fatal("source plan entered unsupported provisioning", err)
+	}
+	if source.calls != 0 || len(provider.placements) != 0 || len(provider.creates) != 0 {
+		t.Fatal("source plan reached external effects")
+	}
+}
+
+func TestExecutionPlanV1CanonicalDigestRemainsStable(t *testing.T) {
+	digest, err := DigestExecutionPlan(testExecutionPlan())
+	if err != nil || digest != "sha256:ff9dc025f1bca10cd80e3b4cd3ca52357eacd0f37cd5dbc0b0a3654375229c90" {
+		t.Fatal("version 1 canonical digest changed", digest, err)
+	}
 }

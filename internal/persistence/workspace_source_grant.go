@@ -140,10 +140,10 @@ func (repository *Repository) authorizeWorkspaceSource(ctx context.Context, use 
 		if err != nil {
 			return workspace.SourcePermit{}, err
 		}
-		if target.IsolationDomainID != use.Record.IsolationDomainID || target.OperationID != use.OperationID || target.RevisionID != use.RevisionID || target.ActorID != use.ActorID || target.CorrelationID != use.CorrelationID {
+		if bound.record != use.Record || target.IsolationDomainID != use.Record.IsolationDomainID || target.OperationID != use.OperationID || target.RevisionID != use.RevisionID || target.ActorID != use.ActorID || target.CorrelationID != use.CorrelationID {
 			return workspace.SourcePermit{}, workspace.ErrSourceUnauthorized
 		}
-		claimContract = "dataground.invocation-source-read/v1"
+		claimContract = "dataground.invocation-source-read/v2"
 		invocationID, effectID = target.InvocationID, bound.effect.EffectID
 		claimOwner, claimToken, claimExpires = bound.claim.LeaseOwner, bound.claim.FencingToken, &expires
 	}

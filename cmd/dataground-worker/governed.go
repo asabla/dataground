@@ -170,7 +170,7 @@ func validGovernedDevelopmentPlan(plan execution.ExecutionPlan, candidateImage, 
 	if candidateImage == "" && acceptanceProfile != "" {
 		return false
 	}
-	return plan.RuntimeProfile == reconcile.CodexAppServerRuntimeProfileV1 &&
+	return plan.SchemaVersion == execution.ExecutionPlanSchemaV1 && plan.WorkspaceSource == nil && plan.RuntimeProfile == reconcile.CodexAppServerRuntimeProfileV1 &&
 		plan.ImageReference == image &&
 		plan.EnforcementBundleDigest == enforcement &&
 		slices.Equal(plan.ProviderProfiles, []string{governedProviderProfile}) &&

@@ -4,13 +4,16 @@ import (
 	"context"
 	"time"
 
+	"github.com/asabla/dataground/internal/execution"
+	executionpostgres "github.com/asabla/dataground/internal/execution/postgres"
 	"github.com/asabla/dataground/internal/workspace"
 	"github.com/jackc/pgx/v5"
 )
 
 // ReadClaimedWorkspaceSource binds a private source read to a reserved runtime
-// attempt. Source selection and Cedar authority remain the caller's obligation;
-// this method neither starts a runtime nor transfers content into its sandbox.
+// attempt. The caller's source pin must match the immutable revision plan.
+// Cedar authority remains the caller's obligation. This method neither starts
+// a runtime nor transfers content into its sandbox.
 func (repository *Repository) ReadClaimedWorkspaceSource(ctx context.Context, claim OperationClaim, effect EffectRecord, objects workspace.SourceObjectReader, record workspace.SourceRecord, generation int64) (*workspace.Snapshot, error) {
 	if ctx == nil || objects == nil || !validInvocationRuntimeAttempt(claim, effect) || record.IsolationDomainID != claim.IsolationDomainID {
 		return nil, workspace.ErrSourceInvalid
@@ -28,7 +31,10 @@ func (repository *Repository) ReadClaimedWorkspaceSource(ctx context.Context, cl
 	if err != nil {
 		return nil, err
 	}
-	use := workspace.SourceUse{Contract: workspace.SourceUseV1, Record: record, RevisionID: target.RevisionID, OperationID: target.OperationID, GrantGeneration: generation, ActorID: target.ActorID, CorrelationID: target.CorrelationID}
+	if bound.record != record {
+		return nil, workspace.ErrSourceUnauthorized
+	}
+	use := workspace.SourceUse{Contract: workspace.SourceUseV1, Record: bound.record, RevisionID: target.RevisionID, OperationID: target.OperationID, GrantGeneration: generation, ActorID: target.ActorID, CorrelationID: target.CorrelationID}
 	if !use.Valid() {
 		return nil, workspace.ErrSourceInvalid
 	}
@@ -46,6 +52,7 @@ type invocationSourceAuthorizer struct {
 	repository *Repository
 	claim      OperationClaim
 	effect     EffectRecord
+	record     workspace.SourceRecord
 }
 
 func (bound *invocationSourceAuthorizer) AuthorizeWorkspaceSource(ctx context.Context, use workspace.SourceUse, phase string) (workspace.SourcePermit, error) {
@@ -59,6 +66,14 @@ func (bound *invocationSourceAuthorizer) lock(ctx context.Context, tx pgx.Tx) (I
 	if err != nil || target.InvocationID != bound.claim.ResourceID {
 		return InvocationRuntimeTarget{}, time.Time{}, workspace.ErrSourceUnauthorized
 	}
+	plan, err := executionpostgres.ReadExecutionPlan(ctx, tx, target.IsolationDomainID, target.RevisionID)
+	if err != nil || plan.SchemaVersion != execution.ExecutionPlanSchemaV2 || plan.WorkspaceSource == nil || plan.IsolationDomainID != target.IsolationDomainID || plan.RevisionID != target.RevisionID {
+		return InvocationRuntimeTarget{}, time.Time{}, workspace.ErrSourceUnauthorized
+	}
+	if bound.record != (workspace.SourceRecord{}) && bound.record != *plan.WorkspaceSource {
+		return InvocationRuntimeTarget{}, time.Time{}, workspace.ErrSourceUnauthorized
+	}
+	bound.record = *plan.WorkspaceSource
 	var expires time.Time
 	if err := tx.QueryRow(ctx, `SELECT LEAST(lease_expires_at,deadline_at) FROM invocation_execution_operations WHERE isolation_domain_id=$1 AND id=$2`, bound.claim.IsolationDomainID, bound.claim.ID).Scan(&expires); err != nil {
 		return InvocationRuntimeTarget{}, time.Time{}, workspace.ErrSourceUnavailable
