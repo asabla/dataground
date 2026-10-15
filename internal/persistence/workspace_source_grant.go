@@ -119,6 +119,9 @@ func sourceGrantWriteError(err error) error {
 	return workspace.ErrSourceUnavailable
 }
 func (repository *Repository) AuthorizeWorkspaceSource(ctx context.Context, use workspace.SourceUse, phase string) (workspace.SourcePermit, error) {
+	return repository.authorizeWorkspaceSource(ctx, use, phase, nil)
+}
+func (repository *Repository) authorizeWorkspaceSource(ctx context.Context, use workspace.SourceUse, phase string, bound *invocationSourceAuthorizer) (workspace.SourcePermit, error) {
 	if ctx == nil || !use.Valid() || (phase != workspace.SourceReadAdmission && phase != workspace.SourceReadDelivery) {
 		return workspace.SourcePermit{}, workspace.ErrSourceInvalid
 	}
@@ -130,6 +133,20 @@ func (repository *Repository) AuthorizeWorkspaceSource(ctx context.Context, use 
 		return workspace.SourcePermit{}, workspace.ErrSourceUnavailable
 	}
 	defer tx.Rollback(ctx)
+	var claimContract, invocationID, effectID, claimOwner, claimToken any
+	var claimExpires *time.Time
+	if bound != nil {
+		target, expires, err := bound.lock(ctx, tx)
+		if err != nil {
+			return workspace.SourcePermit{}, err
+		}
+		if target.IsolationDomainID != use.Record.IsolationDomainID || target.OperationID != use.OperationID || target.RevisionID != use.RevisionID || target.ActorID != use.ActorID || target.CorrelationID != use.CorrelationID {
+			return workspace.SourcePermit{}, workspace.ErrSourceUnauthorized
+		}
+		claimContract = "dataground.invocation-source-read/v1"
+		invocationID, effectID = target.InvocationID, bound.effect.EffectID
+		claimOwner, claimToken, claimExpires = bound.claim.LeaseOwner, bound.claim.FencingToken, &expires
+	}
 	if err := lockWorkspaceSourceGrant(ctx, tx, use.Record, use.RevisionID); err != nil {
 		return workspace.SourcePermit{}, workspace.ErrSourceUnavailable
 	}
@@ -167,18 +184,21 @@ func (repository *Repository) AuthorizeWorkspaceSource(ctx context.Context, use 
   INSERT INTO workspace_source_use_decisions (
    isolation_domain_id,id,contract,workspace_id,source_id,revision_id,operation_id,
    archive_digest,storage_profile_digest,requested_generation,observed_generation,
-   expires_at,phase,outcome,actor_id,correlation_id
+   expires_at,phase,outcome,actor_id,correlation_id,
+   claim_contract,invocation_id,effect_id,claim_owner,claim_token,claim_expires_at
   ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
-    CASE WHEN $14::boolean AND $12::timestamptz>clock_timestamp() THEN 'allowed' ELSE 'denied' END,$15,$16)
+    CASE WHEN $14::boolean AND $12::timestamptz>clock_timestamp()
+     AND ($17::text IS NULL OR $22::timestamptz>clock_timestamp())
+     THEN 'allowed' ELSE 'denied' END,$15,$16,$17,$18,$19,$20,$21,$22)
   RETURNING outcome
- `, use.Record.IsolationDomainID, identity.New("sud"), use.Contract, use.Record.WorkspaceID, use.Record.ID, use.RevisionID, use.OperationID, use.Record.ArchiveDigest, use.Record.StorageProfileDigest, use.GrantGeneration, observed, expires, phase, allowed, use.ActorID, use.CorrelationID).Scan(&outcome)
+ `, use.Record.IsolationDomainID, identity.New("sud"), use.Contract, use.Record.WorkspaceID, use.Record.ID, use.RevisionID, use.OperationID, use.Record.ArchiveDigest, use.Record.StorageProfileDigest, use.GrantGeneration, observed, expires, phase, allowed, use.ActorID, use.CorrelationID, claimContract, invocationID, effectID, claimOwner, claimToken, claimExpires).Scan(&outcome)
 	if err != nil {
 		return workspace.SourcePermit{}, workspace.ErrSourceUnavailable
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return workspace.SourcePermit{}, workspace.ErrSourceUnavailable
 	}
-	if outcome != "allowed" || expires == nil || !time.Now().Before(*expires) {
+	if outcome != "allowed" || expires == nil || !time.Now().Before(*expires) || (claimExpires != nil && !time.Now().Before(*claimExpires)) {
 		return workspace.SourcePermit{}, workspace.ErrSourceUnauthorized
 	}
 	return workspace.SourcePermit{Generation: grant.Generation, ExpiresAt: *expires}, nil
