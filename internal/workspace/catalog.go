@@ -54,9 +54,12 @@ type SourceCatalog interface {
 	CompleteWorkspaceSource(context.Context, SourceInstallation) (SourceCatalogEntry, error)
 	GetWorkspaceSource(context.Context, string, string, string) (SourceCatalogEntry, error)
 }
-type SourceObjects interface {
+type SourceObjectReader interface {
 	WorkspaceSourceStorageDigest() string
 	OpenWorkspaceSource(context.Context, string) (io.ReadCloser, error)
+}
+type SourceObjects interface {
+	SourceObjectReader
 	PutWorkspaceSourceIfAbsent(context.Context, string, []byte, string) error
 }
 
