@@ -74,6 +74,11 @@ type sshRuntimeSession struct {
 }
 
 func openSSHRuntime(ctx context.Context, proxy execution.RuntimeSession, cancel context.CancelFunc) (execution.RuntimeSession, error) {
+	return openSSHCommand(ctx, proxy, cancel, "codex app-server")
+}
+
+// Only adapter-owned commands may enter this private transport.
+func openSSHCommand(ctx context.Context, proxy execution.RuntimeSession, cancel context.CancelFunc, command string) (execution.RuntimeSession, error) {
 	link := newRuntimeProxyLink(proxy, cancel)
 	accepted := false
 	defer func() {
@@ -126,16 +131,15 @@ func openSSHRuntime(ctx context.Context, proxy execution.RuntimeSession, cancel 
 	if err != nil {
 		return nil, ErrRuntimeTransport
 	}
-	// This command is fixed and never interpolates a prompt, model, profile,
-	// credential, path, or client-supplied argument. No PTY is requested.
-	if err := session.Start("codex app-server"); err != nil {
+	// No PTY, user SSH configuration, or environment forwarding is permitted.
+	if err := session.Start(command); err != nil {
 		return nil, ErrRuntimeTransport
 	}
 	if !stopSetup() || setupCtx.Err() != nil {
 		return nil, ErrRuntimeTransport
 	}
 	_ = link.local.SetDeadline(time.Time{})
-	runtime := &sshRuntimeSession{client: client, session: session, input: input, output: output, diagnostic: diagnostic, link: link, remoteDone: make(chan struct{})}
+	runtime := &sshRuntimeSession{client: client, session: session, input: &sshRuntimeInput{writer: input}, output: output, diagnostic: diagnostic, link: link, remoteDone: make(chan struct{})}
 	runtime.lifecycle.Lock()
 	runtime.stopParent = context.AfterFunc(ctx, func() { _ = runtime.Close() })
 	runtime.lifecycle.Unlock()
@@ -201,4 +205,33 @@ func validRuntimeTarget(ref execution.ExecutionRef, entry execution.ExecutionRec
 		entry.Execution.ID == derivedID("exe", ref.IsolationDomainID+":"+entry.OperationID) &&
 		gateway.Endpoint == runtimeSSHGatewayEndpoint && gateway.Gateway.Driver == "docker" &&
 		gateway.Gateway.ID == entry.Execution.GatewayID && gateway.Gateway.IsolationDomainID == ref.IsolationDomainID
+}
+
+// ssh.Session stdin does not synchronize CloseWrite with Write or another close.
+// Serializing them prevents cancellation races. The enclosing Close arms the
+// proxy abort before waiting here, so a blocked write cannot hold shutdown open.
+type sshRuntimeInput struct {
+	mutex    sync.Mutex
+	writer   io.WriteCloser
+	closed   bool
+	closeErr error
+}
+
+func (input *sshRuntimeInput) Write(data []byte) (int, error) {
+	input.mutex.Lock()
+	defer input.mutex.Unlock()
+	if input.closed {
+		return 0, io.ErrClosedPipe
+	}
+	return input.writer.Write(data)
+}
+
+func (input *sshRuntimeInput) Close() error {
+	input.mutex.Lock()
+	defer input.mutex.Unlock()
+	if !input.closed {
+		input.closed = true
+		input.closeErr = input.writer.Close()
+	}
+	return input.closeErr
 }

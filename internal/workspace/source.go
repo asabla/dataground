@@ -4,6 +4,7 @@ package workspace
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -37,6 +38,7 @@ type sourceEntry struct {
 // Snapshot retains validated source bytes privately. It supplies no repository
 // provenance or authorization; those must be bound by the control plane.
 type Snapshot struct {
+	archive []byte
 	entries map[string]sourceEntry
 	names   []string
 	receipt Receipt
@@ -61,7 +63,12 @@ func Inspect(archive []byte, expectedDigest string) (*Snapshot, error) {
 		return nil, ErrSourceInvalid
 	}
 	owned := bytes.Clone(archive)
-	defer clear(owned)
+	retained := false
+	defer func() {
+		if !retained {
+			clear(owned)
+		}
+	}()
 	sum := sha256.Sum256(owned)
 	digest := "sha256:" + hex.EncodeToString(sum[:])
 	if digest != expectedDigest {
@@ -165,6 +172,8 @@ func Inspect(archive []byte, expectedDigest string) (*Snapshot, error) {
 	}
 	sort.Strings(snapshot.names)
 	snapshot.receipt.EntryCount = len(snapshot.names)
+	snapshot.archive = owned
+	retained = true
 	return snapshot, nil
 }
 
@@ -244,4 +253,36 @@ func (snapshot *Snapshot) containedLink(link sourceEntry) bool {
 		resolved = append(resolved, part)
 	}
 	return true
+}
+
+// WriteArchive delivers the exact verified input, including its archive metadata.
+// The writer must unblock on cancellation. Callers own authorization, destination
+// identity, and inactivity of the workspace; this method grants none of them.
+func (snapshot *Snapshot) WriteArchive(ctx context.Context, output io.Writer) error {
+	if snapshot == nil || len(snapshot.archive) == 0 || ctx == nil || output == nil {
+		return ErrSourceInvalid
+	}
+	for offset := 0; offset < len(snapshot.archive); {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		end := min(offset+32*1024, len(snapshot.archive))
+		n, err := output.Write(snapshot.archive[offset:end])
+		if err != nil {
+			return err
+		}
+		if n != end-offset {
+			return io.ErrShortWrite
+		}
+		offset = end
+	}
+	return ctx.Err()
+}
+
+func (snapshot *Snapshot) discard() {
+	clear(snapshot.archive)
+	snapshot.archive = nil
+	for _, entry := range snapshot.entries {
+		clear(entry.content)
+	}
 }

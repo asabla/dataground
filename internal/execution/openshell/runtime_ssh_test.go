@@ -43,6 +43,11 @@ func (proxy *sshTestProxy) Close() error {
 
 func newSSHTestProxy(t *testing.T, handle func(ssh.Channel)) *sshTestProxy {
 	t.Helper()
+	return newSSHCommandTestProxy(t, "codex app-server", handle)
+}
+
+func newSSHCommandTestProxy(t *testing.T, command string, handle func(ssh.Channel)) *sshTestProxy {
+	t.Helper()
 	local, remote := net.Pipe()
 	diagnostic, writer := io.Pipe()
 	proxy := &sshTestProxy{connection: local, diagnostic: diagnostic, diagnosticWriter: writer, done: make(chan struct{}), serverDone: make(chan struct{})}
@@ -83,7 +88,7 @@ func newSSHTestProxy(t *testing.T, handle func(ssh.Channel)) *sshTestProxy {
 						continue
 					}
 					var value struct{ Command string }
-					if ssh.Unmarshal(request.Payload, &value) != nil || value.Command != "codex app-server" {
+					if ssh.Unmarshal(request.Payload, &value) != nil || value.Command != command {
 						t.Error("runtime command was not fixed")
 						_ = request.Reply(false, nil)
 						return

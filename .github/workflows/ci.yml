@@ -207,6 +207,26 @@ jobs:
           -run '^TestDevelopmentGatewayLiveReplayAndRetirement$'
           -count=1 -timeout=4m
 
+  workspace-source-transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: .go-version
+
+      - name: Verify Linux source transfer and recovery
+        env:
+          DATAGROUND_TEST_WORKSPACE_SOURCE_BASE_IMAGE: ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e
+        run: >-
+          go test ./internal/execution/openshell
+          -run '^TestWorkspaceSourceDockerTransfer$'
+          -count=1 -timeout=4m
+
   s3-enforcement-conformance:
     runs-on: ubuntu-latest
     timeout-minutes: 10
