@@ -36,7 +36,8 @@
     {
       "includes": [
         "deploy/openshell/diagnostics/codex-candidate-arm64-20260906.json",
-        "deploy/openshell/diagnostics/codex-published-candidate-arm64-20260906.json"
+        "deploy/openshell/diagnostics/codex-published-candidate-arm64-20260906.json",
+        "deploy/openshell/diagnostics/codex-workspace-candidate-arm64-20261015.json"
       ],
       "formatter": {
         "enabled": false
