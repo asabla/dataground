@@ -191,8 +191,10 @@ func TestLocalApprovalDiagnosticsRejectUntrustedStages(t *testing.T) {
 		t.Fatal("unknown case content was exposed")
 	}
 	state.diagnosticModel = ""
-	if state.approvalFailure(CheckFileChangeApproval, "decision") != ErrCodexProbeObservation {
-		t.Fatal("CI mode emitted local diagnostic details")
+	for _, stage := range []string{"decision", "turn-succeeded-without-approval", "turn-failed-without-approval", "turn-cancelled-without-approval"} {
+		if state.approvalFailure(CheckFileChangeApproval, stage) != ErrCodexProbeObservation {
+			t.Fatal("CI mode emitted local diagnostic details")
+		}
 	}
 }
 
