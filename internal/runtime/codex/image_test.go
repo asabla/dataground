@@ -26,8 +26,18 @@ func TestCompletedImageRejectsMalformedOrChangedNativeOutput(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
+			started := make(chan struct{})
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
 			session := newScriptedSession(t, func(server *scriptServer) {
 				server.completeStart("thread", "turn")
+				// Reject the image on an established turn. Sending it before
+				// Start returns can correctly fail startup instead of Wait.
+				select {
+				case <-started:
+				case <-ctx.Done():
+					return
+				}
 				if name == "changed" {
 					server.notify("item/completed", nativeImageParams())
 				}
@@ -40,12 +50,11 @@ func TestCompletedImageRejectsMalformedOrChangedNativeOutput(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer client.Close()
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
 			turn, err := client.Start(ctx, dgruntime.StartRequest{Prompt: "image"})
 			if err != nil {
 				t.Fatal(err)
 			}
+			close(started)
 			if err := turn.Wait(ctx); !errors.Is(err, dgruntime.ErrProtocol) {
 				t.Fatal("invalid image accepted", err)
 			}
