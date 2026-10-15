@@ -113,10 +113,12 @@ func TestCompletedCommandRejectsInvalidSnapshot(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
 			turn, err := client.Start(ctx, dgruntime.StartRequest{Prompt: "command"})
-			if err != nil {
-				t.Fatal(err)
+			// The server sends the invalid item immediately after turn/start.
+			// Rejection can win the response race and end Start itself.
+			if err == nil {
+				err = turn.Wait(ctx)
 			}
-			if err := turn.Wait(ctx); !errors.Is(err, dgruntime.ErrProtocol) {
+			if !errors.Is(err, dgruntime.ErrProtocol) {
 				t.Fatal("invalid command accepted", err)
 			}
 		})
