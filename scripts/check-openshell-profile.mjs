@@ -1299,7 +1299,7 @@ if (
       "file-change-approval",
     ]) ||
   runtimeCodexRuntimeProbes?.requests !==
-    "fixed run-bound prompts with locked read-only defaults; approval cases alone enable interactive review and file-change alone enables workspace-write under /tmp" ||
+    "fixed run-bound prompts with read-only sandboxing; approval cases alone enable interactive review and file-change stays within /sandbox" ||
   runtimeCodexRuntimeProbes?.observationProof !==
     "domain-separated SHA-256 over the portable binding, UTC interval, bounded normalized event transcript, and closed case outcome" ||
   runtimeCodexRuntimeProbes?.acceptance !==
@@ -1436,7 +1436,7 @@ if (
   !runtimeCodexProbeSource.includes("codex.New(trackedSession)") ||
   !runtimeCodexProbeSource.includes("dgruntime.ApprovalLocked") ||
   !runtimeCodexProbeSource.includes("dgruntime.ApprovalInteractive") ||
-  !runtimeCodexProbeSource.includes("dgruntime.SandboxWorkspaceWrite") ||
+  !runtimeCodexProbeSource.includes("dgruntime.SandboxReadOnly") ||
   !runtimeCodexProbeSource.includes("maxCodexProbeEvents") ||
   !runtimeCodexProbeSource.includes("maxCodexProbeEventBytes") ||
   !runtimeCodexProbeSource.includes("valueExposesNativeProtocol") ||

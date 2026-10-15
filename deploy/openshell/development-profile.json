@@ -394,7 +394,7 @@
             "command-approval",
             "file-change-approval"
           ],
-          "requests": "fixed run-bound prompts with locked read-only defaults; approval cases alone enable interactive review and file-change alone enables workspace-write under /tmp",
+          "requests": "fixed run-bound prompts with read-only sandboxing; approval cases alone enable interactive review and file-change stays within /sandbox",
           "observationProof": "domain-separated SHA-256 over the portable binding, UTC interval, bounded normalized event transcript, and closed case outcome",
           "acceptance": "exact success text, native terminal failure, process event lifecycle, interrupt cancellation, canceled wait, and denied typed approvals; start and transport failures are rejected",
           "limits": "at most 256 normalized events and 4194304 canonical JSON bytes per case",

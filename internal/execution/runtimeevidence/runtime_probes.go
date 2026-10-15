@@ -317,13 +317,13 @@ func (probes *CodexProbes) FileChangeApproval(
 	request ProbeRequest,
 ) (ProbeResult, error) {
 	return probes.approval(ctx, request, CheckFileChangeApproval, "workspace.change", dgruntime.StartRequest{
-		// The destination must be outside the native writable workspace, otherwise
-		// apply_patch can legitimately finish without an approval request.
-		Prompt: "Apply exactly this patch using apply_patch. If a dedicated apply_patch tool is unavailable, invoke apply_patch through the command tool. Let apply_patch request approval for the destination outside the current workspace. Do not use another file-writing command or change the destination.\n*** Begin Patch\n*** Add File: /sandbox/dg-file-" + request.RunID +
+		// Read-only mode requires approval without putting the denied patch
+		// outside the adapter's workspace-relative output boundary.
+		Prompt: "Apply exactly this patch using apply_patch. If a dedicated apply_patch tool is unavailable, invoke apply_patch through the command tool. Let apply_patch request approval because the current native workspace is read-only. Do not use another file-writing command or change the destination.\n*** Begin Patch\n*** Add File: /sandbox/dg-file-" + request.RunID +
 			".txt\n+dg-file-" + request.RunID + "\n*** End Patch",
-		WorkingDir:   "/tmp",
+		WorkingDir:   "/sandbox",
 		ApprovalMode: dgruntime.ApprovalInteractive,
-		SandboxMode:  dgruntime.SandboxWorkspaceWrite,
+		SandboxMode:  dgruntime.SandboxReadOnly,
 	})
 }
 
