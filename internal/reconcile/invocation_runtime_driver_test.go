@@ -18,10 +18,19 @@ import (
 )
 
 func TestInvocationRuntimeDriverRunsOneFencedTurn(t *testing.T) {
+	testInvocationRuntimeDriverFencedTurn(t, false)
+}
+
+func testInvocationRuntimeDriverFencedTurn(t *testing.T, sourcePrepared bool) {
+	t.Helper()
 	claim, effect, target := runtimeDriverFixture()
-	store := &runtimeStoreStub{target: target, attemptErr: persistence.ErrInvocationRuntimeAttemptMissing}
+	store := &runtimeStoreStub{sourcePrepared: sourcePrepared, target: target, attemptErr: persistence.ErrInvocationRuntimeAttemptMissing}
 	authorizer := &runtimeAuthorizerStub{}
-	provider := &runtimeProviderStub{
+	provider := &runtimeProviderStub{beforeStart: func() {
+		if sourcePrepared && store.beginCalls != 1 {
+			t.Fatal("native runtime started before source turn reservation")
+		}
+	},
 		observation: execution.Observation{
 			IsolationDomainID: target.IsolationDomainID,
 			ExecutionID:       "exe_runtime",
@@ -432,17 +441,20 @@ func runtimeDriverFixture() (
 }
 
 type runtimeStoreStub struct {
-	target        persistence.InvocationRuntimeTarget
-	targetErr     error
-	attempt       persistence.InvocationRuntimeAttempt
-	attemptErr    error
-	failErr       error
-	eventErr      error
-	events        []persistence.InvocationRuntimeEvent
-	beginCalls    int
-	completeCalls int
-	failCalls     int
-	renewCalls    int
+	sourcePrepared bool
+	preparationErr error
+	beginErr       error
+	target         persistence.InvocationRuntimeTarget
+	targetErr      error
+	attempt        persistence.InvocationRuntimeAttempt
+	attemptErr     error
+	failErr        error
+	eventErr       error
+	events         []persistence.InvocationRuntimeEvent
+	beginCalls     int
+	completeCalls  int
+	failCalls      int
+	renewCalls     int
 }
 
 func (stub *runtimeStoreStub) PrepareInvocationRuntimeOutputFailure(_ context.Context, _ persistence.OperationClaim, _ persistence.EffectRecord, sequence uint64) (persistence.InvocationRuntimeOutputFailure, error) {
@@ -481,6 +493,9 @@ func (stub *runtimeStoreStub) BeginInvocationRuntimeAttempt(
 	effect persistence.EffectRecord,
 ) (persistence.InvocationRuntimeAttempt, error) {
 	stub.beginCalls++
+	if stub.beginErr != nil {
+		return persistence.InvocationRuntimeAttempt{}, stub.beginErr
+	}
 	stub.attempt = persistence.InvocationRuntimeAttempt{
 		IsolationDomainID: effect.IsolationDomainID,
 		OperationID:       effect.OperationID,
@@ -572,6 +587,7 @@ func (stub *runtimeExecutionSourceStub) GetExecutionByOperation(
 }
 
 type runtimeProviderStub struct {
+	beforeStart   func()
 	observation   execution.Observation
 	observeErr    error
 	startErr      error
@@ -595,6 +611,9 @@ func (stub *runtimeProviderStub) StartRuntime(
 	_ execution.ExecutionRef,
 ) (execution.RuntimeSession, error) {
 	stub.startCalls++
+	if stub.beforeStart != nil {
+		stub.beforeStart()
+	}
 	return runtimeSessionStub{}, stub.startErr
 }
 
@@ -694,3 +713,30 @@ func (runtimeSessionStub) Output() io.ReadCloser { return nil }
 func (runtimeSessionStub) Errors() io.ReadCloser { return nil }
 func (runtimeSessionStub) Wait() error           { return nil }
 func (runtimeSessionStub) Close() error          { return nil }
+
+func (stub *runtimeStoreStub) CheckInvocationWorkspacePreparation(context.Context, persistence.OperationClaim, persistence.EffectRecord) (bool, error) {
+	return stub.sourcePrepared, stub.preparationErr
+}
+
+func TestInvocationRuntimeDriverReservesPreparedSourceBeforeProcessStart(t *testing.T) {
+	testInvocationRuntimeDriverFencedTurn(t, true)
+}
+
+func TestInvocationRuntimeDriverRejectsUnpreparedSourceBeforeProcessStart(t *testing.T) {
+	for _, failure := range []string{"preparation", "reservation"} {
+		t.Run(failure, func(t *testing.T) {
+			claim, effect, target := runtimeDriverFixture()
+			store := &runtimeStoreStub{target: target, sourcePrepared: true}
+			if failure == "preparation" {
+				store.preparationErr = persistence.ErrWorkspacePreparation
+			} else {
+				store.beginErr = persistence.ErrLeaseLost
+			}
+			provider := &runtimeProviderStub{observation: execution.Observation{IsolationDomainID: target.IsolationDomainID, ExecutionID: "exe_runtime", State: "ready"}}
+			driver := newRuntimeDriverForTest(t, store, &runtimeAuthorizerStub{}, &runtimeExecutionSourceStub{value: execution.Execution{IsolationDomainID: target.IsolationDomainID, ID: "exe_runtime", State: "ready"}}, provider, &runtimeAdapterFactoryStub{adapter: &runtimeAdapterStub{}})
+			if _, err := driver.ApplyClaimed(context.Background(), claim, effect); err == nil || provider.startCalls != 0 {
+				t.Fatal("unprepared or unfenced source started a runtime", err)
+			}
+		})
+	}
+}

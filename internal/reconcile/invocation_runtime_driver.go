@@ -33,6 +33,7 @@ var (
 )
 
 type InvocationRuntimeStore interface {
+	CheckInvocationWorkspacePreparation(context.Context, persistence.OperationClaim, persistence.EffectRecord) (bool, error)
 	PrepareInvocationRuntimeOutputFailure(context.Context, persistence.OperationClaim, persistence.EffectRecord, uint64) (persistence.InvocationRuntimeOutputFailure, error)
 	GetClaimedInvocationRuntimeTarget(context.Context, persistence.OperationClaim) (persistence.InvocationRuntimeTarget, error)
 	GetInvocationRuntimeAttempt(context.Context, string, string) (persistence.InvocationRuntimeAttempt, error)
@@ -331,6 +332,17 @@ func (driver *InvocationRuntimeDriver) ApplyClaimed(
 	if err := driver.ready(runCtx); err != nil {
 		return nil, err
 	}
+	sourcePrepared, err := driver.store.CheckInvocationWorkspacePreparation(runCtx, claim, effect)
+	if err != nil {
+		return nil, err
+	}
+	if sourcePrepared {
+		// Preparation can be replayed, but a native turn cannot. Consume the turn
+		// reservation before starting any process in the materialized workspace.
+		if _, err := driver.store.BeginInvocationRuntimeAttempt(runCtx, claim, effect); err != nil {
+			return nil, err
+		}
+	}
 	session, err := driver.provider.StartRuntime(runCtx, ref)
 	if err != nil {
 		return nil, err
@@ -341,8 +353,10 @@ func (driver *InvocationRuntimeDriver) ApplyClaimed(
 		return nil, err
 	}
 	defer adapter.Close()
-	if _, err := driver.store.BeginInvocationRuntimeAttempt(runCtx, claim, effect); err != nil {
-		return nil, err
+	if !sourcePrepared {
+		if _, err := driver.store.BeginInvocationRuntimeAttempt(runCtx, claim, effect); err != nil {
+			return nil, err
+		}
 	}
 	turn, err := adapter.Start(runCtx, request)
 	if err != nil {

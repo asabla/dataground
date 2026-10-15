@@ -24,24 +24,9 @@ func (repository *Repository) ReadClaimedWorkspaceSource(ctx context.Context, cl
 		return nil, workspace.ErrSourceUnavailable
 	}
 	bound := &invocationSourceAuthorizer{repository: repository, claim: claim, effect: effect, evaluator: evaluator}
-	tx, err := repository.pool.Begin(ctx)
-	if err != nil {
-		return nil, workspace.ErrSourceUnavailable
-	}
-	defer tx.Rollback(ctx)
-	target, expires, err := bound.lock(ctx, tx)
+	use, expires, err := bound.sourceUse(ctx, record, generation)
 	if err != nil {
 		return nil, err
-	}
-	if bound.record != record {
-		return nil, workspace.ErrSourceUnauthorized
-	}
-	use := workspace.SourceUse{Contract: workspace.SourceUseV1, Record: bound.record, RevisionID: target.RevisionID, OperationID: target.OperationID, GrantGeneration: generation, ActorID: target.ActorID, CorrelationID: target.CorrelationID}
-	if !use.Valid() {
-		return nil, workspace.ErrSourceInvalid
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, workspace.ErrSourceUnavailable
 	}
 	// Use database lease and operation deadlines, never caller-carried timestamps.
 	// Renewal cannot extend a read already admitted under an earlier lease window.
@@ -50,19 +35,73 @@ func (repository *Repository) ReadClaimedWorkspaceSource(ctx context.Context, cl
 	return workspace.ReadSource(readCtx, repository, objects, bound, use)
 }
 
+func (bound *invocationSourceAuthorizer) sourceUse(ctx context.Context, record workspace.SourceRecord, generation int64) (workspace.SourceUse, time.Time, error) {
+	tx, err := bound.repository.pool.Begin(ctx)
+	if err != nil {
+		return workspace.SourceUse{}, time.Time{}, workspace.ErrSourceUnavailable
+	}
+	defer tx.Rollback(ctx)
+	target, expires, err := bound.lock(ctx, tx)
+	if err != nil {
+		return workspace.SourceUse{}, time.Time{}, err
+	}
+	if bound.record != record {
+		return workspace.SourceUse{}, time.Time{}, workspace.ErrSourceUnauthorized
+	}
+	use := workspace.SourceUse{Contract: workspace.SourceUseV1, Record: bound.record, RevisionID: target.RevisionID, OperationID: target.OperationID, GrantGeneration: generation, ActorID: target.ActorID, CorrelationID: target.CorrelationID}
+	if !use.Valid() {
+		return workspace.SourceUse{}, time.Time{}, workspace.ErrSourceInvalid
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return workspace.SourceUse{}, time.Time{}, workspace.ErrSourceUnavailable
+	}
+	bound.readExpires = expires
+	return use, expires, nil
+}
+
 type invocationSourceAuthorizer struct {
-	repository *Repository
-	claim      OperationClaim
-	effect     EffectRecord
-	record     workspace.SourceRecord
-	planDigest string
-	evaluator  SourceReadEvaluator
+	repository      *Repository
+	claim           OperationClaim
+	effect          EffectRecord
+	record          workspace.SourceRecord
+	planDigest      string
+	evaluator       SourceReadEvaluator
+	preparation     *InvocationWorkspacePreparation
+	completion      bool
+	deliveryExpires time.Time
+	readExpires     time.Time
+	currentExpires  time.Time
 }
 
 func (bound *invocationSourceAuthorizer) AuthorizeWorkspaceSource(ctx context.Context, use workspace.SourceUse, phase string) (workspace.SourcePermit, error) {
-	return bound.repository.authorizeWorkspaceSource(ctx, use, phase, bound)
+	permit, err := bound.repository.authorizeWorkspaceSource(ctx, use, phase, bound)
+	if err == nil {
+		bound.deliveryExpires = permit.ExpiresAt
+		if bound.readExpires.Before(bound.deliveryExpires) {
+			bound.deliveryExpires = bound.readExpires
+		}
+		if bound.currentExpires.Before(bound.deliveryExpires) {
+			bound.deliveryExpires = bound.currentExpires
+		}
+	}
+	return permit, err
 }
 func (bound *invocationSourceAuthorizer) lock(ctx context.Context, tx pgx.Tx) (InvocationRuntimeTarget, time.Time, error) {
+	if bound.preparation != nil {
+		target, current, err := lockWorkspacePreparationTarget(ctx, tx, bound.claim, bound.effect)
+		if err != nil {
+			return target, time.Time{}, err
+		}
+		current.GrantGeneration = bound.preparation.GrantGeneration
+		if current.Execution != bound.preparation.Execution || current.Source != bound.preparation.Source || current.PlanDigest != bound.preparation.PlanDigest {
+			return target, time.Time{}, ErrWorkspacePreparation
+		}
+		if err := verifyWorkspacePreparation(ctx, tx, bound.claim, bound.effect, current); err != nil {
+			return target, time.Time{}, err
+		}
+		bound.record, bound.planDigest = current.Source, current.PlanDigest
+		return target, current.ExpiresAt, nil
+	}
 	if err := lockRuntimeInteractionAttempt(ctx, tx, bound.claim, bound.effect); err != nil {
 		return InvocationRuntimeTarget{}, time.Time{}, workspace.ErrSourceUnauthorized
 	}

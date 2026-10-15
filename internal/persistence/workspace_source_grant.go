@@ -172,8 +172,12 @@ func (repository *Repository) authorizeWorkspaceSource(ctx context.Context, use 
 		}
 		policyContract, policySetID, policyDigest, policyOutcome, planDigest = policy.Contract, policy.PolicySetID, "sha256:"+hex.EncodeToString(policy.PolicyDigest), string(cedarOutcome), bound.planDigest
 		claimContract = "dataground.invocation-source-read/v3"
+		if bound.preparation != nil {
+			claimContract = "dataground.invocation-source-read/v4"
+		}
 		invocationID, effectID = target.InvocationID, bound.effect.EffectID
 		claimOwner, claimToken, claimExpires = bound.claim.LeaseOwner, bound.claim.FencingToken, &expires
+		bound.currentExpires = expires
 	}
 	if err := lockWorkspaceSourceGrant(ctx, tx, use.Record, use.RevisionID); err != nil {
 		return workspace.SourcePermit{}, workspace.ErrSourceUnavailable
@@ -206,6 +210,7 @@ func (repository *Repository) authorizeWorkspaceSource(ctx context.Context, use 
 		}
 	}
 	var outcome string
+	decisionID := identity.New("sud")
 	// Recheck expiry in the audit INSERT, after all reads and lock waits. An
 	// allowed result is released only after this append-only decision commits.
 	err = tx.QueryRow(ctx, `
@@ -220,9 +225,14 @@ func (repository *Repository) authorizeWorkspaceSource(ctx context.Context, use 
      AND ($17::text IS NULL OR $22::timestamptz>clock_timestamp())
      THEN 'allowed' ELSE 'denied' END,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
   RETURNING outcome
- `, use.Record.IsolationDomainID, identity.New("sud"), use.Contract, use.Record.WorkspaceID, use.Record.ID, use.RevisionID, use.OperationID, use.Record.ArchiveDigest, use.Record.StorageProfileDigest, use.GrantGeneration, observed, expires, phase, allowed, use.ActorID, use.CorrelationID, claimContract, invocationID, effectID, claimOwner, claimToken, claimExpires, policyContract, policySetID, policyDigest, policyOutcome, planDigest).Scan(&outcome)
+ `, use.Record.IsolationDomainID, decisionID, use.Contract, use.Record.WorkspaceID, use.Record.ID, use.RevisionID, use.OperationID, use.Record.ArchiveDigest, use.Record.StorageProfileDigest, use.GrantGeneration, observed, expires, phase, allowed, use.ActorID, use.CorrelationID, claimContract, invocationID, effectID, claimOwner, claimToken, claimExpires, policyContract, policySetID, policyDigest, policyOutcome, planDigest).Scan(&outcome)
 	if err != nil {
 		return workspace.SourcePermit{}, workspace.ErrSourceUnavailable
+	}
+	if bound != nil && bound.completion && outcome == "allowed" {
+		if err := recordWorkspaceCompletion(ctx, tx, bound, use, decisionID); err != nil {
+			return workspace.SourcePermit{}, workspace.ErrSourceUnavailable
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return workspace.SourcePermit{}, workspace.ErrSourceUnavailable
