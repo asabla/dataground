@@ -118,6 +118,7 @@ func (CodexInvocationRuntimeAdapterFactory) New(
 }
 
 type InvocationRuntimeDriverConfig struct {
+	WorkspacePreparer  *InvocationWorkspacePreparer
 	LeaseDuration      time.Duration
 	RenewInterval      time.Duration
 	Readiness          func(context.Context) error
@@ -131,6 +132,7 @@ type InvocationRuntimeDriverConfig struct {
 // effect to one native agent turn. It is deliberately opt-in and does not
 // change the default worker composition.
 type InvocationRuntimeDriver struct {
+	workspacePreparer  *InvocationWorkspacePreparer
 	store              InvocationRuntimeStore
 	authorizer         InvocationRuntimeAuthorizer
 	requests           InvocationRuntimeRequestBuilder
@@ -178,8 +180,14 @@ func NewInvocationRuntimeDriver(
 		config.RenewInterval >= config.LeaseDuration {
 		return nil, errors.New("runtime lease duration and shorter renewal interval are required")
 	}
+	if config.WorkspacePreparer != nil {
+		if _, ok := provider.(invocationWorkspaceProvider); !ok || config.Readiness == nil || !config.WorkspacePreparer.valid() {
+			return nil, errors.New("workspace preparation requires a configured controller, source transport, and runtime readiness")
+		}
+	}
 	return &InvocationRuntimeDriver{
-		store: store, authorizer: authorizer, requests: requests, executions: executions,
+		workspacePreparer: config.WorkspacePreparer,
+		store:             store, authorizer: authorizer, requests: requests, executions: executions,
 		provider: provider, adapters: adapters, artifacts: artifacts, leaseDuration: config.LeaseDuration,
 		renewInterval: config.RenewInterval, readiness: config.Readiness,
 		approvalStore: config.ApprovalStore, approvalAuthorizer: config.ApprovalAuthorizer,
@@ -332,9 +340,31 @@ func (driver *InvocationRuntimeDriver) ApplyClaimed(
 	if err := driver.ready(runCtx); err != nil {
 		return nil, err
 	}
+	if driver.workspacePreparer != nil {
+		check := func(ctx context.Context) error {
+			if err := driver.authorizer.AuthorizeInvocationRuntime(ctx, target, request); err != nil {
+				if errors.Is(err, ErrInvocationRuntimeDenied) {
+					return errors.Join(ErrEffectDenied, err)
+				}
+				return err
+			}
+			return driver.ready(ctx)
+		}
+		if err := driver.workspacePreparer.prepare(runCtx, claim, effect, target, ref, driver.provider.(invocationWorkspaceProvider), check); err != nil {
+			return nil, err
+		}
+		// Source preparation can outlive the earlier authorization observation.
+		// Recheck effect authority and accepted runtime readiness before startup.
+		if err := check(runCtx); err != nil {
+			return nil, err
+		}
+	}
 	sourcePrepared, err := driver.store.CheckInvocationWorkspacePreparation(runCtx, claim, effect)
 	if err != nil {
 		return nil, err
+	}
+	if driver.workspacePreparer != nil && !sourcePrepared {
+		return nil, persistence.ErrWorkspacePreparation
 	}
 	if sourcePrepared {
 		// Preparation can be replayed, but a native turn cannot. Consume the turn
