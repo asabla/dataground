@@ -2,6 +2,7 @@ package persistence_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/persistence"
 	"github.com/asabla/dataground/internal/reconcile"
+	dgruntime "github.com/asabla/dataground/internal/runtime"
 	"github.com/asabla/dataground/internal/workspace"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -152,20 +154,81 @@ func testWorkspacePreparation(t *testing.T, ctx context.Context, pool *pgxpool.P
 	if err != nil {
 		t.Fatal(err)
 	}
-	recovered, _, err := repo.ReadPreparingWorkspaceSource(ctx, *claim, effect, objects, preparation, &reconcile.SourceCedarEvaluator{})
-	if err != nil {
-		t.Fatal(err)
+	if _, err := repo.AuthorizeInvocationWorkspaceTransfer(ctx, *claim, effect, preparation, unavailableSourceEvaluator{}); err == nil {
+		t.Fatal("unavailable source policy permitted transfer")
 	}
-	checked, err := recovered.Verify(ctx, parent)
-	if err != nil || checked != receipt {
-		t.Fatal("replacement failed exact tree read-back", err)
-	}
-	if err := repo.CompleteInvocationWorkspacePreparation(ctx, *claim, effect, preparation, checked, &reconcile.SourceCedarEvaluator{}); err != nil {
-		t.Fatal(err)
-	}
+	testWorkspaceProvisioningDriver(t, ctx, repo, store, *claim, effect, preparation, objects, parent)
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM outbox_events WHERE isolation_domain_id=$1 AND event_type='workspace.source.preparation.completed'`, claim.IsolationDomainID).Scan(&count); err != nil || count != 2 {
 		t.Fatal("replacement completion outbox missing", count, err)
 	}
 	return preparation
 
+}
+
+// The real source catalog, policy, grants, lease and completion transaction are
+// composed here. The transport verifies the actual local tree; SSH and Linux
+// helper execution remain covered by the separate OpenShell transport suite.
+func testWorkspaceProvisioningDriver(t *testing.T, ctx context.Context, repo *persistence.Repository, executions *executionpostgres.Store, claim persistence.OperationClaim, effect persistence.EffectRecord, preparation persistence.InvocationWorkspacePreparation, objects workspace.SourceObjects, parent string) {
+	t.Helper()
+	target, err := repo.GetClaimedInvocationRuntimeTarget(ctx, claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preparer, err := reconcile.NewInvocationWorkspacePreparer(repo, objects, reconcile.InvocationWorkspaceConfig{Scope: reconcile.InvocationAuthorizationPolicyScope{IsolationDomainID: target.IsolationDomainID, ServiceID: target.ServiceID, RevisionID: target.RevisionID}, Source: preparation.Source, PlanDigest: preparation.PlanDigest, GrantGeneration: preparation.GrantGeneration})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &workspacePreparationTransport{parent: parent, loseAcknowledgement: true}
+	driver, err := reconcile.NewInvocationRuntimeDriver(repo, transport, reconcile.InvocationRuntimeRequestBuilderFunc(func(persistence.InvocationRuntimeTarget) (dgruntime.StartRequest, error) {
+		return dgruntime.StartRequest{Prompt: "source fixture", ApprovalMode: dgruntime.ApprovalLocked, SandboxMode: dgruntime.SandboxWorkspaceWrite}, nil
+	}), executions, transport, transport, transport, reconcile.InvocationRuntimeDriverConfig{LeaseDuration: time.Minute, RenewInterval: time.Second, Readiness: func(context.Context) error { return nil }, WorkspacePreparer: preparer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := driver.ApplyClaimed(ctx, claim, effect); !errors.Is(err, persistence.ErrWorkspacePreparation) {
+		t.Fatal("lost acknowledgement accepted", err)
+	}
+	if _, err := repo.CheckInvocationWorkspacePreparation(ctx, claim, effect); err == nil {
+		t.Fatal("unconfirmed transfer completed preparation")
+	}
+	transport.loseAcknowledgement = false
+	transport.authorizations = 0
+	if _, err := driver.ApplyClaimed(ctx, claim, effect); !errors.Is(err, reconcile.ErrEffectDenied) {
+		t.Fatal("runtime authority change ignored", err)
+	}
+	if required, err := repo.CheckInvocationWorkspacePreparation(ctx, claim, effect); err != nil || !required {
+		t.Fatal("recovered source not completed", err)
+	}
+	if _, err := repo.GetInvocationRuntimeAttempt(ctx, claim.IsolationDomainID, claim.ID); !errors.Is(err, persistence.ErrInvocationRuntimeAttemptMissing) {
+		t.Fatal("denied startup reserved a turn", err)
+	}
+	if transport.transfers != 2 {
+		t.Fatal("transfer recovery count", transport.transfers)
+	}
+}
+
+type workspacePreparationTransport struct {
+	questionBridgeTransport
+	parent                    string
+	loseAcknowledgement       bool
+	authorizations, transfers int
+}
+
+func (t *workspacePreparationTransport) AuthorizeInvocationRuntime(context.Context, persistence.InvocationRuntimeTarget, dgruntime.StartRequest) error {
+	t.authorizations++
+	if t.authorizations == 4 {
+		return reconcile.ErrInvocationRuntimeDenied
+	}
+	return nil
+}
+func (t *workspacePreparationTransport) MaterializeWorkspace(ctx context.Context, _ execution.ExecutionRef, snapshot *workspace.Snapshot) (workspace.Receipt, error) {
+	t.transfers++
+	receipt, err := snapshot.Verify(ctx, t.parent)
+	if err == nil && t.loseAcknowledgement {
+		return workspace.Receipt{}, errors.New("lost helper acknowledgement")
+	}
+	return receipt, err
+}
+func (*workspacePreparationTransport) StartRuntime(context.Context, execution.ExecutionRef) (execution.RuntimeSession, error) {
+	panic("source preparation must not bypass changed runtime authority")
 }

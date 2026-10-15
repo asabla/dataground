@@ -154,6 +154,24 @@ func (repository *Repository) ReadPreparingWorkspaceSource(ctx context.Context, 
 	return snapshot, bound.deliveryExpires, err
 }
 
+// AuthorizeInvocationWorkspaceTransfer renews the delivery decision immediately
+// before sending the retained snapshot. It cannot extend the earlier read's
+// deadline; the controller must retain that bound on its transfer context.
+func (repository *Repository) AuthorizeInvocationWorkspaceTransfer(ctx context.Context, claim OperationClaim, effect EffectRecord, preparation InvocationWorkspacePreparation, evaluator SourceReadEvaluator) (time.Time, error) {
+	if !repository.Configured() || ctx == nil || missingSourceReadEvaluator(evaluator) {
+		return time.Time{}, ErrWorkspacePreparation
+	}
+	bound := &invocationSourceAuthorizer{repository: repository, claim: claim, effect: effect, evaluator: evaluator, preparation: &preparation}
+	use, _, err := bound.sourceUse(ctx, preparation.Source, preparation.GrantGeneration)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if _, err := bound.AuthorizeWorkspaceSource(ctx, use, workspace.SourceReadDelivery); err != nil {
+		return time.Time{}, err
+	}
+	return bound.deliveryExpires, nil
+}
+
 func recordWorkspaceCompletion(ctx context.Context, tx pgx.Tx, bound *invocationSourceAuthorizer, use workspace.SourceUse, decisionID string) error {
 	result, err := tx.Exec(ctx, `INSERT INTO invocation_workspace_completions(isolation_domain_id,operation_id,fencing_token,decision_id)
  SELECT $1,$2,$3,$4 WHERE EXISTS(SELECT 1 FROM invocation_execution_operations WHERE isolation_domain_id=$1 AND id=$2 AND lease_owner=$5 AND lease_token=$3 AND lease_expires_at>clock_timestamp() AND deadline_at>clock_timestamp()) ON CONFLICT DO NOTHING`, bound.claim.IsolationDomainID, bound.claim.ID, bound.claim.FencingToken, decisionID, bound.claim.LeaseOwner)
