@@ -75,6 +75,7 @@ class PublicationTests(unittest.TestCase):
         metadata = {"Id": IMAGE, "Architecture": "arm64", "Os": "linux", "Config": {
             "User": self.user, "Labels": {
                 **self.labels,
+                "dataground.dev.workspace-source-revision": SOURCE_COMMIT,
                 "dataground.dev.certification-eligible": "false",
                 "org.opencontainers.image.source": "https://github.com/asabla/dataground",
             },
@@ -126,6 +127,29 @@ class PublicationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 publication.publish(self.directory, SOURCE_COMMIT, "arm64", "42", "2", self.candidate)
             self.assertEqual(output.read_text().count("digest="), 1)
+
+
+class WorkspacePublicationTests(PublicationTests):
+    candidate = "codex-workspace"
+
+    def test_helper_contract_and_revision_are_required(self):
+        metadata = {"Id": IMAGE, "Architecture": "arm64", "Os": "linux", "Config": {
+            "User": "sandbox", "Labels": {**self.labels,
+                "dataground.dev.workspace-source-revision": SOURCE_COMMIT,
+                "dataground.dev.certification-eligible": "false",
+                "org.opencontainers.image.source": "https://github.com/asabla/dataground",
+            },
+        }}
+        for key in ("dataground.dev.workspace-source-contract", "dataground.dev.workspace-source-revision"):
+            changed = json.loads(json.dumps(metadata))
+            changed["Config"]["Labels"][key] = "substituted"
+            with self.subTest(key=key), patch.object(publication, "docker", return_value=json.dumps([changed]).encode()):
+                with self.assertRaises(ValueError):
+                    publication.inspect(IMAGE, "arm64", self.candidate, SOURCE_COMMIT)
+        with patch.object(publication, "docker", return_value=json.dumps([metadata]).encode()):
+            with self.assertRaises(ValueError):
+                publication.inspect(IMAGE, "arm64", self.candidate)
+            publication.inspect(IMAGE, "arm64", self.candidate, SOURCE_COMMIT)
 
 
 class SupervisorPublicationTests(PublicationTests):

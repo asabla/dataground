@@ -22,6 +22,11 @@ def docker(*args):
 
 
 def candidate_profile(candidate):
+    if candidate == "codex-workspace":
+        return "dataground.codex-workspace-candidate-publication/v1", REPOSITORY, "sandbox", ("amd64", "arm64"), {
+            "dataground.dev.codex-compatibility-source": SOURCE,
+            "dataground.dev.workspace-source-contract": "dataground.workspace-source-materialization/v1",
+        }
     if candidate == "codex":
         return CONTRACT, REPOSITORY, "sandbox", ("amd64", "arm64"), {
             "dataground.dev.codex-compatibility-source": SOURCE,
@@ -34,7 +39,7 @@ def candidate_profile(candidate):
     raise ValueError("unknown candidate profile")
 
 
-def inspect(image, architecture, candidate="codex"):
+def inspect(image, architecture, candidate="codex", source_commit=None):
     _, _, user, architectures, required_labels = candidate_profile(candidate)
     if architecture not in architectures or not DIGEST.fullmatch(image):
         raise ValueError("unsupported candidate architecture or image")
@@ -43,6 +48,10 @@ def inspect(image, architecture, candidate="codex"):
         raise ValueError("ambiguous candidate image")
     value = values[0]
     labels = value.get("Config", {}).get("Labels", {})
+    if candidate == "codex-workspace" and (not isinstance(source_commit, str)
+            or not REVISION.fullmatch(source_commit)
+            or labels.get("dataground.dev.workspace-source-revision") != source_commit):
+        raise ValueError("workspace helper source does not match the publication")
     if (value.get("Id") != image or value.get("Architecture") != architecture
             or value.get("Os") != "linux" or value.get("Config", {}).get("User", "") != user
             or any(labels.get(key) != expected for key, expected in required_labels.items())
@@ -95,7 +104,7 @@ def prepare(directory, source_commit, architecture, image, candidate="codex"):
     dirty = subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"])
     if revision != source_commit or dirty:
         raise ValueError("candidate publication requires the exact clean checkout")
-    inspect(image, architecture, candidate)
+    inspect(image, architecture, candidate, source_commit)
     directory.mkdir(mode=0o700)
     docker("image", "save", "--output", str(directory / "candidate.tar"), image)
     record = {
@@ -109,7 +118,7 @@ def prepare(directory, source_commit, architecture, image, candidate="codex"):
 def load(directory, source_commit, architecture, candidate="codex"):
     record = checked_record(directory, source_commit, architecture, candidate)
     docker("image", "load", "--input", str(directory / "candidate.tar"))
-    inspect(record["imageId"], architecture, candidate)
+    inspect(record["imageId"], architecture, candidate, source_commit)
 
 
 def publish(directory, source_commit, architecture, run_id, run_attempt, candidate="codex"):
@@ -118,11 +127,11 @@ def publish(directory, source_commit, architecture, run_id, run_attempt, candida
         raise ValueError("invalid publication run identity")
     record = checked_record(directory, source_commit, architecture, candidate)
     image = record["imageId"]
-    inspect(image, architecture, candidate)
+    inspect(image, architecture, candidate, source_commit)
     tag = f"{repository}:candidate-{source_commit}-{architecture}-{run_id}-{run_attempt}"
     docker("image", "tag", image, tag)
     docker("image", "push", tag)
-    value = inspect(image, architecture, candidate)
+    value = inspect(image, architecture, candidate, source_commit)
     digests = [entry.removeprefix(repository + "@") for entry in value.get("RepoDigests", [])
                if entry.startswith(repository + "@")]
     if len(digests) != 1 or not DIGEST.fullmatch(digests[0]):
@@ -138,7 +147,7 @@ def main():
     parser.add_argument("--directory", required=True, type=Path)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--architecture", required=True, choices=("amd64", "arm64"))
-    parser.add_argument("--candidate", choices=("codex", "supervisor"), default="codex")
+    parser.add_argument("--candidate", choices=("codex", "codex-workspace", "supervisor"), default="codex")
     parser.add_argument("--image")
     parser.add_argument("--run-id")
     parser.add_argument("--run-attempt")

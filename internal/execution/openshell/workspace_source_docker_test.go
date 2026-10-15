@@ -21,8 +21,16 @@ import (
 // server is a controlled test peer; gateway authorization is tested separately.
 func TestWorkspaceSourceDockerTransfer(t *testing.T) {
 	base := os.Getenv("DATAGROUND_TEST_WORKSPACE_SOURCE_BASE_IMAGE")
+	image := os.Getenv("DATAGROUND_TEST_WORKSPACE_SOURCE_IMAGE")
+	if image != "" && base != "" {
+		t.Fatal("configure either an exact helper image or a base, not both")
+	}
+	buildHelper := image == ""
+	if !buildHelper {
+		base = image
+	}
 	if base == "" {
-		t.Skip("workspace source Docker base image not configured")
+		t.Skip("workspace source Docker image or base image not configured")
 	}
 	if !workspaceArchiveDigestPattern.MatchString(base) && !(strings.Contains(base, "@") && workspaceArchiveDigestPattern.MatchString(strings.SplitN(base, "@", 2)[1])) {
 		t.Fatal("test image must be digest pinned")
@@ -37,7 +45,7 @@ func TestWorkspaceSourceDockerTransfer(t *testing.T) {
 		}
 		return output
 	}
-	// Resolve to one local immutable image ID before building the helper layer.
+	// Resolve to one local immutable image ID before building or testing the helper.
 	if !workspaceArchiveDigestPattern.MatchString(base) {
 		docker("pull", base)
 	}
@@ -51,25 +59,6 @@ func TestWorkspaceSourceDockerTransfer(t *testing.T) {
 	if images[0].Architecture != "amd64" && images[0].Architecture != "arm64" {
 		t.Fatal("unsupported fixture architecture")
 	}
-	root, err := filepath.Abs("../../..")
-	if err != nil {
-		t.Fatal(err)
-	}
-	build := t.TempDir()
-	binary := filepath.Join(build, "dataground-workspace-materialize")
-	command := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", binary, "./cmd/dataground-workspace-materialize")
-	command.Dir = root
-	command.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+images[0].Architecture)
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("helper build: %s: %v", output, err)
-	}
-	dockerfile, err := os.ReadFile(filepath.Join(root, "deploy/openshell/workspace-source/Dockerfile"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(build, "Dockerfile"), dockerfile, 0600); err != nil {
-		t.Fatal(err)
-	}
 	tag := "dataground-workspace-transfer-" + strings.ToLower(rand.Text())
 	t.Cleanup(func() {
 		cleanup, stop := context.WithTimeout(context.Background(), 30*time.Second)
@@ -77,8 +66,38 @@ func TestWorkspaceSourceDockerTransfer(t *testing.T) {
 		_ = exec.CommandContext(cleanup, "docker", "rm", "--force", tag).Run()
 		_ = exec.CommandContext(cleanup, "docker", "image", "rm", tag, tag+"-base").Run()
 	})
-	docker("tag", images[0].ID, tag+"-base")
-	docker("build", "--network", "none", "--build-arg", "RUNTIME_IMAGE="+tag+"-base", "--tag", tag, build)
+	if buildHelper {
+		root, err := filepath.Abs("../../..")
+		if err != nil {
+			t.Fatal(err)
+		}
+		build := t.TempDir()
+		binary := filepath.Join(build, "dataground-workspace-materialize")
+		command := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", binary, "./cmd/dataground-workspace-materialize")
+		command.Dir = root
+		command.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+images[0].Architecture)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("helper build: %s: %v", output, err)
+		}
+		dockerfile, err := os.ReadFile(filepath.Join(root, "deploy/openshell/workspace-source/Dockerfile"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(build, "Dockerfile"), dockerfile, 0600); err != nil {
+			t.Fatal(err)
+		}
+		docker("tag", images[0].ID, tag+"-base")
+		docker("build", "--network", "none", "--build-arg", "RUNTIME_IMAGE="+tag+"-base", "--tag", tag, build)
+	} else {
+		docker("tag", images[0].ID, tag)
+	}
+	// The tested image owns the helper; no binary is mounted into the container.
+	// Check the image filesystem before the runtime scratch mount hides /sandbox.
+	docker("run", "--rm", "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--entrypoint", "/bin/sh", tag, "-c", `
+test "$(stat -c '%u:%g:%a' /usr/local/bin/dataground-workspace-materialize)" = '0:0:555' &&
+test "$(stat -c '%u:%g:%a' /usr/local/bin)" = '0:0:755' &&
+test "$(stat -c '%u:%g:%a' /sandbox)" = '998:998:700' &&
+test ! -e /sandbox/workspace && test ! -L /sandbox/workspace`)
 	docker("run", "--detach", "--name", tag, "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "64", "--memory", "256m", "--tmpfs", "/sandbox:rw,mode=0700,uid=998,gid=998", "--entrypoint", "/bin/sleep", tag, "infinity")
 	source, archive := transferSourceFixture(t)
 	// Verify that the same digest survives actual process stdin and Linux install.

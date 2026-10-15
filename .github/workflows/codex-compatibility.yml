@@ -20,6 +20,9 @@ on:
       - internal/execution/openshell/**
       - internal/runtime/codex/**
       - internal/security/canary*/**
+      - internal/workspace/**
+      - cmd/dataground-workspace-materialize/**
+      - scripts/*candidate*.mjs
       - .go-version
       - go.mod
       - go.sum
@@ -60,9 +63,21 @@ jobs:
       - name: Build the source-pinned experimental candidate
         id: candidate
         run: |
-          docker build --tag dataground-codex-compatibility:ci deploy/openshell/codex-compatibility
+          docker build --tag dataground-codex-compatibility:base deploy/openshell/codex-compatibility
+          helper_context=$(mktemp -d "$RUNNER_TEMP/workspace-helper.XXXXXX")
+          trap 'rm -rf "$helper_context"' EXIT
+          CGO_ENABLED=0 GOOS=linux go build -trimpath -o "$helper_context/dataground-workspace-materialize" ./cmd/dataground-workspace-materialize
+          cp deploy/openshell/workspace-source/Dockerfile "$helper_context/Dockerfile"
+          docker build --network none --tag dataground-codex-compatibility:ci \
+            --build-arg RUNTIME_IMAGE=dataground-codex-compatibility:base \
+            --build-arg DATAGROUND_SOURCE_REVISION="$GITHUB_SHA" "$helper_context"
           candidate_image=$(docker image inspect --format '{{.Id}}' dataground-codex-compatibility:ci)
           printf 'image=%s\n' "$candidate_image" >> "$GITHUB_OUTPUT"
+
+      - name: Verify source transfer using the exact candidate helper
+        env:
+          DATAGROUND_TEST_WORKSPACE_SOURCE_IMAGE: ${{ steps.candidate.outputs.image }}
+        run: go test ./internal/execution/openshell -run '^TestWorkspaceSourceDockerTransfer$' -count=1 -timeout=4m -v
 
       - name: Verify sequential turns with offline model fixtures
         env:
@@ -120,6 +135,7 @@ jobs:
 
       - name: Verify provider-bound child execution and denials
         env:
+          DATAGROUND_TEST_WORKSPACE_SOURCE_REQUIRED: "true"
           DATAGROUND_TEST_CODEX_COMPATIBILITY_IMAGE: ${{ steps.candidate.outputs.image }}
           DATAGROUND_TEST_RUNTIME_TOPOLOGY_ROOT: ${{ github.workspace }}
           DATAGROUND_TEST_OPENSHELL_BINARY: ${{ steps.openshell.outputs.cli }}
@@ -135,6 +151,7 @@ jobs:
           CANDIDATE_ARCH: ${{ inputs.architecture }}
         run: |
           python3 deploy/openshell/candidate-publication.py prepare \
+            --candidate codex-workspace \
             --directory "$RUNNER_TEMP/candidate-publication" \
             --image "$CANDIDATE_IMAGE" --architecture "$CANDIDATE_ARCH" \
             --source-commit "$GITHUB_SHA"
@@ -179,6 +196,7 @@ jobs:
           CANDIDATE_ARCH: ${{ inputs.architecture }}
         run: |
           python3 deploy/openshell/candidate-publication.py load \
+            --candidate codex-workspace \
             --directory "$RUNNER_TEMP/candidate-publication" \
             --architecture "$CANDIDATE_ARCH" --source-commit "$GITHUB_SHA"
 
@@ -193,6 +211,7 @@ jobs:
           printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$REGISTRY_USER" --password-stdin
           unset REGISTRY_TOKEN
           python3 deploy/openshell/candidate-publication.py publish \
+            --candidate codex-workspace \
             --directory "$RUNNER_TEMP/candidate-publication" \
             --architecture "$CANDIDATE_ARCH" --source-commit "$GITHUB_SHA" \
             --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT"

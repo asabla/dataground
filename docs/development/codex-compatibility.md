@@ -99,6 +99,35 @@ pnpm codex:candidate:attestation:check \
 
 The configuration uses the same bounded private-file acquisition rules. The verifier checks its exact byte length and SHA-256 against the signed Docker v2 or OCI image manifest, then requires the selected Linux architecture, `sandbox` user and candidate source/non-certification labels. Docker inspection output is a reserialization and cannot replace the original blob. Successful output includes the configuration digest and verified execution metadata. This verifies metadata committed by the signed manifest; it does not acquire or verify the filesystem layers. A local Docker image ID can identify either the manifest or its configuration, depending on the image store, so callers must retain both exact identities when relating a local diagnostic to the published image.
 
+## Source-capable candidate images
+
+The candidate workflow now adds the [workspace helper layer](workspace-source-materialization.md#internal-sandbox-transfer) after the unchanged Codex source build. It compiles the helper with the repository-pinned Go version, disables cgo, and builds for Linux on the native runner architecture. A private temporary build context contains only the helper binary and its Dockerfile. The final layer requires an absent workspace, preserves the `sandbox` user, and installs the helper as root-owned mode `0555` code. It records the materialization contract and exact DataGround source revision as image labels. Temporary build inputs are removed before publication's clean-checkout check.
+
+CI runs source transfer and recovery against the exact final image, without rebuilding or mounting a replacement helper. It checks helper ownership and mode, the private sandbox parent, an initially absent workspace, binary content, executable mode, lost-acknowledgement read-back, and refusal to overwrite a modified tree. The existing native restriction and synthetic credential tests also use that final image. Source-helper changes trigger the candidate workflow. The source-transfer test uses a controlled SSH peer; it does not establish live gateway source authorization. The provider-bound native test separately sets `DATAGROUND_TEST_WORKSPACE_SOURCE_REQUIRED=true` to exercise the actual OpenShell gateway and provider profile. Before starting the harness, it rejects cross-domain transfer, installs a binary file, a contained symlink, and an executable, repeats exact read-back, and rejects a different source without changing the installed tree. The native runtime then verifies the exact bytes, private modes and link, and runs the prepared executable under its read-only policy. The existing workspace-write, outside-write, socket, namespace, and artifact-export checks remain required. This test uses synthetic source and provider credentials; it does not supply a source grant or signed acceptance statement.
+
+Future workflow publications use the internal transfer record `dataground.codex-workspace-candidate-publication/v1`. Preparation, loading, and publication require the helper contract and source-revision label to match the reviewed checkout. The older Codex and supervisor transfer records remain distinct and cannot replace this record. The registry repository and attestation signer remain unchanged.
+
+Use the separate source-capable verifier when an image must contain this helper:
+
+```sh
+node scripts/check-workspace-candidate.mjs publication \
+  "sha256:$CANDIDATE_DIGEST" "$REVIEWED_SOURCE_COMMIT" \
+  "$PUBLICATION_RUN_ID" "$PUBLICATION_RUN_ATTEMPT" arm64
+```
+
+Offline verification requires the raw image configuration as well as the existing private manifest, bundle, and independently pinned roots:
+
+```sh
+node scripts/check-workspace-candidate.mjs attestation \
+  "sha256:$CANDIDATE_DIGEST" "$REVIEWED_SOURCE_COMMIT" \
+  "$PUBLICATION_RUN_ID" "$PUBLICATION_RUN_ATTEMPT" \
+  /absolute/private/manifest.json /absolute/private/bundle.jsonl \
+  /absolute/private/trusted-root.jsonl "$REVIEWED_TRUST_ROOT_SHA256" \
+  arm64 /absolute/private/image-config.json
+```
+
+Both commands require the helper contract and DataGround source revision in the signed image configuration, in addition to the existing Codex identity and isolation checks. Successful output identifies `openshell-codex-workspace-candidate/v1` and remains non-certifying. Offline verification still does not prove workflow completion. Source-free verification remains available for historical images; its success does not establish the helper capability. Local runtime acceptance and governed worker profiles do not yet consume the source-capable profile, so these image checks do not enable source-bearing plans.
+
 ## Published ARM64 candidate diagnostic
 
 The [local acceptance command](local-runtime-acceptance.md) can bind a diagnostic and its independently verified published image to an explicit, signed development target. It remains a separate contract from CI certification; the worker requires an explicit experimental profile and independent acceptance pins to consume it.
