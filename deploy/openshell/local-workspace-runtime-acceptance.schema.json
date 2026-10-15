@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dataground.dev/schemas/local-runtime-acceptance-v3.json",
+  "title": "Explicit strict source-capable local development acceptance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "statement",
+    "signature"
+  ],
+  "properties": {
+    "contract": {
+      "const": "dataground.local-runtime-acceptance-envelope/v3"
+    },
+    "statement": {
+      "$ref": "#/$defs/statement"
+    },
+    "signature": {
+      "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/properties/signature"
+    }
+  },
+  "$defs": {
+    "statement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "acceptanceId",
+        "generation",
+        "scope",
+        "profile",
+        "sourceRevision",
+        "publication",
+        "model",
+        "localImageId",
+        "profileSHA256",
+        "diagnosticSHA256",
+        "configSHA256",
+        "bundleSHA256",
+        "trustProfileSHA256",
+        "issuedAt",
+        "expiresAt",
+        "reviewerId",
+        "reason",
+        "publicationCompletionChecked",
+        "certificationEligible",
+        "deploymentScope",
+        "supervisor",
+        "workspaceSourceContract"
+      ],
+      "properties": {
+        "contract": {
+          "const": "dataground.local-runtime-acceptance-statement/v3"
+        },
+        "acceptanceId": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/acceptanceId"
+        },
+        "generation": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/generation"
+        },
+        "scope": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/scope"
+        },
+        "profile": {
+          "const": "openshell-codex-workspace-candidate-development/v1"
+        },
+        "sourceRevision": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/sourceRevision"
+        },
+        "publication": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/publication"
+        },
+        "model": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/model"
+        },
+        "localImageId": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/localImageId"
+        },
+        "profileSHA256": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/profileSHA256"
+        },
+        "diagnosticSHA256": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/diagnosticSHA256"
+        },
+        "configSHA256": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/configSHA256"
+        },
+        "bundleSHA256": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/bundleSHA256"
+        },
+        "trustProfileSHA256": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/trustProfileSHA256"
+        },
+        "issuedAt": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/issuedAt"
+        },
+        "expiresAt": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/expiresAt"
+        },
+        "reviewerId": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/reviewerId"
+        },
+        "reason": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/reason"
+        },
+        "publicationCompletionChecked": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/publicationCompletionChecked"
+        },
+        "certificationEligible": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/certificationEligible"
+        },
+        "deploymentScope": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/deploymentScope"
+        },
+        "supervisor": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/statement/properties/supervisor"
+        },
+        "workspaceSourceContract": {
+          "const": "dataground.workspace-source-materialization/v1"
+        }
+      }
+    },
+    "trust": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "scope",
+        "reviewerId",
+        "keyId",
+        "publicKey",
+        "trustedRootSHA256",
+        "notBefore",
+        "notAfter",
+        "profile"
+      ],
+      "properties": {
+        "contract": {
+          "const": "dataground.local-runtime-acceptance-trust/v3"
+        },
+        "scope": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/trust/properties/scope"
+        },
+        "reviewerId": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/trust/properties/reviewerId"
+        },
+        "keyId": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/trust/properties/keyId"
+        },
+        "publicKey": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/trust/properties/publicKey"
+        },
+        "trustedRootSHA256": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/trust/properties/trustedRootSHA256"
+        },
+        "notBefore": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/trust/properties/notBefore"
+        },
+        "notAfter": {
+          "$ref": "https://dataground.dev/schemas/local-runtime-acceptance-v2.json#/$defs/trust/properties/notAfter"
+        },
+        "profile": {
+          "const": "openshell-codex-workspace-candidate-development/v1"
+        }
+      }
+    }
+  }
+}
