@@ -139,7 +139,7 @@ func newDurableHandler(
 		dispatchTarget = &clonedTarget
 	}
 	if publicationTarget != nil {
-		if !publicationTarget.ValidReviewedInputs() || dispatchTarget == nil || publicationTarget.Target != *dispatchTarget {
+		if !publicationTarget.ValidReviewedInputs() || publicationTarget.Contract != persistence.DevelopmentPublicationContract || dispatchTarget == nil || publicationTarget.Target != *dispatchTarget {
 			return nil, errors.New("publication dispatch configuration is invalid")
 		}
 		copy := *publicationTarget

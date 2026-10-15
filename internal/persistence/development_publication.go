@@ -12,10 +12,15 @@ import (
 	"time"
 
 	"github.com/asabla/dataground/internal/domain"
+	"github.com/asabla/dataground/internal/execution"
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/lifecycle/publication"
+	"github.com/asabla/dataground/internal/workspace"
 	"github.com/jackc/pgx/v5"
 )
+
+const WorkspaceDevelopmentPublicationContract = "dataground.development-publication/v2"
+const WorkspaceDevelopmentPublicationProfile = "openshell-codex-workspace-candidate-development/v1"
 
 const DevelopmentPublicationContract = "dataground.development-publication/v1"
 const StrictDevelopmentPublicationProfile = "openshell-codex-strict-candidate-development/v1"
@@ -61,7 +66,7 @@ func (input DevelopmentPublicationInput) Valid() bool {
 // ValidReviewedInputs checks the immutable deployment-owned publication pins.
 // Actor and correlation are supplied separately by the accepted command or claim.
 func (input DevelopmentPublicationInput) ValidReviewedInputs() bool {
-	return input.Contract == DevelopmentPublicationContract && input.Target.Valid() && input.ExpectedVersion > 0 &&
+	return (input.Contract == DevelopmentPublicationContract || input.Contract == WorkspaceDevelopmentPublicationContract) && input.Target.Valid() && input.ExpectedVersion > 0 &&
 		publicationDigestPattern.MatchString(input.PlanDigest) && publicationDigestPattern.MatchString(input.PolicyDigest) && publicationDigestPattern.MatchString(input.VerificationDigest)
 }
 
@@ -81,13 +86,21 @@ func (repository *Repository) PublishDevelopmentRevision(ctx context.Context, in
 	target := input.Target
 	idem := Idempotency{IsolationDomainID: target.IsolationDomainID, Method: "POST", Path: "/internal/development-publication/" + target.RevisionID, Key: input.CorrelationID, RequestDigest: sha256.Sum256(encoded)}
 	result, err := repository.execute(ctx, idem, func(tx pgx.Tx, _ time.Time) (int, any, error) {
-		verified, err := verifyDevelopmentPublication(ctx, tx, input, verify, "dataground.invocation-authorization-policy/v3", nil)
+		policyContract := "dataground.invocation-authorization-policy/v3"
+		if input.Contract == WorkspaceDevelopmentPublicationContract {
+			policyContract = "dataground.invocation-authorization-policy/v6"
+		}
+		verified, err := verifyDevelopmentPublication(ctx, tx, input, verify, policyContract, nil)
 		if err != nil {
 			return 0, nil, err
 		}
 		now, evidence := verified.now, verified.evidence
-		operationID := identity.Derived("op", target.IsolationDomainID+":"+target.RevisionID+":development-publication:v1")
-		receipt := map[string]any{"contract": DevelopmentPublicationContract, "isolationDomainId": target.IsolationDomainID, "serviceId": target.ServiceID, "revisionId": target.RevisionID, "operationId": operationID, "state": "published", "certificationEligible": false}
+		identityContract := "development-publication:v1"
+		if input.Contract == WorkspaceDevelopmentPublicationContract {
+			identityContract = "development-publication:v2"
+		}
+		operationID := identity.Derived("op", target.IsolationDomainID+":"+target.RevisionID+":"+identityContract)
+		receipt := map[string]any{"contract": input.Contract, "isolationDomainId": target.IsolationDomainID, "serviceId": target.ServiceID, "revisionId": target.RevisionID, "operationId": operationID, "state": "published", "certificationEligible": false}
 		terminal, err := json.Marshal(receipt)
 		if err != nil {
 			return 0, nil, err
@@ -138,6 +151,15 @@ func verifyDevelopmentPublication(ctx context.Context, tx pgx.Tx, input Developm
 	if err != nil || policy.Contract != policyContract || "sha256:"+hex.EncodeToString(policy.PolicyDigest) != input.PolicyDigest {
 		return verifiedDevelopmentPublication{}, ErrDevelopmentPublicationUnavailable
 	}
+	if input.Contract == WorkspaceDevelopmentPublicationContract {
+		if policyContract != "dataground.invocation-authorization-policy/v6" || verifyPublicationWorkspaceSource(ctx, tx, input) != nil {
+			return verifiedDevelopmentPublication{}, ErrDevelopmentPublicationUnavailable
+		}
+	}
+	planSchema := execution.ExecutionPlanSchemaV1
+	if input.Contract == WorkspaceDevelopmentPublicationContract {
+		planSchema = execution.ExecutionPlanSchemaV2
+	}
 	var planDigest, image, enforcement string
 	err = tx.QueryRow(ctx, `
    SELECT plan.plan_digest, plan.image_reference, plan.enforcement_bundle_digest
@@ -147,8 +169,8 @@ func verifyDevelopmentPublication(ctx context.Context, tx pgx.Tx, input Developm
     AND bundle.id=plan.enforcement_bundle_id AND bundle.artifact_digest=plan.enforcement_bundle_digest
    WHERE plan.isolation_domain_id=$1 AND plan.revision_id=$2
      AND plan.runtime_profile=$3 AND plan.required_capabilities=ARRAY[$3]::text[]
-     AND plan.provider_profiles=ARRAY['codex']::text[]
-  `, target.IsolationDomainID, target.RevisionID, target.RuntimeProfile).Scan(&planDigest, &image, &enforcement)
+     AND plan.provider_profiles=ARRAY['codex']::text[] AND plan.schema_version=$4
+  `, target.IsolationDomainID, target.RevisionID, target.RuntimeProfile, planSchema).Scan(&planDigest, &image, &enforcement)
 	if err != nil || planDigest != input.PlanDigest || enforcement != strictDevelopmentPublicationPolicy {
 		return verifiedDevelopmentPublication{}, ErrDevelopmentPublicationUnavailable
 	}
@@ -163,8 +185,12 @@ func verifyDevelopmentPublication(ctx context.Context, tx pgx.Tx, input Developm
    ORDER BY generation DESC LIMIT 1`, target.IsolationDomainID, target.RevisionID).Scan(&grantGeneration, &grantOperation, &activatedAt, &grantExpiresAt); err != nil || grantOperation != "activate" || activatedAt == nil || grantExpiresAt == nil {
 		return verifiedDevelopmentPublication{}, ErrDevelopmentPublicationUnavailable
 	}
+	expectedProfile := StrictDevelopmentPublicationProfile
+	if input.Contract == WorkspaceDevelopmentPublicationContract {
+		expectedProfile = WorkspaceDevelopmentPublicationProfile
+	}
 	evidence, err := verify(ctx)
-	if err != nil || !publicationAcceptancePattern.MatchString(evidence.AcceptanceID) || evidence.Generation == 0 || evidence.Generation > 9007199254740991 || evidence.Profile != StrictDevelopmentPublicationProfile || evidence.ImageReference != image {
+	if err != nil || !publicationAcceptancePattern.MatchString(evidence.AcceptanceID) || evidence.Generation == 0 || evidence.Generation > 9007199254740991 || evidence.Profile != expectedProfile || evidence.ImageReference != image {
 		return verifiedDevelopmentPublication{}, ErrDevelopmentPublicationUnavailable
 	}
 	if authorize != nil {
@@ -190,7 +216,11 @@ func recordDevelopmentPublication(ctx context.Context, tx pgx.Tx, input Developm
 	if _, err := tx.Exec(ctx, `UPDATE service_revisions SET state='published',published_at=$3,generation=generation+1,version=version+1,updated_at=$3 WHERE isolation_domain_id=$1 AND id=$2`, target.IsolationDomainID, target.RevisionID, now); err != nil {
 		return err
 	}
-	metadata, err := json.Marshal(map[string]any{"planDigest": input.PlanDigest, "policyDigest": input.PolicyDigest, "verificationDigest": input.VerificationDigest, "acceptanceId": evidence.AcceptanceID, "acceptanceGeneration": evidence.Generation, "acceptanceExpiresAt": evidence.ExpiresAt.UTC().Format(time.RFC3339Nano), "providerGrantGeneration": grantGeneration})
+	metadataFields := map[string]any{"planDigest": input.PlanDigest, "policyDigest": input.PolicyDigest, "verificationDigest": input.VerificationDigest, "acceptanceId": evidence.AcceptanceID, "acceptanceGeneration": evidence.Generation, "acceptanceExpiresAt": evidence.ExpiresAt.UTC().Format(time.RFC3339Nano), "providerGrantGeneration": grantGeneration}
+	if input.Contract == WorkspaceDevelopmentPublicationContract {
+		metadataFields["publicationContract"] = input.Contract
+	}
+	metadata, err := json.Marshal(metadataFields)
 	if err != nil {
 		return err
 	}
@@ -200,6 +230,22 @@ func recordDevelopmentPublication(ctx context.Context, tx pgx.Tx, input Developm
 	}
 	if err := writeOutboxAndAudit(ctx, tx, target.IsolationDomainID, OperationKindPublication, operationID, "service-publication.published", input.ActorID, input.CorrelationID, "succeeded", operationID, now); err != nil {
 		return err
+	}
+	return nil
+}
+
+func verifyPublicationWorkspaceSource(ctx context.Context, tx pgx.Tx, input DevelopmentPublicationInput) error {
+	var encoded []byte
+	var digest string
+	err := tx.QueryRow(ctx, `SELECT workspace_source,plan_digest FROM service_revision_execution_plans
+ WHERE isolation_domain_id=$1 AND revision_id=$2 AND schema_version=$3`, input.Target.IsolationDomainID, input.Target.RevisionID, execution.ExecutionPlanSchemaV2).Scan(&encoded, &digest)
+	var source workspace.SourceRecord
+	if err != nil || digest != input.PlanDigest || json.Unmarshal(encoded, &source) != nil || !workspace.ValidSourceRecord(source) || source.IsolationDomainID != input.Target.IsolationDomainID {
+		return ErrDevelopmentPublicationUnavailable
+	}
+	installed, err := findWorkspaceSource(ctx, tx, source.IsolationDomainID, source.WorkspaceID, source.ID)
+	if err != nil || !installed.Ready || installed.Installation.Record != source {
+		return ErrDevelopmentPublicationUnavailable
 	}
 	return nil
 }

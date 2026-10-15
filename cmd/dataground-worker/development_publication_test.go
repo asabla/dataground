@@ -14,8 +14,8 @@ import (
 
 	"github.com/asabla/dataground/internal/execution"
 	"github.com/asabla/dataground/internal/execution/runtimeevidence"
-	"github.com/asabla/dataground/internal/persistence"
 	"github.com/asabla/dataground/internal/reconcile"
+	"github.com/asabla/dataground/internal/workspace"
 )
 
 func publicationArguments() []string {
@@ -81,14 +81,23 @@ func (source publicationPolicies) ResolveInvocationAuthorizationPolicy(context.C
 }
 
 func TestDevelopmentPublicationVerifiesActualMaterialAndAcceptance(t *testing.T) {
-	for _, mode := range []string{"valid", "authorized", "authorized older policy", "operator publication policy", "plan scope", "image", "plan digest", "bundle scope", "bundle identity", "bytes", "policy scope", "policy digest", "expired acceptance", "deployment", "verifier", "cancelled"} {
+	for _, mode := range []string{"valid", "source valid", "source old policy", "source old receipt", "source changed source", "source missing source", "authorized", "authorized older policy", "operator publication policy", "plan scope", "image", "plan digest", "bundle scope", "bundle identity", "bytes", "policy scope", "policy digest", "expired acceptance", "deployment", "verifier", "cancelled"} {
 		t.Run(mode, func(t *testing.T) {
-			config, err := loadDevelopmentPublication(publicationArguments(), mapEnvironment(validStrictAcceptanceEnvironment()))
+			values := validStrictAcceptanceEnvironment()
+			sourceMode := strings.HasPrefix(mode, "source ")
+			if sourceMode {
+				values["DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE"] = workspaceLocalRuntimeProfile
+			}
+			config, err := loadDevelopmentPublication(publicationArguments(), mapEnvironment(values))
 			if err != nil {
 				t.Fatal(err)
 			}
 			target := config.input.Target
 			plan := execution.ExecutionPlan{SchemaVersion: execution.ExecutionPlanSchemaV1, IsolationDomainID: target.IsolationDomainID, RevisionID: target.RevisionID, RuntimeProfile: target.RuntimeProfile, EnvironmentRevisionID: "environment", ImageReference: config.acceptance.image, EnvironmentManifestDigest: "sha256:" + strings.Repeat("a", 64), EnforcementBundleID: "strict-policy", EnforcementBundleDigest: strictLocalEnforcementDigest, RuntimeMatrixID: "matrix", RuntimeMatrixDigest: "sha256:" + strings.Repeat("b", 64), ProviderProfiles: []string{"codex"}, RequiredCapabilities: []string{target.RuntimeProfile}}
+			if sourceMode {
+				plan.SchemaVersion = execution.ExecutionPlanSchemaV2
+				plan.WorkspaceSource = &workspace.SourceRecord{SchemaVersion: workspace.SourceRecordV1, IsolationDomainID: target.IsolationDomainID, WorkspaceID: "wsp_0123456789abcdefghij", ID: "src_0123456789abcdefghij", ArchiveDigest: "sha256:" + strings.Repeat("c", 64), StorageProfileDigest: "sha256:" + strings.Repeat("d", 64), ArchiveBytes: 2048, EntryCount: 1, SourceBytes: 1}
+			}
 			config.input.PlanDigest, err = execution.DigestExecutionPlan(plan)
 			if err != nil {
 				t.Fatal(err)
@@ -101,6 +110,11 @@ func TestDevelopmentPublicationVerifiesActualMaterialAndAcceptance(t *testing.T)
 			policy := reconcile.InvocationAuthorizationPolicy{Contract: reconcile.InvocationAuthorizationPolicyApprovalContract, IsolationDomainID: target.IsolationDomainID, ServiceID: target.ServiceID, RevisionID: target.RevisionID, Digest: sha256.Sum256([]byte("fixture-policy"))}
 			config.input.PolicyDigest = "sha256:" + hex.EncodeToString(policy.Digest[:])
 			receipt := strictAcceptanceReceipt(config.acceptance)
+			if sourceMode {
+				policy.Contract = reconcile.InvocationAuthorizationPolicySourceContract
+				receipt["profile"] = workspaceLocalRuntimeProfile
+				receipt["workspaceSourceContract"] = "dataground.workspace-source-materialization/v1"
+			}
 			deployment := &fakeRuntimeDeployment{}
 			checker := &localRuntimeAcceptanceChecker{config: config.acceptance, run: func(context.Context, string, []string, []string) ([]byte, error) {
 				if mode == "verifier" {
@@ -114,6 +128,15 @@ func TestDevelopmentPublicationVerifiesActualMaterialAndAcceptance(t *testing.T)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			switch mode {
+			case "source old policy":
+				policy.Contract = reconcile.InvocationAuthorizationPolicyApprovalContract
+			case "source old receipt":
+				receipt["profile"] = strictLocalRuntimeProfile
+				delete(receipt, "workspaceSourceContract")
+			case "source changed source":
+				plan.WorkspaceSource.ID = "src_00000000000000000001"
+			case "source missing source":
+				plan.WorkspaceSource = nil
 			case "authorized":
 				config.command = "reconcile-authorized-publication"
 				policy.Contract = reconcile.InvocationAuthorizationPolicyPublicationContract
@@ -145,8 +168,8 @@ func TestDevelopmentPublicationVerifiesActualMaterialAndAcceptance(t *testing.T)
 				cancel()
 			}
 			proof, err := verifyDevelopmentPublication(ctx, config, publicationPlans{plan: plan}, publicationBundles{bundle}, publicationPolicies{policy}, checker)
-			if mode == "valid" || mode == "authorized" {
-				if err != nil || proof.Profile != persistence.StrictDevelopmentPublicationProfile || proof.ImageReference != config.acceptance.image || !proof.ExpiresAt.After(time.Now()) || deployment.checks.Load() != 1 {
+			if mode == "valid" || mode == "authorized" || mode == "source valid" {
+				if err != nil || proof.Profile != config.acceptance.acceptanceProfile() || proof.ImageReference != config.acceptance.image || !proof.ExpiresAt.After(time.Now()) || deployment.checks.Load() != 1 {
 					t.Fatal("verified publication failed", err)
 				}
 			} else if err != errDevelopmentPublication {
