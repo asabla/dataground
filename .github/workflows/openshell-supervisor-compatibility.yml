@@ -14,6 +14,9 @@ on:
       - deploy/openshell/candidate-publication*
       - deploy/openshell/runtime-conformance/**
       - deploy/openshell/codex-compatibility/rosetta-runtime-*
+      - deploy/openshell/workspace-source/**
+      - internal/workspace/**
+      - cmd/dataground-workspace-materialize/**
       - internal/execution/runtimeevidence/**
       - internal/execution/openshell/**
       - internal/security/canary*/**
@@ -78,12 +81,19 @@ jobs:
           dpkg-deb --extract "$package" "$cli_root"
           printf 'cli=%s\n' "$cli_root/usr/bin/openshell" >> "$GITHUB_OUTPUT"
 
-      - name: Acquire the exact published ARM64 Codex candidate
+      - name: Prepare the source-capable ARM64 runtime fixture
         id: runtime
         run: |
           image=ghcr.io/asabla/dataground-codex-candidate@sha256:9fff9875097a3608fce25e0d401cacc70ad10113237683fe907e45d94e4b24a1
           docker pull "$image"
-          candidate_image=$(docker image inspect --format '{{.Id}}' "$image")
+          helper_context=$(mktemp -d "$RUNNER_TEMP/workspace-helper.XXXXXX")
+          trap 'rm -rf "$helper_context"' EXIT
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o "$helper_context/dataground-workspace-materialize" ./cmd/dataground-workspace-materialize
+          cp deploy/openshell/workspace-source/Dockerfile "$helper_context/Dockerfile"
+          docker build --network none --tag dataground-strict-workspace-runtime:ci \
+            --build-arg RUNTIME_IMAGE="$image" \
+            --build-arg DATAGROUND_SOURCE_REVISION="$GITHUB_SHA" "$helper_context"
+          candidate_image=$(docker image inspect --format '{{.Id}}' dataground-strict-workspace-runtime:ci)
           printf 'image=%s\n' "$candidate_image" >> "$GITHUB_OUTPUT"
 
       - name: Scan the replacement supervisor and strict policy for credential exposure
@@ -97,8 +107,9 @@ jobs:
           -run '^TestStrictSupervisorCandidateCredentialNonExposure$'
           -count=1 -timeout=12m -v
 
-      - name: Require native restrictions and artifact export under the strict policy
+      - name: Require source transfer, native restrictions, and artifact export under the strict policy
         env:
+          DATAGROUND_TEST_WORKSPACE_SOURCE_REQUIRED: "true"
           DATAGROUND_TEST_CODEX_COMPATIBILITY_IMAGE: ${{ steps.runtime.outputs.image }}
           DATAGROUND_TEST_SUPERVISOR_COMPATIBILITY_IMAGE: ${{ steps.supervisor.outputs.image }}
           DATAGROUND_TEST_RUNTIME_TOPOLOGY_ROOT: ${{ github.workspace }}

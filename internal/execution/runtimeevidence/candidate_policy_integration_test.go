@@ -20,8 +20,15 @@ import (
 // The provider layer activates OpenShell's proxy filesystem baseline. A test
 // without that binding cannot establish that normal runtime children can spawn.
 func TestCodexProviderBoundSandboxCompatibility(t *testing.T) {
+	sourceRequired := os.Getenv("DATAGROUND_TEST_WORKSPACE_SOURCE_REQUIRED")
+	if sourceRequired != "" && sourceRequired != "true" {
+		t.Fatal("workspace source selection must be explicitly true")
+	}
 	image := os.Getenv("DATAGROUND_TEST_CODEX_COMPATIBILITY_IMAGE")
 	if image == "" {
+		if sourceRequired == "true" {
+			t.Fatal("required source compatibility check has no candidate image")
+		}
 		t.Skip("DATAGROUND_TEST_CODEX_COMPATIBILITY_IMAGE selects the synthetic candidate test")
 	}
 	root, binary := os.Getenv("DATAGROUND_TEST_RUNTIME_TOPOLOGY_ROOT"), os.Getenv("DATAGROUND_TEST_OPENSHELL_BINARY")
@@ -155,6 +162,9 @@ func TestCodexProviderBoundSandboxCompatibility(t *testing.T) {
 					t.Fatal("negative-control sandbox was not ready")
 				}
 			}
+			if candidate && sourceRequired == "true" {
+				verifyCandidateWorkspaceTransfer(t, ctx, ports.provider, ref)
+			}
 			session, err := ports.provider.StartRuntime(ctx, ref)
 			if err != nil {
 				t.Fatal("native transport failed")
@@ -214,6 +224,9 @@ func TestCodexProviderBoundSandboxCompatibility(t *testing.T) {
 			}
 			if candidate {
 				verifyCandidateArtifactExport(t, ctx, &rpc, ports.provider, ref, runID)
+				if sourceRequired == "true" {
+					verifyCandidateWorkspaceRuntime(t, &rpc)
+				}
 			}
 		})
 	}

@@ -19,7 +19,13 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-function verifyImageConfiguration(manifestBytes, configBytes, architecture, candidate) {
+function verifyImageConfiguration(
+  manifestBytes,
+  configBytes,
+  architecture,
+  candidate,
+  sourceCommit,
+) {
   const profile = candidateProfile(candidate);
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
   const config = JSON.parse(configBytes.toString("utf8"));
@@ -38,7 +44,7 @@ function verifyImageConfiguration(manifestBytes, configBytes, architecture, cand
     manifest.config.size !== configBytes.length ||
     config?.architecture !== architecture ||
     config.os !== "linux" ||
-    !candidateImageConfiguration(config.config, candidate)
+    !candidateImageConfiguration(config.config, candidate, sourceCommit)
   ) {
     throw new Error("Candidate configuration does not match the signed image and profile.");
   }
@@ -110,6 +116,11 @@ export function verifyOfflineAttestationSnapshots(
   candidate = "codex",
 ) {
   candidateProfile(candidate);
+  if (candidate === "codex-workspace" && inputs.imageConfig === undefined) {
+    throw new Error(
+      "Source-capable candidate verification requires the signed image configuration.",
+    );
+  }
   if (!/^[a-f0-9]{64}$/.test(inputs.trustedRootSHA256 ?? "")) {
     throw new Error("An independently pinned trusted-root digest is required.");
   }
@@ -136,7 +147,13 @@ export function verifyOfflineAttestationSnapshots(
   const image =
     inputs.imageConfig === undefined
       ? undefined
-      : verifyImageConfiguration(manifest, inputs.imageConfig, scope.architecture, candidate);
+      : verifyImageConfiguration(
+          manifest,
+          inputs.imageConfig,
+          scope.architecture,
+          candidate,
+          scope.sourceCommit,
+        );
   const directory = mkdtempSync(join(tmpdir(), "dataground-candidate-attestation-"));
   try {
     const files = {
@@ -172,6 +189,9 @@ export function verifyOfflineAttestationSnapshots(
       candidate,
     );
     return {
+      ...(candidate === "codex-workspace"
+        ? { candidateProfile: "openshell-codex-workspace-candidate/v1" }
+        : {}),
       ...(candidate === "supervisor"
         ? { candidateProfile: "openshell-supervisor-candidate/v1" }
         : {}),
