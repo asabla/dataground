@@ -43,20 +43,22 @@ const (
 type environmentLookup func(string) (string, bool)
 
 type workerConfig struct {
-	waitForPublication   bool
-	mode                 string
-	isolationDomainID    string
-	gatewayID            string
-	gatewayEndpoint      string
-	openShellBinary      string
-	policyWorkspace      string
-	exportWorkspace      string
-	s3Endpoint           string
-	s3Bucket             string
-	s3RequestTimeout     time.Duration
-	maximumArtifactBytes int64
-	certification        runtimeCertificationConfig
-	localAcceptance      *localRuntimeAcceptanceConfig
+	workspacePlanDigest      string
+	workspaceGrantGeneration int64
+	waitForPublication       bool
+	mode                     string
+	isolationDomainID        string
+	gatewayID                string
+	gatewayEndpoint          string
+	openShellBinary          string
+	policyWorkspace          string
+	exportWorkspace          string
+	s3Endpoint               string
+	s3Bucket                 string
+	s3RequestTimeout         time.Duration
+	maximumArtifactBytes     int64
+	certification            runtimeCertificationConfig
+	localAcceptance          *localRuntimeAcceptanceConfig
 }
 
 type workerResources struct {
@@ -68,6 +70,7 @@ type workerResources struct {
 }
 
 type governedExecutionPlanStore struct {
+	workspacePlanDigest string
 	execution.ExecutionPlanStore
 	readiness         runtimeCertificationReadiness
 	target            runtimeCertificationTarget
@@ -76,8 +79,9 @@ type governedExecutionPlanStore struct {
 }
 
 type governedCodexRuntimeRequestBuilder struct {
-	delegate reconcile.CodexInvocationRuntimeRequestBuilder
-	model    string
+	workspaceSource bool
+	delegate        reconcile.CodexInvocationRuntimeRequestBuilder
+	model           string
 }
 
 func (builder governedCodexRuntimeRequestBuilder) BuildInvocationRuntimeRequest(
@@ -88,7 +92,7 @@ func (builder governedCodexRuntimeRequestBuilder) BuildInvocationRuntimeRequest(
 		return dgruntime.StartRequest{}, err
 	}
 	for _, artifact := range request.Artifacts {
-		if !strings.HasPrefix(artifact.SandboxPath, "/sandbox/") {
+		if !strings.HasPrefix(artifact.SandboxPath, "/sandbox/") || (builder.workspaceSource && !strings.HasPrefix(artifact.SandboxPath, "/sandbox/workspace/")) {
 			return dgruntime.StartRequest{}, reconcile.ErrInvocationRuntimeInputInvalid
 		}
 	}
@@ -96,6 +100,10 @@ func (builder governedCodexRuntimeRequestBuilder) BuildInvocationRuntimeRequest(
 		// OpenShell exports only beneath /sandbox; Codex must use that same
 		// workspace for its native workspace-write permission boundary.
 		request.WorkingDir = "/sandbox"
+	}
+	if builder.workspaceSource {
+		request.WorkingDir = "/sandbox/workspace"
+		request.SandboxMode = dgruntime.SandboxWorkspaceWrite
 	}
 	request.ApprovalMode = dgruntime.ApprovalInteractive
 	request.Model = builder.model
@@ -145,7 +153,7 @@ func (store governedExecutionPlanStore) GetExecutionPlan(
 	if err != nil {
 		return execution.ExecutionPlan{}, err
 	}
-	if !validGovernedDevelopmentPlan(plan, store.candidateImage, store.acceptanceProfile) {
+	if plan.IsolationDomainID != isolationDomainID || plan.RevisionID != revisionID || !store.validPlan(plan) {
 		return execution.ExecutionPlan{}, execution.ErrExecutionPlanRevisionMismatch
 	}
 	return plan, nil
@@ -289,6 +297,9 @@ func loadWorkerConfig(lookup environmentLookup) (workerConfig, error) {
 		config.waitForPublication = value == "true"
 	}
 	if mode == workerModeReference {
+		if err := config.loadWorkspacePins(lookup); err != nil {
+			return workerConfig{}, err
+		}
 		return config, nil
 	}
 	if mode != workerModeGovernedDevelopment {
@@ -303,12 +314,15 @@ func loadWorkerConfig(lookup environmentLookup) (workerConfig, error) {
 	switch {
 	case !found || profile == governedCertificationProfile:
 		config.certification, err = loadRuntimeCertificationConfig(lookup)
-	case profile == localRuntimeProfile || profile == strictLocalRuntimeProfile:
+	case profile == localRuntimeProfile || profile == strictLocalRuntimeProfile || profile == workspaceLocalRuntimeProfile:
 		config.localAcceptance, err = loadLocalRuntimeAcceptanceConfig(lookup)
 	default:
 		return workerConfig{}, errors.New("unsupported development runtime profile")
 	}
 	if err != nil {
+		return workerConfig{}, err
+	}
+	if err := config.loadWorkspacePins(lookup); err != nil {
 		return workerConfig{}, err
 	}
 	if config.runtimeTarget().isolationDomainID != config.isolationDomainID {
@@ -545,18 +559,30 @@ func composeWorkerDriver(
 	if err != nil {
 		return fail(err)
 	}
-	admission, err := execution.NewCredentialMediatedAdmission(
-		governedExecutionPlanStore{
-			ExecutionPlanStore: executionStore,
-			candidateImage:     candidateImage,
-			acceptanceProfile:  acceptanceProfile,
-			readiness:          readiness,
-			target:             config.runtimeTarget(),
-		},
-		bundles,
-		provider,
-		durableProviderCredentialAuthorizer{repository: repository},
-	)
+	plans := governedExecutionPlanStore{
+		ExecutionPlanStore: executionStore, candidateImage: candidateImage,
+		acceptanceProfile: acceptanceProfile, readiness: readiness, target: config.runtimeTarget(),
+		workspacePlanDigest: config.workspacePlanDigest,
+	}
+	var preparer *reconcile.InvocationWorkspacePreparer
+	var admission *execution.Admission
+	if config.sourceEnabled() {
+		sourceStore, sourceErr := s3store.NewWorkspaceSourceStore(objectStore)
+		if sourceErr != nil {
+			return fail(sourceErr)
+		}
+		sourcePlan, sourceErr := plans.GetExecutionPlan(ctx, config.isolationDomainID, config.runtimeTarget().revisionID)
+		if sourceErr != nil {
+			return fail(sourceErr)
+		}
+		preparer, err = config.workspacePreparer(repository, sourceStore, sourcePlan)
+		if err != nil {
+			return fail(err)
+		}
+		admission, err = execution.NewWorkspaceCredentialMediatedAdmission(plans, bundles, provider, durableProviderCredentialAuthorizer{repository: repository}, sourcePlan)
+	} else {
+		admission, err = execution.NewCredentialMediatedAdmission(plans, bundles, provider, durableProviderCredentialAuthorizer{repository: repository})
+	}
 	if err != nil {
 		return fail(err)
 	}
@@ -575,7 +601,7 @@ func composeWorkerDriver(
 	if err != nil {
 		return fail(err)
 	}
-	if activePolicy.Contract != reconcile.InvocationAuthorizationPolicyApprovalContract && activePolicy.Contract != reconcile.InvocationAuthorizationPolicyPublicationContract {
+	if !config.acceptsInvocationPolicy(activePolicy.Contract) {
 		return fail(errors.New("approval-capable invocation authorization policy is required"))
 	}
 	baseAuthorizer, err := reconcile.NewAuditedCedarInvocationAuthorizer(policySource, repository)
@@ -597,12 +623,13 @@ func composeWorkerDriver(
 	runtimeDriver, err := reconcile.NewInvocationRuntimeDriver(
 		repository,
 		authorizer,
-		governedCodexRuntimeRequestBuilder{model: model},
+		governedCodexRuntimeRequestBuilder{model: model, workspaceSource: config.sourceEnabled()},
 		executionStore,
 		provider,
 		reconcile.CodexInvocationRuntimeAdapterFactory{},
 		artifactFinalizer,
 		reconcile.InvocationRuntimeDriverConfig{
+			WorkspacePreparer:  preparer,
 			LeaseDuration:      governedRuntimeLeaseDuration,
 			RenewInterval:      governedRuntimeRenewInterval,
 			Readiness:          readiness.Check,
