@@ -18,6 +18,7 @@ import (
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/persistence"
 	"github.com/asabla/dataground/internal/reconcile"
+	"github.com/asabla/dataground/internal/workspace"
 )
 
 func TestGovernedDevelopmentPublicationIsAtomicScopedAndReplayable(t *testing.T) {
@@ -290,6 +291,7 @@ func TestGovernedDevelopmentPublicationIsAtomicScopedAndReplayable(t *testing.T)
 }
 
 type developmentPublicationFixture struct {
+	source   workspace.SourceRecord
 	input    persistence.DevelopmentPublicationInput
 	evidence persistence.DevelopmentPublicationEvidence
 	grant    persistence.ProviderCredentialGrantChange
@@ -302,6 +304,9 @@ func newDevelopmentPublicationFixture(t *testing.T, ctx context.Context, repo *p
 }
 
 func newDevelopmentPublicationFixtureWithPolicy(t *testing.T, ctx context.Context, repo *persistence.Repository, store *executionpostgres.Store, policies []byte) developmentPublicationFixture {
+	return newDevelopmentPublicationFixtureWithSource(t, ctx, repo, store, policies, false)
+}
+func newDevelopmentPublicationFixtureWithSource(t *testing.T, ctx context.Context, repo *persistence.Repository, store *executionpostgres.Store, policies []byte, withSource bool) developmentPublicationFixture {
 	t.Helper()
 	scope, service, revision := identity.New("iso"), identity.New("svc"), identity.New("rev")
 	idem := func(key string) persistence.Idempotency {
@@ -317,6 +322,9 @@ func newDevelopmentPublicationFixtureWithPolicy(t *testing.T, ctx context.Contex
 	if policies != nil {
 		policy, err = reconcile.NewInvocationAuthorizationPolicyWithPublicationEntities(reconcile.InvocationAuthorizationPolicyScope{IsolationDomainID: scope, ServiceID: service, RevisionID: revision}, "publication-policy", reconcile.CanonicalPublicationCedarSchema(), policies, persistenceEntityFixture(t))
 	}
+	if withSource {
+		policy, err = reconcile.NewInvocationAuthorizationPolicyWithSourceEntities(reconcile.InvocationAuthorizationPolicyScope{IsolationDomainID: scope, ServiceID: service, RevisionID: revision}, "source-publication-policy", reconcile.CanonicalSourceCedarSchema(), []byte(`permit(principal,action,resource);`), persistenceEntityFixture(t))
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,6 +339,12 @@ func newDevelopmentPublicationFixtureWithPolicy(t *testing.T, ctx context.Contex
 		t.Fatal(err)
 	}
 	plan := execution.ExecutionPlan{SchemaVersion: execution.ExecutionPlanSchemaV1, IsolationDomainID: scope, RevisionID: revision, RuntimeProfile: persistence.GovernedInvocationRuntimeProfile, EnvironmentRevisionID: "environment", ImageReference: "ghcr.io/asabla/dataground-codex-candidate@sha256:" + strings.Repeat("c", 64), EnvironmentManifestDigest: "sha256:" + strings.Repeat("d", 64), EnforcementBundleID: bundle.ID, EnforcementBundleDigest: digest, RuntimeMatrixID: "matrix", RuntimeMatrixDigest: "sha256:" + strings.Repeat("e", 64), ProviderProfiles: []string{"codex"}, RequiredCapabilities: []string{persistence.GovernedInvocationRuntimeProfile}}
+	var source workspace.SourceRecord
+	if withSource {
+		source = preparePublicationSourceFixture(t, ctx, repo, scope)
+		plan.SchemaVersion = execution.ExecutionPlanSchemaV2
+		plan.WorkspaceSource = &source
+	}
 	if _, err := store.BindExecutionPlan(ctx, execution.ExecutionPlanBinding{Plan: plan, ActorID: "operator", CorrelationID: identity.New("cor")}); err != nil {
 		t.Fatal(err)
 	}
@@ -339,5 +353,10 @@ func newDevelopmentPublicationFixtureWithPolicy(t *testing.T, ctx context.Contex
 	if err := repo.ChangeProviderCredentialGrant(ctx, grant); err != nil {
 		t.Fatal(err)
 	}
-	return developmentPublicationFixture{input: persistence.DevelopmentPublicationInput{Contract: persistence.DevelopmentPublicationContract, Target: persistence.InvocationDispatchTarget{IsolationDomainID: scope, ServiceID: service, RevisionID: revision, RuntimeProfile: persistence.GovernedInvocationRuntimeProfile}, ExpectedVersion: 1, PlanDigest: planDigest, PolicyDigest: "sha256:" + hex.EncodeToString(policy.Digest[:]), VerificationDigest: "sha256:" + strings.Repeat("f", 64), ActorID: "operator", CorrelationID: identity.New("cor")}, evidence: persistence.DevelopmentPublicationEvidence{AcceptanceID: identity.New("rtlocal"), Generation: 1, Profile: persistence.StrictDevelopmentPublicationProfile, ImageReference: plan.ImageReference, ExpiresAt: time.Now().UTC().Add(time.Hour)}, grant: grant, policy: record}
+	result := developmentPublicationFixture{source: source, input: persistence.DevelopmentPublicationInput{Contract: persistence.DevelopmentPublicationContract, Target: persistence.InvocationDispatchTarget{IsolationDomainID: scope, ServiceID: service, RevisionID: revision, RuntimeProfile: persistence.GovernedInvocationRuntimeProfile}, ExpectedVersion: 1, PlanDigest: planDigest, PolicyDigest: "sha256:" + hex.EncodeToString(policy.Digest[:]), VerificationDigest: "sha256:" + strings.Repeat("f", 64), ActorID: "operator", CorrelationID: identity.New("cor")}, evidence: persistence.DevelopmentPublicationEvidence{AcceptanceID: identity.New("rtlocal"), Generation: 1, Profile: persistence.StrictDevelopmentPublicationProfile, ImageReference: plan.ImageReference, ExpiresAt: time.Now().UTC().Add(time.Hour)}, grant: grant, policy: record}
+	if withSource {
+		result.input.Contract = persistence.WorkspaceDevelopmentPublicationContract
+		result.evidence.Profile = persistence.WorkspaceDevelopmentPublicationProfile
+	}
+	return result
 }

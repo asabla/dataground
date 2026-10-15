@@ -41,6 +41,11 @@ func loadDevelopmentPublication(args []string, lookup environmentLookup) (develo
 	flags := flag.NewFlagSet(config.command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var version, deadline string
+	selectedProfile, _ := lookup("DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE")
+	sourcePublication := selectedProfile == workspaceLocalRuntimeProfile
+	if sourcePublication && config.command != "publish-development" {
+		return config, errDevelopmentPublication
+	}
 	type publicationFlag struct {
 		name  string
 		value *string
@@ -85,7 +90,7 @@ func loadDevelopmentPublication(args []string, lookup environmentLookup) (develo
 	if err != nil || strconv.Itoa(config.input.ExpectedVersion) != version {
 		return config, errDevelopmentPublication
 	}
-	if profile, _ := lookup("DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE"); profile != strictLocalRuntimeProfile {
+	if profile, _ := lookup("DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE"); profile != strictLocalRuntimeProfile && profile != workspaceLocalRuntimeProfile {
 		return config, errDevelopmentPublication
 	}
 	acceptance, err := loadLocalRuntimeAcceptanceConfig(lookup)
@@ -102,6 +107,9 @@ func loadDevelopmentPublication(args []string, lookup environmentLookup) (develo
 		return config, errDevelopmentPublication
 	}
 	config.input.Contract = persistence.DevelopmentPublicationContract
+	if sourcePublication {
+		config.input.Contract = persistence.WorkspaceDevelopmentPublicationContract
+	}
 	config.input.Target = persistence.InvocationDispatchTarget{IsolationDomainID: acceptance.target.isolationDomainID, ServiceID: acceptance.target.serviceID, RevisionID: acceptance.target.revisionID, RuntimeProfile: persistence.GovernedInvocationRuntimeProfile}
 	// Freeze every verifier and routing input in command identity. Paths are kept
 	// only in this hash; receipts and audit never disclose deployment routing.
@@ -111,6 +119,9 @@ func loadDevelopmentPublication(args []string, lookup environmentLookup) (develo
 		strict.supervisorImage, strict.topology.SupervisorLocalImageID, strict.topology.GatewayConfigSHA256, strict.topology.RunID, strict.topology.ContainerID, strict.topology.StartedAt, strict.topology.WorkspaceRoot, strict.topology.DockerBinary, config.endpoint, config.bucket})
 	if err != nil {
 		return config, errDevelopmentPublication
+	}
+	if sourcePublication {
+		pins = append([]byte("dataground.development-publication-inputs/v2\x00"), pins...)
 	}
 	digest := sha256.Sum256(pins)
 	config.input.VerificationDigest = "sha256:" + hex.EncodeToString(digest[:])
@@ -127,7 +138,7 @@ type publicationAcceptanceVerifier interface {
 func verifyDevelopmentPublication(ctx context.Context, config developmentPublicationConfiguration, plans execution.ExecutionPlanStore, bundles execution.EnforcementBundleSource, policies reconcile.InvocationAuthorizationPolicySource, acceptance publicationAcceptanceVerifier) (persistence.DevelopmentPublicationEvidence, error) {
 	target := config.input.Target
 	plan, err := plans.GetExecutionPlan(ctx, target.IsolationDomainID, target.RevisionID)
-	if err != nil || plan.IsolationDomainID != target.IsolationDomainID || plan.RevisionID != target.RevisionID || !validGovernedDevelopmentPlan(plan, config.acceptance.image, strictLocalRuntimeProfile) {
+	if err != nil || plan.IsolationDomainID != target.IsolationDomainID || plan.RevisionID != target.RevisionID || !validPublicationDevelopmentPlan(plan, config.acceptance) {
 		return persistence.DevelopmentPublicationEvidence{}, errDevelopmentPublication
 	}
 	digest, err := execution.DigestExecutionPlan(plan)
@@ -147,7 +158,7 @@ func verifyDevelopmentPublication(ctx context.Context, config developmentPublica
 	if err != nil || ctx.Err() != nil {
 		return persistence.DevelopmentPublicationEvidence{}, errDevelopmentPublication
 	}
-	return persistence.DevelopmentPublicationEvidence{AcceptanceID: proof.acceptanceID, Generation: proof.generation, Profile: strictLocalRuntimeProfile, ImageReference: config.acceptance.image, ExpiresAt: proof.expiresAt}, nil
+	return persistence.DevelopmentPublicationEvidence{AcceptanceID: proof.acceptanceID, Generation: proof.generation, Profile: config.acceptance.acceptanceProfile(), ImageReference: config.acceptance.image, ExpiresAt: proof.expiresAt}, nil
 }
 
 func runDevelopmentPublication(ctx context.Context, args []string, output io.Writer) error {
@@ -253,6 +264,9 @@ func (config developmentPublicationConfiguration) isPublicationConsumer() bool {
 	return config.command == "reconcile-development-publication" || config.authorizedPublication()
 }
 func (config developmentPublicationConfiguration) publicationPolicyContract() string {
+	if config.acceptance.workspaceSource {
+		return reconcile.InvocationAuthorizationPolicySourceContract
+	}
 	if config.authorizedPublication() {
 		return reconcile.InvocationAuthorizationPolicyPublicationContract
 	}
@@ -262,7 +276,7 @@ func (config developmentPublicationConfiguration) publicationPolicyContract() st
 // writePublicPublicationConfiguration exports only reviewed identity and digests.
 // Runtime paths, credentials, provider routes and native endpoints remain internal.
 func writePublicPublicationConfiguration(output io.Writer, input persistence.DevelopmentPublicationInput) error {
-	if output == nil || !input.ValidReviewedInputs() {
+	if output == nil || !input.ValidReviewedInputs() || input.Contract != persistence.DevelopmentPublicationContract {
 		return errDevelopmentPublication
 	}
 	configuration := struct {
@@ -280,4 +294,20 @@ func writePublicPublicationConfiguration(output io.Writer, input persistence.Dev
 		return errDevelopmentPublication
 	}
 	return nil
+}
+
+func validPublicationDevelopmentPlan(plan execution.ExecutionPlan, acceptance localRuntimeAcceptanceConfig) bool {
+	if !acceptance.workspaceSource {
+		return validGovernedDevelopmentPlan(plan, acceptance.image, strictLocalRuntimeProfile)
+	}
+	normalized, err := execution.NormalizeExecutionPlan(plan)
+	if err != nil || normalized.SchemaVersion != execution.ExecutionPlanSchemaV2 || normalized.WorkspaceSource == nil {
+		return false
+	}
+	// The source plan adds an immutable source binding to the same strict image,
+	// policy and runtime requirements. This publication-only check does not open
+	// the worker's source-free admission gate.
+	normalized.SchemaVersion = execution.ExecutionPlanSchemaV1
+	normalized.WorkspaceSource = nil
+	return validGovernedDevelopmentPlan(normalized, acceptance.image, strictLocalRuntimeProfile)
 }

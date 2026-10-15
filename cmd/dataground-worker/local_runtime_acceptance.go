@@ -18,6 +18,7 @@ import (
 )
 
 const (
+	workspaceLocalRuntimeProfile = "openshell-codex-workspace-candidate-development/v1"
 	strictLocalRuntimeProfile    = "openshell-codex-strict-candidate-development/v1"
 	strictLocalEnforcementDigest = "sha256:a1d56c0470c3264c4c37183352d783ebb67911d92ef2eb6ec5f7c76c61f69f39"
 	localRuntimeProfile          = "openshell-codex-candidate-development/v1"
@@ -33,6 +34,7 @@ var (
 )
 
 type localRuntimeAcceptanceConfig struct {
+	workspaceSource   bool
 	strict            *strictLocalRuntimeConfig
 	target            runtimeCertificationTarget
 	envelopeFile      string
@@ -88,7 +90,8 @@ func loadLocalRuntimeAcceptanceConfig(lookup environmentLookup) (*localRuntimeAc
 		slices.Sort(config.rejectedIDs)
 		config.rejectedIDs = slices.Compact(config.rejectedIDs)
 	}
-	if profile, _ := lookup("DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE"); profile == strictLocalRuntimeProfile {
+	if profile, _ := lookup("DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE"); profile == strictLocalRuntimeProfile || profile == workspaceLocalRuntimeProfile {
+		config.workspaceSource = profile == workspaceLocalRuntimeProfile
 		config.strict, err = loadStrictLocalRuntimeConfig(lookup)
 		if err != nil {
 			return nil, err
@@ -105,7 +108,7 @@ func cleanAbsoluteAcceptancePath(value string) bool {
 }
 
 func (config localRuntimeAcceptanceConfig) valid() bool {
-	if (config.strict != nil && !config.strict.valid()) || !config.target.valid() || !sha256Pattern.MatchString(config.envelopeSHA256) ||
+	if (config.workspaceSource && config.strict == nil) || (config.strict != nil && !config.strict.valid()) || !config.target.valid() || !sha256Pattern.MatchString(config.envelopeSHA256) ||
 		!sha256Pattern.MatchString(config.trustSHA256) || !commitPattern.MatchString(config.sourceRevision) ||
 		config.minimumGeneration == 0 || config.minimumGeneration > maximumSafeJSONInteger ||
 		!localCandidateImagePattern.MatchString(config.image) || !localModelPattern.MatchString(config.model) ||
@@ -214,16 +217,17 @@ func (checker *localRuntimeAcceptanceChecker) check(ctx context.Context) (localR
 			ServiceID         string `json:"serviceId"`
 			RevisionID        string `json:"revisionId"`
 		} `json:"scope"`
-		Profile                string          `json:"profile"`
-		Image                  string          `json:"image"`
-		Model                  string          `json:"model"`
-		ExpiresAt              string          `json:"expiresAt"`
-		CertificationEligible  *bool           `json:"certificationEligible"`
-		DeploymentScope        string          `json:"deploymentScope"`
-		SupervisorImage        json.RawMessage `json:"supervisorImage"`
-		SupervisorLocalImageID json.RawMessage `json:"supervisorLocalImageId"`
-		GatewayConfigSHA256    json.RawMessage `json:"gatewayConfigSHA256"`
-		EnforcementDigest      json.RawMessage `json:"enforcementDigest"`
+		Profile                 string          `json:"profile"`
+		Image                   string          `json:"image"`
+		Model                   string          `json:"model"`
+		ExpiresAt               string          `json:"expiresAt"`
+		CertificationEligible   *bool           `json:"certificationEligible"`
+		DeploymentScope         string          `json:"deploymentScope"`
+		SupervisorImage         json.RawMessage `json:"supervisorImage"`
+		SupervisorLocalImageID  json.RawMessage `json:"supervisorLocalImageId"`
+		GatewayConfigSHA256     json.RawMessage `json:"gatewayConfigSHA256"`
+		EnforcementDigest       json.RawMessage `json:"enforcementDigest"`
+		WorkspaceSourceContract json.RawMessage `json:"workspaceSourceContract"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(output))
 	decoder.DisallowUnknownFields()
@@ -242,6 +246,14 @@ func (checker *localRuntimeAcceptanceChecker) check(ctx context.Context) (localR
 		receipt.Scope.ServiceID != config.target.serviceID || receipt.Scope.RevisionID != config.target.revisionID ||
 		receipt.Profile != config.acceptanceProfile() || receipt.Image != config.image || receipt.Model != config.model ||
 		receipt.CertificationEligible == nil || *receipt.CertificationEligible || receipt.DeploymentScope != "loopback-development-only" {
+		return localRuntimeAcceptanceProof{}, ErrRuntimeCertificationUnavailable
+	}
+	if config.workspaceSource {
+		var contract string
+		if json.Unmarshal(receipt.WorkspaceSourceContract, &contract) != nil || contract != "dataground.workspace-source-materialization/v1" {
+			return localRuntimeAcceptanceProof{}, ErrRuntimeCertificationUnavailable
+		}
+	} else if len(receipt.WorkspaceSourceContract) != 0 {
 		return localRuntimeAcceptanceProof{}, ErrRuntimeCertificationUnavailable
 	}
 	strictFields := []json.RawMessage{receipt.SupervisorImage, receipt.SupervisorLocalImageID, receipt.GatewayConfigSHA256, receipt.EnforcementDigest}

@@ -54,7 +54,7 @@ After the helper returns, `CompleteInvocationWorkspacePreparation` requires its 
 
 The runtime driver checks source preparation before opening the native runtime. For source plans, it consumes the single-use runtime-attempt reservation before process startup. The repository checks the completion again while holding the claim and execution locks, and a database trigger prevents a source-bearing runtime reservation without a completion for that owner and token. Once a runtime attempt exists, preparation reads and replay fail closed. Version 1 execution plans keep their existing runtime path.
 
-This boundary records platform ownership and observed preparation; it does not independently inspect all sandbox processes. The owning composition still controls inactivity, image acceptance, and cleanup. The current governed admission, publication, and worker startup profiles continue to reject source-bearing plans. Accepted source-capable worker command composition remains separate work.
+This boundary records platform ownership and observed preparation; it does not independently inspect all sandbox processes. The owning composition still controls inactivity, image acceptance, and cleanup. The current governed admission, queued and public publication, and worker startup profiles continue to reject source-bearing plans. The separate [atomic operator publication profile](development-publication.md#publish-a-source-bound-draft) can verify a source-bound draft against version 3 local acceptance. Accepted source-capable worker command composition remains separate work.
 
 ## Internal provisioning controller
 
