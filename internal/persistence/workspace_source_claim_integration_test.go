@@ -63,7 +63,7 @@ func testClaimedWorkspaceSource(t *testing.T, ctx context.Context, pool *pgxpool
 		t.Fatal(err)
 	}
 	var count int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM workspace_source_use_decisions WHERE isolation_domain_id=$1 AND operation_id=$2 AND claim_contract='dataground.invocation-source-read/v1' AND invocation_id=$3 AND effect_id=$4 AND claim_owner=$5 AND claim_token=$6 AND actor_id='source-requester' AND correlation_id=$7 AND outcome='allowed' AND claim_expires_at<clock_timestamp()+interval '2 minutes'`, scope, claim.ID, invocationID, effect.EffectID, claim.LeaseOwner, claim.FencingToken, correlation).Scan(&count); err != nil || count != 2 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM workspace_source_use_decisions WHERE isolation_domain_id=$1 AND operation_id=$2 AND claim_contract='dataground.invocation-source-read/v2' AND invocation_id=$3 AND effect_id=$4 AND claim_owner=$5 AND claim_token=$6 AND actor_id='source-requester' AND correlation_id=$7 AND outcome='allowed' AND claim_expires_at<clock_timestamp()+interval '2 minutes'`, scope, claim.ID, invocationID, effect.EffectID, claim.LeaseOwner, claim.FencingToken, correlation).Scan(&count); err != nil || count != 2 {
 		t.Fatal("claim attribution audit", count, err)
 	}
 	for name, mutate := range map[string]func(*persistence.OperationClaim, *persistence.EffectRecord, *workspace.SourceRecord){

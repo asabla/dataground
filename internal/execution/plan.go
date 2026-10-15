@@ -12,9 +12,12 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/asabla/dataground/internal/workspace"
 )
 
 const ExecutionPlanSchemaV1 = "dataground.execution-plan/v1"
+const ExecutionPlanSchemaV2 = "dataground.execution-plan/v2"
 
 var (
 	ErrExecutionPlanMissing          = errors.New("execution plan not found")
@@ -32,19 +35,20 @@ var (
 // revision and provider placement. It records portable references and digests;
 // gateway-local paths and native provider endpoints do not belong here.
 type ExecutionPlan struct {
-	SchemaVersion             string   `json:"schemaVersion"`
-	IsolationDomainID         string   `json:"isolationDomainId"`
-	RevisionID                string   `json:"revisionId"`
-	RuntimeProfile            string   `json:"runtimeProfile"`
-	EnvironmentRevisionID     string   `json:"environmentRevisionId"`
-	ImageReference            string   `json:"imageReference"`
-	EnvironmentManifestDigest string   `json:"environmentManifestDigest"`
-	EnforcementBundleID       string   `json:"enforcementBundleId"`
-	EnforcementBundleDigest   string   `json:"enforcementBundleDigest"`
-	RuntimeMatrixID           string   `json:"runtimeMatrixId"`
-	RuntimeMatrixDigest       string   `json:"runtimeMatrixDigest"`
-	ProviderProfiles          []string `json:"providerProfiles"`
-	RequiredCapabilities      []string `json:"requiredCapabilities"`
+	SchemaVersion             string                  `json:"schemaVersion"`
+	IsolationDomainID         string                  `json:"isolationDomainId"`
+	RevisionID                string                  `json:"revisionId"`
+	RuntimeProfile            string                  `json:"runtimeProfile"`
+	EnvironmentRevisionID     string                  `json:"environmentRevisionId"`
+	ImageReference            string                  `json:"imageReference"`
+	EnvironmentManifestDigest string                  `json:"environmentManifestDigest"`
+	EnforcementBundleID       string                  `json:"enforcementBundleId"`
+	EnforcementBundleDigest   string                  `json:"enforcementBundleDigest"`
+	RuntimeMatrixID           string                  `json:"runtimeMatrixId"`
+	RuntimeMatrixDigest       string                  `json:"runtimeMatrixDigest"`
+	ProviderProfiles          []string                `json:"providerProfiles"`
+	RequiredCapabilities      []string                `json:"requiredCapabilities"`
+	WorkspaceSource           *workspace.SourceRecord `json:"workspaceSource,omitempty"`
 }
 
 type ExecutionPlanBinding struct {
@@ -61,9 +65,14 @@ type ExecutionPlanStore interface {
 }
 
 func NormalizeExecutionPlan(plan ExecutionPlan) (ExecutionPlan, error) {
-	if plan.SchemaVersion != ExecutionPlanSchemaV1 {
+	if plan.SchemaVersion != ExecutionPlanSchemaV1 && plan.SchemaVersion != ExecutionPlanSchemaV2 {
 		return ExecutionPlan{}, errors.New("unsupported execution plan schema version")
 	}
+	if (plan.SchemaVersion == ExecutionPlanSchemaV1 && plan.WorkspaceSource != nil) ||
+		(plan.SchemaVersion == ExecutionPlanSchemaV2 && (plan.WorkspaceSource == nil || !workspace.ValidSourceRecord(*plan.WorkspaceSource) || plan.WorkspaceSource.IsolationDomainID != plan.IsolationDomainID)) {
+		return ExecutionPlan{}, errors.New("invalid execution plan workspace source")
+	}
+	plan = CloneExecutionPlan(plan)
 	if !isolationDomainPattern.MatchString(plan.IsolationDomainID) {
 		return ExecutionPlan{}, errors.New("invalid execution plan isolation domain")
 	}
@@ -137,7 +146,7 @@ func DigestExecutionPlan(plan ExecutionPlan) (string, error) {
 }
 
 func EqualExecutionPlans(left, right ExecutionPlan) bool {
-	return left.SchemaVersion == right.SchemaVersion &&
+	return equalPlanSources(left.WorkspaceSource, right.WorkspaceSource) && left.SchemaVersion == right.SchemaVersion &&
 		left.IsolationDomainID == right.IsolationDomainID &&
 		left.RevisionID == right.RevisionID &&
 		left.RuntimeProfile == right.RuntimeProfile &&
@@ -152,7 +161,17 @@ func EqualExecutionPlans(left, right ExecutionPlan) bool {
 		slices.Equal(left.RequiredCapabilities, right.RequiredCapabilities)
 }
 
+func equalPlanSources(left, right *workspace.SourceRecord) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return *left == *right
+}
 func CloneExecutionPlan(plan ExecutionPlan) ExecutionPlan {
+	if plan.WorkspaceSource != nil {
+		source := *plan.WorkspaceSource
+		plan.WorkspaceSource = &source
+	}
 	plan.ProviderProfiles = slices.Clone(plan.ProviderProfiles)
 	plan.RequiredCapabilities = slices.Clone(plan.RequiredCapabilities)
 	return plan

@@ -42,7 +42,7 @@ func TestWorkspaceSourceGrantsFenceReadsAndPersistDecisions(t *testing.T) {
 	pool := resetOperatorAuditDatabase(t, ctx)
 	defer pool.Close()
 	defer func() {
-		if _, err := pool.Exec(context.Background(), `TRUNCATE workspace_source_grants,workspace_source_use_decisions,workspace_source_completions,workspace_source_installations,workspaces`); err != nil {
+		if _, err := pool.Exec(context.Background(), `TRUNCATE service_revision_execution_plans,workspace_source_grants,workspace_source_use_decisions,workspace_source_completions,workspace_source_installations,workspaces`); err != nil {
 			t.Error(err)
 		}
 	}()
@@ -54,7 +54,7 @@ func TestWorkspaceSourceGrantsFenceReadsAndPersistDecisions(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO agent_services (isolation_domain_id,id,name,created_at,updated_at,created_by) VALUES ($1,$2,'Source access',now(),now(),'fixture')`, scope, service); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO service_revisions (isolation_domain_id,id,service_id,revision_number,state,runtime_profile,created_at,updated_at,created_by,published_at) VALUES ($1,$2,$3,1,'published','codex',now(),now(),'fixture',now())`, scope, revision, service); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO service_revisions (isolation_domain_id,id,service_id,revision_number,state,runtime_profile,created_at,updated_at,created_by,published_at) VALUES ($1,$2,$3,1,'draft','codex',now(),now(),'fixture',now())`, scope, revision, service); err != nil {
 		t.Fatal(err)
 	}
 	var archive bytes.Buffer
@@ -117,6 +117,7 @@ func TestWorkspaceSourceGrantsFenceReadsAndPersistDecisions(t *testing.T) {
 	if _, err := workspace.InstallSource(ctx, repo, store, workspace.SourceInstallation{Record: record, ActorID: "operator", CorrelationID: identity.New("cor")}, data); err != nil {
 		t.Fatal(err)
 	}
+	t.Run("revision source binding", func(t *testing.T) { testRevisionSourceBinding(t, ctx, pool, record, service, revision) })
 	observed := &sourceReadObserver{SourceObjects: store}
 	use := workspace.SourceUse{Contract: workspace.SourceUseV1, Record: record, RevisionID: revision, OperationID: identity.New("op"), GrantGeneration: 1, ActorID: "initiating-actor", CorrelationID: identity.New("cor")}
 	if snapshot, err := workspace.ReadSource(ctx, repo, observed, repo, use); snapshot != nil || !errors.Is(err, workspace.ErrSourceUnauthorized) || observed.reads.Load() != 0 {

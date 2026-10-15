@@ -96,7 +96,7 @@ go run ./cmd/dataground-execution-plan-install \
 
 The command validates file identity, canonical content, explicit scope, attribution and digest before database access, then requires the current schema and uses a bounded database operation. Installation atomically writes the immutable plan and its `execution-plan.bind` audit record. Repeating the same normalized plan succeeds without changing the original attribution or duplicating audit evidence; changing any plan field for an already bound revision fails. If the commit acknowledgement is lost, retry the exact installation to resolve the outcome. The command emits no plan contents or database diagnostics.
 
-No migration is introduced by this command. Removing the command does not remove installed plans; the existing append-only binding and governed effect-time authorization remain authoritative. A replacement plan requires a new service revision. Missing policy, enforcement material, provider grants or accepted runtime certification continues to block governed execution.
+The command also accepts the [version 2 source-selection contract](workspace-source-access.md#revision-source-selection), supported by migration 68. Current governed publication and worker profiles reject that version until source provisioning is implemented. Removing the command does not remove installed plans; the existing append-only binding and governed effect-time authorization remain authoritative. A replacement plan requires a new service revision. Missing policy, enforcement material, provider grants or accepted runtime certification continues to block governed execution.
 
 ## Publish the strict development revision
 

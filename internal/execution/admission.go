@@ -17,9 +17,10 @@ const (
 )
 
 var (
-	ErrEnforcementBundleMissing  = errors.New("enforcement bundle not found")
-	ErrEnforcementBundleMismatch = errors.New("enforcement bundle does not match execution plan")
-	operationPattern             = regexp.MustCompile(`^op_[0-9a-z]{20,32}$`)
+	ErrWorkspaceSourceProvisioningUnavailable = errors.New("workspace source provisioning is unavailable")
+	ErrEnforcementBundleMissing               = errors.New("enforcement bundle not found")
+	ErrEnforcementBundleMismatch              = errors.New("enforcement bundle does not match execution plan")
+	operationPattern                          = regexp.MustCompile(`^op_[0-9a-z]{20,32}$`)
 )
 
 // EnforcementBundle is immutable policy material retrieved through the
@@ -102,6 +103,9 @@ func (admission *Admission) Admit(ctx context.Context, request AdmissionRequest)
 	plan, err = NormalizeExecutionPlan(plan)
 	if err != nil || plan.IsolationDomainID != request.IsolationDomainID || plan.RevisionID != request.RevisionID {
 		return Execution{}, ErrExecutionPlanRevisionMismatch
+	}
+	if plan.WorkspaceSource != nil {
+		return Execution{}, ErrWorkspaceSourceProvisioningUnavailable
 	}
 	if err := admission.authorizeProviderProfiles(ctx, request, plan, ProviderCredentialPhaseAdmission); err != nil {
 		return Execution{}, err

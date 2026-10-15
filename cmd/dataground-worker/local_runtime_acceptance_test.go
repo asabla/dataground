@@ -190,7 +190,7 @@ func TestLocalAcceptanceProcessOutputIsBoundedAndFailureOutputIsWithheld(t *test
 
 func TestLocalAcceptancePinsCandidatePolicyAndRuntimeModel(t *testing.T) {
 	config := localAcceptanceConfig(t)
-	plan := execution.ExecutionPlan{RuntimeProfile: reconcile.CodexAppServerRuntimeProfileV1, ImageReference: config.image, EnforcementBundleDigest: localEnforcementDigest, ProviderProfiles: []string{governedProviderProfile}, RequiredCapabilities: []string{reconcile.CodexAppServerRuntimeProfileV1}}
+	plan := execution.ExecutionPlan{SchemaVersion: execution.ExecutionPlanSchemaV1, RuntimeProfile: reconcile.CodexAppServerRuntimeProfileV1, ImageReference: config.image, EnforcementBundleDigest: localEnforcementDigest, ProviderProfiles: []string{governedProviderProfile}, RequiredCapabilities: []string{reconcile.CodexAppServerRuntimeProfileV1}}
 	if !validGovernedDevelopmentPlan(plan, config.image, localRuntimeProfile) || validGovernedDevelopmentPlan(plan, "", "") {
 		t.Fatal("candidate plan did not require explicit image binding")
 	}

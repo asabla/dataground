@@ -235,7 +235,7 @@ func TestStrictAcceptanceChecksExpiryAndShutdownAfterObservation(t *testing.T) {
 }
 func TestStrictPlanRequiresExactPolicyAndProfile(t *testing.T) {
 	config := strictAcceptanceConfig(t)
-	plan := execution.ExecutionPlan{RuntimeProfile: reconcile.CodexAppServerRuntimeProfileV1, ImageReference: config.image, EnforcementBundleDigest: strictLocalEnforcementDigest, ProviderProfiles: []string{governedProviderProfile}, RequiredCapabilities: []string{reconcile.CodexAppServerRuntimeProfileV1}}
+	plan := execution.ExecutionPlan{SchemaVersion: execution.ExecutionPlanSchemaV1, RuntimeProfile: reconcile.CodexAppServerRuntimeProfileV1, ImageReference: config.image, EnforcementBundleDigest: strictLocalEnforcementDigest, ProviderProfiles: []string{governedProviderProfile}, RequiredCapabilities: []string{reconcile.CodexAppServerRuntimeProfileV1}}
 	if !validGovernedDevelopmentPlan(plan, config.image, strictLocalRuntimeProfile) {
 		t.Fatal("strict plan rejected")
 	}

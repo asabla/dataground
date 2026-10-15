@@ -112,7 +112,7 @@ func TestLoadWorkerConfigRejectsIncompleteOrUnsafeGovernedDevelopmentMode(t *tes
 func TestGovernedDevelopmentPlanRequiresExactPinnedProfile(t *testing.T) {
 	t.Parallel()
 
-	plan := execution.ExecutionPlan{
+	plan := execution.ExecutionPlan{SchemaVersion: execution.ExecutionPlanSchemaV1,
 		RuntimeProfile:          reconcile.CodexAppServerRuntimeProfileV1,
 		ImageReference:          governedSandboxImage,
 		EnforcementBundleDigest: governedEnforcementDigest,
@@ -126,6 +126,7 @@ func TestGovernedDevelopmentPlanRequiresExactPinnedProfile(t *testing.T) {
 		name   string
 		mutate func(*execution.ExecutionPlan)
 	}{
+		{name: "source plan version", mutate: func(value *execution.ExecutionPlan) { value.SchemaVersion = execution.ExecutionPlanSchemaV2 }},
 		{name: "runtime", mutate: func(value *execution.ExecutionPlan) { value.RuntimeProfile = "reference/v1" }},
 		{name: "image", mutate: func(value *execution.ExecutionPlan) { value.ImageReference += "-other" }},
 		{name: "missing enforcement", mutate: func(value *execution.ExecutionPlan) { value.EnforcementBundleDigest = "" }},
