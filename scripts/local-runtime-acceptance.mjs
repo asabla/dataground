@@ -18,22 +18,37 @@ const schema = JSON.parse(
 const strictSchema = JSON.parse(
   readFileSync(join(root, "deploy/openshell/local-strict-runtime-acceptance.schema.json")),
 );
+const workspaceSchema = JSON.parse(
+  readFileSync(join(root, "deploy/openshell/local-workspace-runtime-acceptance.schema.json")),
+);
 const ajv = new Ajv2020({ strict: true, allErrors: true });
 addFormats(ajv);
 ajv.addSchema(schema);
 ajv.addSchema(strictSchema);
+ajv.addSchema(workspaceSchema);
 const documents = (suffix) => ({
-  anyOf: [schema, strictSchema].map((value) => ({ $ref: `${value.$id}${suffix}` })),
+  anyOf: [schema, strictSchema, workspaceSchema].map((value) => ({
+    $ref: `${value.$id}${suffix}`,
+  })),
 });
 const validateEnvelope = ajv.compile(documents(""));
 const validateStatement = ajv.compile(documents("#/$defs/statement"));
 const validateTrust = ajv.compile(documents("#/$defs/trust"));
 const day = 24 * 60 * 60 * 1000;
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
-const strictAcceptance = (statement) =>
-  statement.contract === "dataground.local-runtime-acceptance-statement/v2";
+const workspaceAcceptance = (statement) =>
+  statement.contract === "dataground.local-runtime-acceptance-statement/v3";
+const acceptanceVersion = (statement) =>
+  workspaceAcceptance(statement)
+    ? 3
+    : statement.contract === "dataground.local-runtime-acceptance-statement/v2"
+      ? 2
+      : 1;
+const strictAcceptance = (statement) => acceptanceVersion(statement) >= 2;
+const runtimeCandidate = (statement) =>
+  workspaceAcceptance(statement) ? "codex-workspace" : "codex";
 const domain = (statement) =>
-  `DataGround local candidate runtime acceptance v${strictAcceptance(statement) ? 2 : 1}\n`;
+  `DataGround local candidate runtime acceptance v${acceptanceVersion(statement)}\n`;
 
 export function canonicalJSON(value) {
   const sort = (item, level) => {
@@ -86,7 +101,8 @@ function validateBindings(statement, trustBytes, artifacts, expected) {
   const trust = parse(trustBytes, validateTrust);
   const strict = strictAcceptance(statement);
   if (
-    trust.contract !== `dataground.local-runtime-acceptance-trust/v${strict ? 2 : 1}` ||
+    trust.contract !==
+      `dataground.local-runtime-acceptance-trust/v${acceptanceVersion(statement)}` ||
     (strict && trust.profile !== statement.profile) ||
     !/^[a-f0-9]{64}$/.test(expected.trustProfileSHA256 ?? "") ||
     hash(trustBytes) !== expected.trustProfileSHA256 ||
@@ -140,10 +156,12 @@ function validateBindings(statement, trustBytes, artifacts, expected) {
     throw new Error("Acceptance evidence digest does not match.");
   const diagnostic = JSON.parse(artifacts.diagnostic.toString("utf8"));
   if (
-    diagnostic.schemaVersion !== `dataground.dev.openshell-runtime-diagnostic/v${strict ? 5 : 3}` ||
+    diagnostic.schemaVersion !==
+      `dataground.dev.openshell-runtime-diagnostic/v${workspaceAcceptance(statement) ? 6 : strict ? 5 : 3}` ||
     verifyDiagnostic(diagnostic, {
       sourceCommit: statement.sourceRevision,
       candidateImage: statement.localImageId,
+      workspaceSource: workspaceAcceptance(statement),
       ...(strict ? { supervisorImage: statement.supervisor.localImageId } : {}),
     }).length ||
     diagnostic.run.model !== statement.model ||
@@ -177,6 +195,7 @@ function verifyImage(statement, trust, artifacts, run) {
       trustedRootSHA256: trust.trustedRootSHA256,
     },
     run,
+    runtimeCandidate(statement),
   );
   if (strictAcceptance(statement)) {
     verifyOfflineAttestationSnapshots(
@@ -200,7 +219,7 @@ export function prepareAcceptance(statementBytes, trustBytes, artifacts, expecte
   const statement = parse(statementBytes, validateStatement);
   const { trust } = validateBindings(statement, trustBytes, artifacts, expected);
   verifyImage(statement, trust, artifacts, run);
-  const publication = verifyPublication(statement.publication, run);
+  const publication = verifyPublication(statement.publication, run, runtimeCandidate(statement));
   if (publication.imageId !== statement.localImageId) {
     throw new Error("The pulled published image does not match the local diagnostic.");
   }
@@ -219,7 +238,7 @@ export function verifyAcceptance(envelopeBytes, trustBytes, artifacts, expected,
   const statement = envelope.statement;
   if (
     envelope.contract !==
-      `dataground.local-runtime-acceptance-envelope/v${strictAcceptance(statement) ? 2 : 1}` ||
+      `dataground.local-runtime-acceptance-envelope/v${acceptanceVersion(statement)}` ||
     !/^[a-f0-9]{64}$/.test(expected.envelopeSHA256 ?? "") ||
     hash(envelopeBytes) !== expected.envelopeSHA256 ||
     !sameScope(statement.scope, expected.scope) ||
@@ -261,6 +280,9 @@ export function verifyAcceptance(envelopeBytes, trustBytes, artifacts, expected,
     expiresAt: statement.expiresAt,
     certificationEligible: false,
     deploymentScope: statement.deploymentScope,
+    ...(workspaceAcceptance(statement)
+      ? { workspaceSourceContract: statement.workspaceSourceContract }
+      : {}),
     ...(strictAcceptance(statement)
       ? {
           supervisorImage: `ghcr.io/asabla/dataground-supervisor-candidate@${statement.supervisor.publication.digest}`,
