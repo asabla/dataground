@@ -76,3 +76,45 @@ Use the existing `prepare` and `verify` commands with `/v3` envelope, statement,
 The Codex image proof uses the `codex-workspace` verifier. Both its signed raw configuration and independently pulled image must contain the helper contract and the exact DataGround publication source revision. That source revision is bound to `publication.sourceCommit`; the local diagnostic source remains the separately pinned `sourceRevision`. A valid ordinary Codex image signature cannot supply the missing helper binding. Both image publications must have completed successfully when the signing message is prepared. Verification retains the private bounded evidence snapshots, reviewer signature, scope, generation, rejection list, expiry recheck, and strict topology requirements.
 
 The accepted receipt includes `workspaceSourceContract` and the strict image, supervisor, policy, and gateway bindings. It does not authorize a workspace source or select a service plan. The explicit [source worker profile](governed-worker.md#use-an-accepted-source-plan) can consume this acceptance with an independently pinned source plan and grant generation. Source selection, current Cedar authorization, source grants, and lease fencing remain separate requirements. This is a loopback development acceptance boundary; no model-backed v6 acceptance or production release certification is incorporated by this implementation.
+
+## Live acceptance verifier test
+
+`scripts/local-runtime-acceptance.live.test.mjs` is an opt-in test of the real v3 preparation and verification paths. It reads a fresh model-backed v6 diagnostic, both published image proofs, and a separately acquired Sigstore trusted-root snapshot. It checks the completed GitHub workflow attempts, pulls both exact images, verifies their signatures, signs the prepared bytes with an ephemeral in-memory Ed25519 key, and exercises both the library and the worker-facing verification command. It also requires rejection of changed scope, stale generation, revoked acceptance, wrong pins, expiry, signature tampering, and invalid image signature bundles even when the local test signature is valid.
+
+The test creates a random resource scope and a short-lived test trust profile. It does not write the private key, retain a usable acceptance envelope, configure a worker, acquire provider credentials, or run a model. Temporary public fixture files are removed in `finally`. The test signer does not represent an operational reviewer. A pass proves this verifier composition only; it is not independent operational acceptance, a governed worker invocation, or release acceptance.
+
+Place the eight evidence files listed in the test in a private directory. Use the same bounded owner-only snapshots required by the acceptance command. Create an owner-only JSON input file with exactly these fields, using independently selected publication and diagnostic pins:
+
+```json
+{
+  "contract": "dataground.test.local-acceptance-input/v1",
+  "evidenceDirectory": "/absolute/private/evidence",
+  "sourceRevision": "<40-character tested DataGround commit>",
+  "model": "<exact diagnostic model>",
+  "diagnosticSHA256": "<64-character digest>",
+  "trustedRootSHA256": "<independently pinned 64-character digest>",
+  "publication": {
+    "digest": "sha256:<published Codex manifest digest>",
+    "sourceCommit": "<40-character publication commit>",
+    "runId": "<completed workflow run>",
+    "runAttempt": "1",
+    "architecture": "arm64"
+  },
+  "supervisorPublication": {
+    "digest": "sha256:<published supervisor manifest digest>",
+    "sourceCommit": "<40-character publication commit>",
+    "runId": "<completed workflow run>",
+    "runAttempt": "1",
+    "architecture": "arm64"
+  }
+}
+```
+
+Put the pinned GitHub CLI 2.98.0 and the repository's Node.js version on `PATH`, with Docker connected to the image store used by the diagnostic. Then run:
+
+```sh
+DATAGROUND_TEST_LOCAL_ACCEPTANCE_INPUT=/absolute/private/input.json \
+node --test scripts/local-runtime-acceptance.live.test.mjs
+```
+
+The diagnostic must have more than five minutes of its 24-hour evidence window left. The test bounds its own acceptance to the earlier of that boundary and 30 minutes from startup. The ordinary repository suite skips this test when the input variable is absent; that skip is not live verification evidence. Invalid or expired supplied inputs fail instead of skipping.
