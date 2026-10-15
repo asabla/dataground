@@ -144,10 +144,14 @@ func TestLocalApprovalFailureIdentifiesBoundaryWithoutReleasingEvidence(t *testi
 	for _, test := range []struct {
 		name   string
 		method string
+		status string
 		stage  string
 	}{
-		{"missing", "", "approval-observation"},
-		{"wrong-action", "item/commandExecution/requestApproval", "action"},
+		{"succeeded-without-approval", "", "completed", "turn-succeeded-without-approval"},
+		{"failed-without-approval", "", "failed", "turn-failed-without-approval"},
+		{"cancelled-without-approval", "", "interrupted", "turn-cancelled-without-approval"},
+		{"invalid-terminal", "", "private-invalid-status", "approval-observation"},
+		{"wrong-action", "item/commandExecution/requestApproval", "", "action"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			scripts := codexProbeScripts(testRunID)
@@ -159,7 +163,7 @@ func TestLocalApprovalFailureIdentifiesBoundaryWithoutReleasingEvidence(t *testi
 					})
 				} else {
 					server.notify("turn/completed", map[string]any{
-						"threadId": "native-thread", "turn": map[string]any{"id": "native-turn", "status": "completed", "items": []any{}},
+						"threadId": "native-thread", "turn": map[string]any{"id": "native-turn", "status": test.status, "items": []any{}},
 					})
 				}
 			}

@@ -67,6 +67,13 @@ type codexProbeObservation struct {
 	outcome string
 }
 
+// Keep only the closed lifecycle kind when an observation stops early. Native
+// errors, model output, and event payloads must not enter diagnostic failures.
+type unexpectedProbeTerminal struct{ eventType string }
+
+func (*unexpectedProbeTerminal) Error() string { return ErrCodexProbeObservation.Error() }
+func (*unexpectedProbeTerminal) Unwrap() error { return ErrCodexProbeObservation }
+
 type trackedCodexProbeSession struct {
 	execution.RuntimeSession
 	mu       sync.Mutex
@@ -364,6 +371,21 @@ func (probes *CodexProbes) approval(
 			return codexProbeObservation{}, failure
 		}
 		if !resolved {
+			terminalType := ""
+			var terminal *unexpectedProbeTerminal
+			if errors.As(err, &terminal) {
+				terminalType = terminal.eventType
+			} else if err == nil && len(events) > 0 {
+				terminalType = events[len(events)-1].Type
+			}
+			switch terminalType {
+			case "lifecycle.succeeded":
+				return codexProbeObservation{}, state.approvalFailure(name, "turn-succeeded-without-approval")
+			case "lifecycle.failed":
+				return codexProbeObservation{}, state.approvalFailure(name, "turn-failed-without-approval")
+			case "lifecycle.cancelled":
+				return codexProbeObservation{}, state.approvalFailure(name, "turn-cancelled-without-approval")
+			}
 			return codexProbeObservation{}, state.approvalFailure(name, "approval-observation")
 		}
 		if err != nil || !interrupted {
@@ -388,7 +410,7 @@ func (state *codexProbeState) approvalFailure(name CheckName, stage string) erro
 		return ErrCodexProbeObservation
 	}
 	switch stage {
-	case "turn-start", "action", "identity", "decision", "interrupt", "approval-observation", "interrupt-observation", "turn-completion", "transport-close":
+	case "turn-start", "action", "identity", "decision", "interrupt", "approval-observation", "turn-succeeded-without-approval", "turn-failed-without-approval", "turn-cancelled-without-approval", "interrupt-observation", "turn-completion", "transport-close":
 	default:
 		return ErrCodexProbeObservation
 	}
@@ -633,7 +655,7 @@ func observeTurn(
 		switch event.Type {
 		case "lifecycle.succeeded", "lifecycle.failed", "lifecycle.cancelled":
 			if event.Type != stopType {
-				return nil, ErrCodexProbeObservation
+				return nil, &unexpectedProbeTerminal{eventType: event.Type}
 			}
 		}
 		if onEvent != nil {
