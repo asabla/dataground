@@ -278,6 +278,15 @@ jobs:
           -run '^TestWorkspaceSourcesBindDurableOwnershipAndRecoverStorage$'
           -count=1
 
+      - name: Run composed workspace-source access checks
+        env:
+          DATAGROUND_TEST_S3_BUCKET: dataground-conformance
+          DATAGROUND_TEST_S3_ENDPOINT: http://127.0.0.1:8333
+        run: >-
+          go test ./internal/persistence
+          -run '^TestWorkspaceSourceGrantsFenceReadsAndPersistDecisions$'
+          -count=1
+
       - name: Prepare retained enforcement object
         run: >-
           go run ./cmd/dataground-enforcement-recovery-conformance
