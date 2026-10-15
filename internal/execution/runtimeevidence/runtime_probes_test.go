@@ -701,6 +701,54 @@ func approvalScript(method string) func(*codexProbeServer) {
 	}
 }
 
+func TestFileApprovalProbeObservesDeniedPatchWithinWorkspace(t *testing.T) {
+	requests := make(chan json.RawMessage, 1)
+	fixture := newCodexProbeFixture(func(server *codexProbeServer) {
+		server.start()
+		requests <- server.threadParams
+		server.request("native-approval", "item/fileChange/requestApproval", map[string]any{
+			"threadId": "native-thread", "turnId": "native-turn", "itemId": "native-patch",
+		})
+		response := server.read()
+		var decision struct{ Decision string }
+		if json.Unmarshal(response.Result, &decision) != nil || decision.Decision != "decline" {
+			panic("expected denied file approval")
+		}
+		server.notify("item/completed", map[string]any{
+			"threadId": "native-thread", "turnId": "native-turn",
+			"item": map[string]any{"id": "native-patch", "type": "fileChange", "status": "declined", "changes": []any{
+				map[string]any{"path": "/sandbox/dg-file-" + testRunID + ".txt", "kind": map[string]any{"type": "add"}, "diff": "+synthetic\n"},
+			}},
+		})
+		// A rejected patch can close the transport before the interrupt request.
+		// Let the test inspect that failure instead of panicking in this peer.
+		line, err := server.reader.ReadBytes('\n')
+		if err != nil {
+			return
+		}
+		var interrupt codexProbeFrame
+		if json.Unmarshal(line, &interrupt) != nil || interrupt.Method != "turn/interrupt" {
+			panic("expected interruption after denial")
+		}
+		server.respond(interrupt.ID, map[string]any{})
+		server.notify("turn/completed", map[string]any{
+			"threadId": "native-thread", "turn": map[string]any{"id": "native-turn", "status": "interrupted", "items": []any{}},
+		})
+	})
+	probes := fixture.open(t)
+	probes.state.next = 7
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	result, err := probes.FileChangeApproval(ctx, testProbeRequest())
+	if err != nil || result.ObservationSHA256 == ([32]byte{}) || !result.Assertions.FileApprovalHandled {
+		t.Fatalf("denied in-workspace patch did not complete the probe: %v", err)
+	}
+	var request map[string]any
+	if json.Unmarshal(<-requests, &request) != nil || request["cwd"] != "/sandbox" || request["sandbox"] != "read-only" || request["approvalPolicy"] != "on-request" {
+		t.Fatal("file approval probe lost its workspace, read-only sandbox, or approval policy")
+	}
+}
+
 func TestLocalDiagnosticProbePinsSelectedModel(t *testing.T) {
 	fixture := newCodexProbeFixture(func(server *codexProbeServer) {
 		server.startWithModel("selected-model.v1", "dataground_openshell_codex")
