@@ -55,7 +55,7 @@ PostgreSQL 18 is required for durable integration tests and durable control-plan
 
 Do not create directories from the proposed blueprint until code has a verified consumer for them.
 
-The [workspace source materializer](workspace-source-materialization.md) validates and installs a bounded source tree inside a sandbox. The [source catalog installer](workspace-source-catalog.md) binds a reviewed archive to an existing durable workspace and immutable development storage. [Source access grants](workspace-source-access.md) add exact revision-scoped, time-bounded reads. Worker provisioning remains separate.
+The [workspace source materializer](workspace-source-materialization.md) validates and installs a bounded source tree inside a sandbox. The [source catalog installer](workspace-source-catalog.md) binds a reviewed archive to an existing durable workspace and immutable development storage. [Source access grants](workspace-source-access.md) add exact revision-scoped, time-bounded reads and a separate invocation-claim-bound reader. Worker provisioning remains separate.
 
 ## Commands
 

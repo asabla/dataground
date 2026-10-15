@@ -159,6 +159,7 @@ func TestWorkspaceSourceGrantsFenceReadsAndPersistDecisions(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM outbox_events WHERE isolation_domain_id=$1 AND event_type='workspace.source.grant.activate'`, scope).Scan(&count); err != nil || count != 1 {
 		t.Fatal("activation outbox duplicated", count, err)
 	}
+	t.Run("invocation claim", func(t *testing.T) { testClaimedWorkspaceSource(t, ctx, pool, record, service, revision, store) })
 	snapshot, err := workspace.ReadSource(ctx, persistence.NewRepository(pool), observed, persistence.NewRepository(pool), use)
 	if err != nil || snapshot == nil {
 		t.Fatal("authorized source read failed", err)
