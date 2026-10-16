@@ -40,6 +40,20 @@ func (provider *Provider) MaterializeWorkspace(ctx context.Context, ref executio
 }
 
 func transferWorkspaceSource(ctx context.Context, session execution.RuntimeSession, source *workspace.Snapshot) (workspace.Receipt, error) {
+	stdout, err := exchangeWorkspaceSource(ctx, session, source, 4096)
+	defer clear(stdout)
+	expected := source.Receipt()
+	canonical, _ := json.Marshal(expected)
+	if err != nil || !bytes.Equal(bytes.TrimSpace(stdout), canonical) {
+		return workspace.Receipt{}, ErrWorkspaceSourceTransfer
+	}
+	return expected, nil
+}
+
+// Both workspace helpers consume the exact base archive and require complete
+// input, bounded output, an empty diagnostic stream and confirmed shutdown.
+// On success the caller owns the sensitive output and must clear it after use.
+func exchangeWorkspaceSource(ctx context.Context, session execution.RuntimeSession, source *workspace.Snapshot, maximumOutput int64) ([]byte, error) {
 	defer session.Close()
 	written := make(chan error, 1)
 	go func() {
@@ -71,20 +85,24 @@ func transferWorkspaceSource(ctx context.Context, session execution.RuntimeSessi
 		}()
 		return result
 	}
-	output := read(session.Output(), 4096)
+	output := read(session.Output(), maximumOutput)
 	diagnostic := read(session.Errors(), maxNativeDiagnosticBytes)
 	waitErr := session.Wait()
 	writeErr := <-written
 	stdout, stderr := <-output, <-diagnostic
-	defer clear(stdout.data)
+	retained := false
+	defer func() {
+		if !retained {
+			clear(stdout.data)
+		}
+	}()
 	defer clear(stderr.data)
-	expected := source.Receipt()
-	canonical, _ := json.Marshal(expected)
-	if ctx.Err() != nil || waitErr != nil || writeErr != nil || stdout.err != nil || stderr.err != nil || len(stderr.data) != 0 || !bytes.Equal(bytes.TrimSpace(stdout.data), canonical) {
-		return workspace.Receipt{}, ErrWorkspaceSourceTransfer
+	if ctx.Err() != nil || waitErr != nil || writeErr != nil || stdout.err != nil || stderr.err != nil || len(stderr.data) != 0 {
+		return nil, ErrWorkspaceSourceTransfer
 	}
 	if err := session.Close(); err != nil {
-		return workspace.Receipt{}, ErrWorkspaceSourceTransfer
+		return nil, ErrWorkspaceSourceTransfer
 	}
-	return expected, nil
+	retained = true
+	return stdout.data, nil
 }

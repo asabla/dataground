@@ -173,6 +173,26 @@ func ApplyChanges(base *Snapshot, encoded []byte, expectedDigest string) (*Snaps
 	return result, nil
 }
 
+// InspectChanges retains only an exact canonical artifact whose base,
+// preconditions and complete result have been verified. The digest identifies
+// bytes; authorization and durable custody remain the caller's responsibility.
+func InspectChanges(base *Snapshot, encoded []byte, expectedDigest string) (*ChangeSet, error) {
+	result, err := ApplyChanges(base, encoded, expectedDigest)
+	if err != nil {
+		return nil, err
+	}
+	defer result.discard()
+	changes, err := Compare(base, result)
+	if err != nil {
+		return nil, err
+	}
+	if changes.receipt.Digest != expectedDigest {
+		clear(changes.encoded)
+		return nil, ErrChangesInvalid
+	}
+	return changes, nil
+}
+
 // Write streams sensitive artifact bytes. The caller must close a blocked writer
 // on cancellation and confirm complete delivery before accepting the artifact.
 func (changes *ChangeSet) Write(ctx context.Context, output io.Writer) error {
