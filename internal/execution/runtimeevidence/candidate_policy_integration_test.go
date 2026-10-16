@@ -28,6 +28,10 @@ func TestCodexProviderBoundSandboxCompatibility(t *testing.T) {
 	if changesRequired != "" && (changesRequired != "true" || sourceRequired != "true" || os.Getenv("DATAGROUND_TEST_SUPERVISOR_COMPATIBILITY_IMAGE") == "") {
 		t.Fatal("workspace change verification requires explicit source and strict supervisor selection")
 	}
+	ownerRequired := os.Getenv("DATAGROUND_TEST_PROCESS_OWNER_REQUIRED")
+	if ownerRequired != "" && (ownerRequired != "true" || changesRequired != "true") {
+		t.Fatal("process owner verification requires explicit strict workspace change selection")
+	}
 	image := os.Getenv("DATAGROUND_TEST_CODEX_COMPATIBILITY_IMAGE")
 	if image == "" {
 		if sourceRequired == "true" {
@@ -229,6 +233,9 @@ func TestCodexProviderBoundSandboxCompatibility(t *testing.T) {
 				}
 			}
 			if candidate {
+				if ownerRequired == "true" {
+					verifyCandidateProcessOwner(t, &rpc)
+				}
 				verifyCandidateArtifactExport(t, ctx, &rpc, ports.provider, ref, runID)
 				if sourceRequired == "true" {
 					verifyCandidateWorkspaceRuntime(t, &rpc)
