@@ -24,6 +24,10 @@ func TestCodexProviderBoundSandboxCompatibility(t *testing.T) {
 	if sourceRequired != "" && sourceRequired != "true" {
 		t.Fatal("workspace source selection must be explicitly true")
 	}
+	changesRequired := os.Getenv("DATAGROUND_TEST_WORKSPACE_CHANGE_REQUIRED")
+	if changesRequired != "" && (changesRequired != "true" || sourceRequired != "true" || os.Getenv("DATAGROUND_TEST_SUPERVISOR_COMPATIBILITY_IMAGE") == "") {
+		t.Fatal("workspace change verification requires explicit source and strict supervisor selection")
+	}
 	image := os.Getenv("DATAGROUND_TEST_CODEX_COMPATIBILITY_IMAGE")
 	if image == "" {
 		if sourceRequired == "true" {
@@ -228,6 +232,9 @@ func TestCodexProviderBoundSandboxCompatibility(t *testing.T) {
 				verifyCandidateArtifactExport(t, ctx, &rpc, ports.provider, ref, runID)
 				if sourceRequired == "true" {
 					verifyCandidateWorkspaceRuntime(t, &rpc)
+					if changesRequired == "true" {
+						verifyCandidateWorkspaceChanges(t, ctx, &rpc, ports.provider, ref)
+					}
 				}
 			}
 		})
