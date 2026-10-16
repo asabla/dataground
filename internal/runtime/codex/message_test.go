@@ -32,8 +32,17 @@ func TestCompletedMessageRejectsMalformedContentAndForeignScope(t *testing.T) {
 		"invalid phase": func(p map[string]any) { p["item"].(map[string]any)["phase"] = false },
 	} {
 		t.Run(name, func(t *testing.T) {
+			started := make(chan struct{})
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
 			session := newScriptedSession(t, func(server *scriptServer) {
 				server.completeStart("thread", "turn")
+				// Keep malformed output after startup so Wait observes the rejection.
+				select {
+				case <-started:
+				case <-ctx.Done():
+					return
+				}
 				params := nativeMessageParams("thread", "turn", "message", "Answer.", "final_answer")
 				change(params)
 				server.notify("item/completed", params)
@@ -43,12 +52,11 @@ func TestCompletedMessageRejectsMalformedContentAndForeignScope(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer client.Close()
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
 			turn, err := client.Start(ctx, dgruntime.StartRequest{Prompt: "message"})
 			if err != nil {
 				t.Fatal(err)
 			}
+			close(started)
 			if err := turn.Wait(ctx); !errors.Is(err, dgruntime.ErrProtocol) {
 				t.Fatal("invalid message did not fail closed", err)
 			}
@@ -67,8 +75,17 @@ func TestCompletedMessageRejectsMalformedContentAndForeignScope(t *testing.T) {
 }
 
 func TestCompletedMessageRejectsConflictingReplay(t *testing.T) {
+	started := make(chan struct{})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 	session := newScriptedSession(t, func(server *scriptServer) {
 		server.completeStart("thread", "turn")
+		// Keep malformed output after startup so Wait observes the rejection.
+		select {
+		case <-started:
+		case <-ctx.Done():
+			return
+		}
 		server.notify("item/completed", nativeMessageParams("thread", "turn", "message", "original", nil))
 		server.notify("item/completed", nativeMessageParams("thread", "turn", "message", "replacement", nil))
 	})
@@ -77,12 +94,11 @@ func TestCompletedMessageRejectsConflictingReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
 	turn, err := client.Start(ctx, dgruntime.StartRequest{Prompt: "message"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	close(started)
 	if err := turn.Wait(ctx); !errors.Is(err, dgruntime.ErrProtocol) {
 		t.Fatal("changed completion accepted", err)
 	}

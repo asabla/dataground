@@ -75,8 +75,17 @@ func TestCompletedPatchRejectsMalformedAndConflictingInput(t *testing.T) {
 		"conflict status": func(p map[string]any) { p["item"].(map[string]any)["status"] = "failed" },
 	} {
 		t.Run(name, func(t *testing.T) {
+			started := make(chan struct{})
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
 			session := newScriptedSession(t, func(server *scriptServer) {
 				server.completeStart("thread", "turn")
+				// Keep malformed output after startup so Wait observes the rejection.
+				select {
+				case <-started:
+				case <-ctx.Done():
+					return
+				}
 				if strings.HasPrefix(name, "conflict") {
 					server.notify("item/completed", nativePatchParams())
 				}
@@ -89,12 +98,11 @@ func TestCompletedPatchRejectsMalformedAndConflictingInput(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer client.Close()
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
 			turn, err := client.Start(ctx, dgruntime.StartRequest{Prompt: "patch"})
 			if err != nil {
 				t.Fatal(err)
 			}
+			close(started)
 			if err := turn.Wait(ctx); !errors.Is(err, dgruntime.ErrProtocol) {
 				t.Fatal("invalid patch accepted", err)
 			}

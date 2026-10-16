@@ -107,8 +107,18 @@ func TestCompletedToolOutputRejectsMalformedOrConflictingInput(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
+			started := make(chan struct{})
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
 			session := newScriptedSession(t, func(server *scriptServer) {
 				server.completeStart("thread", "turn")
+				// Exercise rejection on an established turn. Otherwise a malformed
+				// notification can correctly fail Start before this test reaches Wait.
+				select {
+				case <-started:
+				case <-ctx.Done():
+					return
+				}
 				if strings.HasPrefix(name, "changed") {
 					server.notify("item/completed", nativeToolParams())
 				}
@@ -121,12 +131,11 @@ func TestCompletedToolOutputRejectsMalformedOrConflictingInput(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer client.Close()
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
 			turn, err := client.Start(ctx, dgruntime.StartRequest{Prompt: "tool"})
 			if err != nil {
 				t.Fatal(err)
 			}
+			close(started)
 			if err := turn.Wait(ctx); !errors.Is(err, dgruntime.ErrProtocol) {
 				t.Fatal("invalid tool output accepted", err)
 			}
