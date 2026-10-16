@@ -132,6 +132,18 @@ func TestNativeProcessOwnerChild(t *testing.T) {
 		}
 	}
 	if mode == "orphaned" {
+		exit, err := owner.Wait(ctx)
+		if err != nil || !exit.Success {
+			t.Fatal("native exit was not observed", err)
+		}
+		if replay, err := owner.Wait(ctx); err != nil || replay != exit {
+			t.Fatal("native exit replay changed", err)
+		}
+		for _, pid := range proof.PIDs {
+			if unix.Kill(pid, 0) != nil {
+				t.Fatal("native exit observation stopped a descendant")
+			}
+		}
 		adopted := false
 		for !adopted && ctx.Err() == nil {
 			children, err := directChildren(os.Getpid())
@@ -159,6 +171,9 @@ func TestNativeProcessOwnerChild(t *testing.T) {
 	if mode == "cancelled-stop" {
 		cancelled, stop := context.WithCancel(ctx)
 		stop()
+		if _, err := owner.Wait(cancelled); !errors.Is(err, context.Canceled) {
+			t.Fatal("cancelled native wait succeeded", err)
+		}
 		if err := owner.Stop(cancelled); !errors.Is(err, context.Canceled) {
 			t.Fatal("cancelled stop succeeded", err)
 		}
@@ -167,6 +182,16 @@ func TestNativeProcessOwnerChild(t *testing.T) {
 		}
 	}
 	if mode == "concurrent-stop" {
+		waits := make(chan error, 4)
+		for range 4 {
+			go func() {
+				result, err := owner.Wait(ctx)
+				if err == nil && result.Success {
+					err = ErrState
+				}
+				waits <- err
+			}()
+		}
 		var wg sync.WaitGroup
 		results := make(chan error, 4)
 		for range 4 {
@@ -180,8 +205,17 @@ func TestNativeProcessOwnerChild(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
+		for range 4 {
+			if err := <-waits; err != nil {
+				t.Fatal("native wait competed with terminal cleanup", err)
+			}
+		}
 	} else if err := owner.Stop(ctx); err != nil {
 		t.Fatal(err)
+	}
+	exit, err := owner.Wait(ctx)
+	if err != nil || exit.Success != (mode == "orphaned") {
+		t.Fatal("terminal native result differs", exit, err)
 	}
 	for _, pid := range proof.PIDs {
 		if !errors.Is(unix.Kill(pid, 0), unix.ESRCH) {

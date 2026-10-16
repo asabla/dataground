@@ -30,7 +30,7 @@ dataground-workspace-export \
 
 Duplicate flags and positional arguments are rejected. The helper validates the base before capture and bounds its lifetime to one minute. Cancellation closes blocked input and output. A failure has nonzero exit status and the fixed diagnostic `WORKSPACE_CHANGE_EXPORT_FAILED`. Output may be partial after an I/O failure or cancellation. A consumer must require successful exit, complete stream closure and verified artifact bytes before accepting export. A retry requires the same base and a still-quiesced tree; this helper retains no delivery state.
 
-The separate [native process owner](native-process-owner.md) supplies an internal terminal descendant-cleanup primitive for a dedicated host. It is not connected to this transport or the worker; callers still have to establish and retain the complete writer fence.
+The separate [native process owner](native-process-owner.md) supplies an internal terminal descendant-cleanup primitive for a dedicated host. Its opt-in owned runtime transport can confirm terminal cleanup before this export, as exercised by the strict gateway fixture. The worker is not connected to that composition; callers still have to establish and retain the complete writer fence.
 
 ## Internal OpenShell transport
 

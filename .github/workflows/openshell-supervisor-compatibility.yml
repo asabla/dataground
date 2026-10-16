@@ -17,6 +17,8 @@ on:
       - deploy/openshell/workspace-source/**
       - internal/workspace/**
       - internal/runtime/processowner/**
+      - internal/runtime/nativehost/**
+      - cmd/dataground-native-owner/**
       - cmd/dataground-workspace-materialize/**
       - cmd/dataground-workspace-export/**
       - internal/execution/runtimeevidence/**
@@ -71,7 +73,7 @@ jobs:
           go-version-file: .go-version
 
       - name: Verify dedicated process ownership with the race detector
-        run: go test -race ./internal/runtime/processowner -count=3 -timeout=2m
+        run: go test -race ./internal/runtime/processowner ./internal/runtime/nativehost -count=3 -timeout=2m
 
       - name: Extract the pinned ARM64 OpenShell CLI
         id: openshell
@@ -103,6 +105,7 @@ jobs:
           docker build --network none --tag dataground-strict-workspace-export:ci \
             --build-arg RUNTIME_IMAGE=dataground-strict-workspace-runtime:ci "$helper_context"
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go test -c -o "$helper_context/dataground-process-owner-test" ./internal/runtime/processowner
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o "$helper_context/dataground-native-owner" ./cmd/dataground-native-owner
           cp deploy/openshell/workspace-source/OwnerFixture.Dockerfile "$helper_context/Dockerfile"
           docker build --network none --tag dataground-strict-process-owner:ci \
             --build-arg RUNTIME_IMAGE=dataground-strict-workspace-export:ci "$helper_context"

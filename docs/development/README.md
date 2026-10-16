@@ -56,7 +56,7 @@ PostgreSQL 18 is required for durable integration tests and durable control-plan
 
 Do not create directories from the proposed blueprint until code has a verified consumer for them.
 
-The [workspace source materializer](workspace-source-materialization.md) validates and installs a bounded source tree inside a sandbox. The [source catalog installer](workspace-source-catalog.md) binds a reviewed archive to an existing durable workspace and immutable development storage. [Source access grants](workspace-source-access.md) add exact revision-scoped, time-bounded reads and a separate invocation-claim-bound reader. The [workspace change helper](workspace-change-export.md) can capture a bounded final difference. The internal [native process owner](native-process-owner.md) provides terminal descendant cleanup for a dedicated unprivileged host; its trusted transport, worker export and teardown integration remain separate.
+The [workspace source materializer](workspace-source-materialization.md) validates and installs a bounded source tree inside a sandbox. The [source catalog installer](workspace-source-catalog.md) binds a reviewed archive to an existing durable workspace and immutable development storage. [Source access grants](workspace-source-access.md) add exact revision-scoped, time-bounded reads and a separate invocation-claim-bound reader. The [workspace change helper](workspace-change-export.md) can capture a bounded final difference. The internal [native process owner](native-process-owner.md) provides terminal descendant cleanup for a dedicated unprivileged host; its opt-in trusted transport can confirm cleanup before development export, while worker integration and teardown recovery remain separate.
 
 ## Commands
 
