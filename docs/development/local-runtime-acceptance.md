@@ -118,3 +118,12 @@ node --test scripts/local-runtime-acceptance.live.test.mjs
 ```
 
 The diagnostic must have more than five minutes of its 24-hour evidence window left. The test bounds its own acceptance to the earlier of that boundary and 30 minutes from startup. The ordinary repository suite skips this test when the input variable is absent; that skip is not live verification evidence. Invalid or expired supplied inputs fail instead of skipping.
+
+The same fixture builder can prepare public test inputs for the separate [live governed source worker test](governed-source-conformance.md):
+
+```sh
+node scripts/local-runtime-acceptance-test-fixture.mjs \
+  /absolute/private/input.json /absolute/private/new-test-fixture
+```
+
+The destination must be new, with an owner-only mode-0700 parent. This command repeats real preparation and verification, generates a random service scope, and writes only the evidence snapshots, public trust, signed envelope, and `fixture.json` with their digest pins. Every file has mode 0600. The private test key stays in memory and is never written. The fixed reviewer and reason identify ephemeral conformance trust; this command cannot accept a caller-selected scope or key. Remove the directory after the test. These files do not represent an operational reviewer, durable trust administration, or release acceptance.
