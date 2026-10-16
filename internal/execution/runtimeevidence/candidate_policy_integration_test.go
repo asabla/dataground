@@ -14,6 +14,7 @@ import (
 
 	"github.com/asabla/dataground/internal/execution"
 	"github.com/asabla/dataground/internal/execution/openshell"
+	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/security/canarylauncher"
 )
 
@@ -175,7 +176,17 @@ func TestCodexProviderBoundSandboxCompatibility(t *testing.T) {
 					t.Fatal("source diagnostic failed through the provider-bound gateway")
 				}
 			}
-			session, err := ports.provider.StartRuntime(ctx, ref)
+			var session execution.RuntimeSession
+			if ownerRequired == "true" {
+				foreign := ref
+				foreign.IsolationDomainID = identity.New("iso")
+				if unexpected, err := ports.provider.StartOwnedRuntime(ctx, foreign); err == nil || unexpected != nil {
+					t.Fatal("foreign isolation domain started an owned runtime")
+				}
+				session, err = ports.provider.StartOwnedRuntime(ctx, ref)
+			} else {
+				session, err = ports.provider.StartRuntime(ctx, ref)
+			}
 			if err != nil {
 				t.Fatal("native transport failed")
 			}
@@ -242,6 +253,9 @@ func TestCodexProviderBoundSandboxCompatibility(t *testing.T) {
 					if changesRequired == "true" {
 						verifyCandidateWorkspaceChanges(t, ctx, &rpc, ports.provider, ref)
 					}
+				}
+				if ownerRequired == "true" {
+					verifyOwnedWorkspaceQuiescence(t, ctx, &rpc, ports.provider, ref, session.(interface{ Quiesce(context.Context) error }))
 				}
 			}
 		})

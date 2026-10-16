@@ -31,6 +31,8 @@ type Owner struct {
 	pid                      int
 	started, sealed, stopped bool
 	input                    *os.File
+	nativePID                int
+	nativeExit               *Exit
 	sigchld                  chan os.Signal
 }
 
@@ -132,8 +134,9 @@ func (owner *Owner) Start(path string, args, env []string) (Streams, error) {
 		errR.Close()
 		return Streams{}, ErrUnavailable
 	}
-	// Stop owns wait4 for every descendant, including non-SIGCHLD clone children.
+	// Owner serializes wait4 for all descendants, including non-SIGCHLD children.
 	// Releasing Go's handle prevents a second waiter from competing with it.
+	owner.nativePID = process.Pid
 	_ = process.Release()
 	owner.input = inW
 	return Streams{Input: inW, Output: outR, Errors: errR}, nil
@@ -186,7 +189,8 @@ func (owner *Owner) Stop(ctx context.Context) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			pid, err := unix.Wait4(-1, nil, unix.WNOHANG|unix.WALL, nil)
+			var status unix.WaitStatus
+			pid, err := unix.Wait4(-1, &status, unix.WNOHANG|unix.WALL, nil)
 			if errors.Is(err, unix.EINTR) {
 				continue
 			}
@@ -197,6 +201,7 @@ func (owner *Owner) Stop(ctx context.Context) error {
 			if err != nil {
 				return ErrUnavailable
 			}
+			owner.recordExit(pid, status)
 			if pid == 0 {
 				break
 			}
@@ -287,4 +292,51 @@ func boundedRead(path string, maximum int64) ([]byte, error) {
 		return nil, ErrUnavailable
 	}
 	return data, nil
+}
+
+// Wait observes the native entry point only. Descendants may remain live after
+// it returns; only Stop supplies terminal cleanup. All reaping shares the same
+// owner lock, so no waiter can release a PID during Stop's signal pass.
+func (owner *Owner) Wait(ctx context.Context) (Exit, error) {
+	if owner == nil || activeOwner.Load() != owner || ctx == nil {
+		return Exit{}, ErrState
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return Exit{}, err
+		}
+		if owner.mu.TryLock() {
+			if owner.pid != os.Getpid() || owner.nativePID <= 0 {
+				owner.mu.Unlock()
+				return Exit{}, ErrState
+			}
+			if owner.nativeExit != nil {
+				result := *owner.nativeExit
+				owner.mu.Unlock()
+				return result, nil
+			}
+			var status unix.WaitStatus
+			pid, err := unix.Wait4(owner.nativePID, &status, unix.WNOHANG|unix.WALL, nil)
+			owner.recordExit(pid, status)
+			owner.mu.Unlock()
+			if err != nil && !errors.Is(err, unix.EINTR) {
+				return Exit{}, ErrUnavailable
+			}
+			if pid > 0 {
+				continue
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return Exit{}, ctx.Err()
+		case <-owner.sigchld:
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+}
+
+func (owner *Owner) recordExit(pid int, status unix.WaitStatus) {
+	if pid > 0 && pid == owner.nativePID && owner.nativeExit == nil {
+		owner.nativeExit = &Exit{Success: status.Exited() && status.ExitStatus() == 0}
+	}
 }

@@ -19,3 +19,7 @@ type Streams struct {
 	Output io.ReadCloser
 	Errors io.ReadCloser
 }
+
+// Exit reports only whether the native entry point exited successfully. It does
+// not report descendant cleanup or grant a quiescence boundary.
+type Exit struct{ Success bool }
