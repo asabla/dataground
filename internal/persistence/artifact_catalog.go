@@ -132,6 +132,21 @@ func (repository *Repository) BindInvocationArtifact(
 		return existing, nil
 	}
 
+	bound, err := repository.insertInvocationArtifact(ctx, transaction, normalized)
+	if err != nil {
+		return artifact.Record{}, err
+	}
+
+	if err := transaction.Commit(ctx); err != nil {
+		return artifact.Record{}, fmt.Errorf("commit invocation artifact binding: %w", err)
+	}
+	return bound, nil
+}
+
+// insertInvocationArtifact publishes an already validated binding inside the
+// caller's transaction. The caller must lock its exact active claim first.
+func (repository *Repository) insertInvocationArtifact(ctx context.Context, transaction pgx.Tx, normalized artifact.Binding) (artifact.Record, error) {
+	var err error
 	var publicRecordExists bool
 	if err := transaction.QueryRow(ctx, `
 		SELECT EXISTS (
@@ -259,9 +274,6 @@ func (repository *Repository) BindInvocationArtifact(
 	}
 	if !found || !artifact.EqualRecords(bound, normalized.Record) {
 		return artifact.Record{}, artifact.ErrInvocationArtifactConflict
-	}
-	if err := transaction.Commit(ctx); err != nil {
-		return artifact.Record{}, fmt.Errorf("commit invocation artifact binding: %w", err)
 	}
 	return bound, nil
 }

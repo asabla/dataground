@@ -36,6 +36,16 @@ The caller must own current export authority, retain the workload quiescence fen
 
 A failed or lost acknowledgement leaves export unconfirmed and must retain the workspace. A repeat read can recover while the same tree remains quiesced and current authority still permits export. This provides no durable delivery receipt or teardown permission. The worker and published image remain unchanged.
 
+## Internal durable retention
+
+`workspace.RetainChanges` accepts verified private change bytes and an exact `dataground.invocation-workspace-change-export/v1` binding. Its caller must already hold export authority. This internal database-authorized boundary does not resolve Cedar export policy, read a live workspace, establish quiescence or authorize teardown. It is not connected to the worker.
+
+Schema 72 retains append-only intent and completion records. Intent binds one isolation domain, invocation, operation, effect, execution instance, original prepared source, execution-plan digest and change receipt. Preparation requires a current running version 2 invocation claim, an unexpired lease and deadline, exact actor and correlation, a ready execution instance, the original runtime attempt and completed source materialization. It also requires the published version 2 execution plan to retain that same source and digest. Metadata contains no private file paths or change content.
+
+Intent and its audit and outbox records commit before object access. The fixed sensitive artifact uses the existing invocation artifact store and a deterministic operation-scoped identifier. Retention first observes the destination. An existing exact object needs no new write; a missing object permits a conditional immutable write only after a fresh claim check. Unknown or conflicting observations fail closed. Every write outcome requires independent bounded read-back and digest verification. Completion rechecks the current claim and atomically publishes the governed artifact descriptor, object binding, completion, audit and outbox.
+
+A lost object acknowledgement or failed completion leaves the intent pending. A replacement worker with a current claim can recover the same object without another write. It cannot substitute another export, change the original runtime-attempt owner or token, or start another native turn through this boundary. Completed exact replay is read-only after lease expiry and still verifies the retained object and available artifact descriptor. A missing, corrupted or deleted artifact cannot be recreated through completed replay. A schema downgrade refuses retained export evidence.
+
 ## Verification and limits
 
 Package and command tests cover binary round trips, additions and deletions, empty directories, type replacement, executable normalization, contained links, exact repeated capture, base and result substitution, malformed encodings, unsafe node types, hard links, escaping or dangling links, limits, cancellation and unchanged live workspace contents. The command tests use the real capture and apply boundary with temporary trees; the Linux test binaries also run on Linux ARM64. SSH transport tests also cover target substitution, source and result substitution, output and diagnostic limits, failed exit, lost acknowledgement and cancellation after partial output. Existing source-transfer tests protect the shared stream-exchange behavior.
@@ -47,6 +57,8 @@ DATAGROUND_TEST_WORKSPACE_CHANGE_BASE_IMAGE=sha256:<local-image-digest> \
   go test ./internal/execution/openshell -run '^TestWorkspaceChangeDockerExport$' -count=1
 ```
 
-CI runs that integration with the same pinned disposable base as the source-transfer test. The image layer is removed after the test and is not a published or accepted candidate.
+Durable retention tests exercise real PostgreSQL claims and the artifact object-store boundary, including expiry before a write and after a successful write, lost acknowledgements, audit rollback, replacement-worker recovery, concurrent historical replay, scope substitution, append-only records, deletion and protected downgrade. The existing live source-grant fixture also selects this retention case against the pinned S3 candidate.
 
-This is a final difference, not an ordered file-write journal. Invocation-scoped authorization, a verified workload quiescence mechanism, accepted image installation, immutable storage and durable receipts, recoverable durable delivery, export before teardown, `termination_blocked` recovery, repository/base-revision metadata, ordered journals and checkpoints remain separate work. No production or release acceptance is established here.
+CI runs the Docker integration with the same pinned disposable base as the source-transfer test. The image layer is removed after the test and is not a published or accepted candidate.
+
+This is a final difference, not an ordered file-write journal. Cedar export authority, a verified workload quiescence mechanism, accepted image installation, worker integration of durable retention, export before teardown, `termination_blocked` recovery, repository/base-revision metadata, ordered journals and checkpoints remain separate work. No production or release acceptance is established here.
