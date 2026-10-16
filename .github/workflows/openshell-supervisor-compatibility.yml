@@ -16,6 +16,7 @@ on:
       - deploy/openshell/codex-compatibility/rosetta-runtime-*
       - deploy/openshell/workspace-source/**
       - internal/workspace/**
+      - internal/runtime/processowner/**
       - cmd/dataground-workspace-materialize/**
       - cmd/dataground-workspace-export/**
       - internal/execution/runtimeevidence/**
@@ -69,6 +70,9 @@ jobs:
         with:
           go-version-file: .go-version
 
+      - name: Verify dedicated process ownership with the race detector
+        run: go test -race ./internal/runtime/processowner -count=3 -timeout=2m
+
       - name: Extract the pinned ARM64 OpenShell CLI
         id: openshell
         run: |
@@ -98,7 +102,11 @@ jobs:
           cp deploy/openshell/workspace-source/ExportFixture.Dockerfile "$helper_context/Dockerfile"
           docker build --network none --tag dataground-strict-workspace-export:ci \
             --build-arg RUNTIME_IMAGE=dataground-strict-workspace-runtime:ci "$helper_context"
-          candidate_image=$(docker image inspect --format '{{.Id}}' dataground-strict-workspace-export:ci)
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go test -c -o "$helper_context/dataground-process-owner-test" ./internal/runtime/processowner
+          cp deploy/openshell/workspace-source/OwnerFixture.Dockerfile "$helper_context/Dockerfile"
+          docker build --network none --tag dataground-strict-process-owner:ci \
+            --build-arg RUNTIME_IMAGE=dataground-strict-workspace-export:ci "$helper_context"
+          candidate_image=$(docker image inspect --format '{{.Id}}' dataground-strict-process-owner:ci)
           printf 'image=%s\n' "$candidate_image" >> "$GITHUB_OUTPUT"
 
       - name: Scan the replacement supervisor and strict policy for credential exposure
@@ -116,6 +124,7 @@ jobs:
         env:
           DATAGROUND_TEST_WORKSPACE_SOURCE_REQUIRED: "true"
           DATAGROUND_TEST_WORKSPACE_CHANGE_REQUIRED: "true"
+          DATAGROUND_TEST_PROCESS_OWNER_REQUIRED: "true"
           DATAGROUND_TEST_CODEX_COMPATIBILITY_IMAGE: ${{ steps.runtime.outputs.image }}
           DATAGROUND_TEST_SUPERVISOR_COMPATIBILITY_IMAGE: ${{ steps.supervisor.outputs.image }}
           DATAGROUND_TEST_RUNTIME_TOPOLOGY_ROOT: ${{ github.workspace }}

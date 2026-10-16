@@ -30,6 +30,8 @@ dataground-workspace-export \
 
 Duplicate flags and positional arguments are rejected. The helper validates the base before capture and bounds its lifetime to one minute. Cancellation closes blocked input and output. A failure has nonzero exit status and the fixed diagnostic `WORKSPACE_CHANGE_EXPORT_FAILED`. Output may be partial after an I/O failure or cancellation. A consumer must require successful exit, complete stream closure and verified artifact bytes before accepting export. A retry requires the same base and a still-quiesced tree; this helper retains no delivery state.
 
+The separate [native process owner](native-process-owner.md) supplies an internal terminal descendant-cleanup primitive for a dedicated host. It is not connected to this transport or the worker; callers still have to establish and retain the complete writer fence.
+
 ## Internal OpenShell transport
 
 `Provider.ExportWorkspaceChanges` uses the existing gateway-authorized SSH tunnel for an exact isolation-domain execution reference. It sends only the verified base digest in the fixed helper command and streams the exact original tar on standard input. No private file path, file content, caller-selected command or credential enters the command arguments. Cross-domain and non-ready targets fail before the proxy starts.
