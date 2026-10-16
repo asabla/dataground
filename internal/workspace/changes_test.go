@@ -289,3 +289,25 @@ func TestWorkspaceChangesRejectDeletionLeavingDanglingLink(t *testing.T) {
 		t.Fatal("dangling result admitted", err)
 	}
 }
+
+func TestInspectChangesRetainsVerifiedOwnedBytes(t *testing.T) {
+	base := inspectedFixture(t, archiveEntry{name: "file", content: "old"})
+	final := inspectedFixture(t, archiveEntry{name: "file", content: "new\x00\xff"})
+	expected, err := Compare(base, final)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded := bytes.Clone(expected.encoded)
+	changes, err := InspectChanges(base, encoded, expected.receipt.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clear(encoded)
+	var output bytes.Buffer
+	if err := changes.Write(context.Background(), &output); err != nil || !bytes.Equal(output.Bytes(), expected.encoded) || changes.Receipt() != expected.Receipt() {
+		t.Fatal("verified artifact retained caller-owned bytes", err)
+	}
+	if changes, err := InspectChanges(base, encoded, expected.receipt.Digest); changes != nil || !errors.Is(err, ErrChangesInvalid) {
+		t.Fatal("changed artifact admitted", err)
+	}
+}

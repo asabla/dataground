@@ -28,8 +28,25 @@ dataground-workspace-export \
 
 Duplicate flags and positional arguments are rejected. The helper validates the base before capture and bounds its lifetime to one minute. Cancellation closes blocked input and output. A failure has nonzero exit status and the fixed diagnostic `WORKSPACE_CHANGE_EXPORT_FAILED`. Output may be partial after an I/O failure or cancellation. A consumer must require successful exit, complete stream closure and verified artifact bytes before accepting export. A retry requires the same base and a still-quiesced tree; this helper retains no delivery state.
 
+## Internal OpenShell transport
+
+`Provider.ExportWorkspaceChanges` uses the existing gateway-authorized SSH tunnel for an exact isolation-domain execution reference. It sends only the verified base digest in the fixed helper command and streams the exact original tar on standard input. No private file path, file content, caller-selected command or credential enters the command arguments. Cross-domain and non-ready targets fail before the proxy starts.
+
+The caller must own current export authority, retain the workload quiescence fence and select an accepted image that contains the helper. The transport does not establish any of these conditions. Its one-minute bound covers concurrent input, output and diagnostic streams. It requires complete input delivery, at most 64 MiB of output, no remote diagnostic, successful exit and confirmed transport closure. It then independently checks the canonical change artifact against the retained base and returns privately owned verified bytes. Invalid or incomplete output is cleared and produces the fixed internal error `workspace change export could not be confirmed`.
+
+A failed or lost acknowledgement leaves export unconfirmed and must retain the workspace. A repeat read can recover while the same tree remains quiesced and current authority still permits export. This provides no durable delivery receipt or teardown permission. The worker and published image remain unchanged.
+
 ## Verification and limits
 
-Package and command tests cover binary round trips, additions and deletions, empty directories, type replacement, executable normalization, contained links, exact repeated capture, base and result substitution, malformed encodings, unsafe node types, hard links, escaping or dangling links, limits, cancellation and unchanged live workspace contents. The command tests use the real capture and apply boundary with temporary trees; the Linux test binaries also run on Linux ARM64.
+Package and command tests cover binary round trips, additions and deletions, empty directories, type replacement, executable normalization, contained links, exact repeated capture, base and result substitution, malformed encodings, unsafe node types, hard links, escaping or dangling links, limits, cancellation and unchanged live workspace contents. The command tests use the real capture and apply boundary with temporary trees; the Linux test binaries also run on Linux ARM64. SSH transport tests also cover target substitution, source and result substitution, output and diagnostic limits, failed exit, lost acknowledgement and cancellation after partial output. Existing source-transfer tests protect the shared stream-exchange behavior.
 
-This is a final difference, not an ordered file-write journal. Invocation-scoped authorization, a sandbox export transport, immutable storage and durable receipts, recoverable delivery, export before teardown, `termination_blocked` recovery, repository/base-revision metadata, ordered journals and checkpoints remain separate work. No production or release acceptance is established here.
+An opt-in Docker integration builds both helpers into a disposable layer over an exact image. It uses a controlled SSH peer to export real Linux binary changes, recover a lost acknowledgement, repeat the same artifact, reject an escaping link and verify unchanged workspace contents. The test owns the only writer. It does not establish live gateway authorization or a production quiescence mechanism. For example:
+
+```sh
+DATAGROUND_TEST_WORKSPACE_CHANGE_BASE_IMAGE=sha256:<local-image-digest> \
+  go test ./internal/execution/openshell -run '^TestWorkspaceChangeDockerExport$' -count=1
+```
+
+CI runs that integration with the same pinned disposable base as the source-transfer test. The image layer is removed after the test and is not a published or accepted candidate.
+
+This is a final difference, not an ordered file-write journal. Invocation-scoped authorization, a verified workload quiescence mechanism, accepted image installation, immutable storage and durable receipts, recoverable durable delivery, export before teardown, `termination_blocked` recovery, repository/base-revision metadata, ordered journals and checkpoints remain separate work. No production or release acceptance is established here.

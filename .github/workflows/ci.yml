@@ -219,12 +219,13 @@ jobs:
         with:
           go-version-file: .go-version
 
-      - name: Verify Linux source transfer and recovery
+      - name: Verify Linux source transfer and change export recovery
         env:
           DATAGROUND_TEST_WORKSPACE_SOURCE_BASE_IMAGE: ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e
         run: >-
+          DATAGROUND_TEST_WORKSPACE_CHANGE_BASE_IMAGE="$DATAGROUND_TEST_WORKSPACE_SOURCE_BASE_IMAGE"
           go test ./internal/execution/openshell
-          -run '^TestWorkspaceSourceDockerTransfer$'
+          -run '^TestWorkspace(SourceDockerTransfer|ChangeDockerExport)$'
           -count=1 -timeout=4m
 
   s3-enforcement-conformance:
