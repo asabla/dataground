@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/asabla/dataground/internal/artifact"
+	"github.com/asabla/dataground/internal/domain"
 	"github.com/asabla/dataground/internal/execution"
 	"github.com/asabla/dataground/internal/execution/openshell"
 	executionpostgres "github.com/asabla/dataground/internal/execution/postgres"
@@ -36,6 +37,17 @@ func TestGovernedWorkspaceLiveInvocation(t *testing.T) {
 	if os.Getenv("DATAGROUND_TEST_GOVERNED_SOURCE_LIVE") != "true" {
 		t.Skip("explicit live governed source fixture is required")
 	}
+	runGovernedWorkspaceLiveInvocation(t, false)
+}
+
+func TestGovernedWorkspaceLivePublicAPIInvocation(t *testing.T) {
+	if os.Getenv("DATAGROUND_TEST_GOVERNED_SOURCE_PUBLIC_LIVE") != "true" {
+		t.Skip("explicit live public source fixture is required")
+	}
+	runGovernedWorkspaceLiveInvocation(t, true)
+}
+
+func runGovernedWorkspaceLiveInvocation(t *testing.T, publicJourney bool) {
 	if runtime.GOOS != "linux" || runtime.GOARCH != "arm64" {
 		t.Fatal("live source profile requires Linux ARM64")
 	}
@@ -182,15 +194,34 @@ func TestGovernedWorkspaceLiveInvocation(t *testing.T) {
 	if err := repo.ChangeProviderCredentialGrant(ctx, persistence.ProviderCredentialGrantChange{Contract: persistence.ProviderCredentialGrantContract, IsolationDomainID: target.isolationDomainID, RevisionID: target.revisionID, ProviderProfile: governedProviderProfile, Purpose: persistence.ProviderCredentialPurposeAgentInference, Generation: 1, Operation: "activate", ActivatedAt: now.Add(-time.Second), ExpiresAt: now.Add(20 * time.Minute), ActorID: actor, ReasonDigest: reason[:], CorrelationID: identity.New("cor")}); err != nil {
 		t.Fatal(err)
 	}
-	var published bytes.Buffer
-	if err := runDevelopmentPublication(ctx, []string{"publish-development", "--expected-version", "1", "--plan-digest", planDigest, "--policy-digest", "sha256:" + hex.EncodeToString(policy.Digest[:]), "--actor", actor, "--correlation-id", identity.New("cor")}, &published); err != nil {
-		t.Fatal("live publication", err)
+	var public *liveWorkspaceAPI
+	publicationArgs := []string{"publish-development", "--expected-version", "1", "--plan-digest", planDigest, "--policy-digest", "sha256:" + hex.EncodeToString(policy.Digest[:])}
+	if publicJourney {
+		publicationArgs[0] = "reconcile-authorized-publication"
+		t.Setenv("DATAGROUND_WORKER_ID", "live-source-publication")
+		reviewed, err := loadDevelopmentPublication(publicationArgs, os.LookupEnv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		public = newLiveWorkspaceAPI(t, ctx, repo, objects, reviewed.input, actor)
+		public.publish(publicationArgs)
+	} else {
+		var published bytes.Buffer
+		publicationArgs = append(publicationArgs, "--actor", actor, "--correlation-id", identity.New("cor"))
+		if err := runDevelopmentPublication(ctx, publicationArgs, &published); err != nil {
+			t.Fatal("live publication", err)
+		}
 	}
+
 	if err := repo.ChangeWorkspaceSourceGrant(ctx, workspace.SourceGrantChange{Contract: workspace.SourceGrantV1, Record: source, RevisionID: target.revisionID, Generation: 1, Operation: "activate", ActivatedAt: now.Add(-time.Second), ExpiresAt: now.Add(20 * time.Minute), ActorID: actor, ReasonDigest: "sha256:" + hex.EncodeToString(reason[:]), CorrelationID: identity.New("cor")}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.AssignAlias(ctx, idem("alias"), persistence.AssignAliasInput{ID: identity.New("als"), ServiceID: target.serviceID, Name: "live-source", RevisionID: target.revisionID, ActorID: actor, CorrelationID: identity.New("cor")}); err != nil {
-		t.Fatal(err)
+	if public != nil {
+		public.call(http.MethodPut, public.servicePath()+"/aliases/live-source", map[string]any{"revisionId": target.revisionID}, "live-source-alias", true, http.StatusOK)
+	} else {
+		if _, err := repo.AssignAlias(ctx, idem("alias"), persistence.AssignAliasInput{ID: identity.New("als"), ServiceID: target.serviceID, Name: "live-source", RevisionID: target.revisionID, ActorID: actor, CorrelationID: identity.New("cor")}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	config, err := loadWorkerConfig(os.LookupEnv)
 	if err != nil {
@@ -205,14 +236,29 @@ func TestGovernedWorkspaceLiveInvocation(t *testing.T) {
 			t.Error("worker resource cleanup", err)
 		}
 	}()
-	invocationID := identity.New("inv")
-	if _, err := repo.AcceptInvocation(ctx, idem("invoke"), persistence.AcceptInvocationInput{ID: invocationID, ServiceID: target.serviceID, Alias: "live-source", ActorID: actor, CorrelationID: identity.New("cor"), Deadline: time.Now().UTC().Add(5 * time.Minute), Input: map[string]any{"prompt": "Copy the exact bytes of source.txt in the current workspace to result.txt using the shell command cp source.txt result.txt. Do not change the source or invent its contents. Then report completion.", "artifacts": []any{map[string]any{"id": "source-copy", "name": "source-copy", "kind": "file", "mediaType": "text/plain", "sandboxPath": "/sandbox/workspace/result.txt"}}}}); err != nil {
-		t.Fatal(err)
+	input := map[string]any{"prompt": "Copy the exact bytes of source.txt in the current workspace to result.txt using the shell command cp source.txt result.txt. Do not change the source or invent its contents. Then report completion.", "artifacts": []any{map[string]any{"id": "source-copy", "name": "source-copy", "kind": "file", "mediaType": "text/plain", "sandboxPath": "/sandbox/workspace/result.txt"}}}
+	var invocation domain.Invocation
+	if public != nil {
+		body := public.call(http.MethodPost, public.servicePath()+"/invocations", map[string]any{"alias": "live-source", "input": input}, "live-source-invoke", true, http.StatusAccepted)
+		if json.Unmarshal(body, &invocation) != nil || invocation.RevisionID != target.revisionID {
+			t.Fatal("invalid public invocation")
+		}
+		replay := public.call(http.MethodPost, public.servicePath()+"/invocations", map[string]any{"alias": "live-source", "input": input}, "live-source-invoke", true, http.StatusAccepted)
+		if !bytes.Equal(body, replay) {
+			t.Fatal("public invocation replay changed")
+		}
+	} else {
+		invocationID := identity.New("inv")
+		if _, err := repo.AcceptInvocation(ctx, idem("invoke"), persistence.AcceptInvocationInput{ID: invocationID, ServiceID: target.serviceID, Alias: "live-source", ActorID: actor, CorrelationID: identity.New("cor"), Deadline: time.Now().UTC().Add(5 * time.Minute), Input: input}); err != nil {
+			t.Fatal(err)
+		}
+		invocation, err = repo.GetInvocation(ctx, target.isolationDomainID, invocationID)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
-	invocation, err := repo.GetInvocation(ctx, target.isolationDomainID, invocationID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	invocationID := invocation.Metadata.ID
+
 	defer func() {
 		cleanup, stop := context.WithTimeout(context.Background(), time.Minute)
 		defer stop()
@@ -243,7 +289,11 @@ func TestGovernedWorkspaceLiveInvocation(t *testing.T) {
 				t.Fatal("live reconciliation deadline", ctx.Err())
 			}
 		}
-		invocation, err = repo.GetInvocation(ctx, target.isolationDomainID, invocationID)
+		if public != nil {
+			invocation = public.invocation(invocationID)
+		} else {
+			invocation, err = repo.GetInvocation(ctx, target.isolationDomainID, invocationID)
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -270,6 +320,9 @@ func TestGovernedWorkspaceLiveInvocation(t *testing.T) {
 		}
 		if value.Record.Name == "source-copy" {
 			found = bytes.Equal(value.Bytes, content)
+			if public != nil {
+				public.verifyArtifact(invocationID, artifactID, content)
+			}
 		}
 		clear(value.Bytes)
 		if _, err := reader.Read(ctx, identity.New("iso"), invocationID, artifactID); !errors.Is(err, artifact.ErrInvocationArtifactMissing) {
@@ -278,6 +331,9 @@ func TestGovernedWorkspaceLiveInvocation(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("source bytes did not reach the declared durable artifact")
+	}
+	if public != nil {
+		public.verifyEvents(invocationID)
 	}
 	for _, table := range []string{"invocation_workspace_preparations", "invocation_workspace_completions", "workspace_source_use_decisions", "invocation_runtime_attempts"} {
 		var count int
