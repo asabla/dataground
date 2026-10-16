@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	governedPublicationConfigurationEnvironment  = "DATAGROUND_GOVERNED_PUBLICATION_CONFIG_FILE"
-	governedPublicationConfigurationContract     = "dataground.api-governed-publication/v1"
-	maximumGovernedPublicationConfigurationBytes = 4 << 10
+	governedPublicationConfigurationEnvironment    = "DATAGROUND_GOVERNED_PUBLICATION_CONFIG_FILE"
+	governedPublicationConfigurationContract       = "dataground.api-governed-publication/v1"
+	governedSourcePublicationConfigurationContract = "dataground.api-governed-publication/v2"
+	maximumGovernedPublicationConfigurationBytes   = 4 << 10
 )
 
 type governedPublicationConfiguration struct {
@@ -61,7 +62,10 @@ func loadGovernedPublicationTarget(
 		RevisionID:        configuration.RevisionID,
 		RuntimeProfile:    configuration.RuntimeProfile,
 	}}
-	if configuration.Contract != governedPublicationConfigurationContract ||
+	if configuration.Contract == governedSourcePublicationConfigurationContract {
+		target.Contract = persistence.WorkspaceDevelopmentPublicationContract
+	}
+	if (configuration.Contract != governedPublicationConfigurationContract && configuration.Contract != governedSourcePublicationConfigurationContract) ||
 		!target.ValidReviewedInputs() {
 		return nil, errors.New("governed publication configuration is incomplete or unsupported")
 	}

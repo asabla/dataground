@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -62,7 +63,12 @@ func (driver *authorizedPublicationTestDriver) PublishAuthorizedClaimed(ctx cont
 	return driver.verify(ctx, claim)
 }
 func TestAuthorizedPublicationCannotUseOperatorDriver(t *testing.T) {
-	claim := persistence.OperationClaim{Kind: persistence.OperationKindPublication, IsolationDomainID: "iso_test", ID: "op_test", ResourceID: "rev_test", Command: "publish", ObservedState: "queued", StateMachineVersion: publication.AuthorizedDevelopmentVersion, DeadlineAt: time.Now().Add(time.Hour)}
+	for _, version := range []int{publication.AuthorizedDevelopmentVersion, publication.AuthorizedWorkspaceDevelopmentVersion} {
+		t.Run(fmt.Sprint(version), func(t *testing.T) { testAuthorizedPublicationCannotUseOperatorDriver(t, version) })
+	}
+}
+func testAuthorizedPublicationCannotUseOperatorDriver(t *testing.T, version int) {
+	claim := persistence.OperationClaim{Kind: persistence.OperationKindPublication, IsolationDomainID: "iso_test", ID: "op_test", ResourceID: "rev_test", Command: "publish", ObservedState: "queued", StateMachineVersion: version, DeadlineAt: time.Now().Add(time.Hour)}
 	operator := &governedPublicationTestDriver{verify: func(context.Context, persistence.OperationClaim) error {
 		t.Fatal("operator verifier called")
 		return nil
@@ -78,7 +84,7 @@ func TestAuthorizedPublicationCannotUseOperatorDriver(t *testing.T) {
 	calls := 0
 	driver := &authorizedPublicationTestDriver{governedPublicationTestDriver: governedPublicationTestDriver{verify: func(_ context.Context, got persistence.OperationClaim) error {
 		calls++
-		if got.StateMachineVersion != 4 || got.ObservedState != "validating" {
+		if got.StateMachineVersion != version || got.ObservedState != "validating" {
 			t.Fatal("lost authorized claim")
 		}
 		return persistence.ErrDevelopmentPublicationUnavailable

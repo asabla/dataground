@@ -12,7 +12,7 @@ import (
 // nil; missing scope, changed pins and operator-only requests are failures. It
 // neither accepts publication nor grants a lease or publication authority.
 func (repository *Repository) FindAuthorizedDevelopmentPublication(ctx context.Context, input DevelopmentPublicationInput) (*domain.Operation, error) {
-	if repository == nil || !repository.Configured() || ctx == nil || ctx.Err() != nil || !input.ValidReviewedInputs() || input.Contract != DevelopmentPublicationContract {
+	if repository == nil || !repository.Configured() || ctx == nil || ctx.Err() != nil || !input.ValidReviewedInputs() {
 		return nil, ErrDevelopmentPublicationUnavailable
 	}
 	var service, profile, state string

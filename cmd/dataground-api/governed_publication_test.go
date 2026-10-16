@@ -19,7 +19,8 @@ func TestGovernedPublicationConfigurationRejectsAmbiguousAuthority(t *testing.T)
 	valid := `{"contract":"dataground.api-governed-publication/v1","isolationDomainId":"iso_00000000000000000001","serviceId":"svc_00000000000000000001","revisionId":"rev_00000000000000000001","runtimeProfile":"codex.app-server/v1","expectedVersion":1,"planDigest":"sha256:` + strings.Repeat("a", 64) + `","policyDigest":"sha256:` + strings.Repeat("b", 64) + `","verificationDigest":"sha256:` + strings.Repeat("c", 64) + `"}`
 	for name, content := range map[string]string{
 		"valid":            valid,
-		"old contract":     strings.Replace(valid, "api-governed-publication/v1", "api-governed-publication/v2", 1),
+		"source":           strings.Replace(valid, "api-governed-publication/v1", "api-governed-publication/v2", 1),
+		"unknown contract": strings.Replace(valid, "api-governed-publication/v1", "api-governed-publication/v3", 1),
 		"native endpoint":  strings.Replace(valid, `"contract":`, `"gateway":"http://127.0.0.1:1234","contract":`, 1),
 		"actor":            strings.Replace(valid, `"contract":`, `"actorId":"operator","contract":`, 1),
 		"duplicate":        strings.Replace(valid, `"expectedVersion":1`, `"expectedVersion":1,"expectedVersion":2`, 1),
@@ -33,7 +34,7 @@ func TestGovernedPublicationConfigurationRejectsAmbiguousAuthority(t *testing.T)
 		t.Run(name, func(t *testing.T) {
 			path := writeStartupFile(t, t.TempDir(), "publication.json", content)
 			target, err := loadGovernedPublicationTarget(lookup(path))
-			if name != "valid" {
+			if name != "valid" && name != "source" {
 				if err == nil {
 					t.Fatal("invalid configuration admitted")
 				}
@@ -41,6 +42,13 @@ func TestGovernedPublicationConfigurationRejectsAmbiguousAuthority(t *testing.T)
 			}
 			if err != nil || target == nil || !target.ValidReviewedInputs() || target.ActorID != "" || target.CorrelationID != "" {
 				t.Fatal(target, err)
+			}
+			expected := "dataground.development-publication/v1"
+			if name == "source" {
+				expected = "dataground.development-publication/v2"
+			}
+			if target.Contract != expected {
+				t.Fatal("configuration selected wrong publication contract")
 			}
 		})
 	}

@@ -70,6 +70,33 @@ func (input DevelopmentPublicationInput) ValidReviewedInputs() bool {
 		publicationDigestPattern.MatchString(input.PlanDigest) && publicationDigestPattern.MatchString(input.PolicyDigest) && publicationDigestPattern.MatchString(input.VerificationDigest)
 }
 
+// AuthorizedPublicationVersion selects the lifecycle contract for reviewed inputs.
+// It does not validate those inputs or grant publication authority.
+func (input DevelopmentPublicationInput) AuthorizedPublicationVersion() int {
+	if input.Contract == WorkspaceDevelopmentPublicationContract {
+		return publication.AuthorizedWorkspaceDevelopmentVersion
+	}
+	return publication.AuthorizedDevelopmentVersion
+}
+
+func (input DevelopmentPublicationInput) publicationPolicyContract() string {
+	if input.Contract == WorkspaceDevelopmentPublicationContract {
+		return "dataground.invocation-authorization-policy/v6"
+	}
+	return "dataground.invocation-authorization-policy/v5"
+}
+
+func (input DevelopmentPublicationInput) matchesQueuedPublicationVersion(version int) bool {
+	switch input.Contract {
+	case DevelopmentPublicationContract:
+		return version == publication.QueuedDevelopmentVersion || version == publication.AuthorizedDevelopmentVersion
+	case WorkspaceDevelopmentPublicationContract:
+		return version == publication.AuthorizedWorkspaceDevelopmentVersion
+	default:
+		return false
+	}
+}
+
 // PublishDevelopmentRevision performs a database-only publication after bounded
 // read-only verification. Publication, evidence, outbox and replay commit once;
 // there is no external mutation or simulated provider receipt to reconcile.

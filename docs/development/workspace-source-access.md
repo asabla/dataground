@@ -22,7 +22,7 @@ The existing `dataground-execution-plan-install` command accepts this normalized
 
 Migration 68 enforces source-plan identity against the complete catalog record and rejects updates or deletion of source-bearing plans, including cascading revision deletion. Downgrade cannot remove those bindings. Deletion therefore needs a future governed retention boundary. PostgreSQL plan reads now recompute and compare the canonical digest for both versions. The process-local conformance store validates and copies the record but does not establish catalog existence or publication state.
 
-The default admission and worker profiles accept only source-free version 1 plans. The explicit [source worker profile](governed-worker.md#use-an-accepted-source-plan) admits one exact version 2 plan with version 3 runtime acceptance and requires claim-bound source preparation before runtime startup. Atomic operator publication can accept that plan; queued and public publication still reject it. A plan alone establishes neither source authority nor runtime certification.
+The default admission and worker profiles accept only source-free version 1 plans. The explicit [source worker profile](governed-worker.md#use-an-accepted-source-plan) admits one exact version 2 plan with version 3 runtime acceptance and requires claim-bound source preparation before runtime startup. Atomic operator publication and the explicit [version 5 authorized publication path](governed-publication-queue.md#publish-a-source-backed-revision) can accept that plan. The version 3 operator queue remains source-free. A plan alone establishes neither source authority nor runtime certification.
 
 ## Invocation claim binding
 

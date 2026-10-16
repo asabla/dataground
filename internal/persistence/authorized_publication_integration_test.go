@@ -21,6 +21,15 @@ import (
 )
 
 func TestAuthorizedPublicationAPIToFencedCompletion(t *testing.T) {
+	t.Run("source-free", func(t *testing.T) { testAuthorizedPublicationAPIToFencedCompletion(t, false) })
+	t.Run("workspace-source", func(t *testing.T) { testAuthorizedPublicationAPIToFencedCompletion(t, true) })
+}
+
+func testAuthorizedPublicationAPIToFencedCompletion(t *testing.T, withSource bool) {
+	expectedStateVersion := 4
+	if withSource {
+		expectedStateVersion = 5
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	url := testDatabaseURL(t)
@@ -43,8 +52,10 @@ func TestAuthorizedPublicationAPIToFencedCompletion(t *testing.T) {
 		// Only the dedicated test database removes retained evidence, after checking
 		// that the production downgrade and mutation guards reject its removal.
 		if _, err := pool.Exec(context.Background(), `TRUNCATE publication_authorization_decisions,governed_publication_requests;
-   DELETE FROM service_publication_operations WHERE state_machine_version=4;
-   TRUNCATE api_authorization_decisions,audit_records,invocation_authorization_entity_activations,invocation_authorization_entity_generations,
+   DELETE FROM service_publication_operations WHERE state_machine_version IN (4,5);
+   TRUNCATE invocation_workspace_completions,invocation_workspace_preparations,service_revision_execution_plans,
+ workspace_source_grants,workspace_source_use_decisions,workspace_source_completions,workspace_source_installations,workspaces,
+ api_authorization_decisions,audit_records,invocation_authorization_entity_activations,invocation_authorization_entity_generations,
    invocation_authorization_policy_withdrawals,invocation_authorization_policies,provider_credential_authorization_decisions,provider_credential_grant_events`); err != nil {
 			t.Error(err)
 		}
@@ -66,7 +77,7 @@ func TestAuthorizedPublicationAPIToFencedCompletion(t *testing.T) {
 			if mode == "effect denied" {
 				policy = `permit(principal,action==DataGround::Action::"publish",resource) when {context.phase=="entry"};`
 			}
-			f := newDevelopmentPublicationFixtureWithPolicy(t, ctx, repo, store, []byte(policy))
+			f := newDevelopmentPublicationFixtureWithSource(t, ctx, repo, store, []byte(policy), withSource)
 			scope := f.input.Target.IsolationDomainID
 			if operation, err := repo.FindAuthorizedDevelopmentPublication(ctx, f.input); err != nil || operation != nil {
 				t.Fatal("draft without request was not idle", operation, err)
@@ -163,7 +174,7 @@ func TestAuthorizedPublicationAPIToFencedCompletion(t *testing.T) {
 				t.Fatal("exact acceptance replay changed")
 			}
 			var operation domain.Operation
-			if err := json.Unmarshal(original, &operation); err != nil || operation.StateMachineVersion != 4 || operation.ObservedState != "queued" {
+			if err := json.Unmarshal(original, &operation); err != nil || operation.StateMachineVersion != expectedStateVersion || operation.ObservedState != "queued" {
 				t.Fatal(string(original), err)
 			}
 			operationID := operation.Metadata.ID
@@ -184,12 +195,17 @@ func TestAuthorizedPublicationAPIToFencedCompletion(t *testing.T) {
 			}
 
 			discovered, err := repo.FindAuthorizedDevelopmentPublication(ctx, f.input)
-			if err != nil || discovered == nil || discovered.Metadata.ID != operationID || discovered.StateMachineVersion != 4 {
+			if err != nil || discovered == nil || discovered.Metadata.ID != operationID || discovered.StateMachineVersion != expectedStateVersion {
 				t.Fatal("accepted request not discovered", discovered, err)
 			}
-			for _, pin := range []string{"plan", "policy", "verification", "version"} {
+			for _, pin := range []string{"plan", "policy", "verification", "version", "contract"} {
 				changed := f.input
 				switch pin {
+				case "contract":
+					changed.Contract = persistence.WorkspaceDevelopmentPublicationContract
+					if withSource {
+						changed.Contract = persistence.DevelopmentPublicationContract
+					}
 				case "plan":
 					changed.PlanDigest = "sha256:" + strings.Repeat("0", 64)
 				case "policy":
@@ -210,8 +226,24 @@ func TestAuthorizedPublicationAPIToFencedCompletion(t *testing.T) {
 			if _, err := repo.ClaimDevelopmentPublication(ctx, operationID, f.input, "old-worker", time.Minute); err == nil {
 				t.Fatal("old consumer claimed authorized request")
 			}
-			if err := persistence.MigrateDownTo(ctx, db, 58); err == nil {
+			downgrade := int64(58)
+			if withSource {
+				downgrade = 70
+			}
+			if err := persistence.MigrateDownTo(ctx, db, downgrade); err == nil {
 				t.Fatal("downgrade removed authorized operation")
+			}
+			// An older binary cannot discover, claim, or complete a new source request
+			// by removing its source contract from otherwise identical reviewed pins.
+			if withSource {
+				legacy := f.input
+				legacy.Contract = persistence.DevelopmentPublicationContract
+				if err := repo.RequireAuthorizedDevelopmentPublication(ctx, operationID, legacy); err == nil {
+					t.Fatal("legacy contract matched source request")
+				}
+				if _, err := repo.ClaimAuthorizedDevelopmentPublication(ctx, operationID, legacy, "legacy-worker", time.Minute); err == nil {
+					t.Fatal("legacy contract claimed source request")
+				}
 			}
 			claim, err := repo.ClaimAuthorizedDevelopmentPublication(ctx, operationID, f.input, "authorized-worker", time.Minute)
 			if err != nil || claim == nil {

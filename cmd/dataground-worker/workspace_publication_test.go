@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -12,7 +13,7 @@ import (
 	"github.com/asabla/dataground/internal/workspace"
 )
 
-func TestWorkspacePublicationRequiresSeparateProfileAndOperatorCommand(t *testing.T) {
+func TestWorkspacePublicationRequiresSeparateProfileAndVersionedCommands(t *testing.T) {
 	values := validStrictAcceptanceEnvironment()
 	values["DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE"] = workspaceLocalRuntimeProfile
 	args := publicationArguments()
@@ -20,7 +21,7 @@ func TestWorkspacePublicationRequiresSeparateProfileAndOperatorCommand(t *testin
 	if err != nil || config.input.Contract != persistence.WorkspaceDevelopmentPublicationContract || !config.acceptance.workspaceSource || config.acceptance.strict == nil {
 		t.Fatal("source publication binding missing", err)
 	}
-	for _, command := range []string{"queue-development-publication", "reconcile-development-publication", "reconcile-authorized-publication", "prepare-publication-configuration"} {
+	for _, command := range []string{"queue-development-publication", "reconcile-development-publication"} {
 		changed := append([]string(nil), args...)
 		changed[0] = command
 		if _, err := loadDevelopmentPublication(changed, mapEnvironment(values)); err == nil {
@@ -93,5 +94,36 @@ func TestSourceFreeAcceptanceRejectsSourceContractField(t *testing.T) {
 			t.Fatal("source-free acceptance accepted source contract")
 		}
 		checker.Close()
+	}
+}
+
+func TestWorkspacePublicationExportsVersionedPublicConfiguration(t *testing.T) {
+	values := validStrictAcceptanceEnvironment()
+	values["DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE"] = workspaceLocalRuntimeProfile
+	var digest string
+	for _, command := range []string{"prepare-publication-configuration", "reconcile-authorized-publication"} {
+		args := publicationArguments()[:7]
+		args[0] = command
+		config, err := loadDevelopmentPublication(args, mapEnvironment(values))
+		if err != nil || config.input.Contract != persistence.WorkspaceDevelopmentPublicationContract || config.publicationPolicyContract() != "dataground.invocation-authorization-policy/v6" || config.input.AuthorizedPublicationVersion() != 5 {
+			t.Fatal("source command lost reviewed contract", command, err)
+		}
+		if digest != "" && digest != config.input.VerificationDigest {
+			t.Fatal("producer and consumer pins differ")
+		}
+		digest = config.input.VerificationDigest
+		var output bytes.Buffer
+		if err := writePublicPublicationConfiguration(&output, config.input); err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]any
+		if json.Unmarshal(output.Bytes(), &fields) != nil || fields["contract"] != "dataground.api-governed-publication/v2" || len(fields) != 9 {
+			t.Fatal("unsafe or unversioned source configuration")
+		}
+		for _, private := range []string{config.acceptance.envelopeFile, config.acceptance.trustFile, config.endpoint} {
+			if private != "" && strings.Contains(output.String(), private) {
+				t.Fatal("configuration disclosed deployment routing")
+			}
+		}
 	}
 }

@@ -59,7 +59,7 @@ func (consumer *developmentPublicationConsumer) PublishClaimed(ctx context.Conte
 }
 
 func (consumer *developmentPublicationConsumer) PublishAuthorizedClaimed(ctx context.Context, claim persistence.OperationClaim) error {
-	if !consumer.config.authorizedPublication() || consumer.authorize == nil || claim.ID != consumer.config.operationID || claim.IsolationDomainID != consumer.config.input.Target.IsolationDomainID || claim.ResourceID != consumer.config.input.Target.RevisionID || claim.StateMachineVersion != publication.AuthorizedDevelopmentVersion {
+	if !consumer.config.authorizedPublication() || consumer.authorize == nil || claim.ID != consumer.config.operationID || claim.IsolationDomainID != consumer.config.input.Target.IsolationDomainID || claim.ResourceID != consumer.config.input.Target.RevisionID || claim.StateMachineVersion != consumer.config.input.AuthorizedPublicationVersion() {
 		return errDevelopmentPublication
 	}
 	input := consumer.config.input
@@ -89,7 +89,7 @@ func consumeAuthorizedDevelopmentPublication(ctx context.Context, store developm
 }
 
 func consumePublication(ctx context.Context, store developmentPublicationStore, config developmentPublicationConfiguration, workerID string, verify persistence.DevelopmentPublicationVerifier, authorize persistence.PublicationAuthorization, output io.Writer) error {
-	if ctx == nil || ctx.Err() != nil || store == nil || verify == nil || workerID == "" || len(workerID) > 256 || strings.TrimSpace(workerID) != workerID || strings.ContainsAny(workerID, "\r\n\x00") || (!publicationOperationIDPattern.MatchString(config.operationID) && !(config.authorizedPublication() && config.operationID == "")) || !config.input.ValidReviewedInputs() || config.input.Contract != persistence.DevelopmentPublicationContract {
+	if ctx == nil || ctx.Err() != nil || store == nil || verify == nil || workerID == "" || len(workerID) > 256 || strings.TrimSpace(workerID) != workerID || strings.ContainsAny(workerID, "\r\n\x00") || (!publicationOperationIDPattern.MatchString(config.operationID) && !(config.authorizedPublication() && config.operationID == "")) || !config.input.ValidReviewedInputs() || (!config.authorizedPublication() && config.input.Contract != persistence.DevelopmentPublicationContract) {
 		return errDevelopmentPublication
 	}
 	if config.authorizedPublication() && config.operationID == "" {
@@ -102,7 +102,7 @@ func consumePublication(ctx context.Context, store developmentPublicationStore, 
 	version := publication.QueuedDevelopmentVersion
 	require := store.RequireDevelopmentPublication
 	if config.authorizedPublication() {
-		version = publication.AuthorizedDevelopmentVersion
+		version = config.input.AuthorizedPublicationVersion()
 		require = store.RequireAuthorizedDevelopmentPublication
 	}
 	if err := require(ctx, config.operationID, config.input); err != nil {
@@ -161,7 +161,7 @@ func awaitAuthorizedPublication(ctx context.Context, store developmentPublicatio
 			return nil, errDevelopmentPublication
 		}
 		if operation != nil {
-			if !publicationOperationIDPattern.MatchString(operation.Metadata.ID) || operation.Metadata.IsolationDomainID != input.Target.IsolationDomainID || operation.ResourceID != input.Target.RevisionID || operation.Kind != persistence.OperationKindPublication || operation.StateMachineVersion != publication.AuthorizedDevelopmentVersion {
+			if !publicationOperationIDPattern.MatchString(operation.Metadata.ID) || operation.Metadata.IsolationDomainID != input.Target.IsolationDomainID || operation.ResourceID != input.Target.RevisionID || operation.Kind != persistence.OperationKindPublication || operation.StateMachineVersion != input.AuthorizedPublicationVersion() {
 				return nil, errDevelopmentPublication
 			}
 			return operation, nil

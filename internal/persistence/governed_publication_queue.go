@@ -24,7 +24,7 @@ func (repository *Repository) QueueDevelopmentPublication(ctx context.Context, i
 }
 
 func (repository *Repository) queueDevelopmentPublication(ctx context.Context, idem Idempotency, input DevelopmentPublicationInput, deadline time.Time, version int) (CommandResult, error) {
-	if repository == nil || !repository.Configured() || ctx == nil || !input.Valid() || input.Contract != DevelopmentPublicationContract || idem.IsolationDomainID != input.Target.IsolationDomainID || deadline.IsZero() {
+	if repository == nil || !repository.Configured() || ctx == nil || !input.Valid() || !input.matchesQueuedPublicationVersion(version) || idem.IsolationDomainID != input.Target.IsolationDomainID || deadline.IsZero() {
 		return CommandResult{}, ErrDevelopmentPublicationUnavailable
 	}
 	// Bind deployment-owned pins and actor to the command digest. Correlation
@@ -38,17 +38,17 @@ func (repository *Repository) queueDevelopmentPublication(ctx context.Context, i
 	if err != nil {
 		return CommandResult{}, ErrDevelopmentPublicationUnavailable
 	}
-	if version == publication.AuthorizedDevelopmentVersion {
+	if publication.IsAuthorizedDevelopmentVersion(version) {
 		encoded = append([]byte("dataground.authorized-publication/v1\x00"), encoded...)
 	}
 	idem.RequestDigest = sha256.Sum256(encoded)
 	return repository.execute(ctx, idem, func(tx pgx.Tx, _ time.Time) (int, any, error) {
-		if version == publication.AuthorizedDevelopmentVersion {
+		if publication.IsAuthorizedDevelopmentVersion(version) {
 			if err := lockInvocationAuthorizationPolicyScope(ctx, tx, input.Target.IsolationDomainID, input.Target.ServiceID, input.Target.RevisionID); err != nil {
 				return 0, nil, ErrDevelopmentPublicationUnavailable
 			}
 			policy, err := getActiveInvocationAuthorizationPolicy(ctx, tx, input.Target.IsolationDomainID, input.Target.ServiceID, input.Target.RevisionID)
-			if err != nil || policy.Contract != "dataground.invocation-authorization-policy/v5" || "sha256:"+hex.EncodeToString(policy.PolicyDigest) != input.PolicyDigest {
+			if err != nil || policy.Contract != input.publicationPolicyContract() || "sha256:"+hex.EncodeToString(policy.PolicyDigest) != input.PolicyDigest {
 				return 0, nil, ErrDevelopmentPublicationUnavailable
 			}
 		}
@@ -94,7 +94,7 @@ func (repository *Repository) RequireDevelopmentPublication(ctx context.Context,
 }
 
 func (repository *Repository) requireDevelopmentPublication(ctx context.Context, operationID string, input DevelopmentPublicationInput, version int) error {
-	if repository == nil || !repository.Configured() || ctx == nil || !input.ValidReviewedInputs() || input.Contract != DevelopmentPublicationContract {
+	if repository == nil || !repository.Configured() || ctx == nil || !input.ValidReviewedInputs() || !input.matchesQueuedPublicationVersion(version) {
 		return ErrDevelopmentPublicationUnavailable
 	}
 	var matched bool
@@ -138,7 +138,7 @@ func (repository *Repository) CompleteDevelopmentPublication(ctx context.Context
 }
 
 func (repository *Repository) completeDevelopmentPublication(ctx context.Context, claim OperationClaim, input DevelopmentPublicationInput, verify DevelopmentPublicationVerifier, expectedStateVersion int, authorize PublicationAuthorization) error {
-	if repository == nil || !repository.Configured() || ctx == nil || !input.Valid() || input.Contract != DevelopmentPublicationContract || verify == nil || claim.Kind != OperationKindPublication || claim.StateMachineVersion != expectedStateVersion || claim.ObservedState != "validating" || (claim.Command != "publish" && claim.Command != "repair") || claim.IsolationDomainID != input.Target.IsolationDomainID || claim.ResourceID != input.Target.RevisionID || claim.ActorID != input.ActorID || claim.CorrelationID != input.CorrelationID {
+	if repository == nil || !repository.Configured() || ctx == nil || !input.Valid() || !input.matchesQueuedPublicationVersion(expectedStateVersion) || verify == nil || claim.Kind != OperationKindPublication || claim.StateMachineVersion != expectedStateVersion || claim.ObservedState != "validating" || (claim.Command != "publish" && claim.Command != "repair") || claim.IsolationDomainID != input.Target.IsolationDomainID || claim.ResourceID != input.Target.RevisionID || claim.ActorID != input.ActorID || claim.CorrelationID != input.CorrelationID {
 		return ErrDevelopmentPublicationUnavailable
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
@@ -182,11 +182,11 @@ func (repository *Repository) completeDevelopmentPublication(ctx context.Context
 	defer stopVerification()
 	policyContract := "dataground.invocation-authorization-policy/v3"
 	var checkAuthority func(context.Context) error
-	if expectedStateVersion == publication.AuthorizedDevelopmentVersion {
+	if publication.IsAuthorizedDevelopmentVersion(expectedStateVersion) {
 		if authorize == nil {
 			return ErrDevelopmentPublicationUnavailable
 		}
-		policyContract = "dataground.invocation-authorization-policy/v5"
+		policyContract = input.publicationPolicyContract()
 		checkAuthority = func(ctx context.Context) error {
 			return authorize(ctx, publicationAuthorizationRequest(input, claim.ID, "effect", claim.FencingToken))
 		}
@@ -198,7 +198,7 @@ func (repository *Repository) completeDevelopmentPublication(ctx context.Context
 	if !verified.now.Before(leaseExpiry) || !verified.now.Before(deadline) {
 		return ErrLeaseLost
 	}
-	receipt := map[string]any{"contract": DevelopmentPublicationContract, "isolationDomainId": input.Target.IsolationDomainID, "serviceId": input.Target.ServiceID, "revisionId": input.Target.RevisionID, "operationId": claim.ID, "state": "published", "certificationEligible": false}
+	receipt := map[string]any{"contract": input.Contract, "isolationDomainId": input.Target.IsolationDomainID, "serviceId": input.Target.ServiceID, "revisionId": input.Target.RevisionID, "operationId": claim.ID, "state": "published", "certificationEligible": false}
 	terminal, err := json.Marshal(receipt)
 	if err != nil {
 		return ErrDevelopmentPublicationUnavailable
@@ -235,8 +235,11 @@ type PublicationAuthorization func(context.Context, authz.PublicationRequest) er
 
 func developmentPublicationOperationID(input DevelopmentPublicationInput, version int) string {
 	suffix := ":governed-publication:v1"
-	if version == publication.AuthorizedDevelopmentVersion {
+	if publication.IsAuthorizedDevelopmentVersion(version) {
 		suffix = ":authorized-publication:v1"
+		if version == publication.AuthorizedWorkspaceDevelopmentVersion {
+			suffix = ":authorized-publication:v2"
+		}
 	}
 	return identity.Derived("op", input.Target.IsolationDomainID+":"+input.Target.RevisionID+suffix)
 }
@@ -249,35 +252,36 @@ func publicationAuthorizationRequest(input DevelopmentPublicationInput, operatio
 // idempotent replay. The transaction then pins that same active policy under its
 // administrative lock; a changed policy cannot accept the earlier decision.
 func (repository *Repository) QueueAuthorizedDevelopmentPublication(ctx context.Context, idem Idempotency, input DevelopmentPublicationInput, deadline time.Time, authorize PublicationAuthorization) (CommandResult, error) {
-	if repository == nil || !repository.Configured() || ctx == nil || !input.Valid() || input.Contract != DevelopmentPublicationContract || authorize == nil || idem.IsolationDomainID != input.Target.IsolationDomainID {
+	if repository == nil || !repository.Configured() || ctx == nil || !input.Valid() || authorize == nil || idem.IsolationDomainID != input.Target.IsolationDomainID {
 		return CommandResult{}, ErrDevelopmentPublicationUnavailable
 	}
-	if err := authorize(ctx, publicationAuthorizationRequest(input, developmentPublicationOperationID(input, publication.AuthorizedDevelopmentVersion), "entry", 0)); err != nil {
+	if err := authorize(ctx, publicationAuthorizationRequest(input, developmentPublicationOperationID(input, input.AuthorizedPublicationVersion()), "entry", 0)); err != nil {
 		return CommandResult{}, err
 	}
-	return repository.queueDevelopmentPublication(ctx, idem, input, deadline, publication.AuthorizedDevelopmentVersion)
+	return repository.queueDevelopmentPublication(ctx, idem, input, deadline, input.AuthorizedPublicationVersion())
 }
 
 func (repository *Repository) RequireAuthorizedDevelopmentPublication(ctx context.Context, operationID string, input DevelopmentPublicationInput) error {
-	return repository.requireDevelopmentPublication(ctx, operationID, input, publication.AuthorizedDevelopmentVersion)
+	return repository.requireDevelopmentPublication(ctx, operationID, input, input.AuthorizedPublicationVersion())
 }
 
 func (repository *Repository) ClaimAuthorizedDevelopmentPublication(ctx context.Context, operationID string, input DevelopmentPublicationInput, workerID string, leaseDuration time.Duration) (*OperationClaim, error) {
-	return repository.claimDevelopmentPublication(ctx, operationID, input, workerID, leaseDuration, publication.AuthorizedDevelopmentVersion)
+	return repository.claimDevelopmentPublication(ctx, operationID, input, workerID, leaseDuration, input.AuthorizedPublicationVersion())
 }
 
 func (repository *Repository) CompleteAuthorizedDevelopmentPublication(ctx context.Context, claim OperationClaim, input DevelopmentPublicationInput, verify DevelopmentPublicationVerifier, authorize PublicationAuthorization) error {
 	if authorize == nil {
 		return ErrDevelopmentPublicationUnavailable
 	}
-	return repository.completeDevelopmentPublication(ctx, claim, input, verify, publication.AuthorizedDevelopmentVersion, authorize)
+	return repository.completeDevelopmentPublication(ctx, claim, input, verify, input.AuthorizedPublicationVersion(), authorize)
 }
 
 // RequirePublicationDispatchTarget permits an explicitly configured publishing
 // API to start with its exact draft. Invocation-only startup keeps requiring a
-// published revision. A published restart must match the retained v4 request.
+// published revision. A published restart must match the retained versioned request.
 func (repository *Repository) RequirePublicationDispatchTarget(ctx context.Context, input DevelopmentPublicationInput) error {
-	if repository == nil || !repository.Configured() || ctx == nil || !input.ValidReviewedInputs() || input.Contract != DevelopmentPublicationContract {
+	version := input.AuthorizedPublicationVersion()
+	if repository == nil || !repository.Configured() || ctx == nil || !input.ValidReviewedInputs() || !input.matchesQueuedPublicationVersion(version) {
 		return ErrDevelopmentPublicationUnavailable
 	}
 	var exists bool
@@ -289,8 +293,8 @@ func (repository *Repository) RequirePublicationDispatchTarget(ctx context.Conte
  ON operation.isolation_domain_id=request.isolation_domain_id AND operation.id=request.operation_id
  WHERE request.isolation_domain_id=$1 AND request.service_id=$2 AND request.revision_id=$3 AND request.expected_version=$5
  AND request.plan_digest=$6 AND request.policy_digest=$7 AND request.verification_digest=$8
- AND operation.revision_id=$3 AND operation.state_machine_version=4 AND operation.observed_state='published')))
- )`, input.Target.IsolationDomainID, input.Target.ServiceID, input.Target.RevisionID, input.Target.RuntimeProfile, input.ExpectedVersion, input.PlanDigest, input.PolicyDigest, input.VerificationDigest).Scan(&exists)
+ AND operation.revision_id=$3 AND operation.state_machine_version=$9 AND operation.observed_state='published')))
+ )`, input.Target.IsolationDomainID, input.Target.ServiceID, input.Target.RevisionID, input.Target.RuntimeProfile, input.ExpectedVersion, input.PlanDigest, input.PolicyDigest, input.VerificationDigest, version).Scan(&exists)
 	if err != nil || !exists {
 		return ErrDevelopmentPublicationUnavailable
 	}
