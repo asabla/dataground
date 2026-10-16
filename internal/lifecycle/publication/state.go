@@ -15,6 +15,13 @@ const QueuedDevelopmentVersion = 3
 // AuthorizedDevelopmentVersion additionally requires audited publication authority.
 const AuthorizedDevelopmentVersion = 4
 
+// AuthorizedWorkspaceDevelopmentVersion binds a source-capable plan and policy.
+const AuthorizedWorkspaceDevelopmentVersion = 5
+
+func IsAuthorizedDevelopmentVersion(version int) bool {
+	return version == AuthorizedDevelopmentVersion || version == AuthorizedWorkspaceDevelopmentVersion
+}
+
 type State string
 
 const (

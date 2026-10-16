@@ -323,7 +323,10 @@ func newDevelopmentPublicationFixtureWithSource(t *testing.T, ctx context.Contex
 		policy, err = reconcile.NewInvocationAuthorizationPolicyWithPublicationEntities(reconcile.InvocationAuthorizationPolicyScope{IsolationDomainID: scope, ServiceID: service, RevisionID: revision}, "publication-policy", reconcile.CanonicalPublicationCedarSchema(), policies, persistenceEntityFixture(t))
 	}
 	if withSource {
-		policy, err = reconcile.NewInvocationAuthorizationPolicyWithSourceEntities(reconcile.InvocationAuthorizationPolicyScope{IsolationDomainID: scope, ServiceID: service, RevisionID: revision}, "source-publication-policy", reconcile.CanonicalSourceCedarSchema(), []byte(`permit(principal,action,resource);`), persistenceEntityFixture(t))
+		if policies == nil {
+			policies = []byte(`permit(principal,action,resource);`)
+		}
+		policy, err = reconcile.NewInvocationAuthorizationPolicyWithSourceEntities(reconcile.InvocationAuthorizationPolicyScope{IsolationDomainID: scope, ServiceID: service, RevisionID: revision}, "source-publication-policy", reconcile.CanonicalSourceCedarSchema(), policies, persistenceEntityFixture(t))
 	}
 	if err != nil {
 		t.Fatal(err)

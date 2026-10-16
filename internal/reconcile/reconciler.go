@@ -120,12 +120,12 @@ func (reconciler *Reconciler) advance(ctx context.Context, claim persistence.Ope
 }
 
 func (reconciler *Reconciler) advancePublication(ctx context.Context, claim persistence.OperationClaim) error {
-	if claim.StateMachineVersion == publication.QueuedDevelopmentVersion || claim.StateMachineVersion == publication.AuthorizedDevelopmentVersion {
+	if claim.StateMachineVersion == publication.QueuedDevelopmentVersion || publication.IsAuthorizedDevelopmentVersion(claim.StateMachineVersion) {
 		if claim.Command == "cancel" {
 			return reconciler.store.Advance(ctx, claim, "cancelled", nil)
 		}
 		var publish func(context.Context, persistence.OperationClaim) error
-		if claim.StateMachineVersion == publication.AuthorizedDevelopmentVersion {
+		if publication.IsAuthorizedDevelopmentVersion(claim.StateMachineVersion) {
 			driver, ok := reconciler.driver.(AuthorizedPublicationDriver)
 			if !ok || governedInvocationDependencyMissing(driver) {
 				return errors.New("authorized publication verifier is required")

@@ -190,7 +190,7 @@ func TestPublicationConsumerRecoversLostTerminalReceipt(t *testing.T) {
 }
 
 func (store *publicationConsumerStore) RequireAuthorizedDevelopmentPublication(ctx context.Context, id string, input persistence.DevelopmentPublicationInput) error {
-	if store.operation.StateMachineVersion != 4 {
+	if store.operation.StateMachineVersion != input.AuthorizedPublicationVersion() {
 		return persistence.ErrDevelopmentPublicationUnavailable
 	}
 	return store.RequireDevelopmentPublication(ctx, id, input)
@@ -198,13 +198,13 @@ func (store *publicationConsumerStore) RequireAuthorizedDevelopmentPublication(c
 func (store *publicationConsumerStore) ClaimAuthorizedDevelopmentPublication(ctx context.Context, id string, input persistence.DevelopmentPublicationInput, worker string, lease time.Duration) (*persistence.OperationClaim, error) {
 	claim, err := store.ClaimDevelopmentPublication(ctx, id, input, worker, lease)
 	if claim != nil {
-		claim.StateMachineVersion = 4
+		claim.StateMachineVersion = input.AuthorizedPublicationVersion()
 		claim.FencingToken = 2
 	}
 	return claim, err
 }
 func (store *publicationConsumerStore) CompleteAuthorizedDevelopmentPublication(ctx context.Context, claim persistence.OperationClaim, input persistence.DevelopmentPublicationInput, verify persistence.DevelopmentPublicationVerifier, authorize persistence.PublicationAuthorization) error {
-	if claim.StateMachineVersion != 4 || authorize == nil {
+	if claim.StateMachineVersion != input.AuthorizedPublicationVersion() || authorize == nil {
 		return persistence.ErrDevelopmentPublicationUnavailable
 	}
 	if err := authorize(ctx, authz.PublicationRequest{ActorID: claim.ActorID, CorrelationID: claim.CorrelationID, Phase: "effect", FencingToken: claim.FencingToken}); err != nil {
@@ -213,9 +213,16 @@ func (store *publicationConsumerStore) CompleteAuthorizedDevelopmentPublication(
 	return store.CompleteDevelopmentPublication(ctx, claim, input, verify)
 }
 func TestAuthorizedPublicationConsumerRequiresAuthorityAndExactVersion(t *testing.T) {
+	t.Run("source-free", func(t *testing.T) { testAuthorizedPublicationConsumer(t, false) })
+	t.Run("workspace-source", func(t *testing.T) { testAuthorizedPublicationConsumer(t, true) })
+}
+func testAuthorizedPublicationConsumer(t *testing.T, withSource bool) {
 	config, store := newPublicationConsumerFixture(t)
 	config.command = "reconcile-authorized-publication"
-	store.operation.StateMachineVersion = 4
+	if withSource {
+		config.input.Contract = persistence.WorkspaceDevelopmentPublicationContract
+	}
+	store.operation.StateMachineVersion = config.input.AuthorizedPublicationVersion()
 	verify := func(context.Context) (persistence.DevelopmentPublicationEvidence, error) {
 		return persistence.DevelopmentPublicationEvidence{}, nil
 	}

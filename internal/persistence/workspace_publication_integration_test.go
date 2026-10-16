@@ -136,8 +136,8 @@ func TestWorkspaceDevelopmentPublicationPinsSourceBindingAndAtomicReplay(t *test
 		if _, err := repo.QueueDevelopmentPublication(ctx, testIdempotency(fixture.input.Target.IsolationDomainID, "source-queue"), fixture.input, time.Now().Add(time.Minute)); err == nil {
 			t.Fatal("source intent entered old queue")
 		}
-		if _, err := repo.FindAuthorizedDevelopmentPublication(ctx, fixture.input); err == nil {
-			t.Fatal("source intent entered public discovery")
+		if found, err := repo.FindAuthorizedDevelopmentPublication(ctx, fixture.input); err != nil || found != nil {
+			t.Fatal("source draft did not wait for authorized publication", err)
 		}
 	})
 }

@@ -43,7 +43,7 @@ func loadDevelopmentPublication(args []string, lookup environmentLookup) (develo
 	var version, deadline string
 	selectedProfile, _ := lookup("DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE")
 	sourcePublication := selectedProfile == workspaceLocalRuntimeProfile
-	if sourcePublication && config.command != "publish-development" {
+	if sourcePublication && config.command != "publish-development" && config.command != "reconcile-authorized-publication" && config.command != "prepare-publication-configuration" {
 		return config, errDevelopmentPublication
 	}
 	type publicationFlag struct {
@@ -276,8 +276,12 @@ func (config developmentPublicationConfiguration) publicationPolicyContract() st
 // writePublicPublicationConfiguration exports only reviewed identity and digests.
 // Runtime paths, credentials, provider routes and native endpoints remain internal.
 func writePublicPublicationConfiguration(output io.Writer, input persistence.DevelopmentPublicationInput) error {
-	if output == nil || !input.ValidReviewedInputs() || input.Contract != persistence.DevelopmentPublicationContract {
+	if output == nil || !input.ValidReviewedInputs() {
 		return errDevelopmentPublication
+	}
+	contract := "dataground.api-governed-publication/v1"
+	if input.Contract == persistence.WorkspaceDevelopmentPublicationContract {
+		contract = "dataground.api-governed-publication/v2"
 	}
 	configuration := struct {
 		Contract           string `json:"contract"`
@@ -289,7 +293,7 @@ func writePublicPublicationConfiguration(output io.Writer, input persistence.Dev
 		PlanDigest         string `json:"planDigest"`
 		PolicyDigest       string `json:"policyDigest"`
 		VerificationDigest string `json:"verificationDigest"`
-	}{"dataground.api-governed-publication/v1", input.Target.IsolationDomainID, input.Target.ServiceID, input.Target.RevisionID, input.Target.RuntimeProfile, input.ExpectedVersion, input.PlanDigest, input.PolicyDigest, input.VerificationDigest}
+	}{contract, input.Target.IsolationDomainID, input.Target.ServiceID, input.Target.RevisionID, input.Target.RuntimeProfile, input.ExpectedVersion, input.PlanDigest, input.PolicyDigest, input.VerificationDigest}
 	if err := json.NewEncoder(output).Encode(configuration); err != nil {
 		return errDevelopmentPublication
 	}
