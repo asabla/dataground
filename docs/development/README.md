@@ -17,6 +17,7 @@ PostgreSQL 18 is required for durable integration tests and durable control-plan
 | `cmd/dataground-execution-plan-install` | Reviewed immutable revision execution-plan installer |
 | `cmd/dataground-workspace-source-access` | Database-authorized source-read grant activation, revocation, and verification |
 | `cmd/dataground-workspace-source-install` | Database-authorized source catalog installation into loopback development storage |
+| `cmd/dataground-workspace-export` | Internal bounded final workspace change helper for a quiesced sandbox |
 | `cmd/dataground-workspace-materialize` | Internal bounded source archive helper for sandbox provisioning |
 | `cmd/dataground-policy-install` | Audited immutable invocation-policy installer |
 | `cmd/dataground-policy-withdraw` | Audited exact-digest invocation-policy withdrawal |
@@ -55,7 +56,7 @@ PostgreSQL 18 is required for durable integration tests and durable control-plan
 
 Do not create directories from the proposed blueprint until code has a verified consumer for them.
 
-The [workspace source materializer](workspace-source-materialization.md) validates and installs a bounded source tree inside a sandbox. The [source catalog installer](workspace-source-catalog.md) binds a reviewed archive to an existing durable workspace and immutable development storage. [Source access grants](workspace-source-access.md) add exact revision-scoped, time-bounded reads and a separate invocation-claim-bound reader. Worker provisioning remains separate.
+The [workspace source materializer](workspace-source-materialization.md) validates and installs a bounded source tree inside a sandbox. The [source catalog installer](workspace-source-catalog.md) binds a reviewed archive to an existing durable workspace and immutable development storage. [Source access grants](workspace-source-access.md) add exact revision-scoped, time-bounded reads and a separate invocation-claim-bound reader. The [workspace change helper](workspace-change-export.md) can capture a bounded final difference; worker export and teardown integration remain separate.
 
 ## Commands
 
