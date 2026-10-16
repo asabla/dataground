@@ -541,7 +541,7 @@ func (state *codexProbeState) start(
 	if state.diagnosticModel == "" {
 		client, err = codex.New(trackedSession)
 	} else {
-		client, err = codex.NewOpenShellConformance(trackedSession)
+		client, err = codex.NewOpenShellProvider(trackedSession)
 	}
 	if err != nil {
 		_ = trackedSession.Close()

@@ -4,12 +4,12 @@ import "github.com/asabla/dataground/internal/execution"
 
 const openShellModelProvider = "dataground_openshell_codex"
 
-// NewOpenShellConformance creates a client for the run-derived OpenShell
-// conformance provider. That binding exposes its literal credential keys as
+// NewOpenShellProvider creates a client for a deployment-owned OpenShell
+// Codex provider. That binding exposes its literal credential keys as
 // environment placeholders; the built-in profile's discovery aliases are not
 // injected. The caller owns the binding and its non-exposure boundary. This
 // client receives no credential values and accepts no alternate endpoint.
-func NewOpenShellConformance(session execution.RuntimeSession) (*Client, error) {
+func NewOpenShellProvider(session execution.RuntimeSession) (*Client, error) {
 	return newClient(session, true, false)
 }
 

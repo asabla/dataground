@@ -21,6 +21,7 @@ import (
 	"github.com/asabla/dataground/internal/persistence"
 	"github.com/asabla/dataground/internal/reconcile"
 	dgruntime "github.com/asabla/dataground/internal/runtime"
+	"github.com/asabla/dataground/internal/runtime/codex"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -82,6 +83,14 @@ type governedCodexRuntimeRequestBuilder struct {
 	workspaceSource bool
 	delegate        reconcile.CodexInvocationRuntimeRequestBuilder
 	model           string
+}
+
+// The governed provider installs literal credential-key placeholders. Native
+// account discovery does not select that bridge and must not be a fallback.
+type governedCodexRuntimeAdapterFactory struct{}
+
+func (governedCodexRuntimeAdapterFactory) New(session execution.RuntimeSession) (reconcile.InvocationRuntimeAdapter, error) {
+	return codex.NewOpenShellProvider(session)
 }
 
 func (builder governedCodexRuntimeRequestBuilder) BuildInvocationRuntimeRequest(
@@ -626,7 +635,7 @@ func composeWorkerDriver(
 		governedCodexRuntimeRequestBuilder{model: model, workspaceSource: config.sourceEnabled()},
 		executionStore,
 		provider,
-		reconcile.CodexInvocationRuntimeAdapterFactory{},
+		governedCodexRuntimeAdapterFactory{},
 		artifactFinalizer,
 		reconcile.InvocationRuntimeDriverConfig{
 			WorkspacePreparer:  preparer,

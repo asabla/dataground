@@ -49,7 +49,7 @@ func TestOpenShellClientSelectsOnlyTheMediatedProvider(t *testing.T) {
 				server.requireMethod(turn, "turn/start")
 				server.respond(turn.ID, map[string]any{"turn": map[string]any{"id": "native-turn"}})
 			})
-			client, err := codex.NewOpenShellConformance(session)
+			client, err := codex.NewOpenShellProvider(session)
 			if err != nil {
 				t.Fatal(err)
 			}
