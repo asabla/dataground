@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -146,6 +148,27 @@ func (s *Session) finishWait(err error) {
 
 // A process-local acknowledgement is not a durable or transferable certificate.
 func (*Session) MarshalJSON() ([]byte, error) { return nil, ErrProtocol }
+
+// OwnerBinding identifies this exact private connection without exposing its
+// control nonce. It is not proof that cleanup has occurred.
+func (s *Session) OwnerBinding() (string, error) {
+	if s == nil || s.raw == nil {
+		return "", ErrProtocol
+	}
+	data := append([]byte("dataground.native-owner-binding/v1\x00"), s.nonce[:]...)
+	digest := sha256.Sum256(data)
+	clear(data)
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
+// ConfirmedOwnerBinding is available only after the complete terminal exchange.
+// The binding supplies no resource identity, export authority or durable claim.
+func (s *Session) ConfirmedOwnerBinding() (string, error) {
+	if s == nil || !s.confirmed.Load() {
+		return "", ErrProtocol
+	}
+	return s.OwnerBinding()
+}
 
 // Quiesce is terminal. Native output is drained rather than delivered once it
 // starts, so an abandoned consumer cannot prevent cleanup acknowledgement.
