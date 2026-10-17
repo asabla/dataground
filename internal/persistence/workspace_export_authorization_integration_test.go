@@ -28,7 +28,7 @@ func (f exportEvaluatorFunc) EvaluateWorkspaceChangeExport(c context.Context, p 
 	return f(c, p, r)
 }
 
-// This database-only fixture supplies trusted source and cleanup observations.
+// This fixture supplies real source bytes and a trusted cleanup observation.
 // It does not establish filesystem quiescence, image acceptance, or publication readiness.
 func TestWorkspaceExportAuthorizationRequiresCurrentClaimAndConfirmedCleanup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -49,7 +49,7 @@ func TestWorkspaceExportAuthorizationRequiresCurrentClaimAndConfirmedCleanup(t *
 func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *pgxpool.Pool, version string) {
 	repo := persistence.NewRepository(pool)
 	scope, service, revision := identity.New("iso"), identity.New("svc"), identity.New("rev")
-	source := preparePublicationSourceFixture(t, ctx, repo, scope)
+	source, sourceObjects, base := prepareExportSourceFixture(t, ctx, repo, scope)
 	if _, err := pool.Exec(ctx, `INSERT INTO agent_services(isolation_domain_id,id,name,created_at,updated_at,created_by) VALUES($1,$2,'Export authorization',now(),now(),'fixture')`, scope, service); err != nil {
 		t.Fatal(err)
 	}
@@ -131,6 +131,9 @@ func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *p
 	if _, err := capture(); !errors.Is(err, persistence.ErrWorkspaceExportDenied) {
 		t.Fatal("pending cleanup authorized", err)
 	}
+	if _, _, err := repo.ReadExportWorkspaceSource(ctx, *claim, effect, sourceObjects, entry.Record, 1, &reconcile.SourceCedarEvaluator{}); err == nil || sourceObjects.reads != 0 {
+		t.Fatal("pending cleanup reached source", err)
+	}
 	if _, err := repo.CompleteInvocationWorkspaceQuiescence(ctx, *claim, effect, entry.Record); err != nil {
 		t.Fatal(err)
 	}
@@ -138,6 +141,9 @@ func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *p
 	if version == "v6" {
 		if !errors.Is(err, persistence.ErrWorkspaceExportDenied) {
 			t.Fatal("old wildcard exported", err)
+		}
+		if _, _, err := repo.ReadExportWorkspaceSource(ctx, *claim, effect, sourceObjects, entry.Record, 1, &reconcile.SourceCedarEvaluator{}); err == nil || sourceObjects.reads != 0 {
+			t.Fatal("old policy granted export source read", err)
 		}
 		return
 	}
@@ -228,6 +234,7 @@ func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *p
 	if _, err := capture(); err != nil {
 		t.Fatal("refreshed membership", err)
 	}
+	recoverController := beginWorkspaceExportController(t, ctx, pool, *claim, effect, entry.Record, service, revision, sourceObjects, base)
 	// Claim replacement must not replace the original stopped process owner.
 	old := *claim
 	claim.LeaseOwner = "replacement-export-owner"
@@ -241,6 +248,7 @@ func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *p
 	if p, err := capture(); err != nil || p.Request.RuntimeToken != old.FencingToken || p.Request.FencingToken != claim.FencingToken {
 		t.Fatal("replacement lost original owner", err)
 	}
+	recoverController(*claim)
 	// Expiry during evaluation must commit a denial, even when Cedar allowed it.
 	if _, err := pool.Exec(ctx, `UPDATE invocation_execution_operations SET lease_expires_at=clock_timestamp()+interval '100 milliseconds' WHERE isolation_domain_id=$1 AND id=$2`, scope, claim.ID); err != nil {
 		t.Fatal(err)

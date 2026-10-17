@@ -67,6 +67,7 @@ type invocationSourceAuthorizer struct {
 	planDigest      string
 	evaluator       SourceReadEvaluator
 	preparation     *InvocationWorkspacePreparation
+	quiescence      *InvocationWorkspaceQuiescence
 	completion      bool
 	deliveryExpires time.Time
 	readExpires     time.Time
@@ -87,6 +88,15 @@ func (bound *invocationSourceAuthorizer) AuthorizeWorkspaceSource(ctx context.Co
 	return permit, err
 }
 func (bound *invocationSourceAuthorizer) lock(ctx context.Context, tx pgx.Tx) (InvocationRuntimeTarget, time.Time, error) {
+	if bound.quiescence != nil {
+		target, expires, err := lockWorkspaceExportTarget(ctx, tx, bound.claim, bound.effect, *bound.quiescence)
+		if err != nil {
+			return InvocationRuntimeTarget{}, time.Time{}, workspace.ErrSourceUnauthorized
+		}
+		bound.record, bound.planDigest = bound.quiescence.Source, bound.quiescence.PlanDigest
+		return target, expires, nil
+	}
+
 	if bound.preparation != nil {
 		target, current, err := lockWorkspacePreparationTarget(ctx, tx, bound.claim, bound.effect)
 		if err != nil {
@@ -144,4 +154,29 @@ func missingSourceReadEvaluator(v SourceReadEvaluator) bool {
 		return r.IsNil()
 	}
 	return false
+}
+
+// ReadExportWorkspaceSource reads the original base only after exact confirmed
+// cleanup. It accepts a current replacement claim without granting another turn.
+// Source grants and Cedar read authority are checked at admission and delivery;
+// callers still need separate current export and accepted-image authority.
+func (repository *Repository) ReadExportWorkspaceSource(ctx context.Context, claim OperationClaim, effect EffectRecord, objects workspace.SourceObjectReader, expected InvocationWorkspaceQuiescence, generation int64, evaluator SourceReadEvaluator) (*workspace.Snapshot, time.Time, error) {
+	if ctx == nil || objects == nil || missingSourceReadEvaluator(evaluator) || !validInvocationRuntimeAttempt(claim, effect) || !workspace.ValidSourceRecord(expected.Source) {
+		return nil, time.Time{}, workspace.ErrSourceInvalid
+	}
+	if !repository.Configured() {
+		return nil, time.Time{}, workspace.ErrSourceUnavailable
+	}
+	bound := &invocationSourceAuthorizer{repository: repository, claim: claim, effect: effect, evaluator: evaluator, quiescence: &expected}
+	use, expires, err := bound.sourceUse(ctx, expected.Source, generation)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	readCtx, cancel := context.WithDeadline(ctx, expires)
+	defer cancel()
+	snapshot, err := workspace.ReadSource(readCtx, repository, objects, bound, use)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	return snapshot, bound.deliveryExpires, nil
 }
