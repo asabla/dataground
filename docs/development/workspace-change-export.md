@@ -40,6 +40,30 @@ The caller must own current export authority, retain the workload quiescence fen
 
 A failed or lost acknowledgement leaves export unconfirmed and must retain the workspace. A repeat read can recover while the same tree remains quiesced and current authority still permits export. This provides no durable delivery receipt or teardown permission. The worker and published image remain unchanged.
 
+## Internal export authorization
+
+`AuthorizeInvocationWorkspaceChangeExport` is a separate database-authorized development boundary. Policy version 7 adds the Cedar `export-changes` action on an exact isolation-scoped `WorkspaceSource`. Wildcard policies in versions 1 through 6 cannot grant this action. Version 7 keeps the earlier source, publication, question and approval contracts and uses its own bundle digest domain and canonical schema. It is selected explicitly when installing a new revision policy:
+
+```sh
+go run ./cmd/dataground-policy-install \
+  --workspace-export-capable \
+  --isolation-domain iso_<id> --service svc_<id> --revision rev_<id> \
+  --policy-set reviewed-export --policy-file /absolute/reviewed-policy.cedar \
+  --entity-file /absolute/reviewed-entities.json \
+  --actor operator --reason 'reviewed workspace export authority' \
+  --correlation-id cor_<id>
+```
+
+The command retains the existing owner-only file checks and immutable per-revision installation. The export flag is mutually exclusive with the other contract flags. Existing source-worker and source-publication profiles still require version 6; they do not accept this new contract. Installing version 7 does not enable worker export.
+
+Authorization requires the exact confirmed schema 73 cleanup record, original completed source preparation and runtime attempt, current immutable execution plan, ready execution instance, and a current running version 2 invocation claim with an unexpired lease and deadline. A replacement claim can export the stopped workspace, but must retain the original runtime token and owner binding. Historical cleanup lookup alone grants no authority. The database trusts the internal cleanup observer; it does not inspect Linux processes or exclude other writers.
+
+The `capture` phase has no result receipt. The `retain` phase requires an exact valid change receipt for the same source base. Cedar receives bounded scope, actor, correlation, execution, effect, plan, original-owner binding, original and current fencing tokens, phase and receipt metadata. It receives no paths, source bytes, native nonce, command strings or credentials. Source reads remain subject to their separate current grant and Cedar authority.
+
+Schema 74 records each completed policy outcome in the append-only `workspace_change_export_decisions` stream, with the exact request, current claim, deadline and effective policy provenance. Missing or withdrawn policy records a denial without policy provenance. Entity activation and withdrawal serialize with evaluation under the existing exact-scope policy lock. Database failure returns no permit; expiry during evaluation records a denial even if Cedar allowed the request. The caller receives a short-lived permit only after a successful decision commit. Invalid claims, malformed requests and unconfirmed cleanup fail before policy evaluation. A downgrade refuses to discard these decisions or version 7 policy evidence.
+
+This method performs no source access, capture, artifact write or teardown. A caller must repeat authorization immediately before capture and each retention effect, retain the complete writer fence, and verify the accepted image. The transport and retention catalog below do not yet compose this authorization automatically.
+
 ## Internal durable retention
 
 `workspace.RetainChanges` accepts verified private change bytes and an exact `dataground.invocation-workspace-change-export/v1` binding. Its caller must already hold export authority. This internal database-authorized boundary does not resolve Cedar export policy, read a live workspace, establish quiescence or authorize teardown. It is not connected to the worker.
@@ -63,8 +87,10 @@ DATAGROUND_TEST_WORKSPACE_CHANGE_BASE_IMAGE=sha256:<local-image-digest> \
 
 Durable retention tests exercise real PostgreSQL claims and the artifact object-store boundary, including expiry before a write and after a successful write, lost acknowledgements, audit rollback, replacement-worker recovery, concurrent historical replay, scope substitution, append-only records, deletion and protected downgrade. The existing live source-grant fixture also selects this retention case against the pinned S3 candidate.
 
+PostgreSQL authorization tests use synthetic source and cleanup observations. They cover pending cleanup, current and replacement claims, exact scope and owner binding, both phases, malformed receipts, old-policy denial, entity refresh, withdrawal, decision-storage failure, expiry during evaluation, append-only decisions and protected downgrade. These tests do not establish live workload quiescence or accepted publication.
+
 CI runs the Docker integration with the same pinned disposable base as the source-transfer test. The image layer is removed after the test and is not a published or accepted candidate.
 
 The strict supervisor workflow also builds an unpublished export-helper layer over its source-capable runtime fixture. With `DATAGROUND_TEST_WORKSPACE_CHANGE_REQUIRED=true`, the provider-bound native test requires source transfer and a strict supervisor selection, performs bounded native binary writes, additions and deletion, then exports through the real gateway. It verifies exact canonical bytes, reconstructs the final tree, repeats export, rejects a foreign isolation domain and rejects an escaping link before recovering the same original export. All writers belong to the test and finish before capture. This does not prove that arbitrary background writers have stopped. The layer is used for synthetic credential and compatibility checks only; the workflow publishes only its separately tested supervisor image when explicitly requested. The published runtime and its acceptance contract remain unchanged.
 
-This is a final difference, not an ordered file-write journal. Cedar export authority, a verified workload quiescence mechanism, accepted image installation, worker integration of durable retention, export before teardown, `termination_blocked` recovery, repository/base-revision metadata, ordered journals and checkpoints remain separate work. No production or release acceptance is established here.
+This is a final difference, not an ordered file-write journal. Composition of current Cedar export authority and the complete writer fence, accepted image installation, worker integration of durable retention, export before teardown, `termination_blocked` recovery, repository/base-revision metadata, ordered journals and checkpoints remain separate work. No production or release acceptance is established here.
