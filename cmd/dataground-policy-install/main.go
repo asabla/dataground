@@ -30,7 +30,7 @@ func run(ctx context.Context, arguments []string) error {
 	flags := flag.NewFlagSet("dataground-policy-install", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var domainID, serviceID, revisionID, policySetID, policyFile, entityFile, actorID, reason, correlationID string
-	var approvalCapable, questionCapable, publicationCapable, sourceCapable bool
+	var approvalCapable, questionCapable, publicationCapable, sourceCapable, workspaceExportCapable bool
 	flags.StringVar(&domainID, "isolation-domain", "", "isolation domain identifier")
 	flags.StringVar(&serviceID, "service", "", "agent service identifier")
 	flags.StringVar(&revisionID, "revision", "", "service revision identifier")
@@ -42,12 +42,13 @@ func run(ctx context.Context, arguments []string) error {
 	flags.StringVar(&correlationID, "correlation-id", "", "stable installation correlation identifier")
 	flags.BoolVar(&approvalCapable, "approval-capable", false, "install the interactive approval Cedar contract")
 	flags.BoolVar(&questionCapable, "question-capable", false, "install the interactive question and approval Cedar contract")
+	flags.BoolVar(&workspaceExportCapable, "workspace-export-capable", false, "install the workspace export, source, publication, question and approval Cedar contract")
 	flags.BoolVar(&sourceCapable, "source-capable", false, "install the source, publication, question and approval Cedar contract")
 	flags.BoolVar(&publicationCapable, "publication-capable", false, "install the publication, question and approval Cedar contract")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
-	if (sourceCapable && (approvalCapable || questionCapable || publicationCapable)) || (approvalCapable && questionCapable) || (publicationCapable && (approvalCapable || questionCapable)) {
+	if (workspaceExportCapable && (sourceCapable || publicationCapable || questionCapable || approvalCapable)) || (sourceCapable && (approvalCapable || questionCapable || publicationCapable)) || (approvalCapable && questionCapable) || (publicationCapable && (approvalCapable || questionCapable)) {
 		return errors.New("select only one policy contract")
 	}
 	if flags.NArg() != 0 ||
@@ -76,7 +77,9 @@ func run(ctx context.Context, arguments []string) error {
 		RevisionID:        revisionID,
 	}
 	var policy reconcile.InvocationAuthorizationPolicy
-	if sourceCapable {
+	if workspaceExportCapable {
+		policy, err = reconcile.NewInvocationAuthorizationPolicyWithWorkspaceExportEntities(scope, policySetID, reconcile.CanonicalWorkspaceExportCedarSchema(), policyBytes, entityBytes)
+	} else if sourceCapable {
 		policy, err = reconcile.NewInvocationAuthorizationPolicyWithSourceEntities(scope, policySetID, reconcile.CanonicalSourceCedarSchema(), policyBytes, entityBytes)
 	} else if publicationCapable {
 		policy, err = reconcile.NewInvocationAuthorizationPolicyWithPublicationEntities(scope, policySetID, reconcile.CanonicalPublicationCedarSchema(), policyBytes, entityBytes)

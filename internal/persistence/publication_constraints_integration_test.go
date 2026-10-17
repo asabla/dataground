@@ -36,7 +36,7 @@ func TestPublicationDecisionMigrationPreservesFencingAndSourceAuthority(t *testi
 	args := func(phase string, token int64, contract, outcome string) []any {
 		return []any{identity.New("iso"), identity.New("svc"), identity.New("rev"), identity.New("op"), identity.New("cor"), phase, token, "sha256:" + strings.Repeat("a", 64), contract, outcome}
 	}
-	for _, contract := range []string{"dataground.invocation-authorization-policy/v4", "dataground.invocation-authorization-policy/v5", "dataground.invocation-authorization-policy/v6"} {
+	for _, contract := range []string{"dataground.invocation-authorization-policy/v4", "dataground.invocation-authorization-policy/v5", "dataground.invocation-authorization-policy/v6", "dataground.invocation-authorization-policy/v7"} {
 		for _, outcome := range []string{"allowed", "denied"} {
 			for _, phase := range []string{"entry", "effect"} {
 				for _, token := range []int64{-1, 0, 1, 9007199254740991, 9007199254740992} {

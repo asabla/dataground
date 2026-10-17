@@ -18,7 +18,7 @@ import (
 )
 
 func TestInvocationAuthorizationEntityRefreshIsSequentialAndFailClosed(t *testing.T) {
-	for _, contract := range []string{"v2", "v3", "v4", "v5", "v6"} {
+	for _, contract := range []string{"v2", "v3", "v4", "v5", "v6", "v7"} {
 		t.Run(contract, func(t *testing.T) { testInvocationAuthorizationEntityRefresh(t, contract) })
 	}
 }
@@ -76,6 +76,10 @@ func testInvocationAuthorizationEntityRefresh(t *testing.T, contract string) {
 		constructor = reconcile.NewInvocationAuthorizationPolicyWithApprovalEntities
 		schema = reconcile.CanonicalInvocationCedarApprovalSchema()
 		digestFor = authz.InvocationAuthorizationPolicyV3Digest
+	case "v7":
+		constructor = reconcile.NewInvocationAuthorizationPolicyWithWorkspaceExportEntities
+		schema = reconcile.CanonicalWorkspaceExportCedarSchema()
+		digestFor = authz.InvocationAuthorizationPolicyV7Digest
 	case "v6":
 		constructor = reconcile.NewInvocationAuthorizationPolicyWithSourceEntities
 		schema = reconcile.CanonicalSourceCedarSchema()
@@ -379,7 +383,7 @@ func assertRefreshedMembership(t *testing.T, ctx context.Context, policy reconci
 		input.Action.ID = "approve"
 		input.Approval = &reconcile.InvocationApprovalAuthorizationContext{ID: identity.New("apr"), RequestedAction: "process.execute", Decision: "approve", Phase: "effect"}
 	}
-	if policy.Contract == reconcile.InvocationAuthorizationPolicyQuestionContract || policy.Contract == reconcile.InvocationAuthorizationPolicyPublicationContract || policy.Contract == reconcile.InvocationAuthorizationPolicySourceContract {
+	if policy.Contract == reconcile.InvocationAuthorizationPolicyQuestionContract || policy.Contract == reconcile.InvocationAuthorizationPolicyPublicationContract || policy.Contract == reconcile.InvocationAuthorizationPolicySourceContract || policy.Contract == reconcile.InvocationAuthorizationPolicyWorkspaceExportContract {
 		input.Contract = reconcile.InvocationCedarQuestionContract
 		input.Action.ID = "answer"
 		input.Question = &reconcile.InvocationQuestionAuthorizationContext{ID: identity.New("qst"), Version: 2, Phase: "effect", QuestionCount: 1, FreeTextCount: 1}

@@ -59,3 +59,11 @@ func TestPolicyInstallRejectsAmbiguousInteractiveContract(t *testing.T) {
 	}
 
 }
+
+func TestPolicyInstallRejectsAmbiguousExportContract(t *testing.T) {
+	for _, flag := range []string{"--approval-capable", "--question-capable", "--publication-capable", "--source-capable"} {
+		if err := run(context.Background(), []string{"--workspace-export-capable", flag}); err == nil || !strings.Contains(err.Error(), "select only one policy contract") {
+			t.Fatalf("ambiguous export contract with %s: %v", flag, err)
+		}
+	}
+}

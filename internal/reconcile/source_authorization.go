@@ -22,7 +22,7 @@ func (*SourceCedarEvaluator) EvaluateSourceRead(ctx context.Context, record pers
 		return authz.OutcomeUnavailable
 	}
 	// Contract opt-in is required even when an older policy permits all actions.
-	if policy.Contract != InvocationAuthorizationPolicySourceContract {
+	if policy.Contract != InvocationAuthorizationPolicySourceContract && policy.Contract != InvocationAuthorizationPolicyWorkspaceExportContract {
 		return authz.OutcomeDenied
 	}
 	policies, err := validatedInvocationCedarPolicySet(policy, scope)

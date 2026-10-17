@@ -51,7 +51,7 @@ func (source *DurableInvocationAuthorizationPolicySource) ResolveInvocationAutho
 	}
 	if (record.Contract != InvocationAuthorizationPolicyContract &&
 		record.Contract != InvocationAuthorizationPolicyEntityContract &&
-		record.Contract != InvocationAuthorizationPolicyApprovalContract && record.Contract != InvocationAuthorizationPolicyQuestionContract && record.Contract != InvocationAuthorizationPolicyPublicationContract && record.Contract != InvocationAuthorizationPolicySourceContract) ||
+		record.Contract != InvocationAuthorizationPolicyApprovalContract && record.Contract != InvocationAuthorizationPolicyQuestionContract && record.Contract != InvocationAuthorizationPolicyPublicationContract && record.Contract != InvocationAuthorizationPolicySourceContract && record.Contract != InvocationAuthorizationPolicyWorkspaceExportContract) ||
 		record.IsolationDomainID != scope.IsolationDomainID ||
 		record.ServiceID != scope.ServiceID ||
 		record.RevisionID != scope.RevisionID {

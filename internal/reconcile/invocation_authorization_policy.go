@@ -12,12 +12,13 @@ import (
 )
 
 const (
-	InvocationAuthorizationPolicyContract            = "dataground.invocation-authorization-policy/v1"
-	InvocationAuthorizationPolicyEntityContract      = "dataground.invocation-authorization-policy/v2"
-	InvocationAuthorizationPolicyApprovalContract    = "dataground.invocation-authorization-policy/v3"
-	InvocationAuthorizationPolicyQuestionContract    = "dataground.invocation-authorization-policy/v4"
-	InvocationAuthorizationPolicyPublicationContract = "dataground.invocation-authorization-policy/v5"
-	InvocationAuthorizationPolicySourceContract      = "dataground.invocation-authorization-policy/v6"
+	InvocationAuthorizationPolicyContract                = "dataground.invocation-authorization-policy/v1"
+	InvocationAuthorizationPolicyEntityContract          = "dataground.invocation-authorization-policy/v2"
+	InvocationAuthorizationPolicyApprovalContract        = "dataground.invocation-authorization-policy/v3"
+	InvocationAuthorizationPolicyQuestionContract        = "dataground.invocation-authorization-policy/v4"
+	InvocationAuthorizationPolicyPublicationContract     = "dataground.invocation-authorization-policy/v5"
+	InvocationAuthorizationPolicySourceContract          = "dataground.invocation-authorization-policy/v6"
+	InvocationAuthorizationPolicyWorkspaceExportContract = "dataground.invocation-authorization-policy/v7"
 )
 
 const maxInvocationAuthorizationPolicyIDBytes = 128
@@ -82,6 +83,14 @@ func NewInvocationAuthorizationPolicyWithApprovalEntities(
 		policies,
 		canonicalEntities,
 	)
+}
+
+func NewInvocationAuthorizationPolicyWithWorkspaceExportEntities(scope InvocationAuthorizationPolicyScope, policySetID string, schema, policies, entities []byte) (InvocationAuthorizationPolicy, error) {
+	canonicalEntities, _, err := canonicalInvocationCedarEntities(entities)
+	if err != nil || !bytes.Equal(canonicalEntities, entities) {
+		return InvocationAuthorizationPolicy{}, ErrInvocationAuthorizationPolicyInvalid
+	}
+	return newInvocationAuthorizationPolicy(InvocationAuthorizationPolicyWorkspaceExportContract, scope, policySetID, schema, policies, canonicalEntities)
 }
 
 func NewInvocationAuthorizationPolicyWithSourceEntities(scope InvocationAuthorizationPolicyScope, policySetID string, schema, policies, entities []byte) (InvocationAuthorizationPolicy, error) {
@@ -160,7 +169,7 @@ func newInvocationAuthorizationPolicy(
 		len(policies) > maxInvocationAuthorizationPolicyBytes ||
 		(contract == InvocationAuthorizationPolicyContract && len(entities) != 0) ||
 		((contract == InvocationAuthorizationPolicyEntityContract ||
-			contract == InvocationAuthorizationPolicyApprovalContract || contract == InvocationAuthorizationPolicyQuestionContract || contract == InvocationAuthorizationPolicyPublicationContract || contract == InvocationAuthorizationPolicySourceContract) &&
+			contract == InvocationAuthorizationPolicyApprovalContract || contract == InvocationAuthorizationPolicyQuestionContract || contract == InvocationAuthorizationPolicyPublicationContract || contract == InvocationAuthorizationPolicySourceContract || contract == InvocationAuthorizationPolicyWorkspaceExportContract) &&
 			(len(entities) == 0 || len(entities) > maxInvocationAuthorizationEntityBytes)) {
 		return InvocationAuthorizationPolicy{}, ErrInvocationAuthorizationPolicyInvalid
 	}
@@ -330,7 +339,7 @@ func validInvocationAuthorizationPolicy(
 	case InvocationAuthorizationPolicyContract:
 		return len(policy.Entities) == 0 &&
 			policy.Digest == invocationAuthorizationPolicyDigest(policy.Schema, policy.Policies)
-	case InvocationAuthorizationPolicyEntityContract, InvocationAuthorizationPolicyApprovalContract, InvocationAuthorizationPolicyQuestionContract, InvocationAuthorizationPolicyPublicationContract, InvocationAuthorizationPolicySourceContract:
+	case InvocationAuthorizationPolicyEntityContract, InvocationAuthorizationPolicyApprovalContract, InvocationAuthorizationPolicyQuestionContract, InvocationAuthorizationPolicyPublicationContract, InvocationAuthorizationPolicySourceContract, InvocationAuthorizationPolicyWorkspaceExportContract:
 		if len(policy.Entities) == 0 || len(policy.Entities) > maxInvocationAuthorizationEntityBytes {
 			return false
 		}
@@ -357,6 +366,9 @@ func invocationAuthorizationPolicyDigestForContract(
 	entities []byte,
 ) [sha256.Size]byte {
 	digest := sha256.New()
+	if contract == InvocationAuthorizationPolicyWorkspaceExportContract {
+		return authz.InvocationAuthorizationPolicyV7Digest(schema, policies, entities)
+	}
 	if contract == InvocationAuthorizationPolicySourceContract {
 		return authz.InvocationAuthorizationPolicyV6Digest(schema, policies, entities)
 	}
