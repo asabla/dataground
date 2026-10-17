@@ -333,16 +333,18 @@ func runUntilState(t *testing.T, worker *Reconciler, store *fakeStore, terminal 
 }
 
 type fakeStore struct {
-	claim           persistence.OperationClaim
-	terminal        bool
-	leased          bool
-	effects         map[string]persistence.EffectRecord
-	effectCodes     map[string]string
-	transitions     []string
-	failRecordOnce  bool
-	failAdvanceOnce bool
-	failureReason   persistence.OperationFailureReason
-	retryCount      int
+	claim               persistence.OperationClaim
+	terminal            bool
+	leased              bool
+	effects             map[string]persistence.EffectRecord
+	effectCodes         map[string]string
+	transitions         []string
+	failRecordOnce      bool
+	failAdvanceOnce     bool
+	failureReason       persistence.OperationFailureReason
+	retryCount          int
+	retryCode           string
+	retryClassification string
 }
 
 func newFakeStore(claim persistence.OperationClaim) *fakeStore {
@@ -391,11 +393,13 @@ func (store *fakeStore) Fail(
 	return nil
 }
 
-func (store *fakeStore) ScheduleRetry(_ context.Context, claim persistence.OperationClaim, _, _ string, _ time.Time) error {
+func (store *fakeStore) ScheduleRetry(_ context.Context, claim persistence.OperationClaim, classification, code string, _ time.Time) error {
 	if !store.leased || claim.FencingToken != store.claim.FencingToken {
 		return persistence.ErrLeaseLost
 	}
 	store.retryCount++
+	store.retryCode = code
+	store.retryClassification = classification
 	store.leased = false
 	return nil
 }

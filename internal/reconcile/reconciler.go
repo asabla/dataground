@@ -403,11 +403,15 @@ func effectRejection(
 
 func (reconciler *Reconciler) retry(ctx context.Context, claim persistence.OperationClaim, cause error) error {
 	classification := "retryable"
+	code := "RECONCILIATION_RETRY"
 	if errors.Is(cause, ErrAmbiguousEffect) {
 		classification = "unknown"
 	}
+	if errors.Is(cause, ErrInvocationCancellationRetentionRequired) {
+		code = "WORKSPACE_RETENTION_REQUIRED"
+	}
 	delay := time.Duration(1<<min(claim.Attempt, 6)) * time.Second
 	return reconciler.store.ScheduleRetry(
-		ctx, claim, classification, "RECONCILIATION_RETRY", reconciler.now().Add(delay),
+		ctx, claim, classification, code, reconciler.now().Add(delay),
 	)
 }

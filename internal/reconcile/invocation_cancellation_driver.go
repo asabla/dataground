@@ -10,9 +10,10 @@ import (
 )
 
 var (
-	ErrInvocationCancellationDenied           = errors.New("invocation cancellation denied")
-	ErrInvocationCancellationTargetMismatch   = errors.New("invocation cancellation target does not match durable effect")
-	ErrInvocationCancellationExecutionUnknown = errors.New("invocation cancellation cannot prove execution absence")
+	ErrInvocationCancellationDenied            = errors.New("invocation cancellation denied")
+	ErrInvocationCancellationTargetMismatch    = errors.New("invocation cancellation target does not match durable effect")
+	ErrInvocationCancellationExecutionUnknown  = errors.New("invocation cancellation cannot prove execution absence")
+	ErrInvocationCancellationRetentionRequired = errors.New("invocation cancellation requires workspace retention")
 )
 
 type InvocationCancellationTargetStore interface {
@@ -66,6 +67,9 @@ func (driver *InvocationCancellationDriver) Observe(
 	if !found {
 		return invocationCancellationAbsentObservation(), true, nil
 	}
+	if target.WorkspaceSourceSelected {
+		return nil, false, errors.Join(ErrAmbiguousEffect, ErrInvocationCancellationRetentionRequired)
+	}
 	if value.State == "terminated" {
 		return invocationCancellationObservation(value.ID, value.State), true, nil
 	}
@@ -103,6 +107,12 @@ func (driver *InvocationCancellationDriver) Apply(
 	}
 	if !found {
 		return invocationCancellationAbsentObservation(), nil
+	}
+	// A source plan is immutable before invocation admission. The version 2
+	// cancellation path has no cleanup or retention authority, so even a prior
+	// termination observation cannot prove a safe source-workspace outcome.
+	if target.WorkspaceSourceSelected {
+		return nil, errors.Join(ErrAmbiguousEffect, ErrInvocationCancellationRetentionRequired)
 	}
 	if value.State == "terminated" {
 		return invocationCancellationObservation(value.ID, value.State), nil

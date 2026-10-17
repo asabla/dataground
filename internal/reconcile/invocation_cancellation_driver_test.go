@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/asabla/dataground/internal/execution"
 	"github.com/asabla/dataground/internal/persistence"
@@ -237,6 +238,78 @@ func TestInvocationCancellationDriverRequiresCompleteDependencies(t *testing.T) 
 		); err == nil {
 			t.Fatal("incomplete cancellation driver dependencies were accepted")
 		}
+	}
+}
+
+func TestInvocationCancellationPreservesSelectedSourceWorkspace(t *testing.T) {
+	for _, state := range []string{"ready", "running", "terminated"} {
+		t.Run(state, func(t *testing.T) {
+			target := cancellationTarget()
+			target.WorkspaceSourceSelected = true
+			provider := &cancellationProviderStub{}
+			authorizer := &cancellationAuthorizerStub{}
+			driver, err := NewInvocationCancellationDriver(&cancellationTargetStub{target: target}, authorizer,
+				&cancellationExecutionSourceStub{value: cancellationExecution(target.IsolationDomainID, state)}, provider)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, found, err := driver.Observe(context.Background(), cancellationEffect(target))
+			if result != nil || found || !errors.Is(err, ErrInvocationCancellationRetentionRequired) || !errors.Is(err, ErrAmbiguousEffect) {
+				t.Fatal("source cancellation observed as safe", result, found, err)
+			}
+			if result, err := driver.Apply(context.Background(), cancellationEffect(target)); result != nil || !errors.Is(err, ErrInvocationCancellationRetentionRequired) || !errors.Is(err, ErrAmbiguousEffect) {
+				t.Fatal("source cancellation applied", result, err)
+			}
+			store := newFakeStore(persistence.OperationClaim{Kind: persistence.OperationKindInvocation, IsolationDomainID: target.IsolationDomainID,
+				ID: target.OperationID, ResourceID: target.InvocationID, Command: "cancel", ObservedState: "cancelling",
+				StateMachineVersion: 2, DeadlineAt: time.Now().Add(time.Hour)})
+			for _, worker := range []string{"original", "replacement"} {
+				if ran, err := New(store, driver, worker).RunOne(context.Background(), persistence.OperationKindInvocation); !ran || err != nil {
+					t.Fatal("retention retry", ran, err)
+				}
+			}
+			if store.terminal || store.claim.ObservedState != "cancelling" || store.retryCount != 2 || store.retryCode != "WORKSPACE_RETENTION_REQUIRED" || store.retryClassification != "unknown" || store.effects["cancel-invocation"].Status == "succeeded" {
+				t.Fatal("retention requirement lost across replacement", store)
+			}
+			store.claim.DeadlineAt = time.Now().Add(-time.Second)
+			if ran, err := New(store, driver, "deadline-worker").RunOne(context.Background(), persistence.OperationKindInvocation); !ran || err != nil || !store.terminal || store.failureReason != persistence.OperationFailureDeadline {
+				t.Fatal("deadline did not fail without termination", ran, err, store)
+			}
+			if provider.terminateCalls != 0 || provider.observeCalls != 0 || authorizer.calls != 0 {
+				t.Fatal("source cancellation reached provider or authorization", provider, authorizer)
+			}
+		})
+	}
+}
+
+func TestInvocationCancellationOfUnadmittedSourceNeedsNoExport(t *testing.T) {
+	target := cancellationTarget()
+	target.WorkspaceSourceSelected = true
+	target.AdmissionPrepared = false
+	provider := &cancellationProviderStub{}
+	authorizer := &cancellationAuthorizerStub{}
+	targets := &cancellationTargetStub{target: target}
+	driver, err := NewInvocationCancellationDriver(targets, authorizer,
+		&cancellationExecutionSourceStub{err: execution.ErrExecutionMissing}, provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, found, err := driver.Observe(context.Background(), cancellationEffect(target))
+	if err != nil || !found || result["state"] != "absent" {
+		t.Fatal("unadmitted source cancellation", result, found, err)
+	}
+	if result, err := driver.Apply(context.Background(), cancellationEffect(target)); err != nil || result["state"] != "absent" {
+		t.Fatal("unadmitted source cancellation apply", result, err)
+	}
+	targets.target.AdmissionPrepared = true
+	if _, found, err := driver.Observe(context.Background(), cancellationEffect(target)); found || !errors.Is(err, ErrInvocationCancellationExecutionUnknown) {
+		t.Fatal("uncertain source admission treated as absence", found, err)
+	}
+	if _, err := driver.Apply(context.Background(), cancellationEffect(target)); !errors.Is(err, ErrInvocationCancellationExecutionUnknown) {
+		t.Fatal("uncertain source admission applied", err)
+	}
+	if provider.terminateCalls != 0 || provider.observeCalls != 0 || authorizer.calls != 0 {
+		t.Fatal("missing source execution reached provider", provider, authorizer)
 	}
 }
 
