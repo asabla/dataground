@@ -176,11 +176,8 @@ export function verifyPublication(scope, run = execute, candidate = "codex") {
     "Pulled candidate image does not match the required architecture and isolation metadata.",
   );
   return {
-    ...(candidate === "codex-workspace"
-      ? { candidateProfile: "openshell-codex-workspace-candidate/v1" }
-      : {}),
-    ...(candidate === "supervisor"
-      ? { candidateProfile: "openshell-supervisor-candidate/v1" }
+    ...(candidateProfile(candidate).candidateProfile
+      ? { candidateProfile: candidateProfile(candidate).candidateProfile }
       : {}),
     image: `${imageRepository}@${digest}`,
     imageId: image.Id,

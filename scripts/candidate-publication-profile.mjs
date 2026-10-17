@@ -10,6 +10,7 @@ const profiles = Object.freeze({
     }),
   }),
   supervisor: Object.freeze({
+    candidateProfile: "openshell-supervisor-candidate/v1",
     imageRepository: "ghcr.io/asabla/dataground-supervisor-candidate",
     workflow: ".github/workflows/openshell-supervisor-compatibility.yml",
     buildJob: "strict-landlock",
@@ -22,6 +23,8 @@ const profiles = Object.freeze({
     }),
   }),
   "codex-workspace": Object.freeze({
+    candidateProfile: "openshell-codex-workspace-candidate/v1",
+    sourceRevisionLabels: Object.freeze(["dataground.dev.workspace-source-revision"]),
     imageRepository: "ghcr.io/asabla/dataground-codex-candidate",
     workflow: ".github/workflows/codex-compatibility.yml",
     buildJob: "native-sandbox",
@@ -30,6 +33,24 @@ const profiles = Object.freeze({
     labels: Object.freeze({
       "dataground.dev.codex-compatibility-source": "4c70bff480af37b1bf1a9b352b8341060fe55755",
       "dataground.dev.workspace-source-contract": "dataground.workspace-source-materialization/v1",
+    }),
+  }),
+  "codex-workspace-export": Object.freeze({
+    candidateProfile: "openshell-codex-workspace-export-candidate/v1",
+    sourceRevisionLabels: Object.freeze([
+      "dataground.dev.workspace-source-revision",
+      "dataground.dev.workspace-export-revision",
+    ]),
+    imageRepository: "ghcr.io/asabla/dataground-codex-candidate",
+    workflow: ".github/workflows/codex-compatibility.yml",
+    buildJob: "native-sandbox",
+    architectures: Object.freeze(["amd64", "arm64"]),
+    user: "sandbox",
+    labels: Object.freeze({
+      "dataground.dev.codex-compatibility-source": "4c70bff480af37b1bf1a9b352b8341060fe55755",
+      "dataground.dev.workspace-source-contract": "dataground.workspace-source-materialization/v1",
+      "dataground.dev.workspace-change-contract": "dataground.workspace-changes/v1",
+      "dataground.dev.native-owner-contract": "dataground.native-owner/v1",
     }),
   }),
 });
@@ -49,9 +70,10 @@ export function candidateImageConfiguration(config, candidate, sourceCommit) {
     user === profile.user &&
     config.Labels?.["org.opencontainers.image.source"] === "https://github.com/asabla/dataground" &&
     config.Labels?.["dataground.dev.certification-eligible"] === "false" &&
-    (candidate !== "codex-workspace" ||
-      (/^[a-f0-9]{40}$/.test(sourceCommit ?? "") &&
-        config.Labels?.["dataground.dev.workspace-source-revision"] === sourceCommit)) &&
+    (profile.sourceRevisionLabels ?? []).every(
+      (label) =>
+        /^[a-f0-9]{40}$/.test(sourceCommit ?? "") && config.Labels?.[label] === sourceCommit,
+    ) &&
     Object.entries(profile.labels).every(([key, value]) => config.Labels?.[key] === value)
   );
 }

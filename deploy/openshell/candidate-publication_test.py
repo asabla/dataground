@@ -76,6 +76,7 @@ class PublicationTests(unittest.TestCase):
             "User": self.user, "Labels": {
                 **self.labels,
                 "dataground.dev.workspace-source-revision": SOURCE_COMMIT,
+                "dataground.dev.workspace-export-revision": SOURCE_COMMIT,
                 "dataground.dev.certification-eligible": "false",
                 "org.opencontainers.image.source": "https://github.com/asabla/dataground",
             },
@@ -136,6 +137,7 @@ class WorkspacePublicationTests(PublicationTests):
         metadata = {"Id": IMAGE, "Architecture": "arm64", "Os": "linux", "Config": {
             "User": "sandbox", "Labels": {**self.labels,
                 "dataground.dev.workspace-source-revision": SOURCE_COMMIT,
+                "dataground.dev.workspace-export-revision": SOURCE_COMMIT,
                 "dataground.dev.certification-eligible": "false",
                 "org.opencontainers.image.source": "https://github.com/asabla/dataground",
             },
@@ -150,6 +152,30 @@ class WorkspacePublicationTests(PublicationTests):
             with self.assertRaises(ValueError):
                 publication.inspect(IMAGE, "arm64", self.candidate)
             publication.inspect(IMAGE, "arm64", self.candidate, SOURCE_COMMIT)
+
+
+class WorkspaceExportPublicationTests(WorkspacePublicationTests):
+    candidate = "codex-workspace-export"
+
+    def test_all_export_helper_labels_are_required(self):
+        metadata = {"Id": IMAGE, "Architecture": "arm64", "Os": "linux", "Config": {
+            "User": "sandbox", "Labels": {**self.labels,
+                "dataground.dev.workspace-source-revision": SOURCE_COMMIT,
+                "dataground.dev.workspace-export-revision": SOURCE_COMMIT,
+                "dataground.dev.certification-eligible": "false",
+                "org.opencontainers.image.source": "https://github.com/asabla/dataground",
+            },
+        }}
+        for key in (*self.labels, "dataground.dev.workspace-source-revision", "dataground.dev.workspace-export-revision"):
+            for value in (None, "substituted"):
+                changed = json.loads(json.dumps(metadata))
+                if value is None:
+                    del changed["Config"]["Labels"][key]
+                else:
+                    changed["Config"]["Labels"][key] = value
+                with self.subTest(key=key, value=value), patch.object(publication, "docker", return_value=json.dumps([changed]).encode()):
+                    with self.assertRaises(ValueError):
+                        publication.inspect(IMAGE, "arm64", self.candidate, SOURCE_COMMIT)
 
 
 class SupervisorPublicationTests(PublicationTests):

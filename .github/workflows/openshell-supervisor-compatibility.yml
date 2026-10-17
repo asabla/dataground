@@ -101,11 +101,12 @@ jobs:
             --build-arg RUNTIME_IMAGE="$image" \
             --build-arg DATAGROUND_SOURCE_REVISION="$GITHUB_SHA" "$helper_context"
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o "$helper_context/dataground-workspace-export" ./cmd/dataground-workspace-export
-          cp deploy/openshell/workspace-source/ExportFixture.Dockerfile "$helper_context/Dockerfile"
-          docker build --network none --tag dataground-strict-workspace-export:ci \
-            --build-arg RUNTIME_IMAGE=dataground-strict-workspace-runtime:ci "$helper_context"
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go test -c -o "$helper_context/dataground-process-owner-test" ./internal/runtime/processowner
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o "$helper_context/dataground-native-owner" ./cmd/dataground-native-owner
+          cp deploy/openshell/workspace-source/Owned.Dockerfile "$helper_context/Dockerfile"
+          docker build --network none --tag dataground-strict-workspace-export:ci \
+            --build-arg RUNTIME_IMAGE=dataground-strict-workspace-runtime:ci \
+            --build-arg DATAGROUND_SOURCE_REVISION="$GITHUB_SHA" "$helper_context"
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go test -c -o "$helper_context/dataground-process-owner-test" ./internal/runtime/processowner
           cp deploy/openshell/workspace-source/OwnerFixture.Dockerfile "$helper_context/Dockerfile"
           docker build --network none --tag dataground-strict-process-owner:ci \
             --build-arg RUNTIME_IMAGE=dataground-strict-workspace-export:ci "$helper_context"

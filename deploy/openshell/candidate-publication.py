@@ -22,6 +22,13 @@ def docker(*args):
 
 
 def candidate_profile(candidate):
+    if candidate == "codex-workspace-export":
+        return "dataground.codex-workspace-export-candidate-publication/v1", REPOSITORY, "sandbox", ("amd64", "arm64"), {
+            "dataground.dev.codex-compatibility-source": SOURCE,
+            "dataground.dev.workspace-source-contract": "dataground.workspace-source-materialization/v1",
+            "dataground.dev.workspace-change-contract": "dataground.workspace-changes/v1",
+            "dataground.dev.native-owner-contract": "dataground.native-owner/v1",
+        }
     if candidate == "codex-workspace":
         return "dataground.codex-workspace-candidate-publication/v1", REPOSITORY, "sandbox", ("amd64", "arm64"), {
             "dataground.dev.codex-compatibility-source": SOURCE,
@@ -48,10 +55,12 @@ def inspect(image, architecture, candidate="codex", source_commit=None):
         raise ValueError("ambiguous candidate image")
     value = values[0]
     labels = value.get("Config", {}).get("Labels", {})
-    if candidate == "codex-workspace" and (not isinstance(source_commit, str)
+    if candidate in ("codex-workspace", "codex-workspace-export") and (not isinstance(source_commit, str)
             or not REVISION.fullmatch(source_commit)
             or labels.get("dataground.dev.workspace-source-revision") != source_commit):
         raise ValueError("workspace helper source does not match the publication")
+    if candidate == "codex-workspace-export" and labels.get("dataground.dev.workspace-export-revision") != source_commit:
+        raise ValueError("workspace export helper source does not match the publication")
     if (value.get("Id") != image or value.get("Architecture") != architecture
             or value.get("Os") != "linux" or value.get("Config", {}).get("User", "") != user
             or any(labels.get(key) != expected for key, expected in required_labels.items())
@@ -147,7 +156,7 @@ def main():
     parser.add_argument("--directory", required=True, type=Path)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--architecture", required=True, choices=("amd64", "arm64"))
-    parser.add_argument("--candidate", choices=("codex", "codex-workspace", "supervisor"), default="codex")
+    parser.add_argument("--candidate", choices=("codex", "codex-workspace", "codex-workspace-export", "supervisor"), default="codex")
     parser.add_argument("--image")
     parser.add_argument("--run-id")
     parser.add_argument("--run-attempt")
