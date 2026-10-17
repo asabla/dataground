@@ -45,8 +45,17 @@ func TestUsageRejectsInvalidCountsAndForeignScope(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
+			started := make(chan struct{})
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
 			session := newScriptedSession(t, func(server *scriptServer) {
 				server.completeStart("thread", "turn")
+				// Keep invalid usage after startup so Wait observes the denial.
+				select {
+				case <-started:
+				case <-ctx.Done():
+					return
+				}
 				params := nativeUsageParams("thread", "turn", 12, 8, 20)
 				change(params)
 				server.notify("thread/tokenUsage/updated", params)
@@ -56,12 +65,11 @@ func TestUsageRejectsInvalidCountsAndForeignScope(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer client.Close()
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
 			turn, err := client.Start(ctx, dgruntime.StartRequest{Prompt: "usage"})
 			if err != nil {
 				t.Fatal(err)
 			}
+			close(started)
 			if err := turn.Wait(ctx); !errors.Is(err, dgruntime.ErrProtocol) {
 				t.Fatal("invalid usage did not fail closed", err)
 			}
