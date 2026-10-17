@@ -809,7 +809,7 @@ func TestDurablePublicationInvocationAndFencing(t *testing.T) {
 		cancellationTarget.ActorID != cancellationActorID ||
 		cancellationTarget.CorrelationID != cancellationCorrelationID ||
 		cancellationTarget.StateMachineVersion != invocationlifecycle.StateMachineVersion ||
-		cancellationTarget.AdmissionPrepared {
+		cancellationTarget.AdmissionPrepared || cancellationTarget.WorkspaceSourceSelected {
 		t.Fatalf("cancellation target = %#v", cancellationTarget)
 	}
 	var cancellationOriginalActorID, cancellationOriginalCorrelationID string

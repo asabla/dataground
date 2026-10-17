@@ -267,4 +267,7 @@ func testClaimedWorkspaceSource(t *testing.T, ctx context.Context, pool *pgxpool
 	if err := persistence.MigrateDownTo(ctx, database, 66); err == nil {
 		t.Fatal("downgrade removed claim evidence")
 	}
+	t.Run("cancellation preserves source", func(t *testing.T) {
+		testSourceCancellationRetention(t, ctx, pool, *claim, effect, preparation.Execution)
+	})
 }

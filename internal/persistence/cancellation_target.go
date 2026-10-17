@@ -10,15 +10,16 @@ import (
 var ErrInvocationCancellationTargetMissing = errors.New("invocation cancellation target is missing")
 
 type InvocationCancellationTarget struct {
-	IsolationDomainID   string
-	OperationID         string
-	InvocationID        string
-	ServiceID           string
-	RevisionID          string
-	ActorID             string
-	CorrelationID       string
-	StateMachineVersion int
-	AdmissionPrepared   bool
+	IsolationDomainID       string
+	OperationID             string
+	InvocationID            string
+	ServiceID               string
+	RevisionID              string
+	ActorID                 string
+	CorrelationID           string
+	StateMachineVersion     int
+	AdmissionPrepared       bool
+	WorkspaceSourceSelected bool
 }
 
 // GetInvocationCancellationTarget resolves the durable identity and admission
@@ -41,6 +42,12 @@ func (repository *Repository) GetInvocationCancellationTarget(
 		           AND effect.operation_kind = 'invocation-execution'
 		           AND effect.operation_id = operation.id
 		           AND effect.phase = 'start-invocation'
+		       ),
+		       EXISTS (
+		         SELECT 1 FROM service_revision_execution_plans AS plan
+		         WHERE plan.isolation_domain_id = invocation.isolation_domain_id
+		           AND plan.revision_id = invocation.revision_id
+		           AND plan.workspace_source IS NOT NULL
 		       )
 		FROM invocation_execution_operations AS operation
 		JOIN invocations AS invocation
@@ -61,6 +68,7 @@ func (repository *Repository) GetInvocationCancellationTarget(
 		&target.CorrelationID,
 		&target.StateMachineVersion,
 		&target.AdmissionPrepared,
+		&target.WorkspaceSourceSelected,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return InvocationCancellationTarget{}, ErrInvocationCancellationTargetMissing
