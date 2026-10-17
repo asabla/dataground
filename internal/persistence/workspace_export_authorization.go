@@ -11,6 +11,7 @@ import (
 	"github.com/asabla/dataground/internal/authz"
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/workspace"
+	"github.com/jackc/pgx/v5"
 )
 
 var ErrWorkspaceExportDenied = errors.New("workspace change export is not authorized")
@@ -41,27 +42,12 @@ func (repository *Repository) AuthorizeInvocationWorkspaceChangeExport(ctx conte
 		return WorkspaceChangeExportPermit{}, ErrWorkspaceExportUnavailable
 	}
 	defer tx.Rollback(ctx)
-	entry, found, err := readWorkspaceQuiescence(ctx, tx, claim.IsolationDomainID, claim.ID)
-	if err != nil || !found || !entry.Confirmed || entry.Record != expected {
-		return WorkspaceChangeExportPermit{}, ErrWorkspaceExportDenied
-	}
-	if verifyInvocationRuntimeEffect(ctx, tx, effect) != nil {
-		return WorkspaceChangeExportPermit{}, ErrWorkspaceExportDenied
-	}
-	encoded, err := json.Marshal(expected)
+
+	target, expires, err := lockWorkspaceExportTarget(ctx, tx, claim, effect, expected)
 	if err != nil {
-		return WorkspaceChangeExportPermit{}, ErrWorkspaceExportUnavailable
+		return WorkspaceChangeExportPermit{}, err
 	}
-	var expires time.Time
-	if err := tx.QueryRow(ctx, `SELECT lock_workspace_export_authorization($1,$2,$3,$4,$5,$6,$7)`, claim.IsolationDomainID, claim.ID, claim.LeaseOwner, claim.FencingToken, claim.ActorID, claim.CorrelationID, encoded).Scan(&expires); err != nil {
-		return WorkspaceChangeExportPermit{}, ErrWorkspaceExportDenied
-	}
-	var service, revision, actor, correlation string
-	if err := tx.QueryRow(ctx, `SELECT invocation.service_id,invocation.revision_id,COALESCE(operation.effect_actor_id,operation.actor_id),COALESCE(operation.effect_correlation_id,operation.correlation_id)
- FROM invocation_execution_operations operation JOIN invocations invocation ON invocation.isolation_domain_id=operation.isolation_domain_id AND invocation.id=operation.invocation_id
- WHERE operation.isolation_domain_id=$1 AND operation.id=$2`, claim.IsolationDomainID, claim.ID).Scan(&service, &revision, &actor, &correlation); err != nil {
-		return WorkspaceChangeExportPermit{}, ErrWorkspaceExportUnavailable
-	}
+	service, revision, actor, correlation := target.ServiceID, target.RevisionID, target.ActorID, target.CorrelationID
 	r := authz.WorkspaceChangeExportRequest{Source: expected.Source, ServiceID: service, RevisionID: revision, InvocationID: expected.InvocationID, OperationID: expected.OperationID, EffectID: expected.EffectID, ExecutionID: expected.ExecutionID, ActorID: actor, CorrelationID: correlation, PlanDigest: expected.PlanDigest, OwnerBinding: expected.OwnerBinding, RuntimeToken: expected.RuntimeToken, FencingToken: claim.FencingToken, Phase: phase, Changes: changes}
 	if !r.Valid() {
 		return WorkspaceChangeExportPermit{}, ErrWorkspaceExportDenied
@@ -112,4 +98,35 @@ func missingWorkspaceExportEvaluator(value WorkspaceChangeExportEvaluator) bool 
 		return v.IsNil()
 	}
 	return false
+}
+
+// Both export authorization and export-source reads must retain the same exact
+// confirmed cleanup while resolving a current original or replacement claim.
+func lockWorkspaceExportTarget(ctx context.Context, tx pgx.Tx, claim OperationClaim, effect EffectRecord, expected InvocationWorkspaceQuiescence) (InvocationRuntimeTarget, time.Time, error) {
+	if !validInvocationRuntimeAttempt(claim, effect) || expected.Source.IsolationDomainID != claim.IsolationDomainID || expected.OperationID != claim.ID || expected.InvocationID != claim.ResourceID || expected.EffectID != effect.EffectID {
+		return InvocationRuntimeTarget{}, time.Time{}, ErrWorkspaceExportDenied
+	}
+	entry, found, err := readWorkspaceQuiescence(ctx, tx, claim.IsolationDomainID, claim.ID)
+	if err != nil || !found || !entry.Confirmed || entry.Record != expected {
+		return InvocationRuntimeTarget{}, time.Time{}, ErrWorkspaceExportDenied
+	}
+	if verifyInvocationRuntimeEffect(ctx, tx, effect) != nil {
+		return InvocationRuntimeTarget{}, time.Time{}, ErrWorkspaceExportDenied
+	}
+	encoded, err := json.Marshal(expected)
+	if err != nil {
+		return InvocationRuntimeTarget{}, time.Time{}, ErrWorkspaceExportUnavailable
+	}
+	var expires time.Time
+	if err := tx.QueryRow(ctx, `SELECT lock_workspace_export_authorization($1,$2,$3,$4,$5,$6,$7)`, claim.IsolationDomainID, claim.ID, claim.LeaseOwner, claim.FencingToken, claim.ActorID, claim.CorrelationID, encoded).Scan(&expires); err != nil {
+		return InvocationRuntimeTarget{}, time.Time{}, ErrWorkspaceExportDenied
+	}
+	var service, revision, actor, correlation string
+	if err := tx.QueryRow(ctx, `SELECT invocation.service_id,invocation.revision_id,COALESCE(operation.effect_actor_id,operation.actor_id),COALESCE(operation.effect_correlation_id,operation.correlation_id)
+ FROM invocation_execution_operations operation JOIN invocations invocation ON invocation.isolation_domain_id=operation.isolation_domain_id AND invocation.id=operation.invocation_id
+ WHERE operation.isolation_domain_id=$1 AND operation.id=$2`, claim.IsolationDomainID, claim.ID).Scan(&service, &revision, &actor, &correlation); err != nil {
+		return InvocationRuntimeTarget{}, time.Time{}, ErrWorkspaceExportUnavailable
+	}
+
+	return InvocationRuntimeTarget{IsolationDomainID: claim.IsolationDomainID, OperationID: claim.ID, InvocationID: claim.ResourceID, ServiceID: service, RevisionID: revision, ActorID: actor, CorrelationID: correlation, StateMachineVersion: claim.StateMachineVersion}, expires, nil
 }

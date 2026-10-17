@@ -36,6 +36,10 @@ Migration 67 introduced the optional `dataground.invocation-source-read/v1` bind
 
 This method is a read prerequisite, not a provisioning effect. The reader makes the source-use decision for this read. It does not install a sandbox tree or provide a reusable transfer permit; a future transfer needs its own current effect authorization and recovery record. The governed worker does not call this method yet.
 
+## Source reads after confirmed cleanup
+
+The separate `Repository.ReadExportWorkspaceSource` boundary supports original and replacement invocation claims after exact confirmed workspace cleanup. It uses the immutable source plan and original runtime preparation, requires current version 7 Cedar source authority, and preserves both current source-grant decisions. It returns the verified base and the earlier read/lease/deadline limit. Schema 75 binds its version 5 source-use decisions to the isolation-scoped cleanup completion. It cannot adopt pending cleanup or restart the original runtime. See the [export controller](workspace-change-export.md#internal-export-controller) for composition with capture and retention authority. The existing `ReadClaimedWorkspaceSource` method still requires the original active runtime attempt.
+
 ## Source-read Cedar policy
 
 Install `dataground.invocation-authorization-policy/v6` with the existing policy installer and its mutually exclusive `-source-capable` flag. This contract adds `read-source` to the version 5 actions and keeps the existing immutable policy, entity-generation, activation, and withdrawal boundaries. An older wildcard policy cannot grant the new action. The explicit source worker requires version 6; other worker profiles and public publication retain their existing policy versions.
