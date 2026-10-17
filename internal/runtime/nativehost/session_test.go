@@ -123,6 +123,13 @@ func TestNativeBytesCannotForgeOwnerAcknowledgement(t *testing.T) {
 	if session.confirmed.Load() || owner.stopCount.Load() != 0 {
 		t.Fatal("native output became a control acknowledgement")
 	}
+	binding, err := session.OwnerBinding()
+	if err != nil || len(binding) != 71 {
+		t.Fatal("missing private owner binding", err)
+	}
+	if value, err := session.ConfirmedOwnerBinding(); err == nil || value != "" {
+		t.Fatal("unconfirmed owner binding")
+	}
 	if _, err := json.Marshal(session); !errors.Is(err, ErrProtocol) {
 		t.Fatal("process-local proof serialized")
 	}
@@ -131,6 +138,9 @@ func TestNativeBytesCannotForgeOwnerAcknowledgement(t *testing.T) {
 	}
 	if !session.confirmed.Load() || owner.stopCount.Load() == 0 {
 		t.Fatal("terminal cleanup not confirmed")
+	}
+	if value, err := session.ConfirmedOwnerBinding(); err != nil || value != binding {
+		t.Fatal("confirmed owner binding changed", err)
 	}
 	if _, err := session.Input().Write([]byte("late")); !errors.Is(err, ErrProtocol) {
 		t.Fatal("terminal input accepted")

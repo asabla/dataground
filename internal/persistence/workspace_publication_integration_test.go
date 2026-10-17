@@ -37,7 +37,7 @@ func TestWorkspaceDevelopmentPublicationPinsSourceBindingAndAtomicReplay(t *test
 	pool := resetOperatorAuditDatabase(t, ctx)
 	defer pool.Close()
 	defer func() {
-		if _, err := pool.Exec(context.Background(), `TRUNCATE invocation_workspace_change_completions,invocation_workspace_change_exports,invocation_workspace_completions,invocation_workspace_preparations,service_revision_execution_plans,workspace_source_grants,workspace_source_use_decisions,workspace_source_completions,workspace_source_installations,workspaces,
+		if _, err := pool.Exec(context.Background(), `TRUNCATE invocation_workspace_quiescence_completions,invocation_workspace_quiescence_intents,invocation_workspace_change_completions,invocation_workspace_change_exports,invocation_workspace_completions,invocation_workspace_preparations,service_revision_execution_plans,workspace_source_grants,workspace_source_use_decisions,workspace_source_completions,workspace_source_installations,workspaces,
  invocation_authorization_entity_activations,invocation_authorization_entity_generations,invocation_authorization_policy_withdrawals,invocation_authorization_policies,provider_credential_authorization_decisions,provider_credential_grant_events`); err != nil {
 			t.Error(err)
 		}

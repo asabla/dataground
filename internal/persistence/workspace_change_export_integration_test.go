@@ -324,4 +324,6 @@ func testWorkspaceChangeRetention(t *testing.T, ctx context.Context, pool *pgxpo
 	if bytes.Contains(data, []byte("private-file")) || bytes.Contains(data, []byte("retained")) {
 		t.Fatal("private content entered export metadata")
 	}
+	// Keep this synthetic unfinished operation out of subsequent fixture claims.
+	setLease(false)
 }
