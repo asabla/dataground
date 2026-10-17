@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { verifyOfflineAttestationSnapshots } from "./check-codex-candidate-attestation.mjs";
 import { verifyPublication } from "./check-codex-candidate-publication.mjs";
 import { verifyWorkspacePublication } from "./check-workspace-candidate.mjs";
+import { verifyWorkspaceExportPublication } from "./check-workspace-export-candidate.mjs";
 import { fixture, scope } from "./codex-candidate-fixture.mjs";
 
 const contractLabel = "dataground.dev.workspace-source-contract";
@@ -109,6 +110,77 @@ test("offline source capability cannot omit configuration or substitute helper i
     if (kind === "changed-config") inputs.imageConfig = Buffer.from("substituted");
     assert.throws(() =>
       verifyOfflineAttestationSnapshots(expected, inputs, f.run, "codex-workspace"),
+    );
+    assert.equal(f.calls.length, 0);
+  }
+});
+
+const exportLabels = {
+  "dataground.dev.workspace-change-contract": "dataground.workspace-changes/v1",
+  "dataground.dev.native-owner-contract": "dataground.native-owner/v1",
+  "dataground.dev.workspace-export-revision": scope.sourceCommit,
+};
+function exportFixture() {
+  const f = workspaceFixture();
+  Object.assign(f.image.Config.Labels, exportLabels);
+  return f;
+}
+
+test("export publication requires all helper contracts from the same revision", () => {
+  const result = verifyWorkspaceExportPublication(scope, exportFixture().run);
+  assert.equal(result.candidateProfile, "openshell-codex-workspace-export-candidate/v1");
+  assert.equal(result.certificationEligible, false);
+  assert.throws(() => verifyWorkspaceExportPublication(scope, workspaceFixture().run));
+  assert.equal(
+    verifyWorkspacePublication(scope, exportFixture().run).candidateProfile,
+    "openshell-codex-workspace-candidate/v1",
+  );
+  for (const label of [contractLabel, revisionLabel, ...Object.keys(exportLabels)]) {
+    for (const value of [undefined, "substituted"]) {
+      const f = exportFixture();
+      f.image.Config.Labels[label] = value;
+      assert.throws(() => verifyWorkspaceExportPublication(scope, f.run), label);
+    }
+  }
+});
+
+test("offline export verification binds the complete helper set through the signed manifest", () => {
+  const { f, expected, inputs } = offlineFixture((config) =>
+    Object.assign(config.Labels, exportLabels),
+  );
+  const result = verifyOfflineAttestationSnapshots(
+    expected,
+    inputs,
+    f.run,
+    "codex-workspace-export",
+  );
+  assert.equal(result.candidateProfile, "openshell-codex-workspace-export-candidate/v1");
+  assert.equal(result.image.configDigest, `sha256:${hash(inputs.imageConfig)}`);
+  assert.equal(result.publicationCompletionChecked, false);
+  assert.equal(result.certificationEligible, false);
+});
+
+test("offline export verification rejects missing, substituted and source-only helpers before verification", () => {
+  for (const label of [contractLabel, revisionLabel, ...Object.keys(exportLabels)]) {
+    for (const value of [undefined, "substituted"]) {
+      const { f, expected, inputs } = offlineFixture((config) => {
+        Object.assign(config.Labels, exportLabels);
+        config.Labels[label] = value;
+      });
+      assert.throws(() =>
+        verifyOfflineAttestationSnapshots(expected, inputs, f.run, "codex-workspace-export"),
+      );
+      assert.equal(f.calls.length, 0);
+    }
+  }
+  for (const kind of ["no-config", "changed-config", "source-only"]) {
+    const { f, expected, inputs } = offlineFixture((config) => {
+      if (kind !== "source-only") Object.assign(config.Labels, exportLabels);
+    });
+    if (kind === "no-config") delete inputs.imageConfig;
+    if (kind === "changed-config") inputs.imageConfig = Buffer.from("substituted");
+    assert.throws(() =>
+      verifyOfflineAttestationSnapshots(expected, inputs, f.run, "codex-workspace-export"),
     );
     assert.equal(f.calls.length, 0);
   }

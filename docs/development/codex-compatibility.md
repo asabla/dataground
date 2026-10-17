@@ -56,7 +56,7 @@ This verifier checks recorded observations; it does not independently rerun the 
 
 ## Experimental image publication
 
-The candidate workflow can test native `amd64` or `arm64` on explicit dispatch; pull requests retain the AMD64 regression. Dispatch with `architecture: arm64` and `publish: true` from `main` to publish that architecture after all three native, synthetic credential, and provider-bound/export checks pass. Publication requests from another branch or repository fail. No model credentials are available to either job.
+The candidate workflow can test native `amd64` or `arm64` on explicit dispatch; pull requests retain the AMD64 regression. Dispatch with `architecture: arm64` and `publish: true` from `main` to publish that architecture after the helper, native, synthetic credential, and provider-bound checks pass. Publication requests from another branch or repository fail. No model credentials are available to either job.
 
 The build job retains read-only repository permissions and packages the exact tested local image with its source revision, architecture and archive digest. A separate job consumes that immutable workflow artifact, verifies the archive and the loaded image’s identity, `sandbox` user and non-certifying source labels, then publishes to `ghcr.io/asabla/dataground-codex-candidate` using a run-and-attempt-specific candidate tag. Consumers must pin the returned registry digest. The job uses only its ephemeral GitHub registry token in the disposable runner’s default Docker credential file, which the pinned attestation action reads directly, and always logs out of GHCR afterward. The published digest receives GitHub/Sigstore build provenance from the pinned official attestation action.
 
@@ -101,11 +101,11 @@ The configuration uses the same bounded private-file acquisition rules. The veri
 
 ## Source-capable candidate images
 
-The candidate workflow now adds the [workspace helper layer](workspace-source-materialization.md#internal-sandbox-transfer) after the unchanged Codex source build. It compiles the helper with the repository-pinned Go version, disables cgo, and builds for Linux on the native runner architecture. A private temporary build context contains only the helper binary and its Dockerfile. The final layer requires an absent workspace, preserves the `sandbox` user, and installs the helper as root-owned mode `0555` code. It records the materialization contract and exact DataGround source revision as image labels. Temporary build inputs are removed before publication's clean-checkout check.
+The candidate workflow now adds the [workspace helper layer](workspace-source-materialization.md#internal-sandbox-transfer) after the unchanged Codex source build. It compiles the helper with the repository-pinned Go version, disables cgo, and builds for Linux on the native runner architecture. A private temporary build context contains only the compiled helpers and the selected Dockerfile. The final layer requires an absent workspace, preserves the `sandbox` user, and installs the helper as root-owned mode `0555` code. It records the materialization contract and exact DataGround source revision as image labels. Temporary build inputs are removed before publication's clean-checkout check.
 
 CI runs source transfer and recovery against the exact final image, without rebuilding or mounting a replacement helper. It checks helper ownership and mode, the private sandbox parent, an initially absent workspace, binary content, executable mode, lost-acknowledgement read-back, and refusal to overwrite a modified tree. The existing native restriction and synthetic credential tests also use that final image. Source-helper changes trigger the candidate workflow. The source-transfer test uses a controlled SSH peer; it does not establish live gateway source authorization. The provider-bound native test separately sets `DATAGROUND_TEST_WORKSPACE_SOURCE_REQUIRED=true` to exercise the actual OpenShell gateway and provider profile. Before starting the harness, it rejects cross-domain transfer, installs a binary file, a contained symlink, and an executable, repeats exact read-back, and rejects a different source without changing the installed tree. The native runtime then verifies the exact bytes, private modes and link, and runs the prepared executable under its read-only policy. The existing workspace-write, outside-write, socket, namespace, and artifact-export checks remain required. This test uses synthetic source and provider credentials; it does not supply a source grant or signed acceptance statement.
 
-Source-capable workflow publications use the internal transfer record `dataground.codex-workspace-candidate-publication/v1`. Preparation, loading, and publication require the helper contract and source-revision label to match the reviewed checkout. The older Codex and supervisor transfer records remain distinct and cannot replace this record. The registry repository and attestation signer remain unchanged.
+Earlier source-capable workflow publications use the internal transfer record `dataground.codex-workspace-candidate-publication/v1`. Preparation, loading, and publication require the helper contract and source-revision label to match the reviewed checkout. The older Codex and supervisor transfer records remain distinct and cannot replace this record. The registry repository and attestation signer remain unchanged.
 
 Use the separate source-capable verifier when an image must contain this helper:
 
@@ -127,6 +127,24 @@ node scripts/check-workspace-candidate.mjs attestation \
 ```
 
 Both commands require the helper contract and DataGround source revision in the signed image configuration, in addition to the existing Codex identity and isolation checks. Successful output identifies `openshell-codex-workspace-candidate/v1` and remains non-certifying. Offline verification still does not prove workflow completion. Source-free verification remains available for historical images; its success does not establish the helper capability. The [version 3 local acceptance](local-runtime-acceptance.md#source-capable-runtime-acceptance) and explicit [source worker profile](governed-worker.md#use-an-accepted-source-plan) consume this image profile with separate acceptance, plan, policy, and source-grant pins. Image verification alone does not authorize source use.
+
+## Cleanup and change-export candidate images
+
+The candidate workflow adds `workspace-source/Owned.Dockerfile` after source materialization. This layer installs `dataground-native-owner` and `dataground-workspace-export` as root-owned mode `0555` binaries, retains the `sandbox` user, and records `dataground.native-owner/v1`, `dataground.workspace-changes/v1` and the exact helper source revision. It contains no test binary. The source and export revision labels must both match the reviewed workflow source.
+
+New workflow publications use `dataground.codex-workspace-export-candidate-publication/v1`. This record cannot be replaced by the earlier source-only record. CI tests the installed native owner with the actual Codex initialization exchange and terminal cleanup, then verifies binary change export and lost-acknowledgement recovery from the same final image. These Docker tests use a controlled SSH peer and no provider credentials. The strict supervisor workflow uses this same layer definition and adds only its kernel-test binary for the separate gateway and detached-writer checks.
+
+Require the complete helper set with:
+
+```sh
+node scripts/check-workspace-export-candidate.mjs publication \
+  "sha256:$CANDIDATE_DIGEST" "$REVIEWED_SOURCE_COMMIT" \
+  "$PUBLICATION_RUN_ID" "$PUBLICATION_RUN_ATTEMPT" arm64
+```
+
+The `attestation` subcommand takes the same arguments as the source-capable verifier above, including the raw image configuration. Both forms return `candidateProfile: "openshell-codex-workspace-export-candidate/v1"`. Missing helpers, mismatched contract versions or mixed source revisions fail verification. Offline verification binds this metadata through the signed manifest but does not prove workflow completion.
+
+The v3 local runtime acceptance still selects only the source capability. This new publication profile does not activate owned-runtime execution, authorize change export or sandbox deletion, or establish release acceptance. It supplies the image boundary for a later explicit runtime-acceptance contract and worker integration.
 
 ## Published source-capable ARM64 candidate
 

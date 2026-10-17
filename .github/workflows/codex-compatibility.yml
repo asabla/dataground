@@ -22,6 +22,10 @@ on:
       - internal/security/canary*/**
       - internal/workspace/**
       - cmd/dataground-workspace-materialize/**
+      - cmd/dataground-workspace-export/**
+      - cmd/dataground-native-owner/**
+      - internal/runtime/nativehost/**
+      - internal/runtime/processowner/**
       - scripts/*candidate*.mjs
       - .go-version
       - go.mod
@@ -68,8 +72,15 @@ jobs:
           trap 'rm -rf "$helper_context"' EXIT
           CGO_ENABLED=0 GOOS=linux go build -trimpath -o "$helper_context/dataground-workspace-materialize" ./cmd/dataground-workspace-materialize
           cp deploy/openshell/workspace-source/Dockerfile "$helper_context/Dockerfile"
-          docker build --network none --tag dataground-codex-compatibility:ci \
+          docker build --network none --tag dataground-codex-compatibility:source \
             --build-arg RUNTIME_IMAGE=dataground-codex-compatibility:base \
+            --build-arg DATAGROUND_SOURCE_REVISION="$GITHUB_SHA" "$helper_context"
+          for helper in dataground-workspace-export dataground-native-owner; do
+            CGO_ENABLED=0 GOOS=linux go build -trimpath -o "$helper_context/$helper" "./cmd/$helper"
+          done
+          cp deploy/openshell/workspace-source/Owned.Dockerfile "$helper_context/Dockerfile"
+          docker build --network none --tag dataground-codex-compatibility:ci \
+            --build-arg RUNTIME_IMAGE=dataground-codex-compatibility:source \
             --build-arg DATAGROUND_SOURCE_REVISION="$GITHUB_SHA" "$helper_context"
           candidate_image=$(docker image inspect --format '{{.Id}}' dataground-codex-compatibility:ci)
           printf 'image=%s\n' "$candidate_image" >> "$GITHUB_OUTPUT"
@@ -78,6 +89,11 @@ jobs:
         env:
           DATAGROUND_TEST_WORKSPACE_SOURCE_IMAGE: ${{ steps.candidate.outputs.image }}
         run: go test ./internal/execution/openshell -run '^TestWorkspaceSourceDockerTransfer$' -count=1 -timeout=4m -v
+
+      - name: Verify installed cleanup and change export helpers
+        env:
+          DATAGROUND_TEST_WORKSPACE_CHANGE_IMAGE: ${{ steps.candidate.outputs.image }}
+        run: go test ./internal/execution/openshell -run '^TestWorkspaceChangeDockerExport$' -count=1 -timeout=4m -v
 
       - name: Verify sequential turns with offline model fixtures
         env:
@@ -151,7 +167,7 @@ jobs:
           CANDIDATE_ARCH: ${{ inputs.architecture }}
         run: |
           python3 deploy/openshell/candidate-publication.py prepare \
-            --candidate codex-workspace \
+            --candidate codex-workspace-export \
             --directory "$RUNNER_TEMP/candidate-publication" \
             --image "$CANDIDATE_IMAGE" --architecture "$CANDIDATE_ARCH" \
             --source-commit "$GITHUB_SHA"
@@ -196,7 +212,7 @@ jobs:
           CANDIDATE_ARCH: ${{ inputs.architecture }}
         run: |
           python3 deploy/openshell/candidate-publication.py load \
-            --candidate codex-workspace \
+            --candidate codex-workspace-export \
             --directory "$RUNNER_TEMP/candidate-publication" \
             --architecture "$CANDIDATE_ARCH" --source-commit "$GITHUB_SHA"
 
@@ -211,7 +227,7 @@ jobs:
           printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$REGISTRY_USER" --password-stdin
           unset REGISTRY_TOKEN
           python3 deploy/openshell/candidate-publication.py publish \
-            --candidate codex-workspace \
+            --candidate codex-workspace-export \
             --directory "$RUNNER_TEMP/candidate-publication" \
             --architecture "$CANDIDATE_ARCH" --source-commit "$GITHUB_SHA" \
             --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT"

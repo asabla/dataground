@@ -116,7 +116,7 @@ export function verifyOfflineAttestationSnapshots(
   candidate = "codex",
 ) {
   candidateProfile(candidate);
-  if (candidate === "codex-workspace" && inputs.imageConfig === undefined) {
+  if (candidateProfile(candidate).sourceRevisionLabels && inputs.imageConfig === undefined) {
     throw new Error(
       "Source-capable candidate verification requires the signed image configuration.",
     );
@@ -189,11 +189,8 @@ export function verifyOfflineAttestationSnapshots(
       candidate,
     );
     return {
-      ...(candidate === "codex-workspace"
-        ? { candidateProfile: "openshell-codex-workspace-candidate/v1" }
-        : {}),
-      ...(candidate === "supervisor"
-        ? { candidateProfile: "openshell-supervisor-candidate/v1" }
+      ...(candidateProfile(candidate).candidateProfile
+        ? { candidateProfile: candidateProfile(candidate).candidateProfile }
         : {}),
       imageDigest: scope.digest,
       sourceCommit: scope.sourceCommit,
