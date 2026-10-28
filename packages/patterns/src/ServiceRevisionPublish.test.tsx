@@ -19,6 +19,31 @@ const props = {
 };
 
 describe("ServiceRevisionPublish", () => {
+  it("keeps contract review available before confirmation and hides it during and after publication", () => {
+    const contractReview = <p>Exact contract review</p>;
+    assert.match(
+      renderToStaticMarkup(
+        <ServiceRevisionPublish {...props} contractReview={contractReview} confirmationVisible />,
+      ),
+      /Exact contract review/u,
+    );
+    assert.doesNotMatch(
+      renderToStaticMarkup(
+        <ServiceRevisionPublish {...props} contractReview={contractReview} isSubmitting />,
+      ),
+      /Exact contract review/u,
+    );
+    assert.doesNotMatch(
+      renderToStaticMarkup(
+        <ServiceRevisionPublish
+          {...props}
+          contractReview={contractReview}
+          published={{ publishedAt: "2026-01-01T00:00:00Z", version: 2 }}
+        />,
+      ),
+      /Exact contract review/u,
+    );
+  });
   it("shows exact scope and immutable definition before offering publication review", () => {
     const markup = renderToStaticMarkup(
       <ServiceRevisionPublish {...props} onRequestConfirmation={() => undefined} />,

@@ -1,5 +1,5 @@
 import { Button, StatusBadge } from "@dataground/ui";
-import { useId } from "react";
+import { type ReactNode, useId } from "react";
 
 export interface PublishedServiceRevision {
   publishedAt: string;
@@ -16,6 +16,7 @@ export interface ServiceRevisionPublishError {
 export interface ServiceRevisionPublishProps {
   canPublish: boolean;
   confirmationVisible?: boolean;
+  contractReview?: ReactNode;
   createdAt: string;
   createdBy: string;
   disabledReason?: string;
@@ -58,6 +59,7 @@ function displayText(value: string, maximum = 255): string {
 export function ServiceRevisionPublish({
   canPublish,
   confirmationVisible = false,
+  contractReview,
   createdAt,
   createdBy,
   disabledReason,
@@ -168,6 +170,8 @@ export function ServiceRevisionPublish({
           <dd>{displayText(createdAt, 64)}</dd>
         </div>
       </dl>
+
+      {!published && !isSubmitting && contractReview}
 
       {!canPublish && !published && (
         <p className="dg-service-revision-publish__authority">

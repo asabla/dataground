@@ -34,6 +34,14 @@ properties. Switching between recognized guided and JSON views does not submit a
 command. Existing revision validation, authority and exact-request retry rules
 continue to apply. Publication and routing remain separate actions.
 
+Before confirmation, publication review can reveal the exact loaded input and
+output contracts as bounded plain-text JSON. It also reports whether the
+workbench can render the input contract. This is separate from publication
+validation. Review content is hidden by default, removed on hide, and bound to
+the exact loaded revision object and connection. A changed scope, version,
+connection or loaded object closes it. Pending-request recovery uses the retained
+definition, and accepted or completed publication hides the review.
+
 ## Next product journeys
 
 Interaction inspection must then provide a coherent path through progress,

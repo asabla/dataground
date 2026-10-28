@@ -803,6 +803,45 @@ p {
   outline-offset: var(--dg-space-1);
 }
 
+.revision-contract-review {
+  padding: var(--dg-space-4);
+  border: var(--dg-border-default) solid var(--dg-color-border-default);
+  border-radius: var(--dg-radius-panel);
+  overflow-wrap: anywhere;
+}
+
+.revision-contract-review p {
+  color: var(--dg-color-text-secondary);
+  line-height: 1.6;
+}
+
+.revision-contract-review__contract h3 {
+  margin-top: var(--dg-space-4);
+  font-size: var(--dg-font-size-body);
+}
+
+.revision-contract-review__content {
+  max-height: 24rem;
+  overflow: auto;
+  padding: var(--dg-space-4);
+  background: var(--dg-color-canvas);
+  border: var(--dg-border-default) solid var(--dg-color-border-default);
+  border-radius: var(--dg-radius-control);
+}
+
+.revision-contract-review pre {
+  margin: 0;
+  font-family: var(--dg-font-family-data);
+  font-size: var(--dg-font-size-caption);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.revision-contract-review__content:focus-visible {
+  outline: var(--dg-border-strong) solid var(--dg-color-focus);
+  outline-offset: var(--dg-space-1);
+}
+
 .workbench-main h1:focus-visible {
   outline: var(--dg-border-strong) solid var(--dg-color-focus);
   outline-offset: var(--dg-space-1);
