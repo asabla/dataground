@@ -46,6 +46,17 @@ export const Confirmation: Story = {
   },
 };
 
+export const WithContractReview: Story = {
+  args: { contractReview: <p>The workbench supplies exact, bounded contract review.</p> },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(
+      canvas.getByText("The workbench supplies exact, bounded contract review."),
+    ).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "Review publication" })).toBeEnabled();
+  },
+};
+
 export const Observer: Story = {
   args: {
     canPublish: false,

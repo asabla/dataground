@@ -10,6 +10,7 @@ import {
   type PublishedServiceRevisionResource,
   publishServiceRevision,
 } from "./publicationClient";
+import { RevisionContractReview } from "./RevisionContractReview";
 
 interface PublicationAttempt {
   idempotencyKey: string;
@@ -339,6 +340,12 @@ export function ServiceRevisionPublishWorkflow({
       <ServiceRevisionPublish
         canPublish={canPublish}
         confirmationVisible={visible.confirming}
+        contractReview={
+          <RevisionContractReview
+            client={client}
+            revision={visible.recoveryAttempt?.revision ?? revision}
+          />
+        }
         createdAt={revision.metadata.createdAt}
         createdBy={revision.metadata.createdBy}
         disabledReason={disabledReason}

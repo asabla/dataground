@@ -20,6 +20,11 @@ Its default remains the JSON field for other consumers. The prompt editor
 recognizes only its exact bounded, closed-object schema and preserves other
 schemas in JSON mode.
 
+The publication pattern has a workbench-owned contract-review slot before its
+confirmation controls. It hides that slot during submission and after confirmed
+publication. The workbench owns bounded JSON disclosure, connection and revision
+binding, and retained-request selection; the pattern does not interpret schemas.
+
 ## Token contract
 
 Source files under `packages/tokens/src` target the [DTCG Format Module 2025.10](https://www.designtokens.org/tr/2025.10/format/) and [Color Module 2025.10](https://www.designtokens.org/tr/2025.10/color/). The repository compiler intentionally supports only the token types it emits: color, dimension, duration, font family, font weight, number, and whole-token aliases. Unsupported types fail generation instead of being guessed.
