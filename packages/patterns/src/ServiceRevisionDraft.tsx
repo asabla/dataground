@@ -1,5 +1,5 @@
 import { Button, StatusBadge, TextField } from "@dataground/ui";
-import { useId } from "react";
+import { type ReactNode, useId } from "react";
 
 export interface CreatedServiceRevision {
   createdAt: string;
@@ -23,6 +23,7 @@ export interface ServiceRevisionDraftProps {
   disabledReason?: string;
   error?: ServiceRevisionDraftError;
   inputSchema: string;
+  inputSchemaEditor?: ReactNode;
   isolationDomainId: string;
   isSubmitting?: boolean;
   onInputSchemaChange?: (value: string) => void;
@@ -67,6 +68,7 @@ export function ServiceRevisionDraft({
   disabledReason,
   error,
   inputSchema,
+  inputSchemaEditor,
   isolationDomainId,
   isSubmitting = false,
   onInputSchemaChange,
@@ -239,16 +241,18 @@ export function ServiceRevisionDraft({
             onChange={onRequiredCapabilitiesChange}
             value={requiredCapabilities}
           />
-          <TextField
-            description="Optional JSON object describing accepted invocation input."
-            errorMessage={validationErrors.inputSchema}
-            isDisabled={!canCreateRevision || isSubmitting}
-            isMultiline
-            label="Input schema"
-            name="revision-input-schema"
-            onChange={onInputSchemaChange}
-            value={inputSchema}
-          />
+          {inputSchemaEditor ?? (
+            <TextField
+              description="Optional JSON object describing accepted invocation input."
+              errorMessage={validationErrors.inputSchema}
+              isDisabled={!canCreateRevision || isSubmitting}
+              isMultiline
+              label="Input schema"
+              name="revision-input-schema"
+              onChange={onInputSchemaChange}
+              value={inputSchema}
+            />
+          )}
           <TextField
             description="Optional JSON object describing structured runtime output."
             errorMessage={validationErrors.outputSchema}

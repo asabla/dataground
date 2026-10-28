@@ -35,6 +35,19 @@ export const Ready: Story = {
   },
 };
 
+export const OwnedInputEditor: Story = {
+  args: {
+    inputSchemaEditor: <p>The workbench supplies the input editor and owns its validation.</p>,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(
+      canvas.getByText("The workbench supplies the input editor and owns its validation."),
+    ).toBeVisible();
+    await expect(canvas.queryByRole("textbox", { name: "Input schema" })).not.toBeInTheDocument();
+  },
+};
+
 export const Invalid: Story = {
   args: {
     inputSchema: "[]",

@@ -763,6 +763,46 @@ p {
   margin-bottom: var(--dg-space-5);
 }
 
+.revision-input-editor {
+  min-width: 0;
+  display: grid;
+  gap: var(--dg-space-4);
+  margin: 0;
+  padding: var(--dg-space-4);
+  border: var(--dg-border-default) solid var(--dg-color-border-default);
+  border-radius: var(--dg-radius-panel);
+}
+
+.revision-input-editor legend {
+  padding-inline: var(--dg-space-2);
+  font-weight: var(--dg-font-weight-semibold);
+}
+
+.revision-input-editor p {
+  margin: 0;
+  color: var(--dg-color-text-secondary);
+  line-height: 1.6;
+}
+
+.revision-input-editor .dg-button {
+  justify-self: start;
+}
+
+.revision-input-editor__choice {
+  display: grid;
+  gap: var(--dg-space-3);
+}
+
+.revision-input-editor__choice h3 {
+  margin: 0;
+  font-size: var(--dg-font-size-body);
+}
+
+.revision-input-editor:focus-visible {
+  outline: var(--dg-border-strong) solid var(--dg-color-focus);
+  outline-offset: var(--dg-space-1);
+}
+
 .workbench-main h1:focus-visible {
   outline: var(--dg-border-strong) solid var(--dg-color-focus);
   outline-offset: var(--dg-space-1);

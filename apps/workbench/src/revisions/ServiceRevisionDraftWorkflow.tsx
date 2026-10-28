@@ -8,6 +8,7 @@ import {
   type ServiceRevisionFailure,
   type ServiceRevisionResource,
 } from "./client";
+import { RevisionInputEditor } from "./RevisionInputEditor";
 
 interface RevisionDraftAttempt {
   idempotencyKey: string;
@@ -360,6 +361,17 @@ export function ServiceRevisionDraftWorkflow({
       disabledReason={disabledReason}
       error={visible.error}
       inputSchema={visible.inputSchema}
+      inputSchemaEditor={
+        <RevisionInputEditor
+          key={scopeKey}
+          value={visible.inputSchema}
+          error={visible.validationErrors.inputSchema}
+          disabled={
+            !canCreateRevision || visible.submitting || visible.recoveryAttempt !== undefined
+          }
+          onChange={(value) => change("inputSchema", value)}
+        />
+      }
       isolationDomainId={isolationDomainId}
       isSubmitting={visible.submitting}
       onInputSchemaChange={(value) => change("inputSchema", value)}

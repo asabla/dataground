@@ -20,13 +20,21 @@ reachable after route withdrawal. Page changes move keyboard focus to the new
 heading. Search and sort remain in memory across those changes; disconnect clears
 the connection and its local state.
 
-## Next product journeys
+## Revision input authoring
 
-The next work is to make revision authoring and the first invocation usable
-without manually constructing JSON for common input contracts. Advanced contract
-editing must remain available, and unsupported schema semantics must stay
-explicit. The published definition, routed revision and invoked revision must
-remain distinct and visible.
+Revision authoring offers an explicit prompt template with an optional label and
+guidance. It produces a closed object with one required string property named
+`prompt`, bounded to 1–262,144 characters, which the existing interaction form can
+render. The template is opt-in and does not change runtime, capability or output
+configuration. Guidance describes the form; it is not an agent instruction.
+
+The JSON editor retains custom schemas. Guided mode recognizes only the exact
+template and cannot discard custom validation rules, annotations or additional
+properties. Switching between recognized guided and JSON views does not submit a
+command. Existing revision validation, authority and exact-request retry rules
+continue to apply. Publication and routing remain separate actions.
+
+## Next product journeys
 
 Interaction inspection must then provide a coherent path through progress,
 questions, approvals, results and retained artifacts. Native governed execution
