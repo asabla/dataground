@@ -31,6 +31,8 @@ import {
   type AgentServiceResource,
   listAgentServices,
 } from "./services";
+import type { ServiceSort } from "./services/directory";
+import { ServiceDirectory } from "./services/ServiceDirectory";
 
 const DEFAULT_ISOLATION_DOMAIN_ID = "iso_00000000000000000001";
 const ISOLATION_DOMAIN_ID_PATTERN = /^iso_[0-9a-z]{20,32}$/u;
@@ -95,19 +97,6 @@ function stageIndex(
   return 0;
 }
 
-function servicePresentation(
-  revision?: ServiceRevisionResource,
-  publication?: PublishedServiceRevisionResource,
-  alias?: ServiceAliasResource,
-  invocation?: AgentServiceInvocationSelection,
-) {
-  if (invocation) return { label: "Interaction active", tone: "active" as const };
-  if (alias) return { label: "Ready", tone: "success" as const };
-  if (publication) return { label: "Needs route", tone: "warning" as const };
-  if (revision) return { label: "Needs review", tone: "warning" as const };
-  return { label: "Draft", tone: "neutral" as const };
-}
-
 function historyFromDraft(revision: ServiceRevisionResource): ServiceRevisionHistoryResource {
   return {
     ...revision,
@@ -170,7 +159,13 @@ export function DevelopmentWorkbench({
   const [serviceListLoading, setServiceListLoading] = useState(true);
   const [serviceListLoadingMore, setServiceListLoadingMore] = useState(false);
   const [serviceListNextCursor, setServiceListNextCursor] = useState<string>();
+  const [serviceQuery, setServiceQuery] = useState("");
+  const [serviceSort, setServiceSort] = useState<ServiceSort>("updated");
+  const pageContent = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<WorkbenchView>("services");
+  useEffect(() => {
+    pageContent.current?.querySelector<HTMLElement>(`#${view}-title`)?.focus();
+  }, [view]);
   const aliasReadGeneration = useRef(0);
   const revisionListGeneration = useRef(0);
   const serviceListGeneration = useRef(0);
@@ -178,8 +173,8 @@ export function DevelopmentWorkbench({
   const loadServicePage = useCallback(
     async (cursor?: string) => {
       const generation = ++serviceListGeneration.current;
-      if (cursor === undefined) setServiceListLoading(true);
-      else setServiceListLoadingMore(true);
+      setServiceListLoading(cursor === undefined);
+      setServiceListLoadingMore(cursor !== undefined);
       setServiceListError(undefined);
       const result = await listAgentServices(client, isolationDomainId, cursor);
       if (generation !== serviceListGeneration.current) return;
@@ -391,13 +386,6 @@ export function DevelopmentWorkbench({
     openedAlias,
     openedInvocation,
   );
-  const presentation = servicePresentation(
-    openedRevision,
-    openedPublishedRevision,
-    openedAlias,
-    openedInvocation,
-  );
-
   const clearWorkflow = () => {
     aliasReadGeneration.current++;
     revisionListGeneration.current++;
@@ -608,15 +596,17 @@ export function DevelopmentWorkbench({
           </nav>
         </aside>
 
-        <div className="workbench-main">
+        <div className="workbench-main" ref={pageContent}>
           {view === "services" && (
             <section aria-labelledby="services-title">
               <div className="workbench-page-heading">
                 <div>
                   <p className="workbench-kicker">AI workspace</p>
-                  <h1 id="services-title">Agent services</h1>
+                  <h1 id="services-title" tabIndex={-1}>
+                    Agent services
+                  </h1>
                   <p>
-                    Build, publish, and operate governed agents through stable product identities.
+                    Create reusable agents, manage their revisions, and inspect their interactions.
                   </p>
                 </div>
                 <Button
@@ -630,125 +620,29 @@ export function DevelopmentWorkbench({
                 </Button>
               </div>
 
-              <dl className="workbench-summary" aria-label="Service summary">
-                <div>
-                  <dt>Available in scope</dt>
-                  <dd>
-                    {scopedServices.length} {scopedServices.length === 1 ? "service" : "services"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Active interactions</dt>
-                  <dd>{openedInvocation ? "1 interaction" : "None"}</dd>
-                </div>
-                <div>
-                  <dt>Next action</dt>
-                  <dd>
-                    {openedService
-                      ? workflowSteps[currentStage].shortLabel
-                      : scopedServices.length > 0
-                        ? "Open a service"
-                        : "Create a service"}
-                  </dd>
-                </div>
-              </dl>
-
-              {serviceListError && scopedServices.length > 0 && (
-                <section className="workbench-inline-error" role="alert">
-                  <p>{serviceListError.message}</p>
-                  <Button onPress={() => void loadServicePage()} variant="quiet">
-                    Retry service discovery
-                  </Button>
-                </section>
-              )}
-
-              {scopedServices.length > 0 ? (
-                <section aria-label="Agent services" className="workbench-resource-list">
-                  <div className="workbench-resource-list__head" aria-hidden="true">
-                    <span>Service</span>
-                    <span>Status</span>
-                    <span>Next action</span>
-                    <span />
-                  </div>
-                  {scopedServices.map((service) => {
-                    const isSelected = service.metadata.id === openedService?.metadata.id;
-                    const rowPresentation = isSelected
-                      ? presentation
-                      : { label: "Available", tone: "neutral" as const };
-                    return (
-                      <button
-                        className="workbench-resource-row"
-                        key={service.metadata.id}
-                        onClick={() => {
-                          if (isSelected && openedInvocation) setView("interactions");
-                          else if (isSelected) setView("workflow");
-                          else openService(service);
-                        }}
-                        type="button"
-                      >
-                        <span className="workbench-resource-row__name">
-                          <strong>{service.name}</strong>
-                          <span>{service.description ?? "No description"}</span>
-                        </span>
-                        <StatusBadge tone={rowPresentation.tone}>
-                          {rowPresentation.label}
-                        </StatusBadge>
-                        <span className="workbench-resource-row__secondary">
-                          {isSelected ? workflowSteps[currentStage].shortLabel : "Continue setup"}
-                        </span>
-                        <span aria-hidden="true">›</span>
-                      </button>
-                    );
-                  })}
-                  {serviceListNextCursor && (
-                    <div className="workbench-resource-list__more">
-                      <Button
-                        isDisabled={serviceListLoadingMore}
-                        onPress={() => void loadServicePage(serviceListNextCursor)}
-                        variant="quiet"
-                      >
-                        {serviceListLoadingMore ? "Loading more services…" : "Load more services"}
-                      </Button>
-                    </div>
-                  )}
-                </section>
-              ) : serviceListLoading ? (
-                <section aria-busy="true" className="workbench-empty">
-                  <span aria-hidden="true" className="workbench-empty__mark">
-                    ◇
-                  </span>
-                  <h2>Loading agent services</h2>
-                  <p>Reading the authoritative resource list for this isolation scope.</p>
-                </section>
-              ) : serviceListError ? (
-                <section className="workbench-empty" aria-labelledby="service-list-error-title">
-                  <span aria-hidden="true" className="workbench-empty__mark">
-                    !
-                  </span>
-                  <h2 id="service-list-error-title">Agent services are unavailable</h2>
-                  <p>{serviceListError.message}</p>
-                  <Button onPress={() => void loadServicePage()}>Retry service discovery</Button>
-                </section>
-              ) : (
-                <section className="workbench-empty" aria-labelledby="empty-services-title">
-                  <span aria-hidden="true" className="workbench-empty__mark">
-                    ◇
-                  </span>
-                  <h2 id="empty-services-title">No agent services in this scope</h2>
-                  <p>
-                    Create a service to begin the governed vertical slice. New resources appear here
-                    from the authoritative isolation-scoped service list.
-                  </p>
-                  <Button
-                    onPress={() => {
-                      clearWorkflow();
-                      setView("workflow");
-                    }}
-                  >
-                    Create agent service
-                  </Button>
-                </section>
-              )}
+              <ServiceDirectory
+                services={scopedServices}
+                loading={serviceListLoading}
+                loadingMore={serviceListLoadingMore}
+                error={serviceListError}
+                hasMore={serviceListNextCursor !== undefined}
+                query={serviceQuery}
+                sort={serviceSort}
+                onQueryChange={setServiceQuery}
+                onSortChange={setServiceSort}
+                onRefresh={() => void loadServicePage()}
+                onLoadMore={() => void loadServicePage(serviceListNextCursor)}
+                onCreate={() => {
+                  clearWorkflow();
+                  setView("workflow");
+                }}
+                onOpen={openService}
+                onHistory={(service) => {
+                  clearWorkflow();
+                  setOpenedService(service);
+                  setView("interactions");
+                }}
+              />
             </section>
           )}
 
@@ -759,7 +653,9 @@ export function DevelopmentWorkbench({
                   <p className="workbench-breadcrumb">
                     Agent services / {openedService?.name ?? "New service"}
                   </p>
-                  <h1 id="workflow-title">{openedService?.name ?? "Create an agent service"}</h1>
+                  <h1 id="workflow-title" tabIndex={-1}>
+                    {openedService?.name ?? "Create an agent service"}
+                  </h1>
                   <p>{workflowSteps[currentStage].shortLabel} to continue the governed setup.</p>
                 </div>
                 <Button onPress={() => setView("services")} variant="quiet">
@@ -937,8 +833,8 @@ export function DevelopmentWorkbench({
                   <p className="workbench-breadcrumb">
                     {openedService ? `${openedService.name} / Interactions` : "AI workspace"}
                   </p>
-                  <h1 id="interactions-title">
-                    {openedInvocation ? "Active interaction" : "Interactions"}
+                  <h1 id="interactions-title" tabIndex={-1}>
+                    {openedInvocation ? "Interaction details" : "Interactions"}
                   </h1>
                   <p>
                     {openedInvocation
@@ -960,6 +856,16 @@ export function DevelopmentWorkbench({
                   </Button>
                 )}
               </div>
+              {openedService && (
+                <div className="workbench-context-actions">
+                  <Button onPress={() => openService(openedService)} variant="quiet">
+                    Manage service
+                  </Button>
+                  <Button onPress={() => setView("services")} variant="quiet">
+                    Change service
+                  </Button>
+                </div>
+              )}
               {openedInvocation ? (
                 <div className="workbench-interaction">{workflow}</div>
               ) : openedService ? (
@@ -1024,9 +930,8 @@ export function App() {
           <StatusBadge tone="warning">Development only</StatusBadge>
           <h2 id="development-connection-title">Connect to the reference API</h2>
           <p>
-            The Workbench keeps this credential in memory and sends every command through the
-            same-origin development proxy. The API independently authenticates and authorizes each
-            request.
+            Use the development identity configured for your local API. Your token is kept only for
+            this connection and is cleared when you disconnect.
           </p>
         </div>
         <form

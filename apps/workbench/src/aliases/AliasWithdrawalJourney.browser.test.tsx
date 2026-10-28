@@ -129,7 +129,7 @@ it.each(["stable", "canary"])("withdraws %s before retirement", async (name) => 
         <DevelopmentWorkbench client={client} isolationDomainId={scope} onDisconnect={() => {}} />,
       ),
     );
-    await click("Withdrawal journey", true);
+    await click("Open service");
     expect(aliasReads).toBe(1);
     expect(commands).toHaveLength(0);
     await click(`Withdraw ${name} alias`);

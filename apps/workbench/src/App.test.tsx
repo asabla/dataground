@@ -45,8 +45,9 @@ describe("App", () => {
     assert.match(markup, /Agent services/u);
     assert.match(markup, /Interactions/u);
     assert.match(markup, /iso_00000000000000000001/u);
-    assert.match(markup, /Loading agent services/u);
-    assert.match(markup, /authoritative resource list/u);
+    assert.match(markup, /Loading services/u);
+    assert.match(markup, /Search loaded services/u);
+    assert.doesNotMatch(markup, /Active interactions/u);
     assert.doesNotMatch(markup, /service-list contract is not available yet/u);
     assert.doesNotMatch(markup, /Create agent service<\/h2>/u);
   });
