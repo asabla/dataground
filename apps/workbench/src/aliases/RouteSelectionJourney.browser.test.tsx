@@ -93,7 +93,7 @@ async function open(client: DataGroundClient) {
       <DevelopmentWorkbench client={client} isolationDomainId={scope} onDisconnect={() => {}} />,
     ),
   );
-  await click(service.name, true);
+  await click("Open service");
 }
 function fixture(read: (path: string, options: ReadOptions) => unknown) {
   const calls: string[] = [];
