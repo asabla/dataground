@@ -14,6 +14,23 @@ const props = {
 };
 
 describe("ServiceRevisionDraft", () => {
+  it("composes the owned input editor only while the draft can be edited", () => {
+    const editor = <p>Owned input editor</p>;
+    const editable = renderToStaticMarkup(
+      <ServiceRevisionDraft {...props} inputSchemaEditor={editor} onSubmit={() => undefined} />,
+    );
+    assert.match(editable, /Owned input editor/u);
+    assert.doesNotMatch(editable, /revision-input-schema/u);
+    const recovering = renderToStaticMarkup(
+      <ServiceRevisionDraft
+        {...props}
+        inputSchemaEditor={editor}
+        recoveryPending
+        onSubmit={() => undefined}
+      />,
+    );
+    assert.doesNotMatch(recovering, /Owned input editor/u);
+  });
   it("shows exact scope and revision definition fields without publication controls", () => {
     const markup = renderToStaticMarkup(
       <ServiceRevisionDraft {...props} onSubmit={() => undefined} />,
