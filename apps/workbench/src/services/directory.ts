@@ -1,3 +1,4 @@
+import { compareTimestamps } from "../contracts/timestamps";
 import type { AgentServiceResource } from "./client";
 
 export type ServiceSort = "updated" | "name";
@@ -10,7 +11,7 @@ export function selectDirectoryServices(
     const primary =
       sort === "name"
         ? left.name.localeCompare(right.name)
-        : Date.parse(right.metadata.updatedAt) - Date.parse(left.metadata.updatedAt);
+        : compareTimestamps(right.metadata.updatedAt, left.metadata.updatedAt);
     return primary || left.metadata.id.localeCompare(right.metadata.id);
   });
 }

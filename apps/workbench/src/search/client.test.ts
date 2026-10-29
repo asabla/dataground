@@ -1,11 +1,7 @@
 import { expect, it, vi } from "vitest";
 import type { DataGroundClient } from "../contracts/client";
-import {
-  compareSearchCreatedAt,
-  type SearchResult,
-  searchResources,
-  validSearchText,
-} from "./client";
+import { compareTimestamps } from "../contracts/timestamps";
+import { type SearchResult, searchResources, validSearchText } from "./client";
 
 const scope = "iso_00000000000000000001";
 const result = (kind: SearchResult["kind"], prefix: string): SearchResult =>
@@ -133,7 +129,7 @@ it("retains sub-millisecond page order and equivalent time zones", async () => {
     false,
   );
   expect(
-    compareSearchCreatedAt("2026-10-29T08:00:00.001000001Z", "2026-10-29T09:00:00.001000001+01:00"),
+    compareTimestamps("2026-10-29T08:00:00.001000001Z", "2026-10-29T09:00:00.001000001+01:00"),
   ).toBe(0);
 });
 it("keeps safe denials and hides malformed or thrown upstream responses", async () => {

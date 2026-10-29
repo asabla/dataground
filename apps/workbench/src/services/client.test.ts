@@ -253,3 +253,24 @@ it("sends bounded server searches to the selected discovery scope", async () => 
   }
   assert.equal(calls.length, 2);
 });
+
+it("accepts sub-millisecond creation order and rejects reversed or incorrect ID ties", async () => {
+  const resource = (id: string, createdAt: string) => ({
+    ...service,
+    metadata: { ...service.metadata, id, createdAt, updatedAt: "2026-10-29T12:00:00Z" },
+  });
+  const newer = resource("svc_00000000000000000001", "2026-10-29T10:00:00.000002Z");
+  const older = resource("svc_00000000000000000002", "2026-10-29T10:00:00.000001Z");
+  const tied = resource("svc_00000000000000000002", "2026-10-29T11:00:00.000002+01:00");
+  for (const [items, accepted] of [
+    [[newer, older], true],
+    [[older, newer], false],
+    [[newer, tied], false],
+    [[tied, newer], true],
+  ] as const) {
+    const api = {
+      GET: async () => ({ data: { items }, response: new Response(null, { status: 200 }) }),
+    } as unknown as DataGroundClient;
+    assert.equal((await listAgentServices(api, isolationDomainId)).ok, accepted);
+  }
+});

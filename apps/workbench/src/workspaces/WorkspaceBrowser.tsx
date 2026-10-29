@@ -1,6 +1,7 @@
 import { Button, CopyButton, DataTable, type DataTableSort, TextField } from "@dataground/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DataGroundClient } from "../contracts/client";
+import { compareTimestamps } from "../contracts/timestamps";
 import { useDiscoveryPage } from "../discovery/useDiscoveryPage";
 import { AgentServiceCreateWorkflow } from "../services/AgentServiceCreateWorkflow";
 import { type AgentServiceFailure, listAgentServices } from "../services/client";
@@ -87,7 +88,7 @@ function WorkspaceList({
       (sort.direction === "descending" ? -1 : 1) *
       (sort.column === "name"
         ? a.name.localeCompare(b.name)
-        : Date.parse(a.metadata.createdAt) - Date.parse(b.metadata.createdAt)),
+        : compareTimestamps(a.metadata.createdAt, b.metadata.createdAt)),
   );
   return (
     <section aria-labelledby="workspaces-title">
@@ -389,7 +390,7 @@ function WorkspaceServices({
               (sort.direction === "descending" ? -1 : 1) *
               (sort.column === "name"
                 ? a.name.localeCompare(b.name)
-                : Date.parse(a.metadata.createdAt) - Date.parse(b.metadata.createdAt)),
+                : compareTimestamps(a.metadata.createdAt, b.metadata.createdAt)),
           )}
           sort={sort}
           onSortChange={setSort}

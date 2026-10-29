@@ -1,5 +1,6 @@
 import type { DataGroundClient } from "../contracts/client";
 import type { components } from "../contracts/openapi.gen";
+import { compareTimestamps } from "../contracts/timestamps";
 import { scopeRunStates } from "../invocations/client";
 import type { AgentServiceFailure } from "../services/client";
 
@@ -33,14 +34,6 @@ export function validSearchText(value: string) {
   return value.length > 0 && Array.from(value).length <= 128 && !/[\p{Cc}\p{Cs}]/u.test(value);
 }
 
-// PostgreSQL and Go retain fractions smaller than a millisecond. Keep those
-// fractions when validating page order rather than rounding them into an ID tie.
-export function compareSearchCreatedAt(left: string, right: string): number {
-  const milliseconds = Date.parse(left) - Date.parse(right);
-  if (milliseconds) return milliseconds;
-  const fraction = (v: string) => (/\.(\d+)/u.exec(v)?.[1] ?? "").padEnd(9, "0").slice(3);
-  return fraction(left).localeCompare(fraction(right));
-}
 function decode(value: unknown, scope: string): SearchResult | undefined {
   if (!record(value) || !record(value.metadata) || !searchKinds.includes(value.kind as SearchKind))
     return;
@@ -191,8 +184,8 @@ export async function searchResources(
         ].some((v) => fold(v).includes(fold(query))) ||
         items.some((v) => v.metadata.id === item.metadata.id) ||
         (previous &&
-          (compareSearchCreatedAt(previous.metadata.createdAt, item.metadata.createdAt) < 0 ||
-            (compareSearchCreatedAt(previous.metadata.createdAt, item.metadata.createdAt) === 0 &&
+          (compareTimestamps(previous.metadata.createdAt, item.metadata.createdAt) < 0 ||
+            (compareTimestamps(previous.metadata.createdAt, item.metadata.createdAt) === 0 &&
               previous.metadata.id <= item.metadata.id)))
       )
         return invalid();
