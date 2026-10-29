@@ -1,7 +1,9 @@
 import { Button, StatusBadge } from "@dataground/ui";
+import { useId } from "react";
 import type { ServiceRevisionFailure, ServiceRevisionHistoryResource } from "./client";
 
 export interface ServiceRevisionHistoryPanelProps {
+  titleId?: string;
   error?: ServiceRevisionFailure;
   isLoading: boolean;
   isLoadingMore: boolean;
@@ -22,6 +24,7 @@ function revisionTone(state: ServiceRevisionHistoryResource["state"]) {
 }
 
 export function ServiceRevisionHistoryPanel({
+  titleId: suppliedTitleId,
   error,
   isLoading,
   isLoadingMore,
@@ -34,12 +37,14 @@ export function ServiceRevisionHistoryPanel({
   onOpen,
   revisions,
 }: ServiceRevisionHistoryPanelProps) {
+  const generatedTitleId = useId();
+  const titleId = suppliedTitleId ?? generatedTitleId;
   return (
-    <section aria-labelledby="revision-history-title" className="revision-history">
+    <section aria-labelledby={titleId} className="revision-history">
       <div className="revision-history__heading">
         <div>
           <p className="workbench-kicker">Authoritative history</p>
-          <h2 id="revision-history-title" tabIndex={-1}>
+          <h2 id={titleId} tabIndex={-1}>
             Service revisions
           </h2>
         </div>

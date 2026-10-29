@@ -237,6 +237,25 @@ p {
   margin-block-start: var(--dg-space-5);
 }
 
+.workbench-open-work {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dg-space-2);
+  margin-block-end: var(--dg-space-5);
+  padding-block-end: var(--dg-space-3);
+  border-bottom: var(--dg-border-default) solid var(--dg-color-border-default);
+}
+
+.workbench-open-work .dg-button {
+  max-width: 24rem;
+  overflow-wrap: anywhere;
+}
+
+.workbench-open-work [aria-current="page"] {
+  background: var(--dg-color-action-subtle);
+  color: var(--dg-color-action-primary);
+}
+
 .workbench-page-heading {
   display: flex;
   gap: var(--dg-space-5);
