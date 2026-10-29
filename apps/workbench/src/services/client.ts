@@ -14,6 +14,7 @@ export interface AgentServiceMetadata {
 }
 
 export interface AgentServiceResource {
+  workspaceId?: string;
   description?: string;
   metadata: AgentServiceMetadata;
   name: string;
@@ -56,6 +57,7 @@ const patterns = {
   errorCode: /^[A-Z][A-Z0-9_]{2,63}$/u,
   idempotencyKey: /^[A-Za-z0-9._:-]{8,128}$/u,
   isolationDomainId: /^iso_[0-9a-z]{20,32}$/u,
+  workspaceId: /^wsp_[0-9a-z]{20,32}$/u,
   serviceId: /^svc_[0-9a-z]{20,32}$/u,
   timestamp: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u,
 };
@@ -100,6 +102,8 @@ function decodeService(
     Date.parse(metadata.updatedAt) < Date.parse(metadata.createdAt) ||
     !boundedString(metadata.createdBy, 128) ||
     !boundedString(value.name, 128) ||
+    (value.workspaceId !== undefined &&
+      (typeof value.workspaceId !== "string" || !patterns.workspaceId.test(value.workspaceId))) ||
     (expected !== undefined && value.name !== expected.name) ||
     (value.description !== undefined &&
       (typeof value.description !== "string" ||
@@ -109,6 +113,7 @@ function decodeService(
     return undefined;
   }
   return {
+    ...(value.workspaceId === undefined ? undefined : { workspaceId: value.workspaceId }),
     ...(value.description === undefined ? undefined : { description: value.description }),
     metadata: {
       createdAt: metadata.createdAt,
@@ -210,7 +215,9 @@ export async function createAgentService(
   isolationDomainId: string,
   request: AgentServiceCreateRequest,
   idempotencyKey: string,
+  workspaceId?: string,
 ): Promise<AgentServiceCreateResult> {
+  if (workspaceId !== undefined && !patterns.workspaceId.test(workspaceId)) return invalidRequest();
   const name = request.name.trim();
   const encoder = new TextEncoder();
   if (
@@ -227,22 +234,40 @@ export async function createAgentService(
     name,
   };
   try {
-    const { data, error, response } = await client.POST(createPath, {
-      body,
-      params: {
-        header: { "Idempotency-Key": idempotencyKey },
-        path: { isolationDomainId },
-      },
-    });
-    if (!data) return failedResult(error, response.status);
+    const { data, error, response } =
+      workspaceId === undefined
+        ? await client.POST(createPath, {
+            body,
+            params: { header: { "Idempotency-Key": idempotencyKey }, path: { isolationDomainId } },
+          })
+        : await client.POST(
+            "/v1/isolation-domains/{isolationDomainId}/workspaces/{workspaceId}/agent-services",
+            {
+              body,
+              params: {
+                header: { "Idempotency-Key": idempotencyKey },
+                path: { isolationDomainId, workspaceId },
+              },
+            },
+          );
+    if (!data) {
+      const result = failedResult(error, response.status);
+      if (
+        result.error.code === "WORKBENCH_INVALID_RESPONSE" &&
+        (response.status < 300 || response.status >= 500)
+      )
+        return { ...result, error: { ...result.error, outcomeUnknown: true, retryable: true } };
+      return result;
+    }
     const service = decodeService(data, isolationDomainId, body);
-    return service
+    return service && response.status === 201 && service.workspaceId === workspaceId
       ? { ok: true, service }
       : {
           error: {
             code: "WORKBENCH_SERVICE_SCOPE_MISMATCH",
             message: "DataGround returned service state outside the requested scope or contract.",
-            retryable: false,
+            outcomeUnknown: true,
+            retryable: true,
           },
           ok: false,
         };
@@ -263,10 +288,12 @@ export async function listAgentServices(
   client: DataGroundClient,
   isolationDomainId: string,
   cursor?: string,
+  workspaceId?: string,
 ): Promise<AgentServiceListResult> {
   if (
     !patterns.isolationDomainId.test(isolationDomainId) ||
-    (cursor !== undefined && !patterns.cursor.test(cursor))
+    (cursor !== undefined && !patterns.cursor.test(cursor)) ||
+    (workspaceId !== undefined && !patterns.workspaceId.test(workspaceId))
   ) {
     return {
       error: {
@@ -278,12 +305,14 @@ export async function listAgentServices(
     };
   }
   try {
-    const { data, error, response } = await client.GET(createPath, {
-      params: {
-        path: { isolationDomainId },
-        query: { ...(cursor === undefined ? undefined : { cursor }), limit: 50 },
-      },
-    });
+    const query = { ...(cursor === undefined ? undefined : { cursor }), limit: 50 };
+    const { data, error, response } =
+      workspaceId === undefined
+        ? await client.GET(createPath, { params: { path: { isolationDomainId }, query } })
+        : await client.GET(
+            "/v1/isolation-domains/{isolationDomainId}/workspaces/{workspaceId}/agent-services",
+            { params: { path: { isolationDomainId, workspaceId }, query } },
+          );
     if (!data) return failedResult(error, response.status);
     const page = decodeServicePage(data, isolationDomainId);
     if (page?.nextCursor !== undefined && page.nextCursor === cursor) {
@@ -296,7 +325,9 @@ export async function listAgentServices(
         ok: false,
       };
     }
-    return page
+    return page &&
+      response.status === 200 &&
+      (workspaceId === undefined || page.items.every((item) => item.workspaceId === workspaceId))
       ? { ok: true, page }
       : {
           error: {

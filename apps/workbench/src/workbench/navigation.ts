@@ -1,6 +1,12 @@
 import { isRunTab, type RunTab } from "../invocations/navigation";
 
-export type WorkbenchView = "interactions" | "services" | "workflow" | "artifacts" | "home";
+export type WorkbenchView =
+  | "interactions"
+  | "services"
+  | "workflow"
+  | "artifacts"
+  | "home"
+  | "workspaces";
 export type ServiceTab = "overview" | "build" | "versions" | "deployments" | "runs";
 export type WorkbenchPresentation = "workbench" | "classic";
 
@@ -11,6 +17,7 @@ export function isServiceTab(value: string): value is ServiceTab {
 export interface WorkbenchRoute {
   isolationDomainId: string;
   view: WorkbenchView;
+  workspaceId?: string;
   serviceId?: string;
   revisionId?: string;
   invocationId?: string;
@@ -19,6 +26,7 @@ export interface WorkbenchRoute {
   serviceTab?: Exclude<ServiceTab, "build" | "runs">;
 }
 
+const workspacePattern = /^wsp_[0-9a-z]{20,32}$/u;
 const revisionPattern = /^rev_[0-9a-z]{20,32}$/u;
 const scopePattern = /^iso_[0-9a-z]{20,32}$/u;
 const invocationPattern = /^inv_[0-9a-z]{20,32}$/u;
@@ -29,13 +37,15 @@ const servicePattern = /^svc_[0-9a-z]{20,32}$/u;
 // command attempts, filters and result contents stay in the connected session.
 export function routeHash(route: WorkbenchRoute): string {
   if (
-    ((route.view === "artifacts" || route.view === "home") &&
+    ((route.view === "artifacts" || route.view === "home" || route.view === "workspaces") &&
       (route.serviceId !== undefined ||
         route.revisionId !== undefined ||
         route.invocationId !== undefined ||
         route.artifactId !== undefined ||
         route.serviceTab !== undefined ||
         route.runTab !== undefined)) ||
+    (route.workspaceId !== undefined &&
+      (route.view !== "workspaces" || !workspacePattern.test(route.workspaceId))) ||
     !scopePattern.test(route.isolationDomainId) ||
     (route.serviceId !== undefined && !servicePattern.test(route.serviceId)) ||
     (route.revisionId !== undefined &&
@@ -53,6 +63,8 @@ export function routeHash(route: WorkbenchRoute): string {
   ) {
     throw new Error("Invalid workbench route");
   }
+  if (route.view === "workspaces")
+    return `#/scopes/${route.isolationDomainId}/workspaces${route.workspaceId ? `/${route.workspaceId}` : ""}`;
   if (route.view === "home") return `#/scopes/${route.isolationDomainId}/home`;
   if (route.view === "artifacts") return `#/scopes/${route.isolationDomainId}/artifacts`;
   const root = `#/scopes/${route.isolationDomainId}/agents`;
@@ -71,6 +83,14 @@ export function parseRoute(hash: string, isolationDomainId: string): WorkbenchRo
   if (hash === `#/scopes/${isolationDomainId}/artifacts`)
     return { isolationDomainId, view: "artifacts" };
   if (hash === `#/scopes/${isolationDomainId}/home`) return { isolationDomainId, view: "home" };
+  const workspaceRoot = `#/scopes/${isolationDomainId}/workspaces`;
+  if (hash === workspaceRoot) return { isolationDomainId, view: "workspaces" };
+  if (hash.startsWith(`${workspaceRoot}/`)) {
+    const workspaceId = hash.slice(workspaceRoot.length + 1);
+    return workspacePattern.test(workspaceId)
+      ? { isolationDomainId, view: "workspaces", workspaceId }
+      : undefined;
+  }
   const root = `#/scopes/${isolationDomainId}/agents`;
   if (hash === root) return { isolationDomainId, view: "services" };
   if (hash === `${root}/new`) return { isolationDomainId, view: "workflow" };

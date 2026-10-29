@@ -1051,3 +1051,15 @@ p {
   padding-top: var(--dg-space-4);
   border-top: var(--dg-border-default) solid var(--dg-color-border-default);
 }
+
+.workspace-create {
+  display: grid;
+  gap: var(--dg-space-4);
+  max-width: 44rem;
+  margin-block: var(--dg-space-6);
+  padding-block: var(--dg-space-4);
+  border-block: 1px solid var(--dg-color-border-default);
+}
+.workspace-create > .dg-button {
+  justify-self: start;
+}

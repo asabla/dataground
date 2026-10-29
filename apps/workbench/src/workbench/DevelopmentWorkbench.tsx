@@ -11,6 +11,7 @@ import {
 } from "../services/client";
 import type { ServiceSort } from "../services/directory";
 import { ServiceDirectory } from "../services/ServiceDirectory";
+import { WorkspaceBrowser } from "../workspaces/WorkspaceBrowser";
 import type {
   ServiceTab,
   WorkbenchPresentation,
@@ -82,7 +83,10 @@ export function WorkbenchSession({
   const serviceListGeneration = useRef(0);
   const pageContent = useRef<HTMLDivElement>(null);
   const activeSession =
-    route?.view === "services" || route?.view === "artifacts" || route?.view === "home"
+    route?.view === "services" ||
+    route?.view === "artifacts" ||
+    route?.view === "home" ||
+    route?.view === "workspaces"
       ? undefined
       : route?.serviceId
         ? sessions.find((session) => session.service?.metadata.id === route.serviceId)
@@ -106,6 +110,12 @@ export function WorkbenchSession({
   const showArtifacts = !!route && view === "artifacts" && presentation === "workbench";
   const [visitedArtifacts, setVisitedArtifacts] = useState(showArtifacts);
   if (showArtifacts && !visitedArtifacts) setVisitedArtifacts(true);
+  const showWorkspaces = !!route && view === "workspaces" && presentation === "workbench";
+  const [visitedWorkspaces, setVisitedWorkspaces] = useState(showWorkspaces);
+  if (showWorkspaces && !visitedWorkspaces) setVisitedWorkspaces(true);
+  const [lastWorkspaceId, setLastWorkspaceId] = useState<string | undefined>(route?.workspaceId);
+  if (showWorkspaces && route?.workspaceId !== lastWorkspaceId)
+    setLastWorkspaceId(route?.workspaceId);
   const resolvingService = !!route?.serviceId && !activeSession;
 
   const loadServicePage = useCallback(
@@ -155,7 +165,13 @@ export function WorkbenchSession({
     const generation = ++serviceReadGeneration.current;
     setServiceReadError(undefined);
     setServiceReadLoading(false);
-    if (!route || route.view === "services" || route.view === "artifacts" || route.view === "home")
+    if (
+      !route ||
+      route.view === "services" ||
+      route.view === "artifacts" ||
+      route.view === "home" ||
+      route.view === "workspaces"
+    )
       return;
     if (!route.serviceId) {
       if (
@@ -240,14 +256,20 @@ export function WorkbenchSession({
     navigate({
       isolationDomainId,
       view: next,
+      ...(next === "workspaces" && lastWorkspaceId ? { workspaceId: lastWorkspaceId } : {}),
       ...(next === "services" ||
       next === "home" ||
+      next === "workspaces" ||
       next === "artifacts" ||
       (next === "interactions" && presentation === "workbench")
         ? {}
         : { serviceId: context?.service?.metadata.id }),
     });
   };
+  useEffect(() => {
+    if (showWorkspaces && !route?.workspaceId)
+      pageContent.current?.querySelector<HTMLElement>("#workspaces-title")?.focus();
+  }, [showWorkspaces, route?.workspaceId]);
   const create = () => navigate({ isolationDomainId, view: "workflow" });
   const sessionRoute = (
     session: OpenServiceWork,
@@ -396,6 +418,32 @@ export function WorkbenchSession({
             <Button onPress={() => navigateView("services")}>View agent services</Button>
           </section>
         )}
+        {visitedWorkspaces && presentation === "workbench" && (
+          <div hidden={!showWorkspaces} inert={!showWorkspaces}>
+            <WorkspaceBrowser
+              client={client}
+              isolationDomainId={isolationDomainId}
+              workspaceId={lastWorkspaceId}
+              active={showWorkspaces}
+              onNavigate={(workspaceId) =>
+                navigate({
+                  isolationDomainId,
+                  view: "workspaces",
+                  ...(workspaceId ? { workspaceId } : {}),
+                })
+              }
+              onOpenService={(serviceId) =>
+                navigate({ isolationDomainId, view: "workflow", serviceId, serviceTab: "overview" })
+              }
+            />
+          </div>
+        )}
+        {route?.view === "workspaces" && presentation === "classic" && (
+          <section>
+            <h1>Workspace</h1>
+            <p>Select the workbench presentation to browse workspaces.</p>
+          </section>
+        )}
         {visitedArtifacts && presentation === "workbench" && (
           <div hidden={!showArtifacts} inert={!showArtifacts}>
             <ScopeArtifactBrowser
@@ -481,6 +529,16 @@ export function WorkbenchSession({
                 }
                 client={client}
                 isolationDomainId={isolationDomainId}
+                onOpenWorkspace={
+                  session.service?.workspaceId
+                    ? () =>
+                        navigate({
+                          isolationDomainId,
+                          view: "workspaces",
+                          workspaceId: session.service?.workspaceId,
+                        })
+                    : undefined
+                }
                 initialService={session.service}
                 active={active}
                 view={active ? view : "services"}
