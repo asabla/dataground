@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import type { DataGroundClient } from "../contracts/client";
-import { listInvocationArtifacts, readInvocationArtifact } from "./client";
+import { listInvocationArtifacts, listScopeArtifacts, readInvocationArtifact } from "./client";
 
 const reference = {
   artifactId: "art_00000000000000000001",
@@ -244,5 +244,84 @@ describe("invocation artifact discovery client", () => {
     );
     assert.equal(denied.ok, false);
     if (!denied.ok) assert.equal(denied.error.status, 403);
+  });
+});
+
+describe("scope artifact discovery", () => {
+  const item = {
+    ...artifact,
+    serviceId: "svc_00000000000000000001",
+    serviceName: "Analysis assistant",
+    revisionId: "rev_00000000000000000001",
+  };
+  it("uses one bounded query and excludes storage and content fields", async () => {
+    const calls: unknown[] = [];
+    const client = {
+      GET: async (path: string, options: unknown) => {
+        calls.push({ path, options });
+        return {
+          data: { items: [{ ...item, storageKey: "private", content: "private" }] },
+          response: new Response(null, { status: 200 }),
+        };
+      },
+    } as unknown as DataGroundClient;
+    const result = await listScopeArtifacts(client, reference.isolationDomainId, "available");
+    assert.equal(result.ok, true);
+    assert.deepEqual(calls, [
+      {
+        path: "/v1/isolation-domains/{isolationDomainId}/artifacts",
+        options: {
+          params: {
+            path: { isolationDomainId: reference.isolationDomainId },
+            query: { limit: 50, state: "available" },
+          },
+        },
+      },
+    ]);
+    if (result.ok) {
+      assert.ok(result.page.items[0]);
+      assert.equal(result.page.items[0].serviceId, item.serviceId);
+      assert.equal("storageKey" in result.page.items[0], false);
+      assert.equal("content" in result.page.items[0], false);
+    }
+  });
+  it("rejects foreign scope, duplicate items, invalid provenance and stalled pages", async () => {
+    for (const page of [
+      {
+        items: [
+          {
+            ...item,
+            metadata: { ...item.metadata, isolationDomainId: "iso_00000000000000000002" },
+          },
+        ],
+      },
+      { items: [item, item] },
+      { items: [{ ...item, invocationId: "bad" }] },
+      { items: [{ ...item, serviceId: "bad" }] },
+      { items: [{ ...item, revisionId: "bad" }] },
+      { items: [{ ...item, serviceName: "" }] },
+      { items: [{ ...item, state: "failed" }] },
+      { items: [item], nextCursor: "page-1" },
+      { items: [], nextCursor: "page-2" },
+    ]) {
+      const client = {
+        GET: async () => ({ data: page, response: new Response(null, { status: 200 }) }),
+      } as unknown as DataGroundClient;
+      assert.equal(
+        (await listScopeArtifacts(client, reference.isolationDomainId, "available", "page-1")).ok,
+        false,
+      );
+    }
+  });
+  it("preserves bounded future states when no state filter is requested", async () => {
+    const client = {
+      GET: async () => ({
+        data: { items: [{ ...item, state: "quarantined" }] },
+        response: new Response(null, { status: 200 }),
+      }),
+    } as unknown as DataGroundClient;
+    const result = await listScopeArtifacts(client, reference.isolationDomainId);
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.page.items[0]?.state, "quarantined");
   });
 });

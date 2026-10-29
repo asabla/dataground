@@ -325,3 +325,105 @@ export async function listInvocationArtifacts(
     );
   }
 }
+
+export const scopeArtifactStates = ["pending", "available", "failed", "deleted"] as const;
+export type ScopeArtifactState = (typeof scopeArtifactStates)[number];
+export interface ScopeArtifact extends InvocationArtifact {
+  serviceId: string;
+  serviceName: string;
+  revisionId: string;
+}
+export type ScopeArtifactListResult =
+  | { ok: true; page: { items: ScopeArtifact[]; nextCursor?: string } }
+  | { ok: false; error: ArtifactFailure };
+export async function listScopeArtifacts(
+  client: DataGroundClient,
+  isolationDomainId: string,
+  state?: ScopeArtifactState,
+  cursor?: string,
+): Promise<ScopeArtifactListResult> {
+  const cursorPattern = /^[A-Za-z0-9_-]{1,512}$/u;
+  if (
+    !resourcePatterns.isolationDomainId.test(isolationDomainId) ||
+    (state !== undefined && !scopeArtifactStates.includes(state)) ||
+    (cursor !== undefined && !cursorPattern.test(cursor))
+  )
+    return failure(
+      "WORKBENCH_INVALID_ARTIFACT_QUERY",
+      "The artifact scope, state or cursor is invalid.",
+    );
+  try {
+    const { data, error, response } = await client.GET(
+      "/v1/isolation-domains/{isolationDomainId}/artifacts",
+      {
+        params: {
+          path: { isolationDomainId },
+          query: { limit: 50, ...(state ? { state } : {}), ...(cursor ? { cursor } : {}) },
+        },
+      },
+    );
+    if (!response.ok || !data) return failedResult(error, response.status);
+    const page: unknown = data;
+    const invalid = () =>
+      failure(
+        "WORKBENCH_ARTIFACT_PAGE_INVALID",
+        "DataGround returned artifacts outside the requested scope or filter.",
+      );
+    if (
+      !isRecord(page) ||
+      !Array.isArray(page.items) ||
+      page.items.length > 50 ||
+      (page.nextCursor !== undefined &&
+        (typeof page.nextCursor !== "string" ||
+          !cursorPattern.test(page.nextCursor) ||
+          page.nextCursor === cursor ||
+          page.items.length === 0))
+    )
+      return invalid();
+    const items: ScopeArtifact[] = [];
+    const ids = new Set<string>();
+    for (const value of page.items) {
+      if (
+        !isRecord(value) ||
+        !isRecord(value.metadata) ||
+        !boundedString(value.metadata.id, 36, resourcePatterns.artifactId) ||
+        !boundedString(value.invocationId, 36, resourcePatterns.invocationId) ||
+        !boundedString(value.serviceId, 36, /^svc_[0-9a-z]{20,32}$/u) ||
+        !boundedString(value.revisionId, 36, /^rev_[0-9a-z]{20,32}$/u) ||
+        !boundedString(value.serviceName, 255)
+      )
+        return invalid();
+      const artifact = decodeArtifact(value, {
+        isolationDomainId,
+        invocationId: value.invocationId,
+        artifactId: value.metadata.id,
+      });
+      if (
+        !artifact ||
+        ids.has(artifact.metadata.id) ||
+        (state !== undefined && artifact.state !== state)
+      )
+        return invalid();
+      ids.add(artifact.metadata.id);
+      items.push({
+        ...artifact,
+        serviceId: value.serviceId,
+        serviceName: value.serviceName,
+        revisionId: value.revisionId,
+      });
+    }
+    return {
+      ok: true,
+      page: {
+        items,
+        ...(typeof page.nextCursor === "string" ? { nextCursor: page.nextCursor } : {}),
+      },
+    };
+  } catch {
+    return failure(
+      "WORKBENCH_ARTIFACT_DISCOVERY_UNAVAILABLE",
+      "The Workbench could not reach DataGround to list artifacts.",
+      true,
+    );
+  }
+}

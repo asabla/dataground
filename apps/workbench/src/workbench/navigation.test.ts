@@ -7,6 +7,7 @@ const serviceId = "svc_00000000000000000001";
 it("round-trips scoped directory, create, service and run-list locations", () => {
   for (const route of [
     { isolationDomainId, view: "services" },
+    { isolationDomainId, view: "artifacts" },
     { isolationDomainId, view: "workflow" },
     { isolationDomainId, view: "interactions" },
     { isolationDomainId, serviceId, view: "workflow" },
@@ -127,5 +128,17 @@ it("round-trips revision context across service views and rejects mixed resource
   assert.throws(() => routeHash({ isolationDomainId, revisionId, view: "workflow" }));
   assert.throws(() =>
     routeHash({ isolationDomainId, serviceId, revisionId, invocationId, view: "interactions" }),
+  );
+});
+
+it("rejects service context and content in global artifact locations", () => {
+  assert.throws(() => routeHash({ isolationDomainId, serviceId, view: "artifacts" }));
+  assert.equal(
+    parseRoute(`#/scopes/${isolationDomainId}/artifacts?content=private`, isolationDomainId),
+    undefined,
+  );
+  assert.equal(
+    parseRoute(`#/scopes/${isolationDomainId}/artifacts/extra`, isolationDomainId),
+    undefined,
   );
 });

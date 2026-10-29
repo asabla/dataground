@@ -220,3 +220,10 @@ the exact service and run locations with their independent authorization checks.
 The list, filters and loaded pages remain in memory across supported navigation,
 including a denied detail read, and are cleared with the connection identity.
 The workbench does not request each service to simulate a global list.
+
+The primary Artifacts destination uses the separate scope-level metadata query,
+with server-side state filters and loaded-name/service search. Source service,
+format, size, sensitivity and retention state support comparison. Inspect opens
+the artifact in its exact run Files view, using the normal independent service,
+run and artifact reads. The global list and its filters remain in memory on
+return. Only resource identities enter the URL; content access remains explicit.
