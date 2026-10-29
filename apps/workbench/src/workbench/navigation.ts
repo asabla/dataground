@@ -14,11 +14,13 @@ export interface WorkbenchRoute {
   serviceId?: string;
   invocationId?: string;
   runTab?: RunTab;
+  artifactId?: string;
   serviceTab?: Exclude<ServiceTab, "build" | "runs">;
 }
 
 const scopePattern = /^iso_[0-9a-z]{20,32}$/u;
 const invocationPattern = /^inv_[0-9a-z]{20,32}$/u;
+const artifactPattern = /^art_[0-9a-z]{20,32}$/u;
 const servicePattern = /^svc_[0-9a-z]{20,32}$/u;
 
 // Only resource identities and closed view names belong in navigation. Forms,
@@ -31,7 +33,9 @@ export function routeHash(route: WorkbenchRoute): string {
       (!invocationPattern.test(route.invocationId) ||
         !route.serviceId ||
         route.view !== "interactions")) ||
-    (route.runTab !== undefined && (!route.invocationId || !isRunTab(route.runTab)))
+    (route.runTab !== undefined && (!route.invocationId || !isRunTab(route.runTab))) ||
+    (route.artifactId !== undefined &&
+      (!route.invocationId || !artifactPattern.test(route.artifactId)))
   ) {
     throw new Error("Invalid workbench route");
   }
@@ -39,7 +43,7 @@ export function routeHash(route: WorkbenchRoute): string {
   if (route.view === "services") return root;
   if (route.serviceId) {
     if (route.invocationId)
-      return `${root}/${route.serviceId}/runs/${route.invocationId}/${route.runTab ?? "activity"}`;
+      return `${root}/${route.serviceId}/runs/${route.invocationId}/${route.runTab ?? "activity"}${route.artifactId ? `/artifacts/${route.artifactId}` : ""}`;
     return `${root}/${route.serviceId}/${route.view === "interactions" ? "runs" : (route.serviceTab ?? "build")}`;
   }
   return `${root}/${route.view === "workflow" ? "new" : "runs"}`;
@@ -53,7 +57,9 @@ export function parseRoute(hash: string, isolationDomainId: string): WorkbenchRo
   if (hash === `${root}/new`) return { isolationDomainId, view: "workflow" };
   if (hash === `${root}/runs`) return { isolationDomainId, view: "interactions" };
   if (!hash.startsWith(`${root}/`)) return undefined;
-  const [serviceId, tab, invocationId, runTab, extra] = hash.slice(root.length + 1).split("/");
+  const [serviceId, tab, invocationId, runTab, resourceType, artifactId, extra] = hash
+    .slice(root.length + 1)
+    .split("/");
   if (
     serviceId &&
     servicePattern.test(serviceId) &&
@@ -62,7 +68,11 @@ export function parseRoute(hash: string, isolationDomainId: string): WorkbenchRo
     invocationPattern.test(invocationId) &&
     runTab &&
     isRunTab(runTab) &&
-    extra === undefined
+    extra === undefined &&
+    ((resourceType === undefined && artifactId === undefined) ||
+      (resourceType === "artifacts" &&
+        artifactId !== undefined &&
+        artifactPattern.test(artifactId)))
   ) {
     return {
       isolationDomainId,
@@ -70,6 +80,7 @@ export function parseRoute(hash: string, isolationDomainId: string): WorkbenchRo
       view: "interactions",
       invocationId,
       ...(runTab === "activity" ? {} : { runTab }),
+      ...(artifactId ? { artifactId } : {}),
     };
   }
   if (

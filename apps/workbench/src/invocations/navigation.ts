@@ -7,4 +7,5 @@ export function isRunTab(value: string): value is RunTab {
 export interface RunLocation {
   invocationId?: string;
   tab?: RunTab;
+  artifactId?: string;
 }

@@ -503,3 +503,87 @@ it("starts a clean draft only after the previous draft was confirmed", async () 
     ),
   ).toBe(false);
 });
+
+const artifactId = "art_00000000000000000001";
+const artifact = {
+  metadata: { ...service.metadata, id: artifactId },
+  invocationId: runId,
+  digest: `sha256:${"a".repeat(64)}`,
+  kind: "file",
+  mediaType: "text/plain",
+  name: "Reviewed output.txt",
+  sensitive: true,
+  sizeBytes: 20,
+  state: "available",
+};
+const artifactRoute = () =>
+  routeHash({
+    isolationDomainId: scope,
+    serviceId,
+    invocationId: runId,
+    view: "interactions",
+    runTab: "files",
+    artifactId,
+  });
+function artifactFixture(read: () => unknown = () => ok(artifact)) {
+  const source = runFixture();
+  const baseGet = source.client.GET;
+  source.client.GET = (async (path: string, options: never) => {
+    if (path.endsWith("/artifacts/{artifactId}")) {
+      source.reads.push(path);
+      return read();
+    }
+    return baseGet(path as never, options);
+  }) as DataGroundClient["GET"];
+  return source;
+}
+it("restores an artifact link in its originating run without reading protected content", async () => {
+  const source = artifactFixture();
+  window.history.replaceState(null, "", artifactRoute());
+  await render(source.client, "workbench");
+  expect(selectedRunTab()).toBe("Files");
+  expect(host.textContent).toContain(artifact.name);
+  expect(source.reads.some((path) => path.endsWith("/content"))).toBe(false);
+  await click("Close artifact");
+  expect(window.location.hash).toBe(runRoute("files"));
+  expect(host.textContent).not.toContain(artifact.name);
+  await visit(artifactRoute());
+  expect(host.textContent).toContain(artifact.name);
+  await click("Activity");
+  expect(window.location.hash).toContain(`/activity/artifacts/${artifactId}`);
+  expect(host.textContent).toContain(artifact.name);
+  expect(source.reads.some((path) => path.endsWith("/content"))).toBe(false);
+});
+it("does not restore an artifact from a late read after its location was closed", async () => {
+  let finish!: (value: unknown) => void;
+  const source = artifactFixture(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  window.history.replaceState(null, "", artifactRoute());
+  await render(source.client, "workbench");
+  await click("Close artifact");
+  await act(async () => finish(ok(artifact)));
+  expect(host.textContent).not.toContain(artifact.name);
+  expect(window.location.hash).toBe(runRoute("files"));
+});
+it("keeps artifact access failures visible without requesting file content", async () => {
+  const source = artifactFixture(() => ({
+    error: {
+      error: {
+        code: "FORBIDDEN",
+        message: "Access denied.",
+        correlationId: "cor_artifact",
+        retryable: false,
+      },
+    },
+    response: new Response(null, { status: 403 }),
+  }));
+  window.history.replaceState(null, "", artifactRoute());
+  await render(source.client, "workbench");
+  expect(host.querySelector('[role="alert"]')).not.toBeNull();
+  expect(host.textContent).not.toContain(artifact.name);
+  expect(source.reads.some((path) => path.endsWith("/content"))).toBe(false);
+});

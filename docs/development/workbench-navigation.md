@@ -161,3 +161,12 @@ inspection; question content and approval effects keep their separate access and
 confirmation boundaries. Missing expiry in an older approval contract is shown
 as not supplied. Refresh, pagination, denial and stale-control guards are shared
 with the temporary classic lists.
+
+Artifact inspection appends `/artifacts/{artifactId}` to an exact run-view URL.
+The run read verifies the service relationship, and the artifact metadata read
+independently verifies its invocation and isolation scope. Closing inspection
+removes the suffix; browser back and refresh restore metadata in the same run
+view. A link never requests file contents. Content disclosure, authorization,
+digest verification and stale-response fences remain in the existing artifact
+workflow. A changed artifact link replaces a prior event selection so it cannot
+hide the requested artifact.

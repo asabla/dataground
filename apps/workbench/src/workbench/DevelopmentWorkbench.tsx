@@ -321,7 +321,13 @@ export function WorkbenchSession({
               <ServiceWorkflowSession
                 presentation={presentation}
                 runLocation={
-                  active ? { invocationId: route?.invocationId, tab: route?.runTab } : undefined
+                  active
+                    ? {
+                        invocationId: route?.invocationId,
+                        tab: route?.runTab,
+                        artifactId: route?.artifactId,
+                      }
+                    : undefined
                 }
                 onRunNavigate={(location) =>
                   navigate({
@@ -330,6 +336,7 @@ export function WorkbenchSession({
                     view: "interactions",
                     invocationId: location.invocationId,
                     runTab: location.tab,
+                    artifactId: location.artifactId,
                   })
                 }
                 selectedTab={
