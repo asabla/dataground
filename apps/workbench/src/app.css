@@ -171,6 +171,7 @@ p {
 }
 
 .workbench-sidebar {
+  min-width: 0;
   padding: var(--dg-space-5) var(--dg-space-3);
   border-right: var(--dg-border-default) solid var(--dg-color-border-default);
   background: var(--dg-color-surface-raised);
@@ -596,7 +597,7 @@ p {
   }
 
   .workbench-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .workbench-sidebar {
@@ -620,6 +621,7 @@ p {
 
   .workbench-sidebar nav {
     display: flex;
+    flex-wrap: wrap;
     gap: var(--dg-space-2);
     margin: 0;
   }
