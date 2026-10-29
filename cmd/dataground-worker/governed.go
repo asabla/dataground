@@ -22,6 +22,7 @@ import (
 	"github.com/asabla/dataground/internal/reconcile"
 	dgruntime "github.com/asabla/dataground/internal/runtime"
 	"github.com/asabla/dataground/internal/runtime/codex"
+	"github.com/asabla/dataground/internal/workspace"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -323,7 +324,7 @@ func loadWorkerConfig(lookup environmentLookup) (workerConfig, error) {
 	switch {
 	case !found || profile == governedCertificationProfile:
 		config.certification, err = loadRuntimeCertificationConfig(lookup)
-	case profile == localRuntimeProfile || profile == strictLocalRuntimeProfile || profile == workspaceLocalRuntimeProfile:
+	case profile == localRuntimeProfile || profile == strictLocalRuntimeProfile || profile == workspaceLocalRuntimeProfile || profile == ownedWorkspaceRuntimeProfile:
 		config.localAcceptance, err = loadLocalRuntimeAcceptanceConfig(lookup)
 	default:
 		return workerConfig{}, errors.New("unsupported development runtime profile")
@@ -395,6 +396,9 @@ func loadWorkerConfig(lookup environmentLookup) (workerConfig, error) {
 			"DATAGROUND_INVOCATION_ARTIFACT_MAX_BYTES must be between 1 and %d",
 			maximumConfiguredArtifactBytes,
 		)
+	}
+	if config.exportEnabled() && config.maximumArtifactBytes < workspace.MaximumChangeSetBytes {
+		return workerConfig{}, fmt.Errorf("owned workspace export requires DATAGROUND_INVOCATION_ARTIFACT_MAX_BYTES of at least %d", workspace.MaximumChangeSetBytes)
 	}
 	return config, nil
 }
@@ -562,6 +566,7 @@ func composeWorkerDriver(
 		ExecutionProvider: openShellProvider,
 		readiness:         readiness,
 		target:            config.runtimeTarget(),
+		workspaceExport:   config.exportEnabled(),
 	}
 
 	bundles, err := execution.NewObjectEnforcementBundleSource(executionStore, objectStore)
@@ -574,6 +579,7 @@ func composeWorkerDriver(
 		workspacePlanDigest: config.workspacePlanDigest,
 	}
 	var preparer *reconcile.InvocationWorkspacePreparer
+	var completion *reconcile.InvocationWorkspaceCompletion
 	var admission *execution.Admission
 	if config.sourceEnabled() {
 		sourceStore, sourceErr := s3store.NewWorkspaceSourceStore(objectStore)
@@ -587,6 +593,12 @@ func composeWorkerDriver(
 		preparer, err = config.workspacePreparer(repository, sourceStore, sourcePlan)
 		if err != nil {
 			return fail(err)
+		}
+		if config.exportEnabled() {
+			completion, err = config.workspaceCompletion(repository, sourceStore, artifactStore, sourcePlan)
+			if err != nil {
+				return fail(err)
+			}
 		}
 		admission, err = execution.NewWorkspaceCredentialMediatedAdmission(plans, bundles, provider, durableProviderCredentialAuthorizer{repository: repository}, sourcePlan)
 	} else {
@@ -638,12 +650,13 @@ func composeWorkerDriver(
 		governedCodexRuntimeAdapterFactory{},
 		artifactFinalizer,
 		reconcile.InvocationRuntimeDriverConfig{
-			WorkspacePreparer:  preparer,
-			LeaseDuration:      governedRuntimeLeaseDuration,
-			RenewInterval:      governedRuntimeRenewInterval,
-			Readiness:          readiness.Check,
-			ApprovalStore:      repository,
-			ApprovalAuthorizer: authorizer,
+			WorkspaceCompletion: completion,
+			WorkspacePreparer:   preparer,
+			LeaseDuration:       governedRuntimeLeaseDuration,
+			RenewInterval:       governedRuntimeRenewInterval,
+			Readiness:           readiness.Check,
+			ApprovalStore:       repository,
+			ApprovalAuthorizer:  authorizer,
 		},
 	)
 	if err != nil {

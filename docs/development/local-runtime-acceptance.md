@@ -102,11 +102,12 @@ minimum generation and rejection list. Both image publications must have passed
 before preparation. Evidence expiry is checked again after external proof
 verification. Acceptance does not extend the diagnostic's 24-hour validity.
 
-This standalone profile is not selectable by the worker or publication paths.
-It supplies an image and observed-capability binding for the later worker
-composition. Current Cedar authority, source grants, durable cleanup and export
-records, exclusion of other writers, and retention before deletion remain
-separate requirements. No production certification is granted.
+The [owned workspace worker profile](governed-worker.md#owned-workspace-export-profile)
+can explicitly consume this acceptance with exact plan and source-grant pins,
+version 7 Cedar policy, and strict gateway observation. Publication paths still
+reject this profile pending their separate versioned contract. Current authority,
+durable cleanup and export records, exclusion of other writers, and retention
+before deletion remain separate requirements. No production certification is granted.
 
 ## Live acceptance verifier test
 
@@ -202,8 +203,8 @@ private command output and change bytes are not included.
 This is a disposable development test. It does not establish exclusion of
 writers started outside this launcher, durable retention in the worker, or
 permission to delete user workspaces. The existing v1–v3 acceptance contracts
-reject this diagnostic. The separate v4 acceptance above can bind it, but a
-worker composition is still required before it can authorize governed execution.
+reject this diagnostic. The separate v4 acceptance above can bind it for the
+explicit owned worker profile; the diagnostic alone cannot authorize execution.
 
 The [retained v7 diagnostic](../../deploy/openshell/diagnostics/codex-owned-workspace-candidate-arm64-20261029.json)
 passed on 2026-10-29 from clean source

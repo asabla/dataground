@@ -88,7 +88,7 @@ DATAGROUND_WORKSPACE_PLAN_DIGEST='sha256:<reviewed-source-plan-digest>'
 DATAGROUND_WORKSPACE_SOURCE_GRANT_GENERATION='1'
 ```
 
-Both pins are required. The generation must be a canonical positive signed 64-bit integer; leading zeros are rejected. Other profiles reject either setting. Startup resolves the exact published revision and source plan, verifies its accepted image and strict policy, and requires its source storage profile to match the configured loopback S3 endpoint and bucket. The plan digest binds the complete source record. Source-backed admission requires that same plan and retains provider authorization before selection and creation. It grants no source read by itself.
+Both pins are required. The generation must be a canonical positive signed 64-bit integer; leading zeros are rejected. Source-free profiles reject either setting. Startup resolves the exact published revision and source plan, verifies its accepted image and strict policy, and requires its source storage profile to match the configured loopback S3 endpoint and bucket. The plan digest binds the complete source record. Source-backed admission requires that same plan and retains provider authorization before selection and creation. It grants no source read by itself.
 
 The runtime driver uses the existing claim-bound preparation controller before reserving a native turn. It rechecks source Cedar authority and the exact source grant at read admission, read delivery, immediately before transfer, and completion. The certified provider repeats runtime acceptance and gateway observation before sending the archive. Transfer remains bounded by the earliest claim or source deadline. Lost acknowledgement requires exact read-back under a current claim; a replacement worker cannot reuse the previous fencing token's completion. Current runtime authorization and readiness are required again before the single-use runtime reservation and process startup.
 
@@ -99,6 +99,21 @@ Cancellation preserves an existing execution whose exact revision selects a sour
 This check uses the immutable revision plan, so source-grant expiry, policy withdrawal and worker replacement cannot remove it. A completed change export alone does not permit deletion: the cancellation path still lacks authority to prove complete writer exclusion and declared-artifact retention. Cancellation removes the original runtime lease; it does not grant that worker permission to continue export past cancellation or its deadline. The operator must preserve the remaining sandbox. There is no automatic retention resolution or `termination_blocked` lifecycle in this profile.
 
 This is an explicit development composition. Unit and PostgreSQL preparation tests cover its component boundaries, and separate candidate workflows test the helper through a real gateway. No model-backed v3 source acceptance or complete live source-worker run is incorporated in the repository. Repository provenance, writable-overlay accounting, change journals, checkpoints, export of changes before teardown, retention recovery, public source administration, and production certification remain required. Declared artifact export alone does not satisfy those requirements.
+
+## Owned workspace export profile
+
+The separate `openshell-codex-workspace-export-candidate-development/v1` worker profile consumes [version 4 local acceptance](local-runtime-acceptance.md#owned-runtime-and-change-export-acceptance). It requires all source-plan, source-grant, provider-grant and strict gateway pins above, plus an exact version 7 invocation policy. The signed receipt must include the source, native-owner and workspace-change helper contracts. Earlier acceptance and policy versions cannot enable it.
+
+```shell
+DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE='openshell-codex-workspace-export-candidate-development/v1'
+DATAGROUND_INVOCATION_ARTIFACT_MAX_BYTES='67108864'
+```
+
+The artifact limit must accommodate the bounded 64 MiB change artifact. This profile prepares the source through the existing grant checks, starts only the owned native transport, and rejects unowned startup. On a native outcome it retains declared artifacts and the native result, confirms durable cleanup, and retains the final workspace change artifact before completing the invocation effect. Every owned startup and change capture rechecks acceptance and the observed gateway; cleanup and retention also recheck current runtime and export authority. See [the completion and recovery boundary](workspace-change-export.md#verification-and-limits).
+
+A replacement worker can finish a pending export from the original confirmed cleanup record without another agent turn. Missing cleanup proof or lost authority keeps the workspace retained. This profile does not permit deletion or relax source cancellation. Operators must exclude all other writers. The current publication commands reject this profile pending a separate versioned publication contract; it must not be enabled for an unpublished revision or substituted into the older source-publication path. No complete live worker acceptance is incorporated.
+
+`TestOwnedWorkspaceAcceptanceActualEvidence` checks the Go consumer against an ephemeral v4 test fixture produced by `scripts/local-runtime-acceptance-test-fixture.mjs`. Set `DATAGROUND_OWNED_RUNTIME_ACCEPTANCE_TEST_DIRECTORY` to that private fixture directory and use the pinned Node and GitHub CLI binaries on `PATH`. It verifies the real signature and image proofs, rejects a stale generation and source-only downgrade, and uses a test gateway observer. The check passed on 2026-10-30 with the retained v7 diagnostic and its exact published images. It creates no operational trust and does not start a worker.
 
 ## Install a reviewed execution plan
 

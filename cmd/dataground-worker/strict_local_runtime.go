@@ -62,6 +62,9 @@ func (config strictLocalRuntimeConfig) valid() bool {
 		!strings.ContainsRune(config.topology.DockerBinary, os.PathListSeparator)
 }
 func (config localRuntimeAcceptanceConfig) acceptanceProfile() string {
+	if config.workspaceExport {
+		return ownedWorkspaceRuntimeProfile
+	}
 	if config.workspaceSource {
 		return workspaceLocalRuntimeProfile
 	}
