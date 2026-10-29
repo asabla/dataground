@@ -159,3 +159,22 @@ writers started outside this launcher, durable retention in the worker, or
 permission to delete user workspaces. The existing v1–v3 acceptance contracts
 reject this diagnostic. A separate acceptance contract and worker composition
 are required before these observations can authorize governed execution.
+
+The [retained v7 diagnostic](../../deploy/openshell/diagnostics/codex-owned-workspace-candidate-arm64-20261029.json)
+passed on 2026-10-29 from clean source
+`dbafc6ed3dfdd5c7ebf122d485a79467ad331acd`, using model `gpt-6-astra`.
+It used the export-capable ARM64 image
+`sha256:89d6c779be2e1ad8afadc22adbec36eb8f0eab3396107237a82829673c66202e`
+from [publication run 39078066253, attempt 1](https://github.com/asabla/dataground/actions/runs/39078066253/attempts/1)
+and strict supervisor
+`sha256:57cc182a7c56cf1fbd64af8b09b2196eea727783eb9ec0c2292542e3be0f755c`.
+Both online publication verifiers checked the exact signed invocation, completed
+jobs, image and configuration before this run. All eleven native sessions
+confirmed cleanup. The final export contained five changes, restored six entries,
+and matched its repeated capture. The closed-schema verifier passed with
+independently supplied source and image pins. The original record bytes have
+SHA-256 `50e7a6d191d121551cee45aec21ccf117f0874e6bbbc0df075b80584b6078774`.
+The launcher removed its sandbox, gateway, provider binding, runtime workspace
+and consumed credential bundle. Only the empty policy-workspace lock remained
+before operator scratch cleanup. This evidence does not change the acceptance
+or worker limits above.

@@ -76,6 +76,31 @@ test("the source-capable ARM64 run retains its exact verified v6 diagnostic", as
   assert.equal(source.certificationEligible, false);
 });
 
+test("the owned ARM64 run retains its exact verified v7 diagnostic", async () => {
+  const ownedBytes = await readFile(
+    new URL(
+      "../deploy/openshell/diagnostics/codex-owned-workspace-candidate-arm64-20261029.json",
+      import.meta.url,
+    ),
+  );
+  assert.equal(
+    createHash("sha256").update(ownedBytes).digest("hex"),
+    "50e7a6d191d121551cee45aec21ccf117f0874e6bbbc0df075b80584b6078774",
+  );
+  const owned = JSON.parse(ownedBytes.toString("utf8"));
+  assert.deepEqual(
+    verifyDiagnostic(owned, {
+      sourceCommit: "dbafc6ed3dfdd5c7ebf122d485a79467ad331acd",
+      candidateImage: "sha256:89d6c779be2e1ad8afadc22adbec36eb8f0eab3396107237a82829673c66202e",
+      supervisorImage: "sha256:57cc182a7c56cf1fbd64af8b09b2196eea727783eb9ec0c2292542e3be0f755c",
+      workspaceSource: true,
+      workspaceExport: true,
+    }),
+    [],
+  );
+  assert.equal(owned.certificationEligible, false);
+});
+
 test("candidate diagnostic verification rejects substitution, replay and certification claims", () => {
   const mutations = [
     (v) => {
