@@ -262,6 +262,48 @@
         }
       }
     },
+    "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}": {
+      "get": {
+        "operationId": "readAgentService",
+        "summary": "Read an exact agent service",
+        "description": "Returns the exact service in the requested isolation domain after resource authorization. This read does not infer a workspace, owner, active route, or runtime readiness.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "$ref": "#/components/parameters/ServiceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The exact agent service.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentService"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions": {
       "get": {
         "operationId": "listServiceRevisions",

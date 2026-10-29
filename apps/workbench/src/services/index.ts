@@ -21,7 +21,9 @@ export {
   type AgentServiceListResult,
   type AgentServiceMetadata,
   type AgentServicePage,
+  type AgentServiceReadResult,
   type AgentServiceResource,
   createAgentService,
   listAgentServices,
+  readAgentService,
 } from "./client";

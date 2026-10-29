@@ -148,6 +148,9 @@ func (server *Server) handler(
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/agent-services", protected(
 		authz.CreateAgentService, authz.IsolationDomain, "", server.createAgentService,
 	))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}", protected(
+		authz.ReadAgentService, authz.AgentService, "serviceId", server.getAgentService,
+	))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/revisions", protected(
 		authz.ListServiceRevisions, authz.AgentService, "serviceId", server.listServiceRevisions,
 	))
