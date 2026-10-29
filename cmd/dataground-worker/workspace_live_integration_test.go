@@ -37,24 +37,31 @@ func TestGovernedWorkspaceLiveInvocation(t *testing.T) {
 	if os.Getenv("DATAGROUND_TEST_GOVERNED_SOURCE_LIVE") != "true" {
 		t.Skip("explicit live governed source fixture is required")
 	}
-	runGovernedWorkspaceLiveInvocation(t, false)
+	runGovernedWorkspaceLiveInvocation(t, false, false)
 }
 
 func TestGovernedWorkspaceLivePublicAPIInvocation(t *testing.T) {
 	if os.Getenv("DATAGROUND_TEST_GOVERNED_SOURCE_PUBLIC_LIVE") != "true" {
 		t.Skip("explicit live public source fixture is required")
 	}
-	runGovernedWorkspaceLiveInvocation(t, true)
+	runGovernedWorkspaceLiveInvocation(t, true, false)
 }
 
-func runGovernedWorkspaceLiveInvocation(t *testing.T, publicJourney bool) {
+func TestGovernedOwnedWorkspaceLivePublicAPIInvocation(t *testing.T) {
+	if os.Getenv("DATAGROUND_TEST_GOVERNED_OWNED_PUBLIC_LIVE") != "true" {
+		t.Skip("explicit live public owned workspace fixture is required")
+	}
+	runGovernedWorkspaceLiveInvocation(t, true, true)
+}
+
+func runGovernedWorkspaceLiveInvocation(t *testing.T, publicJourney, ownedWorkspace bool) {
 	if runtime.GOOS != "linux" || runtime.GOARCH != "arm64" {
 		t.Fatal("live source profile requires Linux ARM64")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	acceptance, err := loadLocalRuntimeAcceptanceConfig(os.LookupEnv)
-	if err != nil || acceptance == nil || !acceptance.workspaceSource || acceptance.strict == nil {
+	if err != nil || acceptance == nil || !acceptance.workspaceSource || acceptance.strict == nil || acceptance.workspaceExport != ownedWorkspace {
 		t.Fatal("exact source acceptance configuration is required", err)
 	}
 	var envelope struct {
@@ -115,7 +122,11 @@ func runGovernedWorkspaceLiveInvocation(t *testing.T, publicJourney bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy, err := reconcile.NewInvocationAuthorizationPolicyWithSourceEntities(reconcile.InvocationAuthorizationPolicyScope{IsolationDomainID: target.isolationDomainID, ServiceID: target.serviceID, RevisionID: target.revisionID}, "live-source-test", reconcile.CanonicalSourceCedarSchema(), []byte(`permit(principal == DataGround::Actor::"live-source-conformance", action, resource);`), canonical)
+	policyConstructor, policySchema := reconcile.NewInvocationAuthorizationPolicyWithSourceEntities, reconcile.CanonicalSourceCedarSchema()
+	if ownedWorkspace {
+		policyConstructor, policySchema = reconcile.NewInvocationAuthorizationPolicyWithWorkspaceExportEntities, reconcile.CanonicalWorkspaceExportCedarSchema()
+	}
+	policy, err := policyConstructor(reconcile.InvocationAuthorizationPolicyScope{IsolationDomainID: target.isolationDomainID, ServiceID: target.serviceID, RevisionID: target.revisionID}, "live-source-test", policySchema, []byte(`permit(principal == DataGround::Actor::"live-source-conformance", action, resource);`), canonical)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,6 +342,15 @@ func runGovernedWorkspaceLiveInvocation(t *testing.T, publicJourney bool) {
 	}
 	if !found {
 		t.Fatal("source bytes did not reach the declared durable artifact")
+	}
+	if ownedWorkspace {
+		verifyLiveWorkspaceChanges(t, ctx, repo, reader, public, invocation, source, planDigest, archive.Bytes(), content)
+		for _, table := range []string{"invocation_runtime_attempts", "invocation_workspace_quiescence_intents", "invocation_workspace_quiescence_completions", "invocation_workspace_change_exports", "invocation_workspace_change_completions"} {
+			var count int
+			if err := pool.QueryRow(ctx, "SELECT count(*) FROM "+table+" WHERE isolation_domain_id=$1 AND operation_id=$2", target.isolationDomainID, invocation.OperationID).Scan(&count); err != nil || count != 1 {
+				t.Fatal("owned workspace requires one native attempt and one retained completion", table, err)
+			}
+		}
 	}
 	if public != nil {
 		public.verifyEvents(invocationID)
