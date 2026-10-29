@@ -6,10 +6,11 @@ import { type ServiceSort, selectDirectoryServices } from "./directory";
 interface ServiceDirectoryProps {
   services: AgentServiceResource[];
   loading: boolean;
-  loadingMore: boolean;
   error?: AgentServiceFailure;
   hasMore: boolean;
   query: string;
+  appliedQuery: string;
+  onSearch: (value: string) => void;
   sort: ServiceSort;
   onQueryChange: (value: string) => void;
   onSortChange: (value: ServiceSort) => void;
@@ -23,10 +24,11 @@ interface ServiceDirectoryProps {
 export function ServiceDirectory({
   services,
   loading,
-  loadingMore,
   error,
   hasMore,
   query,
+  appliedQuery,
+  onSearch,
   sort,
   onQueryChange,
   onSortChange,
@@ -36,23 +38,30 @@ export function ServiceDirectory({
   onOpen,
   onHistory,
 }: ServiceDirectoryProps) {
-  const visible = selectDirectoryServices(services, query, sort);
+  const visible = selectDirectoryServices(services, sort);
   const unavailable = loading || error !== undefined;
   const directory = useRef<HTMLElement>(null);
   const focusSearch = () => directory.current?.querySelector<HTMLInputElement>("input")?.focus();
   return (
     <section aria-label="Service directory" className="service-directory" ref={directory}>
-      <div className="service-directory__toolbar">
+      <form
+        className="service-directory__toolbar"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSearch(query.trim());
+        }}
+      >
         <TextField
-          label="Search loaded services"
+          label="Search services"
           description="Search by name, description, or service ID."
           type="search"
           maxLength={128}
           value={query}
           onChange={onQueryChange}
         />
+        <Button type="submit">Search</Button>
         <SelectField
-          label="Sort services"
+          label="Sort loaded results"
           value={sort}
           options={[
             { label: "Recently updated", value: "updated" },
@@ -63,7 +72,7 @@ export function ServiceDirectory({
           }}
         />
         <Button
-          isDisabled={loading || loadingMore}
+          isDisabled={loading}
           onPress={() => {
             focusSearch();
             onRefresh();
@@ -72,22 +81,22 @@ export function ServiceDirectory({
         >
           {loading ? "Refreshing services…" : "Refresh services"}
         </Button>
-      </div>
+      </form>
 
       <p className="service-directory__count" role="status">
         {loading
           ? "Loading services…"
           : error
             ? "Service list could not be updated. Retry before opening a service."
-            : `${visible.length} of ${services.length} loaded services shown.`}
-        {hasMore && " More services are available. Load more to include them in your search."}
+            : `${visible.length} services loaded${appliedQuery ? ` for “${appliedQuery}”` : ""}.`}
+        {hasMore && " More matching services are available."}
       </p>
 
       {error && (
         <div className="workbench-inline-error" role="alert">
           <p>{error.message}</p>
           <Button
-            isDisabled={loading || loadingMore}
+            isDisabled={loading}
             onPress={() => {
               focusSearch();
               onRefresh();
@@ -155,21 +164,18 @@ export function ServiceDirectory({
         />
       ) : !loading && !error ? (
         <div className="workbench-empty">
-          <h2>
-            {services.length > 0 || query.trim()
-              ? "No matching loaded services"
-              : "Create your first agent service"}
-          </h2>
+          <h2>{appliedQuery ? "No matching services" : "Create your first agent service"}</h2>
           <p>
-            {services.length > 0 || query.trim()
-              ? "Change your search or load more services if available."
+            {appliedQuery
+              ? "Change your search to find other services."
               : "Give your agent a name, configure a revision, then publish it and choose a route to run it."}
           </p>
-          {query.trim() ? (
+          {appliedQuery ? (
             <Button
               onPress={() => {
                 focusSearch();
                 onQueryChange("");
+                onSearch("");
               }}
               variant="quiet"
             >
@@ -184,14 +190,14 @@ export function ServiceDirectory({
       {hasMore && (
         <div className="service-directory__more">
           <Button
-            isDisabled={loading || loadingMore || !!error}
+            isDisabled={loading || !!error}
             onPress={() => {
               focusSearch();
               onLoadMore();
             }}
             variant="quiet"
           >
-            {loadingMore ? "Loading more services…" : "Load more services"}
+            {loading ? "Loading services…" : "Load more services"}
           </Button>
         </div>
       )}

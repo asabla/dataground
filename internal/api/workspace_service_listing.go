@@ -21,6 +21,7 @@ type workspaceServiceCursor struct {
 	Version           int       `json:"version"`
 	IsolationDomainID string    `json:"isolationDomainId"`
 	WorkspaceID       string    `json:"workspaceId"`
+	Search            string    `json:"search,omitempty"`
 	CreatedAt         time.Time `json:"createdAt"`
 	ID                string    `json:"id"`
 }
@@ -32,11 +33,11 @@ type workspaceServicePage struct {
 func parseWorkspaceServiceQuery(raw, scope, workspaceID string) (int, *workspaceServiceCursor, error) {
 	invalid := errors.New("workspace service query is invalid")
 	query, err := url.ParseQuery(raw)
-	if err != nil {
+	if err != nil || !domain.ValidServiceSearch(query.Get("q")) {
 		return 0, nil, invalid
 	}
 	for name, values := range query {
-		if (name != "limit" && name != "cursor") || len(values) != 1 {
+		if (name != "limit" && name != "cursor" && name != "q") || len(values) != 1 {
 			return 0, nil, invalid
 		}
 	}
@@ -61,7 +62,7 @@ func parseWorkspaceServiceQuery(raw, scope, workspaceID string) (int, *workspace
 	decoder := json.NewDecoder(strings.NewReader(string(decoded)))
 	decoder.DisallowUnknownFields()
 	var cursor workspaceServiceCursor
-	if decoder.Decode(&cursor) != nil || decoder.Decode(&struct{}{}) != io.EOF || cursor.Kind != "workspace-services" || cursor.Version != 1 || cursor.IsolationDomainID != scope || cursor.WorkspaceID != workspaceID || cursor.CreatedAt.IsZero() || !serviceIDPattern.MatchString(cursor.ID) {
+	if decoder.Decode(&cursor) != nil || decoder.Decode(&struct{}{}) != io.EOF || cursor.Kind != "workspace-services" || cursor.Version != 1 || cursor.Search != serviceSearchDigest(query.Get("q")) || cursor.IsolationDomainID != scope || cursor.WorkspaceID != workspaceID || cursor.CreatedAt.IsZero() || !serviceIDPattern.MatchString(cursor.ID) {
 		return 0, nil, invalid
 	}
 	cursor.CreatedAt = cursor.CreatedAt.UTC()
@@ -80,7 +81,7 @@ func writeWorkspaceServicePage(response http.ResponseWriter, request *http.Reque
 			return
 		}
 		last := items[len(items)-1]
-		encoded, err := json.Marshal(workspaceServiceCursor{Kind: "workspace-services", Version: 1, IsolationDomainID: last.Metadata.IsolationDomainID, WorkspaceID: last.WorkspaceID, CreatedAt: last.Metadata.CreatedAt.UTC(), ID: last.Metadata.ID})
+		encoded, err := json.Marshal(workspaceServiceCursor{Kind: "workspace-services", Version: 1, Search: serviceSearchDigest(request.URL.Query().Get("q")), IsolationDomainID: last.Metadata.IsolationDomainID, WorkspaceID: last.WorkspaceID, CreatedAt: last.Metadata.CreatedAt.UTC(), ID: last.Metadata.ID})
 		if err != nil || last.Metadata.CreatedAt.IsZero() || !serviceIDPattern.MatchString(last.Metadata.ID) || last.WorkspaceID != request.PathValue("workspaceId") {
 			workspaceServiceFailure(response, request, false)
 			return
@@ -111,12 +112,13 @@ func (server *Server) listWorkspaceAgentServices(response http.ResponseWriter, r
 	if !ok {
 		return
 	}
+	search := request.URL.Query().Get("q")
 	items := make([]domain.AgentService, 0)
 	server.mu.RLock()
 	_, exists := server.workspaces[resourceKey(scope, workspaceID)]
 	if exists {
 		for _, service := range server.services {
-			if service.Metadata.IsolationDomainID != scope || service.WorkspaceID != workspaceID {
+			if service.Metadata.IsolationDomainID != scope || service.WorkspaceID != workspaceID || !domain.MatchesServiceSearch(service, search) {
 				continue
 			}
 			created := service.Metadata.CreatedAt
@@ -155,7 +157,7 @@ func (server *DurableServer) listWorkspaceAgentServices(response http.ResponseWr
 		before = &cursor.CreatedAt
 		id = cursor.ID
 	}
-	page, err := server.repository.ListWorkspaceServices(request.Context(), scope, workspaceID, before, id, limit)
+	page, err := server.repository.ListWorkspaceServices(request.Context(), scope, workspaceID, before, id, limit, request.URL.Query().Get("q"))
 	if err != nil {
 		var problem *persistence.DomainError
 		workspaceServiceFailure(response, request, errors.As(err, &problem) && problem.Code == "RESOURCE_NOT_FOUND")

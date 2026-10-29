@@ -289,23 +289,30 @@ export async function listAgentServices(
   isolationDomainId: string,
   cursor?: string,
   workspaceId?: string,
+  search = "",
 ): Promise<AgentServiceListResult> {
   if (
     !patterns.isolationDomainId.test(isolationDomainId) ||
     (cursor !== undefined && !patterns.cursor.test(cursor)) ||
-    (workspaceId !== undefined && !patterns.workspaceId.test(workspaceId))
+    (workspaceId !== undefined && !patterns.workspaceId.test(workspaceId)) ||
+    Array.from(search).length > 128 ||
+    /[\p{Cc}\p{Cs}]/u.test(search)
   ) {
     return {
       error: {
         code: "WORKBENCH_INVALID_SERVICE_LIST_REQUEST",
-        message: "The isolation domain or service-list cursor is invalid.",
+        message: "The scope, search or service-list cursor is invalid.",
         retryable: false,
       },
       ok: false,
     };
   }
   try {
-    const query = { ...(cursor === undefined ? undefined : { cursor }), limit: 50 };
+    const query = {
+      ...(cursor === undefined ? undefined : { cursor }),
+      ...(search ? { q: search } : {}),
+      limit: 50,
+    };
     const { data, error, response } =
       workspaceId === undefined
         ? await client.GET(createPath, { params: { path: { isolationDomainId }, query } })

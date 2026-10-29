@@ -70,13 +70,13 @@ func TestDurableServiceListingIsScopedAndPaged(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	first, err := repository.ListServices(ctx, domainID, nil, "", 2)
+	first, err := repository.ListServices(ctx, domainID, nil, "", 2, "")
 	if err != nil || len(first.Items) != 2 || !first.HasMore {
 		t.Fatalf("first service page = (%#v, %v)", first, err)
 	}
 	boundary := first.Items[len(first.Items)-1]
 	before := boundary.Metadata.CreatedAt
-	second, err := repository.ListServices(ctx, domainID, &before, boundary.Metadata.ID, 2)
+	second, err := repository.ListServices(ctx, domainID, &before, boundary.Metadata.ID, 2, "")
 	if err != nil || len(second.Items) != 1 || second.HasMore {
 		t.Fatalf("second service page = (%#v, %v)", second, err)
 	}
@@ -87,6 +87,36 @@ func TestDurableServiceListingIsScopedAndPaged(t *testing.T) {
 		}
 		seen[service.Metadata.ID] = true
 	}
+	// Search is performed in PostgreSQL before LIMIT and retains the same keyset order.
+	firstSearch, err := repository.ListServices(ctx, domainID, nil, "", 1, "SERVICE")
+	if err != nil || len(firstSearch.Items) != 1 || !firstSearch.HasMore {
+		t.Fatal("search page", firstSearch, err)
+	}
+	boundarySearch := firstSearch.Items[0]
+	tailSearch, err := repository.ListServices(ctx, domainID, &boundarySearch.Metadata.CreatedAt, boundarySearch.Metadata.ID, 2, "service")
+	if err != nil || len(tailSearch.Items) != 2 || tailSearch.HasMore {
+		t.Fatal("search continuation", tailSearch, err)
+	}
+	specialID := identity.New("svc")
+	if _, err := repository.CreateService(ctx, testIdempotency(domainID, "special"), persistence.CreateServiceInput{ID: specialID, Name: "Ångström 100%_\\", Description: "Research NOTES", ActorID: "fixture", CorrelationID: identity.New("cor")}); err != nil {
+		t.Fatal(err)
+	}
+	for _, term := range []string{"100%_\\", "NOTES", specialID, "Ångström"} {
+		page, err := repository.ListServices(ctx, domainID, nil, "", 1, term)
+		if err != nil || len(page.Items) != 1 || page.Items[0].Metadata.ID != specialID || page.HasMore {
+			t.Fatal("literal search", term, page, err)
+		}
+	}
+	for _, term := range []string{"åNGSTRÖM", "other", "missing"} {
+		page, err := repository.ListServices(ctx, domainID, nil, "", 1, term)
+		if err != nil || len(page.Items) != 0 {
+			t.Fatal("search widened", term, page, err)
+		}
+	}
+	if _, err := repository.ListServices(ctx, domainID, nil, "", 1, "invalid\n"); err == nil {
+		t.Fatal("invalid search accepted")
+	}
+
 }
 
 func TestDurableServiceRevisionListingIsScopedAndPaged(t *testing.T) {

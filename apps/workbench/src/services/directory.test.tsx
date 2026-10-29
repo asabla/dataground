@@ -26,9 +26,10 @@ const noop = () => undefined;
 const props = {
   services: [older, newer],
   loading: false,
-  loadingMore: false,
   hasMore: true,
   query: "",
+  appliedQuery: "",
+  onSearch: noop,
   sort: "updated" as const,
   onQueryChange: noop,
   onSortChange: noop,
@@ -40,24 +41,15 @@ const props = {
 };
 
 describe("service directory", () => {
-  it("searches names, descriptions and exact IDs without changing the source page", () => {
-    const resources = [older, newer];
-    assert.deepEqual(selectDirectoryServices(resources, "  ALPHA ", "updated"), [older]);
-    assert.deepEqual(selectDirectoryServices(resources, newer.metadata.id, "updated"), [newer]);
-    assert.deepEqual(selectDirectoryServices(resources, "source", "updated"), [newer, older]);
-    assert.deepEqual(selectDirectoryServices(resources, "missing", "name"), []);
-    assert.deepEqual(resources, [older, newer]);
-  });
-
   it("sorts by metadata update or name with stable ID ordering on ties", () => {
-    assert.deepEqual(selectDirectoryServices([newer, older], "", "name"), [older, newer]);
+    assert.deepEqual(selectDirectoryServices([newer, older], "name"), [older, newer]);
     const tied = {
       ...newer,
       name: older.name,
       metadata: { ...newer.metadata, updatedAt: older.metadata.updatedAt },
     };
-    assert.deepEqual(selectDirectoryServices([tied, older], "", "updated"), [older, tied]);
-    assert.deepEqual(selectDirectoryServices([tied, older], "", "name"), [older, tied]);
+    assert.deepEqual(selectDirectoryServices([tied, older], "updated"), [older, tied]);
+    assert.deepEqual(selectDirectoryServices([tied, older], "name"), [older, tied]);
   });
 
   it("presents comparable resources in a named table without foregrounding internal IDs", () => {
@@ -68,11 +60,13 @@ describe("service directory", () => {
     assert.doesNotMatch(markup, /<code>svc_/u);
   });
 
-  it("keeps page loading available when the loaded-page search has no matches", () => {
-    const markup = renderToStaticMarkup(<ServiceDirectory {...props} query="missing" />);
-    assert.match(markup, /No matching loaded services/u);
-    assert.match(markup, /0 of 2 loaded services shown/u);
-    assert.match(markup, /More services are available/u);
+  it("shows server search results without implying all pages are loaded", () => {
+    const markup = renderToStaticMarkup(
+      <ServiceDirectory {...props} services={[]} query="missing" appliedQuery="missing" />,
+    );
+    assert.match(markup, /No matching services/u);
+    assert.match(markup, /0 services loaded/u);
+    assert.match(markup, /More matching services are available/u);
     assert.match(markup, /Load more services/u);
     assert.doesNotMatch(markup, /Create your first agent service/u);
   });

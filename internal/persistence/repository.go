@@ -186,22 +186,23 @@ func (repository *Repository) ListServices(
 	beforeCreatedAt *time.Time,
 	beforeID string,
 	limit int,
+	query string,
 ) (ServiceListPage, error) {
-	return repository.listServices(ctx, isolationDomainID, nil, beforeCreatedAt, beforeID, limit)
+	return repository.listServices(ctx, isolationDomainID, nil, beforeCreatedAt, beforeID, limit, query)
 }
 
-func (repository *Repository) ListWorkspaceServices(ctx context.Context, scope, workspaceID string, beforeCreatedAt *time.Time, beforeID string, limit int) (ServiceListPage, error) {
+func (repository *Repository) ListWorkspaceServices(ctx context.Context, scope, workspaceID string, beforeCreatedAt *time.Time, beforeID string, limit int, query string) (ServiceListPage, error) {
 	if !workspaceRecordID.MatchString(workspaceID) {
 		return ServiceListPage{}, errors.New("workspace service query is invalid")
 	}
 	if _, err := repository.GetWorkspace(ctx, scope, workspaceID); err != nil {
 		return ServiceListPage{}, err
 	}
-	return repository.listServices(ctx, scope, &workspaceID, beforeCreatedAt, beforeID, limit)
+	return repository.listServices(ctx, scope, &workspaceID, beforeCreatedAt, beforeID, limit, query)
 }
 
-func (repository *Repository) listServices(ctx context.Context, isolationDomainID string, workspaceID *string, beforeCreatedAt *time.Time, beforeID string, limit int) (ServiceListPage, error) {
-	if !repository.Configured() || isolationDomainID == "" || limit < 1 || limit > 100 ||
+func (repository *Repository) listServices(ctx context.Context, isolationDomainID string, workspaceID *string, beforeCreatedAt *time.Time, beforeID string, limit int, query string) (ServiceListPage, error) {
+	if !domain.ValidServiceSearch(query) || !repository.Configured() || isolationDomainID == "" || limit < 1 || limit > 100 ||
 		(beforeCreatedAt == nil) != (beforeID == "") {
 		return ServiceListPage{}, errors.New("service list request is invalid")
 	}
@@ -210,10 +211,13 @@ func (repository *Repository) listServices(ctx context.Context, isolationDomainI
 		FROM agent_services
 		WHERE isolation_domain_id = $1
 		  AND ($5::text IS NULL OR workspace_id = $5)
+		  AND ($6 = '' OR strpos(translate(name,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),$6) > 0
+		    OR strpos(translate(COALESCE(description,''),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),$6) > 0
+		    OR strpos(id,$6) > 0)
 		  AND ($2::timestamptz IS NULL OR (created_at, id) < ($2, $3))
 		ORDER BY created_at DESC, id DESC
 		LIMIT $4
-	`, isolationDomainID, beforeCreatedAt, beforeID, limit+1, workspaceID)
+	`, isolationDomainID, beforeCreatedAt, beforeID, limit+1, workspaceID, domain.FoldServiceSearch(query))
 	if err != nil {
 		return ServiceListPage{}, fmt.Errorf("list agent services: %w", err)
 	}

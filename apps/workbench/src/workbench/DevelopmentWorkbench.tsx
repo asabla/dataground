@@ -2,6 +2,7 @@ import { Button } from "@dataground/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ScopeArtifactBrowser } from "../artifacts/ScopeArtifactBrowser";
 import type { DataGroundClient } from "../contracts/client";
+import { useDiscoveryPage } from "../discovery/useDiscoveryPage";
 import { ScopeRunBrowser } from "../invocations/ScopeRunBrowser";
 import {
   type AgentServiceFailure,
@@ -63,12 +64,8 @@ export function WorkbenchSession({
   onDisconnect,
   presentation = "workbench",
 }: DevelopmentWorkbenchProps) {
-  const [scopedServices, setScopedServices] = useState<AgentServiceResource[]>([]);
-  const [serviceListError, setServiceListError] = useState<AgentServiceFailure>();
-  const [serviceListLoading, setServiceListLoading] = useState(true);
-  const [serviceListLoadingMore, setServiceListLoadingMore] = useState(false);
-  const [serviceListNextCursor, setServiceListNextCursor] = useState<string>();
   const [serviceQuery, setServiceQuery] = useState("");
+  const [appliedServiceQuery, setAppliedServiceQuery] = useState("");
   const [serviceSort, setServiceSort] = useState<ServiceSort>("updated");
   const { route, navigate } = useWorkbenchNavigation(isolationDomainId);
   const [sessions, setSessions] = useState<OpenServiceWork[]>([]);
@@ -81,7 +78,6 @@ export function WorkbenchSession({
   const [serviceReadError, setServiceReadError] = useState<AgentServiceFailure>();
   const [serviceReadLoading, setServiceReadLoading] = useState(false);
   const serviceReadGeneration = useRef(0);
-  const serviceListGeneration = useRef(0);
   const pageContent = useRef<HTMLDivElement>(null);
   const activeSession =
     route?.view === "services" ||
@@ -122,40 +118,15 @@ export function WorkbenchSession({
     setLastWorkspaceId(route?.workspaceId);
   const resolvingService = !!route?.serviceId && !activeSession;
 
-  const loadServicePage = useCallback(
-    async (cursor?: string) => {
-      const generation = ++serviceListGeneration.current;
-      setServiceListLoading(cursor === undefined);
-      setServiceListLoadingMore(cursor !== undefined);
-      setServiceListError(undefined);
-      const result = await listAgentServices(client, isolationDomainId, cursor);
-      if (generation !== serviceListGeneration.current) return;
-      setServiceListLoading(false);
-      setServiceListLoadingMore(false);
-      if (!result.ok) {
-        setServiceListError(result.error);
-        return;
-      }
-      setServiceListNextCursor(result.page.nextCursor);
-      setScopedServices((current) => {
-        if (cursor === undefined) return result.page.items;
-        const merged = [...current];
-        const known = new Set(current.map((service) => service.metadata.id));
-        for (const service of result.page.items) {
-          if (!known.has(service.metadata.id)) merged.push(service);
-        }
-        return merged;
-      });
-    },
-    [client, isolationDomainId],
+  const readServicePage = useCallback(
+    (cursor?: string) =>
+      listAgentServices(client, isolationDomainId, cursor, undefined, appliedServiceQuery),
+    [client, isolationDomainId, appliedServiceQuery],
   );
-
-  useEffect(() => {
-    void loadServicePage();
-    return () => {
-      serviceListGeneration.current++;
-    };
-  }, [loadServicePage]);
+  const servicePage = useDiscoveryPage(
+    readServicePage,
+    "Service discovery did not advance. Refresh to recover.",
+  );
 
   const rememberService = useCallback((service: AgentServiceResource) => {
     setSessions((current) =>
@@ -403,20 +374,28 @@ export function WorkbenchSession({
               </Button>
             </div>
             <ServiceDirectory
-              services={scopedServices}
-              loading={serviceListLoading}
-              loadingMore={serviceListLoadingMore}
-              error={serviceListError}
-              hasMore={serviceListNextCursor !== undefined}
+              services={servicePage.items}
+              loading={servicePage.loading}
+              error={servicePage.error}
+              hasMore={servicePage.nextCursor !== undefined}
               query={serviceQuery}
+              appliedQuery={appliedServiceQuery}
+              onSearch={(query) => {
+                if (query === appliedServiceQuery) void servicePage.load();
+                else setAppliedServiceQuery(query);
+              }}
               sort={serviceSort}
               onQueryChange={setServiceQuery}
               onSortChange={setServiceSort}
-              onRefresh={() => void loadServicePage()}
-              onLoadMore={() => void loadServicePage(serviceListNextCursor)}
+              onRefresh={() => void servicePage.load()}
+              onLoadMore={() => void servicePage.load(servicePage.nextCursor)}
               onCreate={create}
-              onOpen={(service) => navigateToService(service)}
-              onHistory={(service) => navigateToService(service, "interactions")}
+              onOpen={(service) => {
+                if (servicePage.canAct()) navigateToService(service);
+              }}
+              onHistory={(service) => {
+                if (servicePage.canAct()) navigateToService(service, "interactions");
+              }}
             />
           </section>
         )}
@@ -562,12 +541,8 @@ export function WorkbenchSession({
                     ),
                   );
                   setLastSessionKey(session.key);
-                  setScopedServices((current) => [
-                    service,
-                    ...current.filter((entry) => entry.metadata.id !== service.metadata.id),
-                  ]);
                   navigate({ isolationDomainId, serviceId: service.metadata.id, view: "workflow" });
-                  void loadServicePage();
+                  void servicePage.load();
                 }}
               />
             </div>

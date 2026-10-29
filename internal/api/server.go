@@ -229,21 +229,23 @@ func healthHandler(response http.ResponseWriter, _ *http.Request) {
 }
 
 func (server *Server) listAgentServices(response http.ResponseWriter, request *http.Request) {
+	response.Header().Set("Cache-Control", "no-store")
 	domainID, apiError := isolationDomain(request)
 	if apiError != nil {
 		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: *apiError})
 		return
 	}
-	limit, cursor, err := parseServiceListQuery(request.URL.Query())
+	limit, cursor, err := parseServiceListQuery(request.URL.RawQuery, domainID)
 	if err != nil {
-		status, body := invalidField("query", "Service-list limit or cursor is invalid.")
+		status, body := invalidField("query", "Service-list search, limit or cursor is invalid.")
 		writeJSON(response, status, body)
 		return
 	}
+	search := request.URL.Query().Get("q")
 	server.mu.RLock()
 	services := make([]AgentService, 0, len(server.services))
 	for _, service := range server.services {
-		if service.Metadata.IsolationDomainID == domainID {
+		if service.Metadata.IsolationDomainID == domainID && domain.MatchesServiceSearch(service, search) {
 			services = append(services, service)
 		}
 	}
@@ -263,7 +265,7 @@ func (server *Server) listAgentServices(response http.ResponseWriter, request *h
 	}
 	page := agentServicePage{Items: services}
 	if hasMore {
-		page.NextCursor, err = encodeServiceListCursor(services[len(services)-1])
+		page.NextCursor, err = encodeServiceListCursor(services[len(services)-1], search)
 		if err != nil {
 			writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError(
 				"SERVICE_LIST_UNAVAILABLE", "Agent services are temporarily unavailable.", true,

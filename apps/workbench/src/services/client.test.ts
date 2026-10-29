@@ -218,3 +218,38 @@ describe("agent service client", () => {
     }
   });
 });
+
+it("sends bounded server searches to the selected discovery scope", async () => {
+  const calls: Array<{ path: string; options: unknown }> = [];
+  const client = {
+    GET: async (path: string, options: unknown) => {
+      calls.push({ path, options });
+      return { data: { items: [] }, response: new Response(null, { status: 200 }) };
+    },
+  } as unknown as DataGroundClient;
+  for (const workspaceId of [undefined, "wsp_00000000000000000001"]) {
+    assert.equal(
+      (await listAgentServices(client, isolationDomainId, undefined, workspaceId, "100%_ report"))
+        .ok,
+      true,
+    );
+    assert.deepEqual(calls.at(-1), {
+      path: workspaceId
+        ? "/v1/isolation-domains/{isolationDomainId}/workspaces/{workspaceId}/agent-services"
+        : "/v1/isolation-domains/{isolationDomainId}/agent-services",
+      options: {
+        params: {
+          path: { isolationDomainId, ...(workspaceId ? { workspaceId } : {}) },
+          query: { q: "100%_ report", limit: 50 },
+        },
+      },
+    });
+  }
+  for (const query of ["x".repeat(129), "bad\n", "bad\u0085", "\ud800"]) {
+    assert.equal(
+      (await listAgentServices(client, isolationDomainId, undefined, undefined, query)).ok,
+      false,
+    );
+  }
+  assert.equal(calls.length, 2);
+});

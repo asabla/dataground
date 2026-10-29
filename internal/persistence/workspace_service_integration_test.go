@@ -66,15 +66,24 @@ func TestWorkspaceServicesAreDurableScopedAndSeparatelyAuthorized(t *testing.T) 
 	if _, err := pool.Exec(ctx, `UPDATE agent_services SET created_at='2026-01-01T00:00:00Z' WHERE isolation_domain_id=$1`, scope); err != nil {
 		t.Fatal(err)
 	}
-	first, err := repo.ListWorkspaceServices(ctx, scope, workspace, nil, "", 1)
+	first, err := repo.ListWorkspaceServices(ctx, scope, workspace, nil, "", 1, "")
 	if err != nil || len(first.Items) != 1 || !first.HasMore || first.Items[0].Name == "Foreign" {
 		t.Fatal("first page failed", err)
 	}
 	last := first.Items[0]
-	tail, err := restarted.ListWorkspaceServices(ctx, scope, workspace, &last.Metadata.CreatedAt, last.Metadata.ID, 1)
+	tail, err := restarted.ListWorkspaceServices(ctx, scope, workspace, &last.Metadata.CreatedAt, last.Metadata.ID, 1, "")
 	if err != nil || len(tail.Items) != 1 || tail.HasMore || tail.Items[0].Metadata.ID == last.Metadata.ID || tail.Items[0].WorkspaceID != workspace {
 		t.Fatal("continuation failed", err)
 	}
+	searched, err := repo.ListWorkspaceServices(ctx, scope, workspace, nil, "", 1, "ANALYSIS")
+	if err != nil || len(searched.Items) != 1 || !searched.HasMore || searched.Items[0].WorkspaceID != workspace {
+		t.Fatal("workspace search", searched, err)
+	}
+	noMatches, err := repo.ListWorkspaceServices(ctx, scope, workspace, nil, "", 1, "Foreign")
+	if err != nil || len(noMatches.Items) != 0 {
+		t.Fatal("workspace search widened", noMatches, err)
+	}
+
 	missing := input
 	missing.ID = identity.New("svc")
 	missing.WorkspaceID = identity.New("wsp")
