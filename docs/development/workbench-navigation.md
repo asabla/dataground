@@ -186,3 +186,8 @@ list response cannot select another revision. New revision returns to the
 retained draft without a revision suffix. Runs use their separate invocation
 locations. These links contain identities only and do not persist forms or
 command attempts across refresh.
+
+Run inspection uses the shared bounded split view. The separator can be dragged
+or adjusted with the keyboard, and both panes remain available in a stacked
+layout when their container is narrow. Resizing and opening or closing the
+inspector do not remount the run view or clear its unfinished answers.

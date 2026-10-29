@@ -941,36 +941,24 @@ p {
   gap: var(--dg-space-5);
   min-width: 0;
 }
-.run-inspector__main {
-  min-width: 0;
-}
-.run-inspector[data-inspecting] {
-  grid-template-columns: minmax(24rem, 1fr) minmax(16rem, 22rem);
-}
-.run-inspector > .interaction-inspector__selection {
-  position: sticky;
-  top: var(--dg-space-4);
+.run-inspector .interaction-inspector__selection {
   align-self: start;
-  max-height: calc(100vh - 4rem);
-  overflow: auto;
   padding: var(--dg-space-4);
   background: var(--dg-color-surface-raised);
-  border-inline-start: var(--dg-border-default) solid var(--dg-color-border-default);
   border-radius: 0;
+}
+.run-inspector .product-workflow__inspection {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.run-inspector .product-workflow__inspection-heading > .dg-button:only-child {
+  margin-inline-start: auto;
 }
 .run-inspector .interaction-inspector__section {
   scroll-margin: var(--dg-space-4);
 }
-@media (max-width: 72rem) {
-  .run-inspector[data-inspecting] {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .run-inspector > .interaction-inspector__selection {
-    position: static;
-    max-height: none;
-  }
-}
-
 .resource-browser__toolbar {
   display: flex;
   align-items: end;
@@ -987,18 +975,18 @@ p {
   gap: var(--dg-space-2);
 }
 
-.run-inspector > .interaction-inspector__selection dl {
+.run-inspector .interaction-inspector__selection dl {
   display: grid;
   gap: var(--dg-space-3);
 }
-.run-inspector > .interaction-inspector__selection dt {
+.run-inspector .interaction-inspector__selection dt {
   color: var(--dg-color-text-secondary);
 }
-.run-inspector > .interaction-inspector__selection dd {
+.run-inspector .interaction-inspector__selection dd {
   margin: var(--dg-space-1) 0 0;
   overflow-wrap: anywhere;
 }
-.run-inspector > .interaction-inspector__selection summary {
+.run-inspector .interaction-inspector__selection summary {
   cursor: pointer;
 }
 

@@ -77,10 +77,24 @@ Add a foundation token only when multiple semantic roles need the value. Add a s
 
 Do not add a primitive only to complete an inventory. Introduce it with a real consumer, its contract surface, interaction evidence, and tests. Product patterns must preserve requested versus observed state, typed events, explainable authority, provenance, recovery, and unknown states from the platform specification.
 
-The Workbench service-route list uses semantic headings and lists with shared buttons. Refresh keeps keyboard focus; completion returns focus to the section heading only when a removed pagination or retry control would otherwise strand focus on the page body. Observation omits withdrawal controls. Pending or failed route reads disable mutation controls, while the server independently authorizes each read and command.
+The Workbench service-route browser uses semantic headings and a shared compact table with row actions. Refresh keeps keyboard focus; completion returns focus to the section heading only when a removed pagination or retry control would otherwise strand focus on the page body. Observation omits withdrawal controls. Pending or failed route reads disable mutation controls, while the server independently authorizes each read and command.
 
 Route selection re-reads the chosen alias and exact revision before composing input. The Workbench keeps loading and failed selection explicit and never substitutes the newest history item for the route target. Route-list actions use the same loading and error guards as withdrawal; choosing another route cancels ownership of older read responses.
 
 Revision history exposes explicit creation and reopening controls through optional callbacks. Loading or failed history disables those actions, and retired rows offer neither reopening nor retirement. The Workbench re-reads a selected revision, resumes draft publication or published routing review, and reads current alias preconditions before a separately confirmed route change.
 
 The shared `ResourceAudit` pattern presents bounded lifecycle and policy decision records with explicit show, hide, refresh, and next-page controls. Its Storybook contract covers keyboard interaction, escaped record text, loading, denial, unavailability, and empty snapshots. The workbench owns authenticated reads, exact resource validation, and stale-response rejection; the shared pattern owns no authorization or data loading.
+
+`SplitView` is owned by the shared UI package and used by run inspection. It
+keeps its primary consumer mounted when the secondary pane opens or closes.
+At container widths below 52rem, both panes stack and the resize handle is hidden.
+At wider widths, a labelled separator adjusts the primary pane between 40 and
+70 percent. Arrow keys move it; Home and End select the bounds. Pointer and touch
+movement use the pinned [React Aria useMove](https://react-aria.adobe.com/useMove)
+hook. The bounded, non-collapsible pane deliberately keeps run outcomes visible;
+closing inspection uses the consumer's existing close control. The separator
+exposes its value and controlled pane following the
+[WAI-ARIA splitter semantics](https://www.w3.org/WAI/ARIA/apg/patterns/windowsplitter/).
+The size stays in component memory and is not stored in browser persistence.
+Keyboard, pointer, RTL, narrow layout and primary-form retention have executable
+Storybook contracts; manual Browser review remains necessary for product layout.
