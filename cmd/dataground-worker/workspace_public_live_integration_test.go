@@ -121,8 +121,12 @@ func (live *liveWorkspaceAPI) publish(args []string) {
 	foreign := strings.Replace(path, live.target.Target.IsolationDomainID, identity.New("iso"), 1)
 	live.call(http.MethodPost, foreign, body, "live-source-cross-domain", true, http.StatusForbidden)
 	accepted := live.call(http.MethodPost, path, body, "live-source-publish", true, http.StatusAccepted)
+	version := 5
+	if live.target.Contract == persistence.OwnedWorkspacePublicationContract {
+		version = 6
+	}
 	var operation domain.Operation
-	if json.Unmarshal(accepted, &operation) != nil || operation.StateMachineVersion != 5 || operation.ObservedState != "queued" {
+	if json.Unmarshal(accepted, &operation) != nil || operation.StateMachineVersion != version || operation.ObservedState != "queued" {
 		live.t.Fatal("public source operation contract mismatch")
 	}
 	var receipt bytes.Buffer
@@ -130,7 +134,7 @@ func (live *liveWorkspaceAPI) publish(args []string) {
 		live.t.Fatal("live authorized publication", err)
 	}
 	result := live.call(http.MethodGet, live.root()+"/operations/"+operation.Metadata.ID, nil, "", true, http.StatusOK)
-	if json.Unmarshal(result, &operation) != nil || operation.StateMachineVersion != 5 || operation.ObservedState != "published" {
+	if json.Unmarshal(result, &operation) != nil || operation.StateMachineVersion != version || operation.ObservedState != "published" {
 		live.t.Fatal("public source publication incomplete")
 	}
 	replay := live.call(http.MethodPost, path, body, "live-source-publish", true, http.StatusAccepted)

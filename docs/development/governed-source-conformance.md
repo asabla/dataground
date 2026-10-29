@@ -41,3 +41,15 @@ go test ./cmd/dataground-worker \
 The same cross-compilation and cleanup procedure applies. Do not enable both test selectors against one fixture: each test requires an unused scope. The public path verifies exact publication and invocation replay, rejects unauthenticated publication and artifact requests, rejects cross-domain requests, checks scoped ordered event envelopes, and compares the public artifact bytes with the random immutable source. It does not start the API command, test OIDC/DPoP or TLS ingress, provision source through a public API, cancel an active native turn, or verify checkpoint and change-export behavior.
 
 A live run on 2026-10-16 passed through public publication and invocation with the same pinned candidates and v6 diagnostic used above. The database retained one published version 5 operation, two allowed publication entry decisions including replay, one allowed effect decision, one successful invocation and runtime attempt, one source preparation and completion, four source allows, and two provider allows. Public artifact content matched the source, and repeated event replay matched through sequence 48. The sandbox was terminated, and the private gateway, compiler, credential state, temporary test acceptance and disposable backends were removed. This remains one development test with ephemeral signing trust and development authentication; it is not operational signing authority or release acceptance.
+
+## Exercise owned workspace completion
+
+`TestGovernedOwnedWorkspaceLivePublicAPIInvocation` selects the separate owned workspace profile. Prepare a fresh v4 test acceptance from a model-backed v7 diagnostic and both exact published images. Use the [owned workspace worker configuration](governed-worker.md), including an artifact limit of at least 67108864 bytes. The test installs version 7 Cedar authority and publishes through the authorized version 6 operation. The older source tests require the source-only profile and cannot silently exercise this path.
+
+```sh
+DATAGROUND_TEST_GOVERNED_OWNED_PUBLIC_LIVE=true \
+go test ./cmd/dataground-worker \
+  -run '^TestGovernedOwnedWorkspaceLivePublicAPIInvocation$' -count=1 -timeout=12m -v
+```
+
+The test requires confirmed cleanup by the original native owner and a completed workspace change export before invocation success. It reads the sensitive change artifact through the governed artifact reader and authenticated public endpoint, applies it to the exact source archive, and compares the restored source and output bytes. It also requires exactly one native attempt, cleanup intent and completion, and export intent and completion. Cross-domain access remains denied. These assertions exercise normal completion; replacement-worker recovery, lost acknowledgements and authority loss have separate deterministic and PostgreSQL tests. This test does not establish teardown authority, operational signing trust, retention policy, or production acceptance. The same disposable-resource cleanup requirements apply.
