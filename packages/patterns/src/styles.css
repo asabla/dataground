@@ -1447,3 +1447,28 @@
 .dg-run-status__details dl > div {
   min-width: 12rem;
 }
+
+.dg-event-timeline--compact {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.dg-event-timeline--compact .dg-event-timeline__heading {
+  margin-block-end: var(--dg-space-3);
+}
+.dg-event-timeline--compact > details {
+  margin-block: var(--dg-space-3);
+}
+.dg-event-timeline--compact summary {
+  cursor: pointer;
+  color: var(--dg-color-text-secondary);
+}
+.dg-event-timeline__row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dg-space-2);
+}
+.dg-event-timeline--compact .dg-data-table__cell {
+  max-width: 32rem;
+  overflow-wrap: anywhere;
+}

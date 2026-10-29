@@ -33,6 +33,8 @@ type EventTimelineAction =
   | { referenceKey: string; result: EventReplayResult; type: "replay-finished" };
 
 export interface EventTimelineWorkflowProps {
+  compact?: boolean;
+  onInspectEvent?: (event: TimelineEvent) => void;
   client: DataGroundClient;
   onInspectQuestion?: (reference: TimelineQuestionReference) => void;
   onInspectApproval?: (reference: TimelineApprovalReference) => void;
@@ -161,6 +163,8 @@ export function eventTimelineReducer(
 }
 
 export function EventTimelineWorkflow({
+  compact = false,
+  onInspectEvent,
   client,
   onInspectQuestion,
   onInspectApproval,
@@ -225,6 +229,8 @@ export function EventTimelineWorkflow({
 
   return (
     <EventTimeline
+      compact={compact}
+      onInspectEvent={onInspectEvent}
       connectionState={connectionState}
       error={stateMatchesReference ? state.error : undefined}
       events={visibleEvents as TimelineEvent[]}

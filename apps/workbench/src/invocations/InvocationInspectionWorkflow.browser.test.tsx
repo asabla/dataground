@@ -27,13 +27,31 @@ afterEach(async () => {
   }
 });
 
-function fixture() {
+function fixture(withActivity = false) {
+  const event = {
+    invocationId: questionReference.invocationId,
+    isolationDomainId: questionReference.isolationDomainId,
+    actorId: "runtime",
+    correlationId: "cor_review",
+    id: "evt_00000000000000000001",
+    occurredAt: "2026-10-29T00:00:00Z",
+    recordedAt: "2026-10-29T00:00:00Z",
+    payload: { name: "review.lookup" },
+    revisionId: "rev_00000000000000000001",
+    schemaVersion: "dataground.event/v1",
+    sequence: 1,
+    serviceId: "svc_00000000000000000001",
+    type: "activity.tool.started",
+    source: "runtime",
+  };
   let listed = true;
   const question = pendingQuestion();
   const get = vi.fn(async (path: string) => {
     if (path.endsWith("/events"))
       return {
-        data: "",
+        data: withActivity
+          ? `id: 1\nevent: activity.tool.started\ndata: ${JSON.stringify(event)}\n\n`
+          : "",
         response: new Response(null, {
           status: 200,
           headers: { "X-DataGround-Has-More": "false" },
@@ -107,7 +125,9 @@ async function render(client: DataGroundClient) {
   await act(async () => root.render(<Journey client={client} />));
 }
 function button(label: string) {
-  const result = [...host.querySelectorAll("button")].find((value) => value.textContent === label);
+  const result = [...host.querySelectorAll("button")].find(
+    (value) => (value.getAttribute("aria-label") ?? value.textContent) === label,
+  );
   expect(result, label).toBeDefined();
   return result as HTMLButtonElement;
 }
@@ -214,7 +234,7 @@ async function selectTab(name: string) {
   await act(async () => tab?.click());
 }
 it("keeps selected request edits beside run tabs and falls back from an inert opener", async () => {
-  const source = fixture();
+  const source = fixture(true);
   await act(async () => root.render(<Journey client={source.client} presentation="workbench" />));
   expect(source.get.mock.calls.some(([path]) => path.endsWith("/questions"))).toBe(false);
   await selectTab("Requests");
@@ -234,9 +254,29 @@ it("keeps selected request edits beside run tabs and falls back from an inert op
   await selectTab("Activity");
   expect(host.querySelector("textarea")).toBe(answer);
   expect(answer.value).toBe("Retained side panel answer");
+  await click("Inspect event 1");
+  expect(host.querySelector('[aria-label="Activity inspection"]')?.textContent).toContain(
+    "review.lookup",
+  );
+  expect(answer.closest("[hidden]")).not.toBeNull();
+  await click("Close activity");
+  expect(host.querySelector("textarea")).toBe(answer);
+  expect(answer.value).toBe("Retained side panel answer");
   expect(selection?.closest("[inert]")).toBeNull();
   expect(host.querySelector(".dg-run-status")?.closest("[inert]")).toBeNull();
   await click("Close questions");
   expect(document.activeElement).toBe(host.querySelector('[aria-label="Run views"]'));
   expect(source.post).not.toHaveBeenCalled();
+});
+
+it("clears selected activity when the connection changes", async () => {
+  const source = fixture(true);
+  await act(async () => root.render(<Journey client={source.client} presentation="workbench" />));
+  await click("Inspect event 1");
+  expect(host.querySelector('[aria-label="Activity inspection"]')).not.toBeNull();
+  const replacement = fixture();
+  await act(async () =>
+    root.render(<Journey client={replacement.client} presentation="workbench" />),
+  );
+  expect(host.querySelector('[aria-label="Activity inspection"]')).toBeNull();
 });

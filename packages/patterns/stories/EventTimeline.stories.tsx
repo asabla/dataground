@@ -432,3 +432,13 @@ export const PlanProgress: Story = {
     });
   },
 };
+
+export const CompactActivity: Story = {
+  args: { compact: true, onInspectEvent: fn() },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("grid", { name: "Run activity events" })).toBeVisible();
+    await userEvent.click(canvas.getByRole("button", { name: "Inspect event 3" }));
+    await expect(args.onInspectEvent).toHaveBeenCalledWith(successEvents[2]);
+  },
+};

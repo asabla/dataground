@@ -555,3 +555,30 @@ it("shows plan progress with scoped inspection and no invocation success claim",
     );
   }
 });
+
+it("preserves runtime evidence and hidden payload boundaries in compact activity rows", () => {
+  const markup = renderToStaticMarkup(
+    <EventTimeline
+      compact
+      connectionState="degraded"
+      reference={reference}
+      hiddenEventCount={200}
+      error={{ message: "Replay unavailable", retryable: true }}
+      events={[
+        {
+          ...baseEvent,
+          type: "lifecycle.succeeded",
+          source: "runtime",
+          payload: { prompt: "private sentinel", answers: ["private sentinel"] },
+        },
+      ]}
+      onInspectEvent={() => {}}
+    />,
+  );
+  assert.match(markup, /Run activity events/u);
+  assert.match(markup, /Runtime turn completed/u);
+  assert.match(markup, /platform finalization may still be pending/u);
+  assert.match(markup, /Replay unavailable/u);
+  assert.match(markup, /outside the bounded display/u);
+  assert.doesNotMatch(markup, /private sentinel/u);
+});

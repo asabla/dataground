@@ -1,4 +1,4 @@
-import { Button, StatusBadge, type StatusTone } from "@dataground/ui";
+import { Button, DataTable, StatusBadge, type StatusTone } from "@dataground/ui";
 import { useId } from "react";
 
 export interface TimelineEvent {
@@ -44,6 +44,8 @@ export interface TimelineError {
 export type TimelineConnectionState = "current" | "degraded" | "loading";
 
 export interface EventTimelineProps {
+  compact?: boolean;
+  onInspectEvent?: (event: TimelineEvent) => void;
   connectionState: TimelineConnectionState;
   error?: TimelineError;
   events: readonly TimelineEvent[];
@@ -486,6 +488,8 @@ const connectionPresentations: Record<
 };
 
 export function EventTimeline({
+  compact = false,
+  onInspectEvent,
   connectionState,
   error,
   events,
@@ -510,34 +514,44 @@ export function EventTimeline({
       : connectionPresentations[connectionState];
   const cursor = events.at(-1)?.sequence ?? 0;
 
+  const scopeDetails = (
+    <dl className="dg-event-timeline__scope">
+      <div>
+        <dt>Isolation domain</dt>
+        <dd>{reference.isolationDomainId}</dd>
+      </div>
+      <div>
+        <dt>Invocation</dt>
+        <dd>{reference.invocationId}</dd>
+      </div>
+      <div>
+        <dt>Confirmed cursor</dt>
+        <dd>{cursor}</dd>
+      </div>
+    </dl>
+  );
   return (
     <section
       aria-busy={isReplaying || undefined}
       aria-labelledby={titleId}
-      className="dg-event-timeline"
+      className={compact ? "dg-event-timeline dg-event-timeline--compact" : "dg-event-timeline"}
     >
       <div className="dg-event-timeline__heading">
         <div>
-          <p className="dg-event-timeline__eyebrow">Invocation journal</p>
-          <h2 id={titleId}>Event timeline</h2>
+          {!compact && <p className="dg-event-timeline__eyebrow">Invocation journal</p>}
+          <h2 id={titleId}>{compact ? "Activity events" : "Event timeline"}</h2>
         </div>
         <StatusBadge tone={connection.tone}>{connection.label}</StatusBadge>
       </div>
 
-      <dl className="dg-event-timeline__scope">
-        <div>
-          <dt>Isolation domain</dt>
-          <dd>{reference.isolationDomainId}</dd>
-        </div>
-        <div>
-          <dt>Invocation</dt>
-          <dd>{reference.invocationId}</dd>
-        </div>
-        <div>
-          <dt>Confirmed cursor</dt>
-          <dd>{cursor}</dd>
-        </div>
-      </dl>
+      {compact ? (
+        <details>
+          <summary>Replay details</summary>
+          {scopeDetails}
+        </details>
+      ) : (
+        scopeDetails
+      )}
 
       <p aria-live="polite" className="dg-event-timeline__connection">
         {connection.message}
@@ -582,6 +596,78 @@ export function EventTimeline({
             ? "No events have been loaded yet."
             : "The invocation journal currently contains no events."}
         </p>
+      ) : compact ? (
+        <DataTable
+          label="Run activity events"
+          items={events}
+          getRowId={(event) => event.id}
+          getRowLabel={(event) => `${event.sequence}: ${presentTimelineEvent(event).label}`}
+          isLoading={isReplaying}
+          columns={[
+            { id: "sequence", title: "Order", render: (event) => event.sequence },
+            {
+              id: "event",
+              title: "Event",
+              isRowHeader: true,
+              render: (event) => (
+                <StatusBadge tone={presentTimelineEvent(event).tone}>
+                  {presentTimelineEvent(event).label}
+                </StatusBadge>
+              ),
+            },
+            {
+              id: "summary",
+              title: "Summary",
+              render: (event) => presentTimelineEvent(event).detail,
+            },
+            {
+              id: "time",
+              title: "Occurred",
+              render: (event) => (
+                <time dateTime={event.occurredAt}>
+                  {new Date(event.occurredAt).toLocaleTimeString()}
+                </time>
+              ),
+            },
+            {
+              id: "actions",
+              title: "Inspect",
+              render: (event) => {
+                const question = timelineQuestionReference(event);
+                const approval = timelineApprovalReference(event);
+                const artifact = timelineArtifactReference(event);
+                return (
+                  <div className="dg-event-timeline__row-actions">
+                    {onInspectEvent && (
+                      <Button
+                        variant="quiet"
+                        aria-label={`Inspect event ${event.sequence}`}
+                        onPress={() => onInspectEvent(event)}
+                      >
+                        Details
+                      </Button>
+                    )}
+                    {question && onInspectQuestion && (
+                      <Button variant="quiet" onPress={() => onInspectQuestion(question)}>
+                        View questions
+                      </Button>
+                    )}
+                    {approval && onInspectApproval && (
+                      <Button variant="quiet" onPress={() => onInspectApproval(approval)}>
+                        Review approval request
+                      </Button>
+                    )}
+                    {artifact && onInspectArtifact && (
+                      <Button variant="quiet" onPress={() => onInspectArtifact(artifact)}>
+                        Inspect artifact metadata
+                      </Button>
+                    )}
+                  </div>
+                );
+              },
+            },
+          ]}
+        />
       ) : (
         <ol className="dg-event-timeline__list">
           {events.map((event) => {

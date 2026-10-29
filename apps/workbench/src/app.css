@@ -944,7 +944,7 @@ p {
   min-width: 0;
 }
 .run-inspector[data-inspecting] {
-  grid-template-columns: minmax(20rem, 1fr) minmax(18rem, 0.8fr);
+  grid-template-columns: minmax(24rem, 1fr) minmax(16rem, 22rem);
 }
 .run-inspector > .interaction-inspector__selection {
   position: sticky;
@@ -952,6 +952,8 @@ p {
   align-self: start;
   max-height: calc(100vh - 4rem);
   overflow: auto;
+  padding: var(--dg-space-4);
+  background: var(--dg-color-surface-raised);
   border-inline-start: var(--dg-border-default) solid var(--dg-color-border-default);
   border-radius: 0;
 }
@@ -982,4 +984,19 @@ p {
   display: flex;
   align-items: center;
   gap: var(--dg-space-2);
+}
+
+.run-inspector > .interaction-inspector__selection dl {
+  display: grid;
+  gap: var(--dg-space-3);
+}
+.run-inspector > .interaction-inspector__selection dt {
+  color: var(--dg-color-text-secondary);
+}
+.run-inspector > .interaction-inspector__selection dd {
+  margin: var(--dg-space-1) 0 0;
+  overflow-wrap: anywhere;
+}
+.run-inspector > .interaction-inspector__selection summary {
+  cursor: pointer;
 }
