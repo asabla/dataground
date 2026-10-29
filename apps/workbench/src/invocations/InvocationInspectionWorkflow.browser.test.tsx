@@ -15,10 +15,16 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
+  vi.spyOn(console, "error");
 });
 afterEach(async () => {
-  await act(async () => root.unmount());
-  host.remove();
+  try {
+    await act(async () => root.unmount());
+    expect(console.error).not.toHaveBeenCalled();
+  } finally {
+    host.remove();
+    vi.restoreAllMocks();
+  }
 });
 
 function fixture() {
@@ -100,8 +106,10 @@ function button(label: string) {
 }
 async function click(label: string) {
   const target = button(label);
-  target.focus();
-  await act(async () => target.click());
+  await act(async () => {
+    target.focus();
+    target.click();
+  });
   return target;
 }
 
