@@ -4,6 +4,8 @@ import { ScopeArtifactBrowser } from "../artifacts/ScopeArtifactBrowser";
 import type { DataGroundClient } from "../contracts/client";
 import { useDiscoveryPage } from "../discovery/useDiscoveryPage";
 import { ScopeRunBrowser } from "../invocations/ScopeRunBrowser";
+import { SavedResourceNotice, SavedResources, useSavedResources } from "../saved/SavedResources";
+import type { SearchResult } from "../search/client";
 import { ResourceSearch } from "../search/ResourceSearch";
 import {
   type AgentServiceFailure,
@@ -96,6 +98,7 @@ export function WorkbenchSession({
   if (showSearch && !visitedSearch) setVisitedSearch(true);
   const [visitedHome, setVisitedHome] = useState(showHome);
   if (showHome && !visitedHome) setVisitedHome(true);
+  const savedResources = useSavedResources(client, isolationDomainId, visitedHome);
   const showScopeRuns = !!route && view === "interactions" && !route.serviceId;
   const [visitedScopeRuns, setVisitedScopeRuns] = useState(showScopeRuns);
   if (showScopeRuns && !visitedScopeRuns) setVisitedScopeRuns(true);
@@ -261,6 +264,38 @@ export function WorkbenchSession({
     ...(next === "workflow" && tab && tab !== "build" && tab !== "runs" ? { serviceTab: tab } : {}),
   });
 
+  const openResource = (item: SearchResult) => {
+    if (item.kind === "workspace")
+      navigate({
+        isolationDomainId,
+        view: "workspaces",
+        workspaceId: item.metadata.id,
+      });
+    else if (item.kind === "agent-service")
+      navigate({
+        isolationDomainId,
+        view: "workflow",
+        serviceId: item.metadata.id,
+        serviceTab: "overview",
+      });
+    else if (item.kind === "invocation")
+      navigate({
+        isolationDomainId,
+        view: "interactions",
+        serviceId: item.serviceId,
+        invocationId: item.metadata.id,
+      });
+    else
+      navigate({
+        isolationDomainId,
+        view: "interactions",
+        serviceId: item.serviceId,
+        invocationId: item.invocationId,
+        runTab: "files",
+        artifactId: item.metadata.id,
+      });
+  };
+
   return (
     <WorkbenchShell
       isolationDomainId={isolationDomainId}
@@ -276,6 +311,7 @@ export function WorkbenchSession({
       }}
     >
       <div className="workbench-main" ref={pageContent}>
+        <SavedResourceNotice controller={savedResources} />
         {sessions.length > 0 && (
           <nav aria-label="Open service work" className="workbench-open-work">
             {sessions.map((session) => (
@@ -325,43 +361,22 @@ export function WorkbenchSession({
             <ResourceSearch
               client={client}
               isolationDomainId={isolationDomainId}
-              onOpen={(item) => {
-                if (item.kind === "workspace")
-                  navigate({
-                    isolationDomainId,
-                    view: "workspaces",
-                    workspaceId: item.metadata.id,
-                  });
-                else if (item.kind === "agent-service")
-                  navigate({
-                    isolationDomainId,
-                    view: "workflow",
-                    serviceId: item.metadata.id,
-                    serviceTab: "overview",
-                  });
-                else if (item.kind === "invocation")
-                  navigate({
-                    isolationDomainId,
-                    view: "interactions",
-                    serviceId: item.serviceId,
-                    invocationId: item.metadata.id,
-                  });
-                else
-                  navigate({
-                    isolationDomainId,
-                    view: "interactions",
-                    serviceId: item.serviceId,
-                    invocationId: item.invocationId,
-                    runTab: "files",
-                    artifactId: item.metadata.id,
-                  });
-              }}
+              onOpen={openResource}
+              saveDisabled={savedResources.blocked}
+              onSave={(item) => savedResources.change(item.kind, item.metadata.id, item.name, true)}
             />
           </div>
         )}
         {visitedHome && (
           <div hidden={!showHome} inert={!showHome}>
             <WorkbenchHome
+              savedResources={
+                <SavedResources
+                  controller={savedResources}
+                  onOpen={openResource}
+                  onSearch={() => navigateView("search")}
+                />
+              }
               client={client}
               isolationDomainId={isolationDomainId}
               recentWork={recentKeys.flatMap((key) => {

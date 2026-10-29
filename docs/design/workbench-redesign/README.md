@@ -110,7 +110,8 @@ The prototype demonstrates the main administration journey, including read-only 
 | Route | A selection of a published version for new invocations; the API currently calls it an alias |
 | Run | User-facing execution; maps to an agent invocation only in the existing agent API |
 | Persistent assistant | A profile with separate durable memory, skills, delegation, schedules and channel semantics |
-| Saved | Document edits retained by the relevant document service; independent of successful execution |
+| Saved document | Document edits retained by the relevant document service; independent of successful execution |
+| Saved resource | A principal-scoped reference for returning to existing work; does not save document edits or retain output |
 | Retained | Output has an observed retention receipt; independent of the run outcome |
 | Updated / last opened | Metadata or user activity; never evidence of runtime readiness |
 | Ready / degraded / unknown | Observed capability state with evidence; unknown is not success or failure |
@@ -121,12 +122,12 @@ This matrix is grounded in `contracts/openapi/dataground-api.openapi.json`, the 
 
 | Area | Existing public API support | Required public contract additions | Prototype-only behavior |
 | --- | --- | --- | --- |
-| Workspace | List, create and read workspace display metadata | Resource membership, folders, document revisions and authorized workspace summaries | Retail operations folder hierarchy and alternate empty workspace |
-| Home/search | Individual resource APIs; no unified summary/search endpoint | Paginated, authorized cross-resource search, recents and attention read models | Search over six named fixtures; local attention rows |
-| Agent services | List/create/read exact services; list/create revisions; publish/retire revisions | Explicit service/workspace relationship and any summary fields absent from current API | Editable draft and fixed profile examples |
+| Workspace | List, search, create and read workspace metadata; explicit service membership and paginated service discovery | Folders, document revisions and document summaries | Retail operations folder hierarchy and alternate empty workspace |
+| Home/search | Authorized cross-resource metadata search, principal-scoped saved references, and bounded attention through scope run queries; session recents in the workbench | Durable recents and summaries for future resource types | Search over six named fixtures; local attention rows |
+| Agent services | List/search/create/read exact services with optional explicit workspace membership; list/create revisions; publish/retire revisions | Any extra summary fields absent from current API | Editable draft and fixed profile examples |
 | Publication/routes | Publication operations, operation reads, alias assignment and withdrawal | Any extra review summary must derive from the same exact input and operation identity | Uncertain publication observation, route assignment and in-memory version transition |
-| Agent runs | Service-scoped invocation list/create/read/cancel, events, questions, answers, approvals | Authorized cross-service list and attention summary; display names where absent | Simulated question → approval → completion; local cancellation observation |
-| Artifacts | Invocation-scoped metadata/content and audit boundaries | Authorized cross-product index, explicit origin/source relationships and public retention policy surface | Retained report previews and fixed provenance/retention receipts |
+| Agent runs | Service-scoped invocation list/create/read/cancel, events, questions, answers and approvals; authorized cross-service metadata list with current service names and state filters | Shared monitoring contracts for future non-agent run types | Simulated question → approval → completion; local cancellation observation |
+| Artifacts | Invocation-scoped metadata/content and audit boundaries; authorized scope metadata list with exact originating invocation and service references | Origins for future data/job resources and a public retention policy surface | Retained report previews and fixed provenance/retention receipts |
 | Persistent assistants | Architecture requirements; not a complete public profile-management journey | Profile, delegation, Kanban, memory, skill, schedule and channel contracts | Read-only profile examples; no external messaging or schedule execution |
 | Catalog | No public catalog metadata/preview API | Hierarchy, search, schema, bounded previews, lineage and access explanation | Fictional orders schema, five preview rows and declared relationships |
 | SQL | No public query service | Execution, authorization, bounded results, cancellation, history and saved-query revisions | Exact example SQL only; edited SQL is retained but cannot return fixture results |

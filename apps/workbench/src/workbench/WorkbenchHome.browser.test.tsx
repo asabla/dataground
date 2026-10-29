@@ -65,6 +65,7 @@ async function select(value: string) {
 }
 
 const baseProps = {
+  savedResources: null,
   isolationDomainId: scope,
   recentWork: [{ key: "draft", name: "New service draft", kind: "Unsaved service draft" as const }],
   onOpenWork: vi.fn(),

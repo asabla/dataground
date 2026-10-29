@@ -352,3 +352,23 @@ The query, selected kind and result pages remain in the connected session across
 navigation and browser back/forward. They are not added to URLs or browser
 storage; refresh and connection/scope replacement start an empty search. Delayed
 responses for an earlier query, kind or identity cannot replace current results.
+
+Search results offer Save to Home. Home lists the current principal's saved
+workspaces, services, runs and artifacts through one authorized, paginated API.
+The saved reference contains only kind and resource identity; current display
+metadata comes from the server. An unavailable target remains removable without
+showing an old metadata copy. Opening a saved item uses the same exact resource
+navigation and access checks as search. Artifact content still needs an explicit
+read. Saving a reference is separate from saving document edits.
+
+Saved-resource commands are serialized within the connected workbench. Pending
+and uncertain outcomes stay visible during navigation; retry retains the exact
+body and idempotency key. A later denial cannot resolve an earlier uncertain
+outcome. Confirmed receipts invalidate any older list request and refresh current
+state, since replay of an older command does not overwrite subsequent changes.
+Completed confirmations stay in the action's location. If a submitted or removed
+control loses focus, the confirmation or list heading receives focus only in the
+active view. Connection or scope replacement clears commands, labels and results
+and rejects late responses. No saved metadata or command payload enters browser
+storage or URLs. Reconnecting reads the private collection from the API again;
+durability across API restarts requires the PostgreSQL profile.

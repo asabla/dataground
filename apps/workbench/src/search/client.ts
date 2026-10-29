@@ -34,7 +34,7 @@ export function validSearchText(value: string) {
   return value.length > 0 && Array.from(value).length <= 128 && !/[\p{Cc}\p{Cs}]/u.test(value);
 }
 
-function decode(value: unknown, scope: string): SearchResult | undefined {
+export function decodeResourceSummary(value: unknown, scope: string): SearchResult | undefined {
   if (!record(value) || !record(value.metadata) || !searchKinds.includes(value.kind as SearchKind))
     return;
   const kind = value.kind as SearchKind,
@@ -172,7 +172,7 @@ export async function searchResources(
       return invalid();
     const items: SearchResult[] = [];
     for (const raw of value.items) {
-      const item = decode(raw, scope),
+      const item = decodeResourceSummary(raw, scope),
         previous = items.at(-1);
       if (
         !item ||
