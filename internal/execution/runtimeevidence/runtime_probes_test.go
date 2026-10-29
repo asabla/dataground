@@ -179,8 +179,16 @@ func TestLocalApprovalFailureIdentifiesBoundaryWithoutReleasingEvidence(t *testi
 			defer cancel()
 			result, err := probes.FileChangeApproval(ctx, testProbeRequest())
 			var failure *LocalDiagnosticError
-			if ctx.Err() != nil || !errors.As(err, &failure) || failure.Error() != "local runtime diagnostic failed at case-file-change-approval-"+test.stage || result.ObservationSHA256 != ([32]byte{}) {
+			if ctx.Err() != nil || !errors.As(err, &failure) || result.ObservationSHA256 != ([32]byte{}) {
 				t.Fatal("approval failure lost its closed stage or released evidence")
+			}
+			stage := "case-file-change-approval-" + test.stage
+			// An invalid terminal poisons the connection. Its failure can win the
+			// turn/start response select before Start returns, or be observed by
+			// the approval waiter. Both boundaries must withhold all evidence.
+			startFailure := test.name == "invalid-terminal" && failure.stage == "case-file-change-approval-turn-start"
+			if failure.stage != stage && !startFailure {
+				t.Fatalf("approval failure reported an unexpected closed stage: %s", failure.stage)
 			}
 			if _, err := probes.FileChangeApproval(ctx, testProbeRequest()); !errors.Is(err, ErrCodexProbeOrder) {
 				t.Fatal("failed approval probe allowed replay")
