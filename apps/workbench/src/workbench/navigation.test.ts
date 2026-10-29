@@ -102,3 +102,30 @@ it("round-trips artifact inspection in its run view and rejects content-bearing 
     }),
   );
 });
+
+const revisionId = "rev_00000000000000000001";
+it("round-trips revision context across service views and rejects mixed resource locations", () => {
+  for (const serviceTab of [undefined, "overview", "versions", "deployments"] as const) {
+    const route: WorkbenchRoute = {
+      isolationDomainId,
+      serviceId,
+      revisionId,
+      view: "workflow",
+      ...(serviceTab ? { serviceTab } : {}),
+    };
+    assert.deepEqual(parseRoute(routeHash(route), isolationDomainId), route);
+  }
+  const valid = routeHash({ isolationDomainId, serviceId, revisionId, view: "workflow" });
+  for (const bad of [
+    `${valid}/content`,
+    `${valid}?prompt=secret`,
+    valid.replace(revisionId, "../other"),
+    valid.replace(revisionId, "%72ev_00000000000000000001"),
+    valid.replace("/build/", "/runs/"),
+  ])
+    assert.equal(parseRoute(bad, isolationDomainId), undefined);
+  assert.throws(() => routeHash({ isolationDomainId, revisionId, view: "workflow" }));
+  assert.throws(() =>
+    routeHash({ isolationDomainId, serviceId, revisionId, invocationId, view: "interactions" }),
+  );
+});

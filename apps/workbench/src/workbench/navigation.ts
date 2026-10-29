@@ -12,12 +12,14 @@ export interface WorkbenchRoute {
   isolationDomainId: string;
   view: WorkbenchView;
   serviceId?: string;
+  revisionId?: string;
   invocationId?: string;
   runTab?: RunTab;
   artifactId?: string;
   serviceTab?: Exclude<ServiceTab, "build" | "runs">;
 }
 
+const revisionPattern = /^rev_[0-9a-z]{20,32}$/u;
 const scopePattern = /^iso_[0-9a-z]{20,32}$/u;
 const invocationPattern = /^inv_[0-9a-z]{20,32}$/u;
 const artifactPattern = /^art_[0-9a-z]{20,32}$/u;
@@ -29,6 +31,11 @@ export function routeHash(route: WorkbenchRoute): string {
   if (
     !scopePattern.test(route.isolationDomainId) ||
     (route.serviceId !== undefined && !servicePattern.test(route.serviceId)) ||
+    (route.revisionId !== undefined &&
+      (!revisionPattern.test(route.revisionId) ||
+        !route.serviceId ||
+        route.view !== "workflow" ||
+        !!route.invocationId)) ||
     (route.invocationId !== undefined &&
       (!invocationPattern.test(route.invocationId) ||
         !route.serviceId ||
@@ -44,7 +51,7 @@ export function routeHash(route: WorkbenchRoute): string {
   if (route.serviceId) {
     if (route.invocationId)
       return `${root}/${route.serviceId}/runs/${route.invocationId}/${route.runTab ?? "activity"}${route.artifactId ? `/artifacts/${route.artifactId}` : ""}`;
-    return `${root}/${route.serviceId}/${route.view === "interactions" ? "runs" : (route.serviceTab ?? "build")}`;
+    return `${root}/${route.serviceId}/${route.view === "interactions" ? "runs" : (route.serviceTab ?? "build")}${route.revisionId ? `/revisions/${route.revisionId}` : ""}`;
   }
   return `${root}/${route.view === "workflow" ? "new" : "runs"}`;
 }
@@ -60,6 +67,25 @@ export function parseRoute(hash: string, isolationDomainId: string): WorkbenchRo
   const [serviceId, tab, invocationId, runTab, resourceType, artifactId, extra] = hash
     .slice(root.length + 1)
     .split("/");
+  if (
+    serviceId &&
+    servicePattern.test(serviceId) &&
+    tab &&
+    isServiceTab(tab) &&
+    tab !== "runs" &&
+    invocationId === "revisions" &&
+    runTab &&
+    revisionPattern.test(runTab) &&
+    resourceType === undefined
+  ) {
+    return {
+      isolationDomainId,
+      serviceId,
+      view: "workflow",
+      revisionId: runTab,
+      ...(tab === "build" ? {} : { serviceTab: tab }),
+    };
+  }
   if (
     serviceId &&
     servicePattern.test(serviceId) &&
