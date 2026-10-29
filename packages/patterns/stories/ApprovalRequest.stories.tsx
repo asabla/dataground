@@ -197,3 +197,17 @@ export const WorkbenchUncertain: Story = {
     await expect(canvas.getByText(pendingApproval.id)).not.toBeVisible();
   },
 };
+
+export const WorkbenchRecorded: Story = {
+  args: { ...Resolved.args, compact: true },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Approved")).toBeVisible();
+    await expect(canvas.getByText("usr_00000000000000000001")).not.toBeVisible();
+    await expect(canvas.getByText("Record updated")).not.toBeVisible();
+    await userEvent.click(canvas.getByText("Resource details"));
+    await expect(
+      canvas.getByRole("button", { name: "Copy deciding actor identifier" }),
+    ).toBeVisible();
+  },
+};
