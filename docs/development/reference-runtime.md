@@ -247,3 +247,45 @@ union with scope-bound joins and a bounded output page; it does not issue one
 request per service. Migration 81 adds the closed audit action. Its downgrade
 refuses to remove retained search authorization decisions. Search text is not
 stored in these authorization records.
+
+## Saved resources
+
+`POST /v1/isolation-domains/{isolationDomainId}/saved-resources` saves or removes
+a navigation reference for the authenticated principal. It requires the separate
+Cedar `setSavedResource` action and an idempotency key. For example:
+
+```json
+{"kind":"workspace","resourceId":"wsp_00000000000000000001","saved":true}
+```
+
+The closed kinds are `workspace`, `agent-service`, `invocation` and `artifact`.
+The identifier must match its kind. A save requires an existing scoped target;
+`saved: false` also permits removal of an unavailable target. The server derives
+the collection from the authenticated principal kind and ID. Neither an owner
+nor a display name can be supplied. A saved reference stores no resource content
+and changes no resource ownership or authority. It is distinct from saving edits
+to a notebook, query or source file.
+
+`GET` on the same path requires `listSavedResources` on the isolation domain.
+That grant permits current navigation metadata for this principal's saved
+targets, including names of sensitive artifacts. It does not grant access to
+another principal's list or to exact resource and content reads. It returns a
+bounded page (default 50, maximum 100), ordered by save time and resource ID,
+newest first. Continuation cursors bind the isolation scope and the principal
+kind and ID. Each page repeats authorization and reads current state. The
+resource projection is absent when the target metadata is unavailable, so the
+reference can still be removed without retaining an old metadata copy.
+
+Repeated saves with new keys preserve the original position. Removing and then
+saving again moves the reference to the new save time. Exact-request replay is
+bound to both principal kind and ID and returns the original receipt without
+overwriting later commands. Clients must refresh the list after a receipt to
+observe current state. Responses use `Cache-Control: no-store`.
+
+Reference mode keeps these preferences only in the API process. Durable mode
+uses migration 82 and commits the preference, safe audit, outbox and idempotency
+receipt in one transaction. Removal retains a false state for reconciliation;
+it does not delete the target or erase prior audit. Downgrade refuses retained
+preferences or authorization evidence. The metadata list uses one scoped SQL
+join with the same navigation projection as search. Home integration is a
+separate workbench change.

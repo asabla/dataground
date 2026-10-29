@@ -8,6 +8,117 @@
   },
   "security": [{ "BearerAccessToken": [] }],
   "paths": {
+    "/v1/isolation-domains/{isolationDomainId}/saved-resources": {
+      "get": {
+        "operationId": "listSavedResources",
+        "summary": "List the current principal’s saved resources",
+        "description": "Requires listSavedResources on the isolation domain. Returns only references saved by the authenticated principal kind and ID, with current navigation metadata. This permission discloses metadata of those saved targets; exact resource and content reads remain independently authorized. Newest save first with resource-ID tie breaking. Cursors bind scope and principal. Each page repeats authorization and reads current state, not a snapshot. No names, prompts, results or contents are stored in the saved reference.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One bounded page of saved references.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedResourcePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "setSavedResource",
+        "summary": "Save or remove a reference for the current principal",
+        "description": "Requires setSavedResource on the isolation domain. The authenticated principal kind and ID determine the private collection; the caller cannot choose an owner. Saving requires an existing target within this scope and grants no resource or content access. Removing an unavailable target is allowed. Repeated saves preserve the original save position; removing and saving again uses a new position. The exact request is idempotent and bound to principal kind and ID. A replay returns the original receipt and does not override later commands; refresh the list to observe current state. No resource content or ownership is changed.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSavedResourceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The saved-state command receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedResourceState"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/livez": {
       "get": {
         "operationId": "getLiveness",
@@ -1994,6 +2105,445 @@
       }
     },
     "schemas": {
+      "SetSavedResourceRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "resourceId", "saved"],
+            "properties": {
+              "kind": {
+                "const": "workspace"
+              },
+              "resourceId": {
+                "$ref": "#/components/schemas/WorkspaceId"
+              },
+              "saved": {
+                "type": "boolean"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "resourceId", "saved"],
+            "properties": {
+              "kind": {
+                "const": "agent-service"
+              },
+              "resourceId": {
+                "$ref": "#/components/schemas/ServiceId"
+              },
+              "saved": {
+                "type": "boolean"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "resourceId", "saved"],
+            "properties": {
+              "kind": {
+                "const": "invocation"
+              },
+              "resourceId": {
+                "$ref": "#/components/schemas/InvocationId"
+              },
+              "saved": {
+                "type": "boolean"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "resourceId", "saved"],
+            "properties": {
+              "kind": {
+                "const": "artifact"
+              },
+              "resourceId": {
+                "$ref": "#/components/schemas/ArtifactId"
+              },
+              "saved": {
+                "type": "boolean"
+              }
+            }
+          }
+        ]
+      },
+      "SavedResourceState": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["isolationDomainId", "kind", "resourceId", "saved", "updatedAt"],
+            "properties": {
+              "isolationDomainId": {
+                "$ref": "#/components/schemas/IsolationDomainId"
+              },
+              "kind": {
+                "const": "workspace"
+              },
+              "resourceId": {
+                "$ref": "#/components/schemas/WorkspaceId"
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["isolationDomainId", "kind", "resourceId", "saved", "updatedAt"],
+            "properties": {
+              "isolationDomainId": {
+                "$ref": "#/components/schemas/IsolationDomainId"
+              },
+              "kind": {
+                "const": "agent-service"
+              },
+              "resourceId": {
+                "$ref": "#/components/schemas/ServiceId"
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["isolationDomainId", "kind", "resourceId", "saved", "updatedAt"],
+            "properties": {
+              "isolationDomainId": {
+                "$ref": "#/components/schemas/IsolationDomainId"
+              },
+              "kind": {
+                "const": "invocation"
+              },
+              "resourceId": {
+                "$ref": "#/components/schemas/InvocationId"
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["isolationDomainId", "kind", "resourceId", "saved", "updatedAt"],
+            "properties": {
+              "isolationDomainId": {
+                "$ref": "#/components/schemas/IsolationDomainId"
+              },
+              "kind": {
+                "const": "artifact"
+              },
+              "resourceId": {
+                "$ref": "#/components/schemas/ArtifactId"
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        ]
+      },
+      "SavedResource": {
+        "description": "A reference saved by the current authenticated principal. Resource metadata is current, not a saved copy. An absent resource means metadata is unavailable; the reference can still be removed.",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["isolationDomainId", "kind", "resourceId", "savedAt"],
+            "properties": {
+              "isolationDomainId": {
+                "$ref": "#/components/schemas/IsolationDomainId"
+              },
+              "kind": {
+                "const": "workspace"
+              },
+              "resourceId": {
+                "$ref": "#/components/schemas/WorkspaceId"
+              },
+              "savedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "resource": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["metadata", "kind", "name"],
+                "properties": {
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["id", "isolationDomainId", "createdAt"],
+                    "properties": {
+                      "id": {
+                        "$ref": "#/components/schemas/WorkspaceId"
+                      },
+                      "isolationDomainId": {
+                        "$ref": "#/components/schemas/IsolationDomainId"
+                      },
+                      "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  },
+                  "kind": {
+                    "const": "workspace"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 4096
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["isolationDomainId", "kind", "resourceId", "savedAt"],
+            "properties": {
+              "isolationDomainId": {
+                "$ref": "#/components/schemas/IsolationDomainId"
+              },
+              "kind": {
+                "const": "agent-service"
+              },
+              "resourceId": {
+                "$ref": "#/components/schemas/ServiceId"
+              },
+              "savedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "resource": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["metadata", "kind", "name"],
+                "properties": {
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["id", "isolationDomainId", "createdAt"],
+                    "properties": {
+                      "id": {
+                        "$ref": "#/components/schemas/ServiceId"
+                      },
+                      "isolationDomainId": {
+                        "$ref": "#/components/schemas/IsolationDomainId"
+                      },
+                      "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  },
+                  "kind": {
+                    "const": "agent-service"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 4096
+                  },
+                  "workspaceId": {
+                    "$ref": "#/components/schemas/WorkspaceId"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["isolationDomainId", "kind", "resourceId", "savedAt"],
+            "properties": {
+              "isolationDomainId": {
+                "$ref": "#/components/schemas/IsolationDomainId"
+              },
+              "kind": {
+                "const": "invocation"
+              },
+              "resourceId": {
+                "$ref": "#/components/schemas/InvocationId"
+              },
+              "savedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "resource": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["metadata", "kind", "name", "serviceId", "state"],
+                "properties": {
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["id", "isolationDomainId", "createdAt"],
+                    "properties": {
+                      "id": {
+                        "$ref": "#/components/schemas/InvocationId"
+                      },
+                      "isolationDomainId": {
+                        "$ref": "#/components/schemas/IsolationDomainId"
+                      },
+                      "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  },
+                  "kind": {
+                    "const": "invocation"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "workspaceId": {
+                    "$ref": "#/components/schemas/WorkspaceId"
+                  },
+                  "serviceId": {
+                    "$ref": "#/components/schemas/ServiceId"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "accepted",
+                      "running",
+                      "waiting",
+                      "cancelling",
+                      "succeeded",
+                      "failed",
+                      "cancelled",
+                      "unknown"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["isolationDomainId", "kind", "resourceId", "savedAt"],
+            "properties": {
+              "isolationDomainId": {
+                "$ref": "#/components/schemas/IsolationDomainId"
+              },
+              "kind": {
+                "const": "artifact"
+              },
+              "resourceId": {
+                "$ref": "#/components/schemas/ArtifactId"
+              },
+              "savedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "resource": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["metadata", "kind", "name", "serviceId", "state", "invocationId"],
+                "properties": {
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["id", "isolationDomainId", "createdAt"],
+                    "properties": {
+                      "id": {
+                        "$ref": "#/components/schemas/ArtifactId"
+                      },
+                      "isolationDomainId": {
+                        "$ref": "#/components/schemas/IsolationDomainId"
+                      },
+                      "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  },
+                  "kind": {
+                    "const": "artifact"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "workspaceId": {
+                    "$ref": "#/components/schemas/WorkspaceId"
+                  },
+                  "serviceId": {
+                    "$ref": "#/components/schemas/ServiceId"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": ["pending", "available", "failed", "deleted"]
+                  },
+                  "invocationId": {
+                    "$ref": "#/components/schemas/InvocationId"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "SavedResourcePage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/SavedResource"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        }
+      },
       "ResourceSearchResult": {
         "oneOf": [
           {
