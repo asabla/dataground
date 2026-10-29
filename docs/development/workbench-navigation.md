@@ -177,3 +177,12 @@ disclosures with explicit copy controls. Errors and sensitive-content notices
 stay visible. The metadata update time is labelled Record updated; it does not
 indicate execution readiness. The compact presentation uses the same content
 authorization and verification controller as the temporary classic card.
+
+A selected revision can be restored through
+`#/scopes/{isolationDomainId}/agents/{serviceId}/{serviceTab}/revisions/{revisionId}`.
+Build, Overview, Versions and Deployments preserve this exact context. The
+existing revision read validates its service and isolation relationship; a late
+list response cannot select another revision. New revision returns to the
+retained draft without a revision suffix. Runs use their separate invocation
+locations. These links contain identities only and do not persist forms or
+command attempts across refresh.

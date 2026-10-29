@@ -587,3 +587,122 @@ it("keeps artifact access failures visible without requesting file content", asy
   expect(host.textContent).not.toContain(artifact.name);
   expect(source.reads.some((path) => path.endsWith("/content"))).toBe(false);
 });
+
+const linkedRevisionId = "rev_00000000000000000003";
+const linkedRevision = {
+  metadata: { ...service.metadata, id: linkedRevisionId },
+  serviceId,
+  revisionNumber: 3,
+  state: "draft",
+  runtimeProfile: "reference/v1",
+  requiredCapabilities: [],
+};
+const revisionRoute = (serviceTab?: "overview" | "versions" | "deployments") =>
+  routeHash({
+    isolationDomainId: scope,
+    serviceId,
+    view: "workflow",
+    revisionId: linkedRevisionId,
+    ...(serviceTab ? { serviceTab } : {}),
+  });
+function revisionFixture(
+  exact: () => unknown = () => ok(linkedRevision),
+  list: () => unknown = () => ok({ items: [] }),
+) {
+  const source = fixture();
+  const baseGet = source.client.GET;
+  source.client.GET = (async (path: string, options: never) => {
+    if (path.endsWith("/{revisionId}")) {
+      source.reads.push(path);
+      return exact();
+    }
+    if (path.endsWith("/revisions")) return list();
+    return baseGet(path as never, options);
+  }) as DataGroundClient["GET"];
+  return source;
+}
+it("opens an exact revision outside the list and retains it across service views and refresh", async () => {
+  const source = revisionFixture();
+  window.history.replaceState(null, "", revisionRoute());
+  await render(source.client, "workbench");
+  await selectServiceTab("Overview");
+  expect(window.location.hash).toBe(revisionRoute("overview"));
+  expect(host.querySelector('[aria-label="Service overview"]')?.textContent).toContain(
+    "Revision 3",
+  );
+  await selectServiceTab("Versions");
+  expect(window.location.hash).toBe(revisionRoute("versions"));
+  await visit(revisionRoute());
+  expect(source.reads.filter((path) => path.endsWith("/{revisionId}"))).toHaveLength(1);
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  await render(source.client, "workbench");
+  expect(source.reads.filter((path) => path.endsWith("/{revisionId}"))).toHaveLength(2);
+  await selectServiceTab("Overview");
+  expect(host.querySelector('[aria-label="Service overview"]')?.textContent).toContain(
+    "Revision 3",
+  );
+});
+it("does not replace a linked revision with a late newest-revision list", async () => {
+  let finish!: (value: unknown) => void;
+  const source = revisionFixture(
+    undefined,
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  window.history.replaceState(null, "", revisionRoute("overview"));
+  await render(source.client, "workbench");
+  await act(async () =>
+    finish(
+      ok({
+        items: [
+          {
+            ...linkedRevision,
+            metadata: { ...linkedRevision.metadata, id: "rev_00000000000000000009" },
+            revisionNumber: 9,
+          },
+        ],
+      }),
+    ),
+  );
+  expect(host.querySelector('[aria-label="Service overview"]')?.textContent).toContain(
+    "Revision 3",
+  );
+  expect(window.location.hash).toBe(revisionRoute("overview"));
+});
+it("keeps a denied or mismatched direct revision out of commands", async () => {
+  for (const read of [
+    () => absent(),
+    () => ok({ ...linkedRevision, serviceId: "svc_00000000000000000002" }),
+  ]) {
+    const source = revisionFixture(read);
+    window.history.replaceState(null, "", revisionRoute());
+    await render(source.client, "workbench");
+    expect(host.querySelector('[role="alert"]')).not.toBeNull();
+    expect(
+      [...host.querySelectorAll("form")].filter((form) => !form.closest("[hidden], [inert]")),
+    ).toHaveLength(0);
+  }
+});
+it("does not restore a late revision after starting a new draft", async () => {
+  let finish!: (value: unknown) => void;
+  const source = revisionFixture(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  window.history.replaceState(null, "", revisionRoute("versions"));
+  await render(source.client, "workbench");
+  await click("New revision");
+  await act(async () => finish(ok(linkedRevision)));
+  expect(window.location.hash).not.toContain("/revisions/");
+  expect(
+    [...host.querySelectorAll("button")].some(
+      (button) =>
+        button.textContent === "Create revision draft" && !button.closest("[hidden], [inert]"),
+    ),
+  ).toBe(true);
+});

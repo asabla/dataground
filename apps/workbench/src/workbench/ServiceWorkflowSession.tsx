@@ -75,7 +75,11 @@ function mergeRevisionHistory(
   incoming: ServiceRevisionHistoryResource[],
 ) {
   const byID = new Map(current.map((revision) => [revision.metadata.id, revision]));
-  for (const revision of incoming) byID.set(revision.metadata.id, revision);
+  for (const revision of incoming) {
+    const previous = byID.get(revision.metadata.id);
+    if (!previous || revision.metadata.version >= previous.metadata.version)
+      byID.set(revision.metadata.id, revision);
+  }
   return [...byID.values()].sort(
     (left, right) =>
       right.revisionNumber - left.revisionNumber ||
@@ -86,6 +90,8 @@ function mergeRevisionHistory(
 interface ServiceWorkflowSessionProps {
   presentation: WorkbenchPresentation;
   selectedTab?: ServiceTab;
+  revisionLocation?: { revisionId?: string };
+  onRevisionNavigate: (revisionId: string | undefined, tab: ServiceTab) => void;
   runLocation?: RunLocation;
   onRunNavigate: (location: RunLocation) => void;
   client: DataGroundClient;
@@ -102,6 +108,8 @@ export function ServiceWorkflowSession({
   isolationDomainId,
   presentation,
   selectedTab,
+  revisionLocation,
+  onRevisionNavigate,
   runLocation,
   onRunNavigate,
   initialService,
@@ -175,9 +183,15 @@ export function ServiceWorkflowSession({
   }, [active, presentation, tab]);
   const aliasReadGeneration = useRef(0);
   const revisionListGeneration = useRef(0);
+  // List discovery may seed an untouched session, but never override a chosen
+  // revision, route or unfinished draft when its response arrives later.
+  const selectionGeneration = useRef(0);
+  const linkedRevision = useRef(revisionLocation?.revisionId);
+  if (active) linkedRevision.current = revisionLocation?.revisionId;
 
   const loadObservedAlias = useCallback(
     async (service: AgentServiceResource, name = "stable", required = false) => {
+      selectionGeneration.current++;
       const generation = ++aliasReadGeneration.current;
       setAliasReadTarget({ name, required });
       setAliasReadLoading(true);
@@ -244,6 +258,7 @@ export function ServiceWorkflowSession({
 
   const openServiceRevision = useCallback(
     async (service: AgentServiceResource, revisionId: string) => {
+      selectionGeneration.current++;
       const generation = ++aliasReadGeneration.current;
       setAliasReadTarget({ name: "stable", required: false, revisionId });
       setAliasReadLoading(true);
@@ -303,8 +318,34 @@ export function ServiceWorkflowSession({
     [client],
   );
 
+  useEffect(() => {
+    if (presentation !== "workbench" || !openedService || !active || !revisionLocation?.revisionId)
+      return;
+    void openServiceRevision(openedService, revisionLocation.revisionId);
+    const generation = aliasReadGeneration.current;
+    return () => {
+      if (aliasReadGeneration.current === generation) {
+        aliasReadGeneration.current++;
+        setAliasReadLoading(false);
+      }
+    };
+  }, [active, openedService, openServiceRevision, presentation, revisionLocation?.revisionId]);
+
+  const selectRevision = (revisionId: string, nextTab: ServiceTab) => {
+    selectionGeneration.current++;
+    if (presentation === "workbench") {
+      onRevisionNavigate(revisionId, nextTab);
+      if (revisionLocation?.revisionId === revisionId && openedService)
+        void openServiceRevision(openedService, revisionId);
+    } else if (openedService) {
+      selectTab(nextTab);
+      void openServiceRevision(openedService, revisionId);
+    }
+  };
+
   const loadRevisionPage = useCallback(
     async (service: AgentServiceResource, cursor?: string) => {
+      const selection = selectionGeneration.current;
       const generation = ++revisionListGeneration.current;
       if (cursor === undefined) {
         setRevisionListLoading(true);
@@ -328,10 +369,13 @@ export function ServiceWorkflowSession({
         return;
       }
       setRevisionListNextCursor(result.page.nextCursor);
-      setRevisionHistory((current) =>
-        cursor === undefined ? result.page.items : mergeRevisionHistory(current, result.page.items),
-      );
-      if (cursor === undefined) {
+      setRevisionHistory((current) => mergeRevisionHistory(current, result.page.items));
+      if (
+        cursor === undefined &&
+        selection === selectionGeneration.current &&
+        selection === 0 &&
+        !linkedRevision.current
+      ) {
         const newest = result.page.items[0];
         const selection = newest === undefined ? {} : resumeServiceRevision(newest);
         setOpenedPublishedRevision(selection.publishedRevision);
@@ -384,6 +428,7 @@ export function ServiceWorkflowSession({
     }
     aliasReadGeneration.current++;
     revisionListGeneration.current++;
+    selectionGeneration.current = 0;
     setObservedAlias(undefined);
     setOpenedAlias(undefined);
     setOpenedQuestion(undefined);
@@ -402,6 +447,10 @@ export function ServiceWorkflowSession({
     setRevisionListNextCursor(undefined);
     onNavigate("workflow");
     void loadRevisionPage(service);
+    // Closing a lifecycle decision explicitly reconciles the current context.
+    // Preserve an exact linked revision; otherwise discover the current route.
+    if (presentation === "workbench" && revisionLocation?.revisionId)
+      void openServiceRevision(service, revisionLocation.revisionId);
   };
 
   useEffect(() => {
@@ -409,7 +458,9 @@ export function ServiceWorkflowSession({
   }, [initialResource, loadRevisionPage]);
 
   const startServiceRevision = () => {
-    selectTab("build");
+    selectionGeneration.current++;
+    if (presentation === "workbench") onRevisionNavigate(undefined, "build");
+    else selectTab("build");
     if (presentation === "classic" || draftCompleted) {
       setDraftFormGeneration((current) => current + 1);
       setDraftCompleted(false);
@@ -430,7 +481,9 @@ export function ServiceWorkflowSession({
   };
 
   const openDraftRevision = (revision: ServiceRevisionResource) => {
-    selectTab("build");
+    selectionGeneration.current++;
+    if (presentation === "workbench") onRevisionNavigate(revision.metadata.id, "build");
+    else selectTab("build");
     aliasReadGeneration.current++;
     setAliasReadLoading(false);
     setAliasReadError(undefined);
@@ -446,8 +499,7 @@ export function ServiceWorkflowSession({
   };
 
   const assignPublishedRevision = (revision: PublishedServiceRevisionResource) => {
-    selectTab("deployments");
-    if (openedService) void openServiceRevision(openedService, revision.metadata.id);
+    selectRevision(revision.metadata.id, "deployments");
   };
 
   const composeAliasInvocation = (alias: ServiceAliasResource) => {
@@ -556,8 +608,10 @@ export function ServiceWorkflowSession({
             retirementRevision || withdrawalAlias
               ? undefined
               : (revision) => {
-                  selectTab(revision.state === "published" ? "deployments" : "build");
-                  void openServiceRevision(openedService, revision.metadata.id);
+                  selectRevision(
+                    revision.metadata.id,
+                    revision.state === "published" ? "deployments" : "build",
+                  );
                 }
           }
           onRetire={
@@ -672,7 +726,11 @@ export function ServiceWorkflowSession({
               ? "Loading service revision"
               : `Loading ${aliasReadTarget.name} route`}
           </h2>
-          <p>Reading the exact alias state before routing or invoking this service.</p>
+          <p>
+            {aliasReadTarget.revisionId
+              ? "Reading the selected revision and its current route preconditions."
+              : "Reading the exact alias state before routing or invoking this service."}
+          </p>
         </section>
       )}
       {openedService && aliasReadError && (
@@ -690,20 +748,24 @@ export function ServiceWorkflowSession({
             }
             variant="quiet"
           >
-            Retry route discovery
+            {aliasReadTarget.revisionId ? "Retry revision read" : "Retry route discovery"}
           </Button>
         </section>
       )}
     </>
   );
   const commandContent =
-    openedService && revisionHistory.length === 0 && (revisionListLoading || revisionListError)
+    active &&
+    revisionLocation?.revisionId &&
+    revisionLocation.revisionId !== aliasReadTarget.revisionId
       ? null
-      : retirementRevision ||
-          withdrawalAlias ||
-          (openedService && (aliasReadLoading || aliasReadError))
+      : openedService && revisionHistory.length === 0 && (revisionListLoading || revisionListError)
         ? null
-        : workflow;
+        : retirementRevision ||
+            withdrawalAlias ||
+            (openedService && (aliasReadLoading || aliasReadError))
+          ? null
+          : workflow;
 
   const retainedCommands = (
     kind: "publication" | "route" | "invocation",
@@ -751,9 +813,13 @@ export function ServiceWorkflowSession({
           nextAction={workflowSteps[currentStage].shortLabel}
           openedService={openedService}
           openedRevision={openedRevision}
-          selectedHistory={revisionHistory.find(
-            (revision) => revision.metadata.id === openedRevision?.metadata.id,
-          )}
+          selectedHistory={
+            revisionHistory.find(
+              (revision) => revision.metadata.id === openedRevision?.metadata.id,
+            ) ??
+            openedPublishedRevision ??
+            openedRevision
+          }
           openedAlias={openedAlias}
           openedInvocation={openedInvocation}
           retirementRevision={retirementRevision}

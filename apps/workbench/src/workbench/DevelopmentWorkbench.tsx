@@ -212,9 +212,11 @@ export function WorkbenchSession({
     session: OpenServiceWork,
     next: WorkbenchView,
     tab?: ServiceTab,
+    revisionId = route?.serviceId === session.service?.metadata.id ? route?.revisionId : undefined,
   ): WorkbenchRoute => ({
     isolationDomainId,
     view: next,
+    ...(next === "workflow" && revisionId ? { revisionId } : {}),
     ...(next === "services" ? {} : { serviceId: session.service?.metadata.id }),
     ...(next === "workflow" && tab && tab !== "build" && tab !== "runs" ? { serviceTab: tab } : {}),
   });
@@ -320,6 +322,13 @@ export function WorkbenchSession({
             <div key={session.key} hidden={!active}>
               <ServiceWorkflowSession
                 presentation={presentation}
+                revisionLocation={active ? { revisionId: route?.revisionId } : undefined}
+                onRevisionNavigate={(revisionId, tab) =>
+                  navigate({
+                    ...sessionRoute(session, "workflow", tab),
+                    revisionId,
+                  })
+                }
                 runLocation={
                   active
                     ? {
