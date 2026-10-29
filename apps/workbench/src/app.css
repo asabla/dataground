@@ -763,13 +763,15 @@ p {
   line-height: 1.6;
 }
 
-.service-directory__identity {
+.service-directory__identity,
+.resource-search__identity {
   min-width: 12rem;
   max-width: 40rem;
   overflow-wrap: anywhere;
 }
 
-.service-directory__identity p {
+.service-directory__identity p,
+.resource-search__identity p {
   margin: var(--dg-space-1) 0 0;
   color: var(--dg-color-text-secondary);
 }
