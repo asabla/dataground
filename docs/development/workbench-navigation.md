@@ -210,3 +210,13 @@ in focused lifecycle sections. Service names and revision numbers lead the view;
 resource and record identifiers have secondary copy controls. Consequences,
 preconditions, pending commands and errors remain visible. A terminal retirement
 failure also blocks a stale confirm handler from sending the command again.
+
+The primary Runs destination lists executions across services through the separate
+`listScopeInvocations` authority. Its state filter applies at the server before
+pagination; text search and sorting apply to loaded summaries. Service names,
+routes, observed state and record creation or completion times support comparison.
+No execution start time or duration is inferred from metadata. Opening a row uses
+the exact service and run locations with their independent authorization checks.
+The list, filters and loaded pages remain in memory across supported navigation,
+including a denied detail read, and are cleared with the connection identity.
+The workbench does not request each service to simulate a global list.

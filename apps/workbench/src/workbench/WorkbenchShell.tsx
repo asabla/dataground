@@ -8,12 +8,14 @@ export function WorkbenchShell({
   view,
   onNavigate,
   children,
+  scopeRuns = false,
 }: {
   isolationDomainId: string;
   onDisconnect: () => void;
   view: WorkbenchView;
   onNavigate: (view: WorkbenchView) => void;
   children: ReactNode;
+  scopeRuns?: boolean;
 }) {
   const [theme, setTheme] = useState<"system" | "light" | "night">("system");
   return (
@@ -66,7 +68,7 @@ export function WorkbenchShell({
               onPress={() => onNavigate("interactions")}
               variant="quiet"
             >
-              Interactions
+              {scopeRuns ? "Runs" : "Interactions"}
             </Button>
           </nav>
         </aside>

@@ -43,7 +43,7 @@ describe("App", () => {
     );
 
     assert.match(markup, /Agent services/u);
-    assert.match(markup, /Interactions/u);
+    assert.match(markup, /Runs/u);
     assert.match(markup, /iso_00000000000000000001/u);
     assert.match(markup, /Loading services/u);
     assert.match(markup, /Search loaded services/u);

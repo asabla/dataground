@@ -468,6 +468,100 @@ export async function listInvocations(
   }
 }
 
+export const scopeRunStates = [
+  "accepted",
+  "running",
+  "waiting",
+  "cancelling",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "unknown",
+] as const;
+export type ScopeRunState = (typeof scopeRunStates)[number];
+export type ScopeInvocationSummary = InvocationSummaryResource & { serviceName: string };
+export type ScopeInvocationListResult =
+  | { ok: true; page: { items: ScopeInvocationSummary[]; nextCursor?: string } }
+  | { ok: false; error: InvocationFailure };
+export async function listScopeInvocations(
+  client: DataGroundClient,
+  isolationDomainId: string,
+  state?: ScopeRunState,
+  cursor?: string,
+): Promise<ScopeInvocationListResult> {
+  if (
+    !patterns.isolationDomainId.test(isolationDomainId) ||
+    (state !== undefined && !scopeRunStates.includes(state)) ||
+    (cursor !== undefined && !patterns.cursor.test(cursor))
+  )
+    return failure("WORKBENCH_INVALID_RUN_QUERY", "The run scope, state or cursor is invalid.");
+  try {
+    const { data, error, response } = await client.GET(
+      "/v1/isolation-domains/{isolationDomainId}/invocations",
+      {
+        params: {
+          path: { isolationDomainId },
+          query: { limit: 50, ...(state ? { state } : {}), ...(cursor ? { cursor } : {}) },
+        },
+      },
+    );
+    if (!response.ok || !data)
+      return failedResult(error, response.status, "DataGround could not list runs.");
+    const page: unknown = data;
+    const invalid = () =>
+      failure(
+        "WORKBENCH_INVALID_RUN_PAGE",
+        "DataGround returned runs outside the requested scope or filter.",
+      );
+    if (
+      !isRecord(page) ||
+      !Array.isArray(page.items) ||
+      page.items.length > 50 ||
+      (page.nextCursor !== undefined &&
+        (!boundedString(page.nextCursor, 512, patterns.cursor) ||
+          page.nextCursor === cursor ||
+          page.items.length === 0))
+    )
+      return invalid();
+    const items: ScopeInvocationSummary[] = [];
+    const ids = new Set<string>();
+    for (const item of page.items) {
+      if (
+        !isRecord(item) ||
+        !boundedString(item.serviceId, 36, patterns.serviceId) ||
+        !boundedString(item.serviceName, 255)
+      )
+        return invalid();
+      const summary = decodeInvocationSummary(item, {
+        isolationDomainId,
+        serviceId: item.serviceId,
+      });
+      if (
+        !summary ||
+        !scopeRunStates.includes(summary.state as ScopeRunState) ||
+        ids.has(summary.metadata.id) ||
+        (state !== undefined && summary.state !== state)
+      )
+        return invalid();
+      ids.add(summary.metadata.id);
+      items.push({ ...summary, serviceName: item.serviceName });
+    }
+    return {
+      ok: true,
+      page: {
+        items,
+        ...(typeof page.nextCursor === "string" ? { nextCursor: page.nextCursor } : {}),
+      },
+    };
+  } catch {
+    return failure(
+      "WORKBENCH_RUN_DISCOVERY_UNAVAILABLE",
+      "The Workbench could not reach DataGround to load runs.",
+      true,
+    );
+  }
+}
+
 function decodeCreatedInvocation(
   value: unknown,
   target: AgentServiceInvocationTarget,
