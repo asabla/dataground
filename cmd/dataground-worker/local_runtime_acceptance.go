@@ -18,6 +18,7 @@ import (
 )
 
 const (
+	ownedWorkspaceRuntimeProfile = "openshell-codex-workspace-export-candidate-development/v1"
 	workspaceLocalRuntimeProfile = "openshell-codex-workspace-candidate-development/v1"
 	strictLocalRuntimeProfile    = "openshell-codex-strict-candidate-development/v1"
 	strictLocalEnforcementDigest = "sha256:a1d56c0470c3264c4c37183352d783ebb67911d92ef2eb6ec5f7c76c61f69f39"
@@ -34,6 +35,7 @@ var (
 )
 
 type localRuntimeAcceptanceConfig struct {
+	workspaceExport   bool
 	workspaceSource   bool
 	strict            *strictLocalRuntimeConfig
 	target            runtimeCertificationTarget
@@ -90,8 +92,9 @@ func loadLocalRuntimeAcceptanceConfig(lookup environmentLookup) (*localRuntimeAc
 		slices.Sort(config.rejectedIDs)
 		config.rejectedIDs = slices.Compact(config.rejectedIDs)
 	}
-	if profile, _ := lookup("DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE"); profile == strictLocalRuntimeProfile || profile == workspaceLocalRuntimeProfile {
-		config.workspaceSource = profile == workspaceLocalRuntimeProfile
+	if profile, _ := lookup("DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE"); profile == strictLocalRuntimeProfile || profile == workspaceLocalRuntimeProfile || profile == ownedWorkspaceRuntimeProfile {
+		config.workspaceExport = profile == ownedWorkspaceRuntimeProfile
+		config.workspaceSource = profile == workspaceLocalRuntimeProfile || config.workspaceExport
 		config.strict, err = loadStrictLocalRuntimeConfig(lookup)
 		if err != nil {
 			return nil, err
@@ -108,7 +111,7 @@ func cleanAbsoluteAcceptancePath(value string) bool {
 }
 
 func (config localRuntimeAcceptanceConfig) valid() bool {
-	if (config.workspaceSource && config.strict == nil) || (config.strict != nil && !config.strict.valid()) || !config.target.valid() || !sha256Pattern.MatchString(config.envelopeSHA256) ||
+	if (config.workspaceExport && !config.workspaceSource) || (config.workspaceSource && config.strict == nil) || (config.strict != nil && !config.strict.valid()) || !config.target.valid() || !sha256Pattern.MatchString(config.envelopeSHA256) ||
 		!sha256Pattern.MatchString(config.trustSHA256) || !commitPattern.MatchString(config.sourceRevision) ||
 		config.minimumGeneration == 0 || config.minimumGeneration > maximumSafeJSONInteger ||
 		!localCandidateImagePattern.MatchString(config.image) || !localModelPattern.MatchString(config.model) ||
@@ -217,17 +220,19 @@ func (checker *localRuntimeAcceptanceChecker) check(ctx context.Context) (localR
 			ServiceID         string `json:"serviceId"`
 			RevisionID        string `json:"revisionId"`
 		} `json:"scope"`
-		Profile                 string          `json:"profile"`
-		Image                   string          `json:"image"`
-		Model                   string          `json:"model"`
-		ExpiresAt               string          `json:"expiresAt"`
-		CertificationEligible   *bool           `json:"certificationEligible"`
-		DeploymentScope         string          `json:"deploymentScope"`
-		SupervisorImage         json.RawMessage `json:"supervisorImage"`
-		SupervisorLocalImageID  json.RawMessage `json:"supervisorLocalImageId"`
-		GatewayConfigSHA256     json.RawMessage `json:"gatewayConfigSHA256"`
-		EnforcementDigest       json.RawMessage `json:"enforcementDigest"`
-		WorkspaceSourceContract json.RawMessage `json:"workspaceSourceContract"`
+		Profile                  string          `json:"profile"`
+		Image                    string          `json:"image"`
+		Model                    string          `json:"model"`
+		ExpiresAt                string          `json:"expiresAt"`
+		CertificationEligible    *bool           `json:"certificationEligible"`
+		DeploymentScope          string          `json:"deploymentScope"`
+		SupervisorImage          json.RawMessage `json:"supervisorImage"`
+		SupervisorLocalImageID   json.RawMessage `json:"supervisorLocalImageId"`
+		GatewayConfigSHA256      json.RawMessage `json:"gatewayConfigSHA256"`
+		EnforcementDigest        json.RawMessage `json:"enforcementDigest"`
+		WorkspaceSourceContract  json.RawMessage `json:"workspaceSourceContract"`
+		NativeOwnerContract      json.RawMessage `json:"nativeOwnerContract"`
+		WorkspaceChangesContract json.RawMessage `json:"workspaceChangesContract"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(output))
 	decoder.DisallowUnknownFields()
@@ -255,6 +260,19 @@ func (checker *localRuntimeAcceptanceChecker) check(ctx context.Context) (localR
 		}
 	} else if len(receipt.WorkspaceSourceContract) != 0 {
 		return localRuntimeAcceptanceProof{}, ErrRuntimeCertificationUnavailable
+	}
+	for _, helper := range []struct {
+		field    json.RawMessage
+		expected string
+	}{{receipt.NativeOwnerContract, "dataground.native-owner/v1"}, {receipt.WorkspaceChangesContract, "dataground.workspace-changes/v1"}} {
+		if config.workspaceExport {
+			var contract string
+			if json.Unmarshal(helper.field, &contract) != nil || contract != helper.expected {
+				return localRuntimeAcceptanceProof{}, ErrRuntimeCertificationUnavailable
+			}
+		} else if len(helper.field) != 0 {
+			return localRuntimeAcceptanceProof{}, ErrRuntimeCertificationUnavailable
+		}
 	}
 	strictFields := []json.RawMessage{receipt.SupervisorImage, receipt.SupervisorLocalImageID, receipt.GatewayConfigSHA256, receipt.EnforcementDigest}
 	if config.strict == nil {

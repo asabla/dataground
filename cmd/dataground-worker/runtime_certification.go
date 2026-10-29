@@ -295,6 +295,7 @@ func (authorizer *certifiedInvocationAuthorizer) AuthorizeInvocationCancellation
 }
 
 type certifiedExecutionProvider struct {
+	workspaceExport bool
 	execution.ExecutionProvider
 	readiness runtimeCertificationReadiness
 	target    runtimeCertificationTarget
@@ -332,6 +333,9 @@ func (provider *certifiedExecutionProvider) StartRuntime(
 	ctx context.Context,
 	ref execution.ExecutionRef,
 ) (execution.RuntimeSession, error) {
+	if provider != nil && provider.workspaceExport {
+		return nil, ErrRuntimeCertificationUnavailable
+	}
 	if err := provider.check(ctx, ref.IsolationDomainID); err != nil {
 		return nil, err
 	}
