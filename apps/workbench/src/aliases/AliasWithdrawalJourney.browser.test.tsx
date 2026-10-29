@@ -156,6 +156,8 @@ it.each([
     expect(withdrawn).toBe(true);
     expect(host.textContent).toContain("Alias withdrawn");
     await click("Back to service");
+    if (presentation === "workbench")
+      await expect.poll(() => document.activeElement?.textContent).toBe("Deployments");
     expect(aliasReads).toBe(2);
     expect(host.querySelector(`[aria-label="Withdraw ${name} alias"]`)).toBeNull();
     if (presentation === "workbench") await click("Versions");
@@ -165,6 +167,9 @@ it.each([
     expect(retired).toBe(true);
     expect(host.textContent).toContain("Revision retired");
     expect(commands).toHaveLength(2);
+    await click("Back to revisions");
+    if (presentation === "workbench")
+      await expect.poll(() => document.activeElement?.textContent).toBe("Versions");
   } finally {
     await act(async () => root.unmount());
     host.remove();

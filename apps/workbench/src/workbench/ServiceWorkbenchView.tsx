@@ -1,5 +1,5 @@
 import { Button, CopyButton, StatusBadge, Tabs } from "@dataground/ui";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { ServiceAliasResource } from "../aliases";
 import type { DataGroundClient } from "../contracts/client";
 import { InvocationHistoryWorkflow } from "../invocations/InvocationHistoryWorkflow";
@@ -90,8 +90,19 @@ export function ServiceWorkbenchView({
   onCloseInvocation,
 }: ServiceWorkbenchViewProps) {
   const [historyInspection, setHistoryInspection] = useState(false);
+  const surface = useRef<HTMLDivElement>(null);
+  const decisionOpen = !!(retirementRevision || withdrawalAlias);
+  const previousDecisionOpen = useRef(decisionOpen);
+  useEffect(() => {
+    const closed = previousDecisionOpen.current && !decisionOpen;
+    previousDecisionOpen.current = decisionOpen;
+    if (!closed || !active || document.activeElement !== document.body) return;
+    // Closing replaces the lifecycle page. Its list may still be loading, but
+    // the selected resource tab is a stable and visible return location.
+    surface.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
+  }, [active, decisionOpen]);
   return (
-    <div className="service-workbench">
+    <div className="service-workbench" ref={surface}>
       <header className="workbench-page-heading workbench-page-heading--compact">
         <div>
           <p className="workbench-breadcrumb">Agents / Service</p>

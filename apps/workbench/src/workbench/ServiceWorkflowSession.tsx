@@ -685,7 +685,7 @@ export function ServiceWorkflowSession({
           onClose={() => {
             openService(openedService, true);
             selectTab("deployments");
-            document.getElementById(revisionHistoryTitle)?.focus();
+            if (presentation === "classic") document.getElementById(revisionHistoryTitle)?.focus();
           }}
           onWithdrawn={() => {
             aliasReadGeneration.current++;
@@ -714,7 +714,8 @@ export function ServiceWorkflowSession({
             onClose={() => {
               openService(openedService, true);
               selectTab("versions");
-              document.getElementById(revisionHistoryTitle)?.focus();
+              if (presentation === "classic")
+                document.getElementById(revisionHistoryTitle)?.focus();
             }}
             onRetired={(revision) =>
               setRevisionHistory((current) => mergeRevisionHistory(current, [revision]))

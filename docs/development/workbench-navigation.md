@@ -321,3 +321,7 @@ or run contexts cannot keep a cancellation modal open. The outcome heading recov
 lost focus after completion. Malformed responses retain the exact cancellation
 request for recovery; a confirmed denial or conflict remains terminal. The classic
 presentation uses the same command controller and retains its inline confirmation.
+
+Closing a withdrawal or retirement page returns lost focus to the selected
+resource tab after the page is replaced. This remains available while the
+corresponding list refreshes; an inactive service cannot take focus.
