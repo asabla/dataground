@@ -50,17 +50,24 @@ async function fill(value: string) {
   await act(async () => userEvent.fill(el as HTMLInputElement, value));
 }
 
-it.each([false, true])(
-  "searches before paging and rejects an obsolete search response (workspace=%s)",
-  async (workspace) => {
+it.each(["services", "workspace-services", "workspaces"])(
+  "searches before paging and rejects an obsolete search response (%s)",
+  async (collection) => {
+    const workspace = collection === "workspace-services";
+    const workspaces = collection === "workspaces";
     window.history.replaceState(
       null,
       "",
-      `#/scopes/${scope}/${workspace ? `workspaces/${workspaceId}` : "agents"}`,
+      `#/scopes/${scope}/${workspaces ? "workspaces" : workspace ? `workspaces/${workspaceId}` : "agents"}`,
     );
     const requests: Array<{ q?: string; cursor?: string; path: string }> = [];
     let finishOld: ((value: ReturnType<typeof ok>) => void) | undefined;
-    const resource = (s: typeof old) => (workspace ? { ...s, workspaceId } : s);
+    const resource = (s: typeof old) =>
+      workspaces
+        ? { ...s, metadata: { ...s.metadata, id: s.metadata.id.replace("svc_", "wsp_") } }
+        : workspace
+          ? { ...s, workspaceId }
+          : s;
     const client = {
       GET: async (
         path: string,
@@ -68,7 +75,8 @@ it.each([false, true])(
       ) => {
         if (path.endsWith("/{workspaceId}"))
           return ok({ metadata: { ...metadata, id: workspaceId }, name: "Research" });
-        if (!path.endsWith("/agent-services")) return ok({ items: [] });
+        if (!path.endsWith(workspaces ? "/workspaces" : "/agent-services"))
+          return ok({ items: [] });
         if (workspace && !path.includes("/workspaces/")) return ok({ items: [] });
         const query = options.params.query ?? {};
         requests.push({ ...query, path });
@@ -101,7 +109,7 @@ it.each([false, true])(
     expect(host.textContent).toContain("Beyond the first page");
     expect(window.location.hash).not.toContain("beyond");
     await click("Home");
-    await click(workspace ? "Workspace" : "Agent services");
+    await click(workspace || workspaces ? "Workspace" : "Agent services");
     expect(host.textContent).toContain("Beyond the first page");
     expect(
       [...host.querySelectorAll<HTMLInputElement>('input[type="search"]')].find(visible)?.value,

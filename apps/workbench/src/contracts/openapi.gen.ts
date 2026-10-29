@@ -1421,6 +1421,8 @@ export interface operations {
     listWorkspaces: {
         parameters: {
             query?: {
+                /** @description Literal substring of name, description or workspace ID, applied before pagination. ASCII letters are case-insensitive; other Unicode characters and wildcard characters are literal. Empty means all workspaces. Control characters are rejected. Continuation cursors are bound to this normalized search and isolation scope. */
+                q?: string;
                 limit?: number;
                 cursor?: string;
             };

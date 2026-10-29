@@ -33,7 +33,7 @@ func TestServiceSearchCursorCompatibilityAndScope(t *testing.T) {
 		t.Fatal("legacy cursor used with search")
 	}
 	// All maximum-length resource identifiers and nanosecond timestamps must fit the public cursor bound.
-	workspace := workspaceServiceCursor{Kind: "workspace-services", Version: 1, IsolationDomainID: "iso_" + strings.Repeat("a", 32), WorkspaceID: "wsp_" + strings.Repeat("b", 32), ID: "svc_" + strings.Repeat("c", 32), CreatedAt: time.Now().UTC(), Search: serviceSearchDigest(strings.Repeat("界", 128))}
+	workspace := workspaceServiceCursor{Kind: "workspace-services", Version: 1, IsolationDomainID: "iso_" + strings.Repeat("a", 32), WorkspaceID: "wsp_" + strings.Repeat("b", 32), ID: "svc_" + strings.Repeat("c", 32), CreatedAt: time.Now().UTC(), Search: discoverySearchDigest(strings.Repeat("界", 128))}
 	raw, _ := json.Marshal(workspace)
 	cursor := base64.RawURLEncoding.EncodeToString(raw)
 	if len(cursor) > maximumServiceCursorLen {

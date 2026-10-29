@@ -18,12 +18,12 @@ func TestServiceSearchLiteralAndLocaleIndependent(t *testing.T) {
 		}
 	}
 	for _, q := range []string{"", strings.Repeat("界", 128), "%_\\"} {
-		if !ValidServiceSearch(q) {
+		if !ValidDiscoverySearch(q) {
 			t.Fatalf("valid search rejected: %q", q)
 		}
 	}
 	for _, q := range []string{strings.Repeat("界", 129), "\n", "\u0085", string([]byte{0xff})} {
-		if ValidServiceSearch(q) {
+		if ValidDiscoverySearch(q) {
 			t.Fatal("invalid search accepted")
 		}
 	}

@@ -211,3 +211,19 @@ it("retains exact creation recovery when success or server-error bodies cannot b
     if (!serviceResult.ok) assert.equal(serviceResult.error.outcomeUnknown, true);
   }
 });
+
+it("sends bounded literal workspace search with each continuation", async () => {
+  const queries: unknown[] = [];
+  const api = {
+    GET: async (_path: string, options: { params: { query: unknown } }) => {
+      queries.push(options.params.query);
+      return { data: { items: [] }, response: new Response(null, { status: 200 }) };
+    },
+  } as unknown as DataGroundClient;
+  assert.equal((await listWorkspaces(api, scope, "next_cursor", "North%_\\")).ok, true);
+  assert.deepEqual(queries, [{ limit: 50, cursor: "next_cursor", q: "North%_\\" }]);
+  for (const q of ["x".repeat(129), "\n", "\u0085", "\ud800"])
+    assert.equal((await listWorkspaces(api, scope, undefined, q)).ok, false);
+  assert.equal(queries.length, 1);
+  assert.equal((await listWorkspaces(api, scope, undefined, "界".repeat(128))).ok, true);
+});

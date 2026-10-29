@@ -33,7 +33,7 @@ type workspaceServicePage struct {
 func parseWorkspaceServiceQuery(raw, scope, workspaceID string) (int, *workspaceServiceCursor, error) {
 	invalid := errors.New("workspace service query is invalid")
 	query, err := url.ParseQuery(raw)
-	if err != nil || !domain.ValidServiceSearch(query.Get("q")) {
+	if err != nil || !domain.ValidDiscoverySearch(query.Get("q")) {
 		return 0, nil, invalid
 	}
 	for name, values := range query {
@@ -62,7 +62,7 @@ func parseWorkspaceServiceQuery(raw, scope, workspaceID string) (int, *workspace
 	decoder := json.NewDecoder(strings.NewReader(string(decoded)))
 	decoder.DisallowUnknownFields()
 	var cursor workspaceServiceCursor
-	if decoder.Decode(&cursor) != nil || decoder.Decode(&struct{}{}) != io.EOF || cursor.Kind != "workspace-services" || cursor.Version != 1 || cursor.Search != serviceSearchDigest(query.Get("q")) || cursor.IsolationDomainID != scope || cursor.WorkspaceID != workspaceID || cursor.CreatedAt.IsZero() || !serviceIDPattern.MatchString(cursor.ID) {
+	if decoder.Decode(&cursor) != nil || decoder.Decode(&struct{}{}) != io.EOF || cursor.Kind != "workspace-services" || cursor.Version != 1 || cursor.Search != discoverySearchDigest(query.Get("q")) || cursor.IsolationDomainID != scope || cursor.WorkspaceID != workspaceID || cursor.CreatedAt.IsZero() || !serviceIDPattern.MatchString(cursor.ID) {
 		return 0, nil, invalid
 	}
 	cursor.CreatedAt = cursor.CreatedAt.UTC()
@@ -81,7 +81,7 @@ func writeWorkspaceServicePage(response http.ResponseWriter, request *http.Reque
 			return
 		}
 		last := items[len(items)-1]
-		encoded, err := json.Marshal(workspaceServiceCursor{Kind: "workspace-services", Version: 1, Search: serviceSearchDigest(request.URL.Query().Get("q")), IsolationDomainID: last.Metadata.IsolationDomainID, WorkspaceID: last.WorkspaceID, CreatedAt: last.Metadata.CreatedAt.UTC(), ID: last.Metadata.ID})
+		encoded, err := json.Marshal(workspaceServiceCursor{Kind: "workspace-services", Version: 1, Search: discoverySearchDigest(request.URL.Query().Get("q")), IsolationDomainID: last.Metadata.IsolationDomainID, WorkspaceID: last.WorkspaceID, CreatedAt: last.Metadata.CreatedAt.UTC(), ID: last.Metadata.ID})
 		if err != nil || last.Metadata.CreatedAt.IsZero() || !serviceIDPattern.MatchString(last.Metadata.ID) || last.WorkspaceID != request.PathValue("workspaceId") {
 			workspaceServiceFailure(response, request, false)
 			return

@@ -116,7 +116,7 @@ func TestDurableWorkspacesPreserveIdentityAuditAndConcurrentReplay(t *testing.T)
 	var before *time.Time
 	beforeID := ""
 	for {
-		page, err := repo.ListWorkspaces(ctx, scope, before, beforeID, 1)
+		page, err := repo.ListWorkspaces(ctx, scope, before, beforeID, 1, "")
 		if err != nil || len(page.Items) != 1 {
 			t.Fatal("page failed", err)
 		}
@@ -173,6 +173,44 @@ func TestDurableWorkspacesPreserveIdentityAuditAndConcurrentReplay(t *testing.T)
 		if r := call("GET", target, "", ""); r.Code != 200 {
 			t.Fatal(r.Code, r.Body.String())
 		}
+	}
+
+	// Search filters in PostgreSQL before keyset pagination and cannot cross scope.
+	var searchCursor string
+	var matches int
+	for {
+		target := path + "?q=PRIVATE&limit=1"
+		if searchCursor != "" {
+			target += "&cursor=" + searchCursor
+		}
+		r := call("GET", target, "", "")
+		var page struct {
+			Items      []domain.Workspace `json:"items"`
+			NextCursor string             `json:"nextCursor"`
+		}
+		if r.Code != 200 || json.Unmarshal(r.Body.Bytes(), &page) != nil || len(page.Items) != 1 || page.Items[0].Name != "Research" {
+			t.Fatal("search pagination failed", r.Code, r.Body.String())
+		}
+		matches++
+		if page.NextCursor == "" {
+			break
+		}
+		if page.NextCursor == searchCursor || matches > 3 {
+			t.Fatal("search did not advance")
+		}
+		searchCursor = page.NextCursor
+	}
+	if matches != 3 {
+		t.Fatal("search omitted older workspaces")
+	}
+	for _, q := range []string{"Foreign", "%", "not_%", "\\"} {
+		page, err := repo.ListWorkspaces(ctx, scope, nil, "", 50, q)
+		if err != nil || len(page.Items) != 0 {
+			t.Fatal("search leaked scope or expanded a literal", q, err)
+		}
+	}
+	if page, err := repo.ListWorkspaces(ctx, scope, nil, "", 50, id); err != nil || len(page.Items) != 1 || page.Items[0].Metadata.ID != id {
+		t.Fatal("exact identity search failed", err)
 	}
 	if r := call("POST", path, "workspace-http-create", `{"name":"HTTP workspace"}`); r.Body.String() != made.Body.String() {
 		t.Fatal("HTTP replay changed")

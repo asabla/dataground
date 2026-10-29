@@ -95,21 +95,23 @@ func writeWorkspaceNotFound(response http.ResponseWriter, request *http.Request)
 	writeJSON(response, http.StatusNotFound, ErrorEnvelope{Error: safeErrorWithCorrelation(authenticatedCorrelationID(request), "RESOURCE_NOT_FOUND", "Workspace was not found.", false)})
 }
 func (server *Server) listWorkspaces(response http.ResponseWriter, request *http.Request) {
+	response.Header().Set("Cache-Control", "no-store")
 	domainID, apiError := isolationDomain(request)
 	if apiError != nil {
 		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: *apiError})
 		return
 	}
-	limit, cursor, err := parseWorkspaceListQuery(request.URL.Query(), domainID)
+	limit, cursor, err := parseWorkspaceListQuery(request.URL.RawQuery, domainID)
 	if err != nil {
-		status, body := invalidField("query", "Workspace-list limit or cursor is invalid.")
+		status, body := invalidField("query", "Workspace-list search, limit or cursor is invalid.")
 		writeJSON(response, status, body)
 		return
 	}
+	search := request.URL.Query().Get("q")
 	server.mu.RLock()
 	workspaces := make([]domain.Workspace, 0, len(server.workspaces))
 	for _, workspace := range server.workspaces {
-		if workspace.Metadata.IsolationDomainID == domainID {
+		if workspace.Metadata.IsolationDomainID == domainID && domain.MatchesWorkspaceSearch(workspace, search) {
 			workspaces = append(workspaces, workspace)
 		}
 	}
@@ -129,7 +131,7 @@ func (server *Server) listWorkspaces(response http.ResponseWriter, request *http
 	}
 	page := workspacePage{Items: workspaces}
 	if hasMore {
-		page.NextCursor, err = encodeWorkspaceListCursor(workspaces[len(workspaces)-1])
+		page.NextCursor, err = encodeWorkspaceListCursor(workspaces[len(workspaces)-1], search)
 		if err != nil {
 			writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeErrorWithCorrelation(
 				authenticatedCorrelationID(request), "WORKSPACE_LIST_UNAVAILABLE", "Workspaces are temporarily unavailable.", true,
@@ -152,17 +154,19 @@ func slicesAfterWorkspaceCursor(workspaces []domain.Workspace, cursor workspaceL
 }
 
 func (server *DurableServer) listWorkspaces(response http.ResponseWriter, request *http.Request) {
+	response.Header().Set("Cache-Control", "no-store")
 	domainID, apiError := isolationDomain(request)
 	if apiError != nil {
 		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: *apiError})
 		return
 	}
-	limit, cursor, err := parseWorkspaceListQuery(request.URL.Query(), domainID)
+	limit, cursor, err := parseWorkspaceListQuery(request.URL.RawQuery, domainID)
 	if err != nil {
-		status, body := invalidField("query", "Workspace-list limit or cursor is invalid.")
+		status, body := invalidField("query", "Workspace-list search, limit or cursor is invalid.")
 		writeJSON(response, status, body)
 		return
 	}
+	search := request.URL.Query().Get("q")
 	var beforeCreatedAt *time.Time
 	var beforeID string
 	if cursor != nil {
@@ -171,7 +175,7 @@ func (server *DurableServer) listWorkspaces(response http.ResponseWriter, reques
 		beforeID = cursor.ID
 	}
 	listed, err := server.repository.ListWorkspaces(
-		request.Context(), domainID, beforeCreatedAt, beforeID, limit,
+		request.Context(), domainID, beforeCreatedAt, beforeID, limit, search,
 	)
 	if err != nil {
 		writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeErrorWithCorrelation(
@@ -181,7 +185,7 @@ func (server *DurableServer) listWorkspaces(response http.ResponseWriter, reques
 	}
 	page := workspacePage{Items: listed.Items}
 	if listed.HasMore {
-		page.NextCursor, err = encodeWorkspaceListCursor(listed.Items[len(listed.Items)-1])
+		page.NextCursor, err = encodeWorkspaceListCursor(listed.Items[len(listed.Items)-1], search)
 		if err != nil {
 			writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeErrorWithCorrelation(
 				authenticatedCorrelationID(request), "WORKSPACE_LIST_UNAVAILABLE", "Workspaces are temporarily unavailable.", true,

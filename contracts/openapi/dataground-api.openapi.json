@@ -49,6 +49,17 @@
         "description": "Returns one bounded newest-first metadata page. Cursors bind the isolation domain and the last timestamp and identifier. List authorization is distinct from exact workspace read authorization.",
         "parameters": [
           {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Literal substring of name, description or workspace ID, applied before pagination. ASCII letters are case-insensitive; other Unicode characters and wildcard characters are literal. Empty means all workspaces. Control characters are rejected. Continuation cursors are bound to this normalized search and isolation scope.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*$"
+            }
+          },
+          {
             "$ref": "#/components/parameters/IsolationDomainId"
           },
           {
