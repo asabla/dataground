@@ -1,5 +1,5 @@
-import { Button } from "@dataground/ui";
-import { useCallback, useEffect, useId, useReducer, useRef } from "react";
+import { Button, DataTable, type DataTableSort, TextField } from "@dataground/ui";
+import { useCallback, useEffect, useId, useReducer, useRef, useState } from "react";
 import type { DataGroundClient } from "../contracts/client";
 import {
   listServiceAliases,
@@ -9,6 +9,7 @@ import {
 import { aliasDiscoveryReducer } from "./discovery";
 
 export interface ServiceRouteDiscoveryProps {
+  revisionNumbers?: ReadonlyMap<string, number>;
   client: DataGroundClient;
   scope: ServiceAliasReadScope;
   canWithdraw?: boolean;
@@ -17,12 +18,15 @@ export interface ServiceRouteDiscoveryProps {
 }
 
 export function ServiceRouteDiscovery({
+  revisionNumbers,
   client,
   scope: { isolationDomainId, serviceId },
   canWithdraw = false,
   onWithdraw,
   onSelect,
 }: ServiceRouteDiscoveryProps) {
+  const [sort, setSort] = useState<DataTableSort>({ column: "name", direction: "ascending" });
+  const [query, setQuery] = useState("");
   const scope = `${isolationDomainId}/${serviceId}`;
   const titleId = useId();
   const sequence = useRef(0);
@@ -51,6 +55,7 @@ export function ServiceRouteDiscovery({
     [client, isolationDomainId, serviceId, scope],
   );
   useEffect(() => {
+    setQuery("");
     void load();
     return () => {
       sequence.current++;
@@ -106,42 +111,101 @@ export function ServiceRouteDiscovery({
       )}
       {!loading && !error && items.length === 0 && <p>No active routes for this service.</p>}
       {items.length > 0 && (
-        <ul className="invocation-history-list">
-          {items.map((alias) => (
-            <li key={alias.metadata.id}>
-              <p>
-                Alias <strong>{alias.name}</strong> · Version {alias.metadata.version}
-              </p>
-              <p>
-                Revision <code>{alias.revisionId}</code>
-              </p>
-              {onSelect && (
-                <Button
-                  isDisabled={loading || !!error}
-                  onPress={() => {
-                    if (current && !inFlight.current && !loading && !error)
-                      onSelect({ ...alias, metadata: { ...alias.metadata } });
-                  }}
-                  variant="quiet"
-                >
-                  Use {alias.name} route
-                </Button>
+        <>
+          <div className="resource-browser__toolbar">
+            <TextField
+              label="Search loaded routes"
+              value={query}
+              onChange={setQuery}
+              type="search"
+            />
+            <p>{items.length} routes loaded.</p>
+          </div>
+          <DataTable
+            sort={sort}
+            onSortChange={setSort}
+            label="Loaded service routes"
+            items={items
+              .filter((alias) => alias.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
+              .sort(
+                (a, b) =>
+                  (sort.direction === "ascending" ? 1 : -1) *
+                  (sort.column === "name"
+                    ? a.name.localeCompare(b.name)
+                    : Date.parse(a.metadata.updatedAt) - Date.parse(b.metadata.updatedAt)),
               )}
-              {canWithdraw && (
-                <Button
-                  isDisabled={loading || !!error}
-                  onPress={() => {
-                    if (current && !inFlight.current && !loading && !error && canWithdraw)
-                      onWithdraw({ ...alias, metadata: { ...alias.metadata } });
-                  }}
-                  variant="quiet"
-                >
-                  Withdraw {alias.name} alias
-                </Button>
-              )}
-            </li>
-          ))}
-        </ul>
+            getRowId={(alias) => alias.metadata.id}
+            getRowLabel={(alias) => alias.name}
+            isLoading={loading}
+            emptyMessage="No loaded routes match this search."
+            columns={[
+              {
+                id: "name",
+                title: "Route",
+                allowsSorting: true,
+                isRowHeader: true,
+                render: (alias) => <strong>{alias.name}</strong>,
+              },
+              {
+                id: "revision",
+                title: "Version",
+                render: (alias) =>
+                  revisionNumbers?.has(alias.revisionId) ? (
+                    `Revision ${revisionNumbers.get(alias.revisionId)}`
+                  ) : (
+                    <details>
+                      <summary>Revision reference</summary>
+                      <code>{alias.revisionId}</code>
+                    </details>
+                  ),
+              },
+              {
+                id: "updated",
+                title: "Route updated",
+                allowsSorting: true,
+                render: (alias) => (
+                  <time dateTime={alias.metadata.updatedAt}>
+                    {new Date(alias.metadata.updatedAt).toLocaleString()}
+                  </time>
+                ),
+              },
+              {
+                id: "actions",
+                title: "Actions",
+                render: (alias) => (
+                  <div className="resource-browser__actions">
+                    {onSelect && (
+                      <Button
+                        aria-label={`Use ${alias.name} route`}
+                        isDisabled={loading || !!error}
+                        variant="quiet"
+                        onPress={() => {
+                          if (current && !inFlight.current && !loading && !error)
+                            onSelect({ ...alias, metadata: { ...alias.metadata } });
+                        }}
+                      >
+                        Use route
+                      </Button>
+                    )}
+                    {canWithdraw && (
+                      <Button
+                        aria-label={`Withdraw ${alias.name} alias`}
+                        isDisabled={loading || !!error}
+                        variant="quiet"
+                        onPress={() => {
+                          if (current && !inFlight.current && !loading && !error && canWithdraw)
+                            onWithdraw({ ...alias, metadata: { ...alias.metadata } });
+                        }}
+                      >
+                        Withdraw
+                      </Button>
+                    )}
+                  </div>
+                ),
+              },
+            ]}
+          />
+        </>
       )}
       {current && state.nextCursor && !error && (
         <Button aria-disabled={loading} onPress={() => read(state.nextCursor)} variant="quiet">

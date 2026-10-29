@@ -84,7 +84,9 @@ afterEach(async () => {
 });
 async function click(text: string, contains = false) {
   const button = [...host.querySelectorAll("button")].find((value) =>
-    contains ? value.textContent?.includes(text) : value.textContent === text,
+    contains
+      ? value.textContent?.includes(text)
+      : value.getAttribute("aria-label") === text || value.textContent === text,
   );
   expect(button, host.textContent ?? "").toBeDefined();
   await act(async () => button?.click());
@@ -365,7 +367,7 @@ it.each([200, 202])(
     await click("Review publication");
     expect(commands).toHaveLength(1);
     const historyRow = () =>
-      [...host.querySelectorAll(".revision-history__list li")].find((row) =>
+      [...host.querySelectorAll(".revision-history tbody tr")].find((row) =>
         row.textContent?.includes("Revision 81"),
       );
     expect(historyRow()?.textContent).toContain("draft");

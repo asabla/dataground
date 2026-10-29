@@ -1,4 +1,4 @@
-import { Button, StatusBadge } from "@dataground/ui";
+import { Button, DataTable, type DataTableSort, SelectField, StatusBadge } from "@dataground/ui";
 import { useCallback, useEffect, useId, useReducer, useRef, useState } from "react";
 import type { InvocationApprovalReference } from "../approvals";
 import type { InvocationArtifactReference } from "../artifacts";
@@ -25,6 +25,8 @@ export function InvocationHistoryWorkflow({
   presentation = "classic",
   onInspectionChange,
 }: InvocationHistoryWorkflowProps) {
+  const [sort, setSort] = useState<DataTableSort>({ column: "created", direction: "descending" });
+  const [stateFilter, setStateFilter] = useState("all");
   const { isolationDomainId, serviceId } = target;
   const scope = `${isolationDomainId}/${serviceId}`;
   const titleId = useId();
@@ -62,6 +64,7 @@ export function InvocationHistoryWorkflow({
     [client, scope, isolationDomainId, serviceId],
   );
   useEffect(() => {
+    setStateFilter("all");
     void load();
     return () => {
       sequence.current++;
@@ -183,43 +186,113 @@ export function InvocationHistoryWorkflow({
         <p>No invocations yet for this service.</p>
       )}
       {items.length > 0 && (
-        <ol className="invocation-history-list">
-          {items.map((item) => (
-            <li key={item.metadata.id}>
-              <div>
-                <StatusBadge
-                  tone={
-                    item.state === "succeeded"
-                      ? "success"
-                      : item.state === "failed"
-                        ? "critical"
-                        : item.state === "unknown"
-                          ? "warning"
-                          : "neutral"
-                  }
-                >
-                  {item.state}
-                </StatusBadge>{" "}
-                <time dateTime={item.metadata.createdAt}>{item.metadata.createdAt}</time>
-              </div>
-              <p>
-                Route {item.alias} · Revision <code>{item.revisionId}</code>
-              </p>
-              <Button
-                id={`${titleId}-open-${item.metadata.id}`}
-                variant="quiet"
-                onPress={() => {
-                  setApproval(undefined);
-                  setQuestion(undefined);
-                  setArtifact(undefined);
-                  setSelected({ client, invocation: item });
-                }}
-              >
-                Open invocation {item.metadata.id}
-              </Button>
-            </li>
-          ))}
-        </ol>
+        <>
+          <div className="resource-browser__toolbar">
+            <SelectField
+              label="Run state"
+              value={stateFilter}
+              onChange={setStateFilter}
+              options={[
+                { value: "all", label: "All states" },
+                ...Array.from(
+                  new Set([
+                    ...items.map((item) => item.state),
+                    ...(stateFilter === "all" ? [] : [stateFilter]),
+                  ]),
+                )
+                  .sort()
+                  .map((value) => ({ value, label: value })),
+              ]}
+            />
+            <p>
+              {items.filter((item) => stateFilter === "all" || item.state === stateFilter).length}{" "}
+              of {items.length} loaded runs shown.
+            </p>
+          </div>
+          <DataTable
+            sort={sort}
+            onSortChange={setSort}
+            label="Loaded service runs"
+            items={items
+              .filter((item) => stateFilter === "all" || item.state === stateFilter)
+              .sort(
+                (a, b) =>
+                  (sort.direction === "ascending" ? 1 : -1) *
+                  (Date.parse(a.metadata.createdAt) - Date.parse(b.metadata.createdAt) ||
+                    a.metadata.id.localeCompare(b.metadata.id)),
+              )}
+            getRowId={(item) => item.metadata.id}
+            getRowLabel={(item) => `Run created ${item.metadata.createdAt}, ${item.state}`}
+            isLoading={loading}
+            emptyMessage="No loaded runs match this state."
+            columns={[
+              {
+                id: "created",
+                title: "Created",
+                allowsSorting: true,
+                isRowHeader: true,
+                render: (item) => (
+                  <time dateTime={item.metadata.createdAt}>
+                    {new Date(item.metadata.createdAt).toLocaleString()}
+                  </time>
+                ),
+              },
+              {
+                id: "state",
+                title: "Outcome",
+                render: (item) => (
+                  <StatusBadge
+                    tone={
+                      item.state === "succeeded"
+                        ? "success"
+                        : item.state === "failed"
+                          ? "critical"
+                          : item.state === "unknown"
+                            ? "warning"
+                            : "neutral"
+                    }
+                  >
+                    {item.state}
+                  </StatusBadge>
+                ),
+              },
+              { id: "route", title: "Route", render: (item) => item.alias },
+              {
+                id: "completed",
+                title: "Completed",
+                render: (item) =>
+                  item.completedAt ? (
+                    <time dateTime={item.completedAt}>
+                      {new Date(item.completedAt).toLocaleString()}
+                    </time>
+                  ) : (
+                    "Not completed"
+                  ),
+              },
+              {
+                id: "actions",
+                title: "Actions",
+                render: (item) => (
+                  <Button
+                    id={`${titleId}-open-${item.metadata.id}`}
+                    aria-label={`Open invocation ${item.metadata.id}`}
+                    isDisabled={loading || !!state.error}
+                    variant="quiet"
+                    onPress={() => {
+                      if (!current || loading || state.error) return;
+                      setApproval(undefined);
+                      setQuestion(undefined);
+                      setArtifact(undefined);
+                      setSelected({ client, invocation: item });
+                    }}
+                  >
+                    Open run
+                  </Button>
+                ),
+              },
+            ]}
+          />
+        </>
       )}
       {current && state.nextCursor && !state.error && (
         <Button

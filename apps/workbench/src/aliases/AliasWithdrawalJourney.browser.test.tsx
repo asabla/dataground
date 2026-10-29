@@ -119,7 +119,9 @@ it.each(["stable", "canary"])("withdraws %s before retirement", async (name) => 
   const root = createRoot(host);
   async function click(text: string, contains = false) {
     const button = Array.from(host.querySelectorAll("button")).find((element) =>
-      contains ? element.textContent?.includes(text) : element.textContent === text,
+      contains
+        ? element.textContent?.includes(text)
+        : element.getAttribute("aria-label") === text || element.textContent === text,
     );
     expect(button, host.textContent ?? "").toBeDefined();
     await act(async () => button?.click());
@@ -145,7 +147,7 @@ it.each(["stable", "canary"])("withdraws %s before retirement", async (name) => 
     expect(host.textContent).toContain("Alias withdrawn");
     await click("Back to service");
     expect(aliasReads).toBe(2);
-    expect(host.textContent).not.toContain(`Withdraw ${name} alias`);
+    expect(host.querySelector(`[aria-label="Withdraw ${name} alias"]`)).toBeNull();
     await click("Retire revision 1");
     await click("Confirm retirement");
     expect(retired).toBe(true);

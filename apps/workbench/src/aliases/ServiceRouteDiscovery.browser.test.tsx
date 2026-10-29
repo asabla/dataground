@@ -46,7 +46,9 @@ afterEach(async () => {
   host.remove();
 });
 function button(text: string) {
-  const element = [...host.querySelectorAll("button")].find((value) => value.textContent === text);
+  const element = [...host.querySelectorAll("button")].find(
+    (value) => (value.getAttribute("aria-label") ?? value.textContent) === text,
+  );
   expect(element).toBeDefined();
   return element as HTMLButtonElement;
 }

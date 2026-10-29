@@ -541,6 +541,11 @@ export function ServiceWorkflowSession({
     <>
       {openedService && !retirementRevision && !withdrawalAlias && (
         <ServiceRouteDiscovery
+          revisionNumbers={
+            new Map(
+              revisionHistory.map((revision) => [revision.metadata.id, revision.revisionNumber]),
+            )
+          }
           client={client}
           scope={{ isolationDomainId, serviceId: openedService.metadata.id }}
           canWithdraw

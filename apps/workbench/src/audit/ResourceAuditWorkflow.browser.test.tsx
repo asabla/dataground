@@ -23,7 +23,7 @@ afterEach(async () => {
 });
 async function click(label: string) {
   const button = Array.from(host.querySelectorAll("button")).find(
-    (entry) => entry.textContent === label,
+    (entry) => (entry.getAttribute("aria-label") ?? entry.textContent) === label,
   );
   expect(button).toBeDefined();
   await act(async () => button?.click());
@@ -192,7 +192,7 @@ it("allows retired revision audit inspection and closes it when the connection c
   await act(async () =>
     root.render(<ServiceRevisionHistoryWorkflow {...props} client={source.client} />),
   );
-  expect(host.textContent).not.toContain("Open revision 1");
+  expect(host.querySelector('[aria-label="Open revision 1"]')).toBeNull();
   await click("Inspect audit for revision 1");
   expect(source.calls).toHaveLength(0);
   await click("Show audit");
