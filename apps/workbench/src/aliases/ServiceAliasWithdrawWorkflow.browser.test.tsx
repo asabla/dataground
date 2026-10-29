@@ -53,51 +53,56 @@ async function click(label: string) {
   await act(async () => button(label).click());
 }
 
-it("requires confirmation and retains the original request across uncertain acknowledgement", async () => {
-  const calls: unknown[] = [];
-  let reject: ((reason: unknown) => void) | undefined;
-  const client = {
-    POST: async (_path: string, options: unknown) => {
-      calls.push(options);
-      if (calls.length === 1)
-        return new Promise((_resolve, fail) => {
-          reject = fail;
-        });
-      return { data: receipt, response: new Response(null, { status: 200 }) };
-    },
-  } as unknown as DataGroundClient;
-  const onWithdrawn = vi.fn();
-  const onClose = vi.fn();
-  await act(async () =>
-    root.render(
-      <ServiceAliasWithdrawWorkflow
-        alias={alias}
-        canWithdraw
-        client={client}
-        onClose={onClose}
-        onWithdrawn={onWithdrawn}
-      />,
-    ),
-  );
-  expect(calls).toHaveLength(0);
-  expect(document.activeElement).toBe(host.querySelector("h2"));
-  await act(async () => {
-    button("Confirm alias withdrawal").click();
-    button("Confirm alias withdrawal").click();
-  });
-  expect(calls).toHaveLength(1);
-  expect(button("Close withdrawal").disabled).toBe(true);
-  await act(async () => reject?.(new Error("lost acknowledgement")));
-  expect(onWithdrawn).not.toHaveBeenCalled();
-  expect(document.activeElement).toBe(host.querySelector('[role="alert"]'));
-  await click("Recover withdrawal request");
-  expect(calls).toHaveLength(2);
-  expect(calls[1]).toEqual(calls[0]);
-  expect(onWithdrawn).toHaveBeenCalledOnce();
-  expect(document.activeElement).toBe(host.querySelector('[role="status"]'));
-  await click("Back to service");
-  expect(onClose).toHaveBeenCalledOnce();
-});
+it.each([false, true])(
+  "requires confirmation and retains uncertain withdrawal (compact=%s)",
+  async (compact) => {
+    const calls: unknown[] = [];
+    let reject: ((reason: unknown) => void) | undefined;
+    const client = {
+      POST: async (_path: string, options: unknown) => {
+        calls.push(options);
+        if (calls.length === 1)
+          return new Promise((_resolve, fail) => {
+            reject = fail;
+          });
+        return { data: receipt, response: new Response(null, { status: 200 }) };
+      },
+    } as unknown as DataGroundClient;
+    const onWithdrawn = vi.fn();
+    const onClose = vi.fn();
+    await act(async () =>
+      root.render(
+        <ServiceAliasWithdrawWorkflow
+          compact={compact}
+          serviceName="Quarterly analysis"
+          alias={alias}
+          canWithdraw
+          client={client}
+          onClose={onClose}
+          onWithdrawn={onWithdrawn}
+        />,
+      ),
+    );
+    expect(calls).toHaveLength(0);
+    expect(document.activeElement).toBe(host.querySelector("h2"));
+    await act(async () => {
+      button("Confirm alias withdrawal").click();
+      button("Confirm alias withdrawal").click();
+    });
+    expect(calls).toHaveLength(1);
+    expect(button("Close withdrawal").disabled).toBe(true);
+    await act(async () => reject?.(new Error("lost acknowledgement")));
+    expect(onWithdrawn).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(host.querySelector('[role="alert"]'));
+    await click("Recover withdrawal request");
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toEqual(calls[0]);
+    expect(onWithdrawn).toHaveBeenCalledOnce();
+    expect(document.activeElement).toBe(host.querySelector('[role="status"][tabindex="-1"]'));
+    await click("Back to service");
+    expect(onClose).toHaveBeenCalledOnce();
+  },
+);
 
 it("does not submit with observer permissions or claim success after an authoritative denial", async () => {
   const post = vi.fn(async () => ({

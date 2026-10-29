@@ -1,4 +1,4 @@
-import { Button, StatusBadge } from "@dataground/ui";
+import { Button, CopyButton, StatusBadge } from "@dataground/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import type { DataGroundClient } from "../contracts/client";
 import {
@@ -23,6 +23,8 @@ export function prepareRetirementAttempt(
 }
 
 export interface ServiceRevisionRetireWorkflowProps {
+  compact?: boolean;
+  serviceName?: string;
   client: DataGroundClient;
   revision: ServiceRevisionHistoryResource;
   canRetire: boolean;
@@ -31,6 +33,8 @@ export interface ServiceRevisionRetireWorkflowProps {
 }
 
 export function ServiceRevisionRetireWorkflow({
+  compact = false,
+  serviceName,
   client,
   revision,
   canRetire,
@@ -69,7 +73,15 @@ export function ServiceRevisionRetireWorkflow({
   }, [problem, retired]);
   const permitted = canRetire && revision.state === "published";
   const confirm = async () => {
-    if (!current || !permitted || lock.current || pending || retired) return;
+    if (
+      !current ||
+      !permitted ||
+      lock.current ||
+      pending ||
+      retired ||
+      (problem && !problem.retryable)
+    )
+      return;
     let attempt = state.attempt;
     if (!attempt) {
       try {
@@ -106,13 +118,53 @@ export function ServiceRevisionRetireWorkflow({
     }
   };
   return (
-    <section className="product-workflow__inspection" aria-labelledby={titleId}>
+    <section
+      className={compact ? "workbench-lifecycle" : "product-workflow__inspection"}
+      aria-labelledby={titleId}
+    >
       <h2 id={titleId} tabIndex={-1} ref={title}>
         Retire revision {revision.revisionNumber}
       </h2>
-      <p>
-        <code>{revision.metadata.id}</code> · Version {revision.metadata.version}
-      </p>
+      {compact ? (
+        <>
+          {serviceName && <p>{serviceName}</p>}
+          <details className="workbench-resource-details">
+            <summary>Resource details</summary>
+            <dl>
+              <div>
+                <dt>Service identifier</dt>
+                <dd>
+                  <code>{revision.serviceId}</code>{" "}
+                  <CopyButton label="service identifier" value={revision.serviceId} />
+                </dd>
+              </div>
+              <div>
+                <dt>Revision identifier</dt>
+                <dd>
+                  <code>{revision.metadata.id}</code>{" "}
+                  <CopyButton label="revision identifier" value={revision.metadata.id} />
+                </dd>
+              </div>
+              <div>
+                <dt>Isolation scope</dt>
+                <dd>
+                  <code>{revision.metadata.isolationDomainId}</code>{" "}
+                  <CopyButton label="isolation scope" value={revision.metadata.isolationDomainId} />
+                </dd>
+              </div>
+              <div>
+                <dt>Record version</dt>
+                <dd>{revision.metadata.version}</dd>
+              </div>
+            </dl>
+          </details>
+        </>
+      ) : (
+        <p>
+          <code>{revision.metadata.id}</code> · Version {revision.metadata.version}
+        </p>
+      )}
+
       <p>
         Retirement permanently stops new routing and repair through this revision. Existing
         definitions, invocation history, artifacts, and audit remain available under their access
@@ -145,6 +197,7 @@ export function ServiceRevisionRetireWorkflow({
       {pending && <p role="status">Confirming revision retirement…</p>}
       {!retired && permitted && (!problem || problem.retryable) && (
         <Button
+          variant="danger"
           isDisabled={pending || !current}
           onPress={() => {
             void confirm();

@@ -204,3 +204,9 @@ secondary copy controls; deadlines, recorded decisions, required actions and
 uncertain outcomes remain visible. Question blockers precede the answer fields.
 The compact presentation passes through the same command, expiry, authority and
 exact-request retry controllers as the temporary classic presentation.
+
+Withdrawal and retirement keep their explicit confirmation and recovery actions
+in focused lifecycle sections. Service names and revision numbers lead the view;
+resource and record identifiers have secondary copy controls. Consequences,
+preconditions, pending commands and errors remain visible. A terminal retirement
+failure also blocks a stale confirm handler from sending the command again.

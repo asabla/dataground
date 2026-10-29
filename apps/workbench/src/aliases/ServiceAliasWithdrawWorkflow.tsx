@@ -1,4 +1,4 @@
-import { Button, StatusBadge } from "@dataground/ui";
+import { Button, CopyButton, StatusBadge } from "@dataground/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import type { DataGroundClient } from "../contracts/client";
 import {
@@ -22,6 +22,8 @@ export function prepareAliasWithdrawal(
   };
 }
 export interface ServiceAliasWithdrawWorkflowProps {
+  compact?: boolean;
+  serviceName?: string;
   alias: ServiceAliasResource;
   canWithdraw: boolean;
   client: DataGroundClient;
@@ -29,6 +31,8 @@ export interface ServiceAliasWithdrawWorkflowProps {
   onWithdrawn: (alias: WithdrawnServiceAliasResource) => void;
 }
 export function ServiceAliasWithdrawWorkflow({
+  compact = false,
+  serviceName,
   alias,
   canWithdraw,
   client,
@@ -109,14 +113,61 @@ export function ServiceAliasWithdrawWorkflow({
     }
   }
   return (
-    <section className="product-workflow__inspection" aria-labelledby={titleId}>
+    <section
+      className={compact ? "workbench-lifecycle" : "product-workflow__inspection"}
+      aria-labelledby={titleId}
+    >
       <h2 id={titleId} ref={title} tabIndex={-1}>
         Withdraw alias {alias.name}
       </h2>
-      <p>
-        <code>{alias.serviceId}</code> · <code>{alias.metadata.id}</code> · Version{" "}
-        {alias.metadata.version}
-      </p>
+      {compact ? (
+        <>
+          {serviceName && <p>{serviceName}</p>}
+          <details className="workbench-resource-details">
+            <summary>Resource details</summary>
+            <dl>
+              <div>
+                <dt>Service identifier</dt>
+                <dd>
+                  <code>{alias.serviceId}</code>{" "}
+                  <CopyButton label="service identifier" value={alias.serviceId} />
+                </dd>
+              </div>
+              <div>
+                <dt>Route identifier</dt>
+                <dd>
+                  <code>{alias.metadata.id}</code>{" "}
+                  <CopyButton label="route identifier" value={alias.metadata.id} />
+                </dd>
+              </div>
+              <div>
+                <dt>Revision identifier</dt>
+                <dd>
+                  <code>{alias.revisionId}</code>{" "}
+                  <CopyButton label="revision identifier" value={alias.revisionId} />
+                </dd>
+              </div>
+              <div>
+                <dt>Isolation scope</dt>
+                <dd>
+                  <code>{alias.metadata.isolationDomainId}</code>{" "}
+                  <CopyButton label="isolation scope" value={alias.metadata.isolationDomainId} />
+                </dd>
+              </div>
+              <div>
+                <dt>Record version</dt>
+                <dd>{alias.metadata.version}</dd>
+              </div>
+            </dl>
+          </details>
+        </>
+      ) : (
+        <p>
+          <code>{alias.serviceId}</code> · <code>{alias.metadata.id}</code> · Version{" "}
+          {alias.metadata.version}
+        </p>
+      )}
+
       <p>
         This stops new invocations through this alias. Accepted work continues. The name can be
         assigned again after withdrawal.

@@ -218,3 +218,22 @@ describe("revision retirement", () => {
     assert.match(render(false), /role="alert"/);
   });
 });
+
+it("separates retirement consequences from compact resource details", () => {
+  const html = renderToStaticMarkup(
+    <ServiceRevisionRetireWorkflow
+      compact
+      serviceName="Quarterly analysis"
+      client={{} as DataGroundClient}
+      revision={published}
+      canRetire
+      onClose={() => {}}
+      onRetired={() => {}}
+    />,
+  );
+  const details = html.match(/<details[\s\S]*?<\/details>/u)?.[0] ?? "";
+  assert.match(details, /rev_00000000000000000001/u);
+  assert.doesNotMatch(details, /permanently stops|Confirm retirement/u);
+  assert.match(html, /Quarterly analysis/u);
+  assert.match(html, /data-variant="danger"/u);
+});

@@ -672,6 +672,8 @@ export function ServiceWorkflowSession({
       withdrawalAlias.metadata.isolationDomainId === isolationDomainId &&
       withdrawalAlias.serviceId === openedService.metadata.id ? (
         <ServiceAliasWithdrawWorkflow
+          compact={presentation === "workbench"}
+          serviceName={openedService.name}
           alias={withdrawalAlias}
           canWithdraw
           client={client}
@@ -698,6 +700,8 @@ export function ServiceWorkflowSession({
         retirementRevision.metadata.isolationDomainId === isolationDomainId &&
         retirementRevision.serviceId === openedService.metadata.id && (
           <ServiceRevisionRetireWorkflow
+            compact={presentation === "workbench"}
+            serviceName={openedService.name}
             key={`${retirementRevision.metadata.id}/${retirementRevision.metadata.version}`}
             client={client}
             revision={retirementRevision}

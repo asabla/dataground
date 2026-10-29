@@ -4,7 +4,12 @@ import { expect, it } from "vitest";
 import { DevelopmentWorkbench } from "../App";
 import type { DataGroundClient } from "../contracts/client";
 
-it.each(["stable", "canary"])("withdraws %s before retirement", async (name) => {
+it.each([
+  ["stable", "classic"],
+  ["canary", "classic"],
+  ["stable", "workbench"],
+  ["canary", "workbench"],
+] as const)("withdraws %s before retirement in %s", async (name, presentation) => {
   window.history.replaceState(null, "", window.location.pathname);
   (
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -49,6 +54,8 @@ it.each(["stable", "canary"])("withdraws %s before retirement", async (name) => 
   const commands: string[] = [];
   const client = {
     GET: async (path: string) => {
+      if (path.endsWith("/agent-services/{serviceId}"))
+        return { data: service, response: new Response(null, { status: 200 }) };
       if (path.endsWith("/agent-services"))
         return { data: { items: [service] }, response: new Response(null, { status: 200 }) };
       if (path.endsWith("/revisions"))
@@ -118,10 +125,11 @@ it.each(["stable", "canary"])("withdraws %s before retirement", async (name) => 
   document.body.append(host);
   const root = createRoot(host);
   async function click(text: string, contains = false) {
-    const button = Array.from(host.querySelectorAll("button")).find((element) =>
-      contains
-        ? element.textContent?.includes(text)
-        : element.getAttribute("aria-label") === text || element.textContent === text,
+    const button = Array.from(host.querySelectorAll<HTMLElement>('button, [role="tab"]')).find(
+      (element) =>
+        contains
+          ? element.textContent?.includes(text)
+          : element.getAttribute("aria-label") === text || element.textContent === text,
     );
     expect(button, host.textContent ?? "").toBeDefined();
     await act(async () => button?.click());
@@ -130,7 +138,7 @@ it.each(["stable", "canary"])("withdraws %s before retirement", async (name) => 
     await act(async () =>
       root.render(
         <DevelopmentWorkbench
-          presentation="classic"
+          presentation={presentation}
           client={client}
           isolationDomainId={scope}
           onDisconnect={() => {}}
@@ -140,6 +148,7 @@ it.each(["stable", "canary"])("withdraws %s before retirement", async (name) => 
     await click("Open service");
     expect(aliasReads).toBe(1);
     expect(commands).toHaveLength(0);
+    if (presentation === "workbench") await click("Deployments");
     await click(`Withdraw ${name} alias`);
     expect(commands).toHaveLength(0);
     await click("Confirm alias withdrawal");
@@ -148,6 +157,7 @@ it.each(["stable", "canary"])("withdraws %s before retirement", async (name) => 
     await click("Back to service");
     expect(aliasReads).toBe(2);
     expect(host.querySelector(`[aria-label="Withdraw ${name} alias"]`)).toBeNull();
+    if (presentation === "workbench") await click("Versions");
     await click("Retire revision 1");
     await click("Confirm retirement");
     expect(retired).toBe(true);
