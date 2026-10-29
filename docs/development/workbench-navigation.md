@@ -106,3 +106,11 @@ semantic tokens. Appearance is held in memory for the current connection. Changi
 it does not replace open workflow sessions or clear unfinished forms. Disconnecting
 resets the choice. The header reflows with the rest of the workbench on narrow
 screens.
+
+Opened history runs retain independent inspection sessions in the workbench
+presentation. Returning to the list, refreshing its page, or opening another run
+does not discard an unfinished answer, an uncertain command retry, or the selected
+inspection view. Inactive sessions are hidden and inert. A changed client, service
+or isolation scope, or a denied history refresh removes those sessions. Reopening
+requires a current successful list row; the retained session does not grant access.
+Existing refresh, expiry and command authorization checks still apply.
