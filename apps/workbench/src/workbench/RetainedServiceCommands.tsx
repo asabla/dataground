@@ -37,6 +37,7 @@ interface RetainedServiceCommandsProps {
   onPublished: (revision: PublishedServiceRevisionResource) => void;
   onAliasAssigned?: (alias: ServiceAliasResource) => void;
   onComposeInvocation: (alias: ServiceAliasResource) => void;
+  onInvocationCreated?: (reference: InvocationReference) => void;
   onOpenInvocation: (reference: InvocationReference) => void;
 }
 
@@ -142,6 +143,7 @@ function CommandSessions(props: RetainedServiceCommandsProps) {
               }}
               inputSchema={entry.publication.inputSchema}
               initialAlias={entry.alias.name}
+              onInvocationCreated={props.onInvocationCreated}
               onOpenInvocation={props.onOpenInvocation}
             />
           )}

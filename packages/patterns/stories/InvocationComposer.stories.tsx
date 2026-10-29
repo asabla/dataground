@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
 import { expect, fn, userEvent, within } from "storybook/test";
 import { InvocationComposer } from "../src/InvocationComposer";
 import "../src/styles.css";
@@ -147,5 +148,24 @@ export const Workbench: Story = {
     await expect(details).toHaveAttribute("open");
     await userEvent.click(canvas.getByText("Resource details"));
     await expect(details).not.toHaveAttribute("open");
+  },
+};
+
+export const WorkbenchCompletionFocus: Story = {
+  render: function Completion(args) {
+    const [complete, setComplete] = useState(false);
+    return (
+      <InvocationComposer
+        {...args}
+        compact
+        accepted={complete ? Accepted.args?.accepted : undefined}
+        onSubmit={() => setComplete(true)}
+      />
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: "Start invocation" }));
+    await expect(canvasElement.querySelector(".dg-invocation-composer__accepted")).toHaveFocus();
   },
 };

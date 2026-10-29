@@ -1,10 +1,11 @@
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import type { DataGroundClient } from "../contracts/client";
 import { pendingQuestion } from "../questions/fixtures";
 import { InvocationHistoryWorkflow } from "./InvocationHistoryWorkflow";
+import type { RunLocation } from "./navigation";
 
 let host: HTMLDivElement;
 let root: Root;
@@ -183,3 +184,79 @@ it.each(["identity", "scope", "denial"])(
     expect(source.post).not.toHaveBeenCalled();
   },
 );
+
+it("refreshes after acceptance without clearing the loaded-state filter and rejects an older page", async () => {
+  const source = fixture();
+  let finish!: (value: unknown) => void;
+  let count = 0;
+  const client = {
+    ...source.client,
+    GET: async (path: string, options: unknown) => {
+      if (path.endsWith("/agent-services/{serviceId}/invocations")) {
+        count++;
+        if (count === 2)
+          return new Promise((resolve) => {
+            finish = resolve;
+          });
+      }
+      return (source.client.GET as unknown as (path: string, options: unknown) => Promise<unknown>)(
+        path,
+        options,
+      );
+    },
+  } as unknown as DataGroundClient;
+  const renderGeneration = async (refreshGeneration: number) =>
+    act(async () =>
+      root.render(
+        <InvocationHistoryWorkflow
+          client={client}
+          target={target}
+          presentation="workbench"
+          refreshGeneration={refreshGeneration}
+          location={{}}
+        />,
+      ),
+    );
+  await renderGeneration(0);
+  const filter = host.querySelector("select") as HTMLSelectElement;
+  await act(async () => {
+    filter.value = "waiting";
+    filter.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await renderGeneration(1);
+  expect(host.querySelector("tbody tr")).toBeNull();
+  await renderGeneration(2);
+  expect((host.querySelector("select") as HTMLSelectElement).value).toBe("waiting");
+  expect(host.querySelectorAll("tbody tr")).toHaveLength(2);
+  await act(async () => finish(ok({ items: [] })));
+  expect(host.querySelectorAll("tbody tr")).toHaveLength(2);
+});
+
+it("keeps an open run and unfinished answer when another accepted command refreshes history", async () => {
+  const source = fixture();
+  function Controlled({ generation }: { generation: number }) {
+    const [location, setLocation] = useState<RunLocation>({});
+    return (
+      <InvocationHistoryWorkflow
+        client={source.client}
+        target={target}
+        presentation="workbench"
+        location={location}
+        onNavigate={setLocation}
+        refreshGeneration={generation}
+      />
+    );
+  }
+  await act(async () => root.render(<Controlled generation={0} />));
+  await openQuestion(first);
+  const answer = await edit("Preserve this answer during list refresh");
+  await act(async () => root.render(<Controlled generation={1} />));
+  expect(visible("textarea")).toBe(answer);
+  expect(answer?.value).toBe("Preserve this answer during list refresh");
+  expect(
+    source.get.mock.calls.filter(([path]) =>
+      path.endsWith("/agent-services/{serviceId}/invocations"),
+    ),
+  ).toHaveLength(2);
+  expect(source.post).not.toHaveBeenCalled();
+});

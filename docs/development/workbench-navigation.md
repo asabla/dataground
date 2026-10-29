@@ -283,3 +283,9 @@ its route, target revision and isolation scope. Initial focus selects the action
 that keeps the current route; Escape returns to the review control. A pending
 submission blocks dismissal. Retained inactive route sessions do not open a
 modal, and uncertain submissions keep their original retry command outside it.
+
+Accepted invocation receipts use the same lost-focus recovery as other command
+results. Acceptance refreshes the selected service's authorized run history without
+changing the current run location or clearing its filter. A late earlier history
+page cannot replace the refreshed list. Result and request contents still require
+their own inspection reads.

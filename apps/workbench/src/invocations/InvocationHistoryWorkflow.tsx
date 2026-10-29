@@ -16,6 +16,7 @@ import { InvocationInspectionWorkflow } from "./InvocationInspectionWorkflow";
 import type { RunLocation, RunTab } from "./navigation";
 
 export interface InvocationHistoryWorkflowProps {
+  refreshGeneration?: number;
   presentation?: "classic" | "workbench";
   location?: RunLocation;
   onNavigate?: (location: RunLocation) => void;
@@ -35,6 +36,7 @@ export function InvocationHistoryWorkflow(props: InvocationHistoryWorkflowProps)
 }
 
 function InvocationHistorySession({
+  refreshGeneration = 0,
   client,
   target,
   presentation = "classic",
@@ -45,7 +47,9 @@ function InvocationHistorySession({
   const [sort, setSort] = useState<DataTableSort>({ column: "created", direction: "descending" });
   const [stateFilter, setStateFilter] = useState("all");
   const { isolationDomainId, serviceId } = target;
-  const scope = `${isolationDomainId}/${serviceId}`;
+  const scope = `${isolationDomainId}/${serviceId}/${refreshGeneration}`;
+  const currentScope = useRef(scope);
+  currentScope.current = scope;
   const titleId = useId();
   const returnFocusId = useRef<string | undefined>(undefined);
   const sequence = useRef(0);
@@ -145,11 +149,12 @@ function InvocationHistorySession({
 
   const load = useCallback(
     async (cursor?: string) => {
+      if (currentScope.current !== scope) return;
       const requestId = ++sequence.current;
       if (cursor === undefined && !controlled) setSelected(undefined);
       dispatch({ type: "requested", client, scope, requestId, cursor });
       const result = await listInvocations(client, { isolationDomainId, serviceId }, cursor);
-      if (sequence.current !== requestId) return;
+      if (sequence.current !== requestId || currentScope.current !== scope) return;
       // Exact-run reads have their own authorization. A list denial must not
       // replace an independently authorized direct location with a loading view.
       if (!desiredRef.current && !result.ok && [401, 403].includes(result.error.status ?? 0)) {
@@ -161,7 +166,6 @@ function InvocationHistorySession({
     [client, scope, isolationDomainId, serviceId, controlled],
   );
   useEffect(() => {
-    setStateFilter("all");
     void load();
     return () => {
       sequence.current++;
@@ -172,7 +176,6 @@ function InvocationHistorySession({
   // the effect resets it; late requests cannot restore another scope's history.
   const current = state.client === client && state.scope === scope;
   const invocation =
-    current &&
     selected?.client === client &&
     selected.invocation.metadata.isolationDomainId === isolationDomainId &&
     selected.invocation.serviceId === serviceId &&
@@ -403,7 +406,8 @@ function InvocationHistorySession({
                       isDisabled={loading || !!state.error}
                       variant="quiet"
                       onPress={() => {
-                        if (!current || loading || state.error) return;
+                        if (!current || currentScope.current !== scope || loading || state.error)
+                          return;
                         setOpened((current) =>
                           current.some((entry) => entry.metadata.id === item.metadata.id)
                             ? current
