@@ -34,3 +34,28 @@ it("rejects cross-scope, encoded, unknown and content-bearing locations", () => 
   assert.equal(parseRoute(valid, "bad"), undefined);
   assert.throws(() => routeHash({ isolationDomainId, serviceId: "../other", view: "workflow" }));
 });
+
+const invocationId = "inv_00000000000000000001";
+it("round-trips exact run locations and closed inspection views", () => {
+  for (const runTab of [undefined, "requests", "output", "files", "audit"] as const) {
+    const route: WorkbenchRoute = {
+      isolationDomainId,
+      serviceId,
+      view: "interactions",
+      invocationId,
+      ...(runTab ? { runTab } : {}),
+    };
+    assert.deepEqual(parseRoute(routeHash(route), isolationDomainId), route);
+  }
+  const valid = routeHash({ isolationDomainId, serviceId, view: "interactions", invocationId });
+  for (const bad of [
+    `${valid}/extra`,
+    `${valid}?result=secret`,
+    valid.replace("/activity", "/unknown"),
+    valid.replace(invocationId, "%69nv_00000000000000000001"),
+  ]) {
+    assert.equal(parseRoute(bad, isolationDomainId), undefined);
+  }
+  assert.throws(() => routeHash({ isolationDomainId, view: "interactions", invocationId }));
+  assert.throws(() => routeHash({ isolationDomainId, serviceId, view: "workflow", invocationId }));
+});

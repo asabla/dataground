@@ -18,6 +18,7 @@ The initial supported locations are:
 | `/{serviceId}/versions` | Revision history and retirement |
 | `/{serviceId}/deployments` | Routes, assignment and withdrawal |
 | `/{serviceId}/runs` | Selected service invocation history |
+| `/{serviceId}/runs/{invocationId}/{view}` | Exact run with Activity, Requests, Output, Files or Audit selected |
 
 A direct service location reads that exact service through the authorized public
 API. It does not scan service pages or use the directory as evidence that another
@@ -44,7 +45,7 @@ navigation. Heading IDs are unique across retained contexts, and audit focus
 returns to the correct resource. Identity or scope changes unmount all sessions
 and invalidate pending reads. Refresh also clears all memory-only sessions.
 Explicitly starting another revision still replaces the revision context within
-that service. Revision-specific command retention and revision/run/artifact deep links remain
+that service. Revision-specific command retention and revision/artifact deep links remain
 subsequent migration work. The production screen composition is still in migration.
 
 The service workbench uses Overview, Build, Versions, Deployments and Runs as
@@ -114,3 +115,11 @@ inspection view. Inactive sessions are hidden and inert. A changed client, servi
 or isolation scope, or a denied history refresh removes those sessions. Reopening
 requires a current successful list row; the retained session does not grant access.
 Existing refresh, expiry and command authorization checks still apply.
+
+Exact run URLs use the closed view names `activity`, `requests`, `output`, `files`
+and `audit`. Direct links use the authorized invocation read and verify its service
+relationship before mounting inspection. They do not scan history pages. A denied
+or mismatched read shows an unavailable run; late reads cannot reopen a departed
+location. An authorized exact run read is independent of list permission. Back,
+forward and reconnect restore the selected run view. Output links retain explicit
+result disclosure. Newly accepted invocations enter the same run navigation.

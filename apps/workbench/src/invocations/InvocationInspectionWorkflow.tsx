@@ -17,6 +17,7 @@ import {
 } from "../questions";
 import type { InvocationReference } from "./client";
 import { InvocationWorkflow } from "./InvocationWorkflow";
+import { isRunTab, type RunTab } from "./navigation";
 
 const isolationDomainIdPattern = /^iso_[0-9a-z]{20,32}$/u;
 const invocationIdPattern = /^inv_[0-9a-z]{20,32}$/u;
@@ -25,6 +26,8 @@ const artifactIdPattern = /^art_[0-9a-z]{20,32}$/u;
 
 export interface InvocationInspectionWorkflowProps {
   presentation?: "classic" | "workbench";
+  selectedTab?: RunTab;
+  onSelectTab?: (tab: RunTab) => void;
   canCancelInvocation: boolean;
   canAnswerQuestion?: boolean;
   canResolveApproval: boolean;
@@ -88,6 +91,8 @@ function focusSection(section: HTMLElement | null) {
 
 export function InvocationInspectionWorkflow({
   presentation = "classic",
+  selectedTab,
+  onSelectTab,
   canCancelInvocation,
   canAnswerQuestion = false,
   canResolveApproval,
@@ -109,7 +114,8 @@ export function InvocationInspectionWorkflow({
     scope: string;
     event: TimelineEvent;
   }>();
-  const [activeTab, setActiveTab] = useState("activity");
+  const [retainedTab, setActiveTab] = useState<RunTab>("activity");
+  const activeTab = selectedTab ?? retainedTab;
   const approvalBlockedTitleId = useId();
   const approvalInspectionTitleId = useId();
   const artifactBlockedTitleId = useId();
@@ -439,7 +445,11 @@ export function InvocationInspectionWorkflow({
                 <Tabs
                   label="Run views"
                   selectedId={activeTab}
-                  onSelectionChange={setActiveTab}
+                  onSelectionChange={(value) => {
+                    if (!isRunTab(value)) return;
+                    setActiveTab(value);
+                    onSelectTab?.(value);
+                  }}
                   items={[
                     { id: "activity", label: "Activity", content: activityView },
                     { id: "requests", label: "Requests", content: requestsView },
