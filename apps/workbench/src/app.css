@@ -1045,3 +1045,9 @@ p {
   margin: 0;
   overflow-wrap: anywhere;
 }
+
+.workbench-home-section {
+  margin-top: var(--dg-space-6);
+  padding-top: var(--dg-space-4);
+  border-top: var(--dg-border-default) solid var(--dg-color-border-default);
+}

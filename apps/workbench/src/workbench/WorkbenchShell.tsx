@@ -54,6 +54,16 @@ export function WorkbenchShell({
         <aside className="workbench-sidebar">
           <p className="workbench-sidebar__label">Workbench</p>
           <nav aria-label="Primary navigation">
+            {scopeRuns && (
+              <Button
+                aria-current={view === "home" ? "page" : undefined}
+                className="workbench-nav-button"
+                onPress={() => onNavigate("home")}
+                variant="quiet"
+              >
+                Home
+              </Button>
+            )}
             <Button
               aria-current={view === "services" || view === "workflow" ? "page" : undefined}
               className="workbench-nav-button"

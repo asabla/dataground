@@ -241,3 +241,12 @@ Escape and dismissal; its existing exact-request recovery remains in the page
 when the outcome is uncertain. Retained publication sessions receive an explicit
 visibility boundary, so a hidden service or tab cannot leave a modal open. The
 classic presentation retains its inline confirmation and shares the same command.
+
+Home has a stable scope URL and retains up to twelve recently opened service
+sessions in memory. This is connection-local work history, not a workspace,
+ownership record or saved-resource service. Refresh or identity changes clear it.
+Its attention preview uses one bounded scope run query for the selected waiting,
+failed or unknown state, shows up to eight summaries and links to exact inspection.
+It reports query denial separately from an empty list and does not load prompts,
+results or files. Runs remains the full paginated browser. Saved resources and
+analyst recents require their future durable contracts.

@@ -8,6 +8,7 @@ it("round-trips scoped directory, create, service and run-list locations", () =>
   for (const route of [
     { isolationDomainId, view: "services" },
     { isolationDomainId, view: "artifacts" },
+    { isolationDomainId, view: "home" },
     { isolationDomainId, view: "workflow" },
     { isolationDomainId, view: "interactions" },
     { isolationDomainId, serviceId, view: "workflow" },
@@ -141,4 +142,16 @@ it("rejects service context and content in global artifact locations", () => {
     parseRoute(`#/scopes/${isolationDomainId}/artifacts/extra`, isolationDomainId),
     undefined,
   );
+});
+
+it("keeps Home scoped and rejects resource or content context", () => {
+  const root = `#/scopes/${isolationDomainId}/home`;
+  for (const hash of [
+    `${root}/extra`,
+    `${root}?prompt=private`,
+    root.replace(isolationDomainId, "iso_00000000000000000002"),
+  ])
+    assert.equal(parseRoute(hash, isolationDomainId), undefined);
+  assert.throws(() => routeHash({ isolationDomainId, view: "home", serviceId }));
+  assert.throws(() => routeHash({ isolationDomainId, view: "home", runTab: "output" }));
 });
