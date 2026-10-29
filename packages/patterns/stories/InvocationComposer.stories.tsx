@@ -169,3 +169,11 @@ export const WorkbenchCompletionFocus: Story = {
     await expect(canvasElement.querySelector(".dg-invocation-composer__accepted")).toHaveFocus();
   },
 };
+
+export const AnotherRun: Story = {
+  args: { compact: true, accepted: Accepted.args?.accepted, onStartAnotherRun: fn() },
+  play: async ({ args, canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Start another run" }));
+    await expect(args.onStartAnotherRun).toHaveBeenCalledOnce();
+  },
+};
