@@ -1,3 +1,4 @@
+import { presentTimelineEvent, type TimelineEvent } from "@dataground/patterns";
 import { Button, StatusBadge, Tabs } from "@dataground/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import {
@@ -103,6 +104,11 @@ export function InvocationInspectionWorkflow({
   selectedApproval,
   selectedArtifact,
 }: InvocationInspectionWorkflowProps) {
+  const [activitySelection, setActivitySelection] = useState<{
+    client: DataGroundClient;
+    scope: string;
+    event: TimelineEvent;
+  }>();
   const [activeTab, setActiveTab] = useState("activity");
   const approvalBlockedTitleId = useId();
   const approvalInspectionTitleId = useId();
@@ -118,8 +124,18 @@ export function InvocationInspectionWorkflow({
     { element: HTMLElement; client: DataGroundClient; scope: string } | undefined
   >(undefined);
   const scope = `${reference.isolationDomainId}/${reference.invocationId}`;
-  const hasSelection = !!(selectedQuestion || selectedApproval || selectedArtifact);
+  const selectedEvent =
+    activitySelection?.client === client && activitySelection.scope === scope
+      ? activitySelection.event
+      : undefined;
+  const hasSelection = !!(
+    selectedEvent ||
+    selectedQuestion ||
+    selectedApproval ||
+    selectedArtifact
+  );
   const selectionKey = [
+    selectedEvent?.id,
     selectedQuestion?.isolationDomainId,
     selectedQuestion?.invocationId,
     selectedQuestion?.questionId,
@@ -134,6 +150,9 @@ export function InvocationInspectionWorkflow({
   useEffect(() => {
     if (origin.current?.client !== client || origin.current?.scope !== scope)
       origin.current = undefined;
+    setActivitySelection((current) =>
+      current?.client === client && current.scope === scope ? current : undefined,
+    );
   }, [client, scope]);
   useEffect(() => {
     if (hasSelection && selectionKey) focusSection(inspection.current);
@@ -149,15 +168,18 @@ export function InvocationInspectionWorkflow({
   const inspectQuestion = onInspectQuestion
     ? (value: InvocationQuestionReference) => {
         beginInspection();
+        setActivitySelection(undefined);
         onInspectQuestion(value);
       }
     : undefined;
   const inspectApproval = (value: InvocationApprovalReference) => {
     beginInspection();
+    setActivitySelection(undefined);
     onInspectApproval(value);
   };
   const inspectArtifact = (value: InvocationArtifactReference) => {
     beginInspection();
+    setActivitySelection(undefined);
     onInspectArtifact(value);
   };
   const closeInspection = (close: (() => void) | undefined) => {
@@ -180,97 +202,156 @@ export function InvocationInspectionWorkflow({
       ref={inspection}
       tabIndex={-1}
     >
-      {selectedQuestion &&
-        (isQuestionSelectedForInvocation(selectedQuestion, reference) ? (
-          <section className="product-workflow__inspection" aria-label="Question inspection">
+      {selectedEvent && (
+        <section aria-label="Activity inspection">
+          <div className="product-workflow__inspection-heading">
+            <h2>{presentTimelineEvent(selectedEvent).label}</h2>
             <Button
-              isDisabled={!onCloseQuestion}
-              onPress={() => closeInspection(onCloseQuestion)}
               variant="quiet"
+              onPress={() => closeInspection(() => setActivitySelection(undefined))}
             >
-              Close questions
+              Close activity
             </Button>
-            <QuestionWorkflow
-              client={client}
-              reference={selectedQuestion}
-              canAnswer={canAnswerQuestion}
-            />
-          </section>
-        ) : (
-          <section className="product-workflow__blocked" role="alert">
-            <StatusBadge tone="critical">Scope mismatch</StatusBadge>
-            <p>
-              The selected question does not belong to the active invocation. Reopen it from the
-              question list or confirmed event timeline.
-            </p>
-          </section>
-        ))}
-      {selectedApproval &&
-        (isApprovalSelectedForInvocation(selectedApproval, reference) ? (
-          <section
-            aria-labelledby={approvalInspectionTitleId}
-            className="product-workflow__inspection"
-          >
-            <div className="product-workflow__inspection-heading">
-              <div>
-                <p className="workbench-kicker">Runtime decision</p>
-                <h2 id={approvalInspectionTitleId}>Approval request</h2>
-              </div>
-              <Button onPress={() => closeInspection(onCloseApproval)} variant="quiet">
-                Close approval
-              </Button>
+          </div>
+          <p>{presentTimelineEvent(selectedEvent).detail}</p>
+          <dl>
+            <div>
+              <dt>Order</dt>
+              <dd>{selectedEvent.sequence}</dd>
             </div>
-            <ApprovalWorkflow
-              canResolve={canResolveApproval}
-              client={client}
-              reference={selectedApproval}
-            />
-          </section>
-        ) : (
-          <section
-            aria-labelledby={approvalBlockedTitleId}
-            className="product-workflow__blocked"
-            role="alert"
-          >
-            <StatusBadge tone="critical">Scope mismatch</StatusBadge>
-            <h2 id={approvalBlockedTitleId}>Approval review unavailable</h2>
-            <p>
-              The selected approval does not belong to the active invocation. Reopen it from the
-              confirmed event timeline before reviewing the request.
-            </p>
-          </section>
-        ))}
-      {selectedArtifact &&
-        (isArtifactSelectedForInvocation(selectedArtifact, reference) ? (
-          <section
-            aria-labelledby={artifactInspectionTitleId}
-            className="product-workflow__inspection"
-          >
-            <div className="product-workflow__inspection-heading">
-              <div>
-                <p className="workbench-kicker">Governed output</p>
-                <h2 id={artifactInspectionTitleId}>Artifact inspection</h2>
-              </div>
-              <Button onPress={() => closeInspection(onCloseArtifact)} variant="quiet">
-                Close artifact
-              </Button>
+            <div>
+              <dt>Occurred</dt>
+              <dd>
+                <time dateTime={selectedEvent.occurredAt}>
+                  {new Date(selectedEvent.occurredAt).toLocaleString()}
+                </time>
+              </dd>
             </div>
-            <ArtifactWorkflow client={client} reference={selectedArtifact} />
-          </section>
-        ) : (
-          <section
-            aria-labelledby={artifactBlockedTitleId}
-            className="product-workflow__blocked"
-            role="alert"
-          >
-            <StatusBadge tone="critical">Scope mismatch</StatusBadge>
-            <h2 id={artifactBlockedTitleId}>Artifact inspection unavailable</h2>
-            <p>
-              The selected artifact does not belong to the active invocation. Reopen it from the
-              confirmed event timeline before inspecting the artifact.
-            </p>
-          </section>
-        ))}
+            <div>
+              <dt>Evidence source</dt>
+              <dd>{selectedEvent.source ?? "Not specified"}</dd>
+            </div>
+          </dl>
+          <details>
+            <summary>Event details</summary>
+            <dl>
+              <div>
+                <dt>Event type</dt>
+                <dd>{selectedEvent.type}</dd>
+              </div>
+              <div>
+                <dt>Event identifier</dt>
+                <dd>
+                  <code>{selectedEvent.id}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>Recorded</dt>
+                <dd>{selectedEvent.recordedAt}</dd>
+              </div>
+              <div>
+                <dt>Correlation</dt>
+                <dd>
+                  <code>{selectedEvent.correlationId}</code>
+                </dd>
+              </div>
+            </dl>
+          </details>
+        </section>
+      )}
+      <div hidden={!!selectedEvent}>
+        {selectedQuestion &&
+          (isQuestionSelectedForInvocation(selectedQuestion, reference) ? (
+            <section className="product-workflow__inspection" aria-label="Question inspection">
+              <Button
+                isDisabled={!onCloseQuestion}
+                onPress={() => closeInspection(onCloseQuestion)}
+                variant="quiet"
+              >
+                Close questions
+              </Button>
+              <QuestionWorkflow
+                client={client}
+                reference={selectedQuestion}
+                canAnswer={canAnswerQuestion}
+              />
+            </section>
+          ) : (
+            <section className="product-workflow__blocked" role="alert">
+              <StatusBadge tone="critical">Scope mismatch</StatusBadge>
+              <p>
+                The selected question does not belong to the active invocation. Reopen it from the
+                question list or confirmed event timeline.
+              </p>
+            </section>
+          ))}
+        {selectedApproval &&
+          (isApprovalSelectedForInvocation(selectedApproval, reference) ? (
+            <section
+              aria-labelledby={approvalInspectionTitleId}
+              className="product-workflow__inspection"
+            >
+              <div className="product-workflow__inspection-heading">
+                <div>
+                  <p className="workbench-kicker">Runtime decision</p>
+                  <h2 id={approvalInspectionTitleId}>Approval request</h2>
+                </div>
+                <Button onPress={() => closeInspection(onCloseApproval)} variant="quiet">
+                  Close approval
+                </Button>
+              </div>
+              <ApprovalWorkflow
+                canResolve={canResolveApproval}
+                client={client}
+                reference={selectedApproval}
+              />
+            </section>
+          ) : (
+            <section
+              aria-labelledby={approvalBlockedTitleId}
+              className="product-workflow__blocked"
+              role="alert"
+            >
+              <StatusBadge tone="critical">Scope mismatch</StatusBadge>
+              <h2 id={approvalBlockedTitleId}>Approval review unavailable</h2>
+              <p>
+                The selected approval does not belong to the active invocation. Reopen it from the
+                confirmed event timeline before reviewing the request.
+              </p>
+            </section>
+          ))}
+        {selectedArtifact &&
+          (isArtifactSelectedForInvocation(selectedArtifact, reference) ? (
+            <section
+              aria-labelledby={artifactInspectionTitleId}
+              className="product-workflow__inspection"
+            >
+              <div className="product-workflow__inspection-heading">
+                <div>
+                  <p className="workbench-kicker">Governed output</p>
+                  <h2 id={artifactInspectionTitleId}>Artifact inspection</h2>
+                </div>
+                <Button onPress={() => closeInspection(onCloseArtifact)} variant="quiet">
+                  Close artifact
+                </Button>
+              </div>
+              <ArtifactWorkflow client={client} reference={selectedArtifact} />
+            </section>
+          ) : (
+            <section
+              aria-labelledby={artifactBlockedTitleId}
+              className="product-workflow__blocked"
+              role="alert"
+            >
+              <StatusBadge tone="critical">Scope mismatch</StatusBadge>
+              <h2 id={artifactBlockedTitleId}>Artifact inspection unavailable</h2>
+              <p>
+                The selected artifact does not belong to the active invocation. Reopen it from the
+                confirmed event timeline before inspecting the artifact.
+              </p>
+            </section>
+          ))}
+      </div>
     </section>
   );
   const activityView = (
@@ -281,6 +362,20 @@ export function InvocationInspectionWorkflow({
       tabIndex={-1}
     >
       <EventTimelineWorkflow
+        compact={presentation === "workbench"}
+        onInspectEvent={
+          presentation === "workbench"
+            ? (event) => {
+                if (
+                  event.isolationDomainId !== reference.isolationDomainId ||
+                  event.invocationId !== reference.invocationId
+                )
+                  return;
+                beginInspection();
+                setActivitySelection({ client, scope, event });
+              }
+            : undefined
+        }
         client={client}
         onInspectQuestion={inspectQuestion}
         onInspectApproval={inspectApproval}

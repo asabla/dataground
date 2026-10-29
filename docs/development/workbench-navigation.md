@@ -91,3 +91,12 @@ number only when it is present in the loaded, validated revision history;
 otherwise its exact reference remains available in secondary details. Refresh
 and error states disable retained actions. The table refresh dependency contract
 ensures those controls do not retain an earlier enabled state.
+
+Activity keeps the journal's confirmed sequence order in a compact table. It does
+not infer task dependencies, durations or execution graphs. Selecting an event
+opens its bounded display summary and envelope details beside the run. Runtime
+completion remains distinct from the platform outcome. Question and artifact
+references keep their existing independent inspection controls. Opening an
+activity detail does not destroy an unfinished question or approval; closing it
+restores the prior inspection. Connection and invocation changes discard the
+selected activity snapshot.
