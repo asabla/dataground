@@ -70,3 +70,16 @@ export const Created: Story = {
     onOpenService: fn(),
   },
 };
+
+export const Workbench: Story = {
+  args: { compact: true },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const details = canvasElement.querySelector("details");
+    await expect(details).not.toHaveAttribute("open");
+    await userEvent.click(canvas.getByText("Resource details"));
+    await expect(details).toHaveAttribute("open");
+    await userEvent.click(canvas.getByText("Resource details"));
+    await expect(details).not.toHaveAttribute("open");
+  },
+};

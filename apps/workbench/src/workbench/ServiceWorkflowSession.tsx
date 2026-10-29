@@ -354,6 +354,26 @@ export function ServiceWorkflowSession({
     openedAlias,
     openedInvocation,
   );
+  const commandFocusKey = `${currentStage}/${draftFormGeneration}`;
+  const previousCommand = useRef(commandFocusKey);
+  useEffect(() => {
+    const changed = previousCommand.current !== commandFocusKey;
+    previousCommand.current = commandFocusKey;
+    if (
+      !changed ||
+      !active ||
+      presentation !== "workbench" ||
+      document.activeElement !== document.body
+    )
+      return;
+    const heading = Array.from(
+      pageContent.current?.querySelectorAll<HTMLElement>("[data-command-heading]") ?? [],
+    ).find((element) => !element.closest("[hidden], [inert]"));
+    heading?.focus();
+    // A command transition can remove its initiating button. Restore focus only
+    // when no remaining control has it, including a fresh draft in the same stage.
+  }, [active, presentation, commandFocusKey]);
+
   const openService = (service: AgentServiceResource, reset = false) => {
     if (!reset && openedService?.metadata.id === service.metadata.id) {
       onNavigate("workflow");

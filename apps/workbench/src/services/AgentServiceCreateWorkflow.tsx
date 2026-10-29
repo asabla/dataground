@@ -26,6 +26,7 @@ interface ServiceCreateState {
 }
 
 export interface AgentServiceCreateWorkflowProps {
+  compact?: boolean;
   canCreate: boolean;
   client: DataGroundClient;
   createIdempotencyKey?: () => string;
@@ -70,6 +71,7 @@ function defaultIdempotencyKey(): string {
 }
 
 export function AgentServiceCreateWorkflow({
+  compact = false,
   canCreate,
   client,
   createIdempotencyKey = defaultIdempotencyKey,
@@ -214,6 +216,7 @@ export function AgentServiceCreateWorkflow({
 
   return (
     <AgentServiceCreate
+      compact={compact}
       canCreate={canCreate}
       created={
         createdService

@@ -1,5 +1,6 @@
 import { Button, StatusBadge, TextField } from "@dataground/ui";
 import { useId } from "react";
+import { CommandDetails } from "./CommandDetails";
 
 export interface AssignedServiceAlias {
   generation: number;
@@ -18,6 +19,7 @@ export interface ServiceAliasAssignError {
 }
 
 export interface ServiceAliasAssignProps {
+  compact?: boolean;
   aliasName: string;
   aliasValidationError?: string;
   assigned?: AssignedServiceAlias;
@@ -61,6 +63,7 @@ function displayText(value: string, maximum = 255): string {
 }
 
 export function ServiceAliasAssign({
+  compact = false,
   aliasName,
   aliasValidationError,
   assigned,
@@ -120,57 +123,81 @@ export function ServiceAliasAssign({
     <section
       aria-busy={isSubmitting || undefined}
       aria-labelledby={titleId}
-      className="dg-service-alias-assign"
+      className={`dg-service-alias-assign${compact ? " dg-command--workbench" : ""}`}
     >
       <div className="dg-service-alias-assign__heading">
         <div>
-          <p className="dg-service-alias-assign__eyebrow">Service routing</p>
-          <h2 id={titleId}>{moving ? "Move service alias" : "Assign service alias"}</h2>
+          {!compact && <p className="dg-service-alias-assign__eyebrow">Service routing</p>}
+          <h2
+            id={titleId}
+            tabIndex={compact ? -1 : undefined}
+            data-command-heading={compact || undefined}
+          >
+            {compact
+              ? moving
+                ? "Move route"
+                : "Assign route"
+              : moving
+                ? "Move service alias"
+                : "Assign service alias"}
+          </h2>
         </div>
         <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
       </div>
 
-      <dl className="dg-service-alias-assign__scope">
-        <div>
-          <dt>Isolation domain</dt>
-          <dd>{displayText(isolationDomainId, 64)}</dd>
-        </div>
-        <div>
-          <dt>Agent service</dt>
-          <dd>{displayText(serviceId, 64)}</dd>
-        </div>
-        <div>
-          <dt>Published revision</dt>
-          <dd>{displayText(targetRevisionId, 64)}</dd>
-        </div>
-      </dl>
+      <CommandDetails compact={compact}>
+        <dl className="dg-service-alias-assign__scope">
+          <div>
+            <dt>Isolation domain</dt>
+            <dd>{displayText(isolationDomainId, 64)}</dd>
+          </div>
+          <div>
+            <dt>Agent service</dt>
+            <dd>{displayText(serviceId, 64)}</dd>
+          </div>
+          <div>
+            <dt>Published revision</dt>
+            <dd>{displayText(targetRevisionId, 64)}</dd>
+          </div>
+        </dl>
+      </CommandDetails>
 
-      <dl className="dg-service-alias-assign__facts">
-        <div>
-          <dt>Revision number</dt>
-          <dd>{revisionNumber}</dd>
-        </div>
-        <div>
-          <dt>Published version</dt>
-          <dd>{targetVersion}</dd>
-        </div>
-        {currentAliasId && (
+      {compact && (
+        <p>
+          Target: revision {revisionNumber}.{" "}
+          {moving
+            ? `Move the ${displayText(aliasName, 63)} route for new runs.`
+            : "Choose a route name for new runs."}
+        </p>
+      )}
+      <CommandDetails compact={compact} label="Route record">
+        <dl className="dg-service-alias-assign__facts">
           <div>
-            <dt>Current alias resource</dt>
-            <dd>{displayText(currentAliasId, 64)}</dd>
+            <dt>Revision number</dt>
+            <dd>{revisionNumber}</dd>
           </div>
-        )}
-        {currentRevisionId && (
           <div>
-            <dt>Current revision</dt>
-            <dd>{displayText(currentRevisionId, 64)}</dd>
+            <dt>Published version</dt>
+            <dd>{targetVersion}</dd>
           </div>
-        )}
-        <div>
-          <dt>Expected alias version</dt>
-          <dd>{currentVersion ?? 0}</dd>
-        </div>
-      </dl>
+          {currentAliasId && (
+            <div>
+              <dt>Current alias resource</dt>
+              <dd>{displayText(currentAliasId, 64)}</dd>
+            </div>
+          )}
+          {currentRevisionId && (
+            <div>
+              <dt>Current revision</dt>
+              <dd>{displayText(currentRevisionId, 64)}</dd>
+            </div>
+          )}
+          <div>
+            <dt>Expected alias version</dt>
+            <dd>{currentVersion ?? 0}</dd>
+          </div>
+        </dl>
+      </CommandDetails>
 
       {!canAssign && !blockedReason && !assigned && !alreadyAssigned && (
         <p className="dg-service-alias-assign__authority">
@@ -210,33 +237,39 @@ export function ServiceAliasAssign({
 
       {assigned ? (
         <div className="dg-service-alias-assign__assigned" aria-live="polite">
-          <strong>DataGround routed the alias to the published revision.</strong>
-          <dl>
-            <div>
-              <dt>Alias</dt>
-              <dd>{displayText(assigned.name, 63)}</dd>
-            </div>
-            <div>
-              <dt>Alias resource</dt>
-              <dd>{displayText(assigned.id, 64)}</dd>
-            </div>
-            <div>
-              <dt>Revision</dt>
-              <dd>{displayText(assigned.revisionId, 64)}</dd>
-            </div>
-            <div>
-              <dt>Generation</dt>
-              <dd>{assigned.generation}</dd>
-            </div>
-            <div>
-              <dt>Version</dt>
-              <dd>{assigned.version}</dd>
-            </div>
-            <div>
-              <dt>Updated at</dt>
-              <dd>{displayText(assigned.updatedAt, 64)}</dd>
-            </div>
-          </dl>
+          <strong>
+            {compact
+              ? `${displayText(assigned.name, 63)} now routes to revision ${revisionNumber}.`
+              : "DataGround routed the alias to the published revision."}
+          </strong>
+          <CommandDetails compact={compact} label="Receipt details">
+            <dl>
+              <div>
+                <dt>Alias</dt>
+                <dd>{displayText(assigned.name, 63)}</dd>
+              </div>
+              <div>
+                <dt>Alias resource</dt>
+                <dd>{displayText(assigned.id, 64)}</dd>
+              </div>
+              <div>
+                <dt>Revision</dt>
+                <dd>{displayText(assigned.revisionId, 64)}</dd>
+              </div>
+              <div>
+                <dt>Generation</dt>
+                <dd>{assigned.generation}</dd>
+              </div>
+              <div>
+                <dt>Version</dt>
+                <dd>{assigned.version}</dd>
+              </div>
+              <div>
+                <dt>Updated at</dt>
+                <dd>{displayText(assigned.updatedAt, 64)}</dd>
+              </div>
+            </dl>
+          </CommandDetails>
           <p>New invocations can use this alias. Existing invocations remain revision-pinned.</p>
           {onComposeInvocation && <Button onPress={onComposeInvocation}>Compose invocation</Button>}
         </div>
@@ -252,6 +285,12 @@ export function ServiceAliasAssign({
           className="dg-service-alias-assign__confirmation"
         >
           <legend>Confirm service route change</legend>
+          {compact && (
+            <p>
+              Route <strong>{displayText(aliasName, 63)}</strong> to revision {revisionNumber} in
+              isolation scope <code>{displayText(isolationDomainId, 64)}</code>.
+            </p>
+          )}
           <p id={confirmationId}>
             {moving
               ? "This moves the alias for new invocations using the observed alias version. Existing invocations remain pinned to their selected revision."

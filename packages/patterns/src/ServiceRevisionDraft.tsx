@@ -1,5 +1,6 @@
 import { Button, StatusBadge, TextField } from "@dataground/ui";
 import { type ReactNode, useId } from "react";
+import { CommandDetails } from "./CommandDetails";
 
 export interface CreatedServiceRevision {
   createdAt: string;
@@ -18,6 +19,7 @@ export interface ServiceRevisionDraftError {
 }
 
 export interface ServiceRevisionDraftProps {
+  compact?: boolean;
   canCreateRevision: boolean;
   created?: CreatedServiceRevision;
   disabledReason?: string;
@@ -63,6 +65,7 @@ function displayText(value: string, maximum = 255): string {
 }
 
 export function ServiceRevisionDraft({
+  compact = false,
   canCreateRevision,
   created,
   disabledReason,
@@ -105,26 +108,34 @@ export function ServiceRevisionDraft({
     <section
       aria-busy={isSubmitting || undefined}
       aria-labelledby={titleId}
-      className="dg-service-revision-draft"
+      className={`dg-service-revision-draft${compact ? " dg-command--workbench" : ""}`}
     >
       <div className="dg-service-revision-draft__heading">
         <div>
-          <p className="dg-service-revision-draft__eyebrow">Service registry</p>
-          <h2 id={titleId}>Create revision draft</h2>
+          {!compact && <p className="dg-service-revision-draft__eyebrow">Service registry</p>}
+          <h2
+            id={titleId}
+            tabIndex={compact ? -1 : undefined}
+            data-command-heading={compact || undefined}
+          >
+            {compact ? "New revision" : "Create revision draft"}
+          </h2>
         </div>
         <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
       </div>
 
-      <dl className="dg-service-revision-draft__scope">
-        <div>
-          <dt>Isolation domain</dt>
-          <dd>{displayText(isolationDomainId, 64)}</dd>
-        </div>
-        <div>
-          <dt>Agent service</dt>
-          <dd>{displayText(serviceId, 64)}</dd>
-        </div>
-      </dl>
+      <CommandDetails compact={compact}>
+        <dl className="dg-service-revision-draft__scope">
+          <div>
+            <dt>Isolation domain</dt>
+            <dd>{displayText(isolationDomainId, 64)}</dd>
+          </div>
+          <div>
+            <dt>Agent service</dt>
+            <dd>{displayText(serviceId, 64)}</dd>
+          </div>
+        </dl>
+      </CommandDetails>
 
       {!canCreateRevision && (
         <p className="dg-service-revision-draft__authority">
@@ -157,37 +168,43 @@ export function ServiceRevisionDraft({
 
       {created ? (
         <div className="dg-service-revision-draft__created" aria-live="polite">
-          <strong>DataGround created an unpublished revision draft.</strong>
-          <dl>
-            <div>
-              <dt>Revision</dt>
-              <dd>{displayText(created.id, 64)}</dd>
-            </div>
-            <div>
-              <dt>Revision number</dt>
-              <dd>{created.revisionNumber}</dd>
-            </div>
-            <div>
-              <dt>State</dt>
-              <dd>{created.state}</dd>
-            </div>
-            <div>
-              <dt>Runtime profile</dt>
-              <dd>{displayText(created.runtimeProfile, 128)}</dd>
-            </div>
-            <div>
-              <dt>Version</dt>
-              <dd>{created.version}</dd>
-            </div>
-            <div>
-              <dt>Created by</dt>
-              <dd>{displayText(created.createdBy, 128)}</dd>
-            </div>
-            <div>
-              <dt>Created at</dt>
-              <dd>{displayText(created.createdAt, 64)}</dd>
-            </div>
-          </dl>
+          <strong>
+            {compact
+              ? `Revision ${created.revisionNumber} is saved as a draft.`
+              : "DataGround created an unpublished revision draft."}
+          </strong>
+          <CommandDetails compact={compact} label="Receipt details">
+            <dl>
+              <div>
+                <dt>Revision</dt>
+                <dd>{displayText(created.id, 64)}</dd>
+              </div>
+              <div>
+                <dt>Revision number</dt>
+                <dd>{created.revisionNumber}</dd>
+              </div>
+              <div>
+                <dt>State</dt>
+                <dd>{created.state}</dd>
+              </div>
+              <div>
+                <dt>Runtime profile</dt>
+                <dd>{displayText(created.runtimeProfile, 128)}</dd>
+              </div>
+              <div>
+                <dt>Version</dt>
+                <dd>{created.version}</dd>
+              </div>
+              <div>
+                <dt>Created by</dt>
+                <dd>{displayText(created.createdBy, 128)}</dd>
+              </div>
+              <div>
+                <dt>Created at</dt>
+                <dd>{displayText(created.createdAt, 64)}</dd>
+              </div>
+            </dl>
+          </CommandDetails>
           <p className="dg-service-revision-draft__boundary">
             This draft is not published, routable, or invocable.
           </p>
@@ -219,50 +236,59 @@ export function ServiceRevisionDraft({
             if (!disabled) onSubmit?.();
           }}
         >
-          <TextField
-            description="Provider-neutral runtime profile recorded in the immutable revision."
-            errorMessage={validationErrors.runtimeProfile}
-            isDisabled={!canCreateRevision || isSubmitting}
-            isRequired
-            label="Runtime profile"
-            maxLength={128}
-            minLength={1}
-            name="revision-runtime-profile"
-            onChange={onRuntimeProfileChange}
-            value={runtimeProfile}
-          />
-          <TextField
-            description="Optional capability names separated by commas or new lines. Publication fails closed if the selected runtime cannot satisfy one."
-            errorMessage={validationErrors.requiredCapabilities}
-            isDisabled={!canCreateRevision || isSubmitting}
-            isMultiline
-            label="Required capabilities"
-            name="revision-required-capabilities"
-            onChange={onRequiredCapabilitiesChange}
-            value={requiredCapabilities}
-          />
-          {inputSchemaEditor ?? (
+          <div className={compact ? "dg-command-section dg-command-runtime" : "dg-command-fields"}>
+            {compact && <h3>Runtime and capabilities</h3>}
             <TextField
-              description="Optional JSON object describing accepted invocation input."
-              errorMessage={validationErrors.inputSchema}
+              description="Provider-neutral runtime profile recorded in the immutable revision."
+              errorMessage={validationErrors.runtimeProfile}
+              isDisabled={!canCreateRevision || isSubmitting}
+              isRequired
+              label="Runtime profile"
+              maxLength={128}
+              minLength={1}
+              name="revision-runtime-profile"
+              onChange={onRuntimeProfileChange}
+              value={runtimeProfile}
+            />
+            <TextField
+              description="Optional capability names separated by commas or new lines. Publication fails closed if the selected runtime cannot satisfy one."
+              errorMessage={validationErrors.requiredCapabilities}
               isDisabled={!canCreateRevision || isSubmitting}
               isMultiline
-              label="Input schema"
-              name="revision-input-schema"
-              onChange={onInputSchemaChange}
-              value={inputSchema}
+              label="Required capabilities"
+              name="revision-required-capabilities"
+              onChange={onRequiredCapabilitiesChange}
+              value={requiredCapabilities}
             />
-          )}
-          <TextField
-            description="Optional JSON object describing structured runtime output."
-            errorMessage={validationErrors.outputSchema}
-            isDisabled={!canCreateRevision || isSubmitting}
-            isMultiline
-            label="Output schema"
-            name="revision-output-schema"
-            onChange={onOutputSchemaChange}
-            value={outputSchema}
-          />
+          </div>
+          <div className={compact ? "dg-command-section" : "dg-command-fields"}>
+            {compact && <h3>Inputs</h3>}
+            {inputSchemaEditor ?? (
+              <TextField
+                description="Optional JSON object describing accepted invocation input."
+                errorMessage={validationErrors.inputSchema}
+                isDisabled={!canCreateRevision || isSubmitting}
+                isMultiline
+                label="Input schema"
+                name="revision-input-schema"
+                onChange={onInputSchemaChange}
+                value={inputSchema}
+              />
+            )}
+          </div>
+          <div className={compact ? "dg-command-section" : "dg-command-fields"}>
+            {compact && <h3>Output</h3>}
+            <TextField
+              description="Optional JSON object describing structured runtime output."
+              errorMessage={validationErrors.outputSchema}
+              isDisabled={!canCreateRevision || isSubmitting}
+              isMultiline
+              label="Output schema"
+              name="revision-output-schema"
+              onChange={onOutputSchemaChange}
+              value={outputSchema}
+            />
+          </div>
           <p className="dg-service-revision-draft__boundary">
             Creating this immutable draft does not publish it or assign an alias.
           </p>

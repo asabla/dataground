@@ -91,3 +91,28 @@ export const Assigned: Story = {
     onComposeInvocation: fn(),
   },
 };
+
+export const Workbench: Story = {
+  args: { compact: true },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const details = canvasElement.querySelector("details");
+    await expect(details).not.toHaveAttribute("open");
+    await userEvent.click(canvas.getByText("Resource details"));
+    await expect(details).toHaveAttribute("open");
+    await userEvent.click(canvas.getByText("Resource details"));
+    await expect(details).not.toHaveAttribute("open");
+  },
+};
+
+export const WorkbenchConfirmation: Story = {
+  args: { compact: true, confirmationVisible: true },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    const decision = canvas.getByRole("group", { name: "Confirm service route change" });
+    await expect(decision).toHaveTextContent("iso_00000000000000000001");
+    await expect(decision).toHaveTextContent("revision 2");
+    await userEvent.click(canvas.getByRole("button", { name: "Confirm route change" }));
+    await expect(args.onConfirm).toHaveBeenCalledOnce();
+  },
+};

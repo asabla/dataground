@@ -1,5 +1,6 @@
 import { Button, SelectField, StatusBadge, TextField } from "@dataground/ui";
 import { useId } from "react";
+import { CommandDetails } from "./CommandDetails";
 
 export interface InvocationComposerField {
   description?: string;
@@ -31,6 +32,7 @@ export interface AcceptedInvocation {
 }
 
 export interface InvocationComposerProps {
+  compact?: boolean;
   accepted?: AcceptedInvocation;
   alias: string;
   canInvoke: boolean;
@@ -67,6 +69,7 @@ function displayText(value: string, maximum = 255): string {
 }
 
 export function InvocationComposer({
+  compact = false,
   accepted,
   alias,
   canInvoke,
@@ -108,28 +111,38 @@ export function InvocationComposer({
     <section
       aria-busy={isSubmitting || undefined}
       aria-labelledby={titleId}
-      className="dg-invocation-composer"
+      className={`dg-invocation-composer${compact ? " dg-command--workbench" : ""}`}
     >
       <div className="dg-invocation-composer__heading">
         <div>
-          <p className="dg-invocation-composer__eyebrow">Invocation command</p>
-          <h2 id={titleId}>
-            {schema?.title ? displayText(schema.title, 128) : "Create invocation"}
+          {!compact && <p className="dg-invocation-composer__eyebrow">Invocation command</p>}
+          <h2
+            id={titleId}
+            tabIndex={compact ? -1 : undefined}
+            data-command-heading={compact || undefined}
+          >
+            {schema?.title
+              ? displayText(schema.title, 128)
+              : compact
+                ? "Start a run"
+                : "Create invocation"}
           </h2>
         </div>
         <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
       </div>
 
-      <dl className="dg-invocation-composer__scope">
-        <div>
-          <dt>Isolation domain</dt>
-          <dd>{displayText(target.isolationDomainId, 64)}</dd>
-        </div>
-        <div>
-          <dt>Agent service</dt>
-          <dd>{displayText(target.serviceId, 64)}</dd>
-        </div>
-      </dl>
+      <CommandDetails compact={compact}>
+        <dl className="dg-invocation-composer__scope">
+          <div>
+            <dt>Isolation domain</dt>
+            <dd>{displayText(target.isolationDomainId, 64)}</dd>
+          </div>
+          <div>
+            <dt>Agent service</dt>
+            <dd>{displayText(target.serviceId, 64)}</dd>
+          </div>
+        </dl>
+      </CommandDetails>
 
       {!canInvoke && (
         <p className="dg-invocation-composer__authority">
@@ -164,21 +177,27 @@ export function InvocationComposer({
 
       {accepted ? (
         <div className="dg-invocation-composer__accepted" aria-live="polite">
-          <strong>DataGround accepted the invocation.</strong>
-          <dl>
-            <div>
-              <dt>Invocation</dt>
-              <dd>{displayText(accepted.invocationId, 64)}</dd>
-            </div>
-            <div>
-              <dt>Operation</dt>
-              <dd>{displayText(accepted.operationId, 64)}</dd>
-            </div>
-            <div>
-              <dt>State</dt>
-              <dd>{displayText(accepted.state, 64)}</dd>
-            </div>
-          </dl>
+          <strong>
+            {compact
+              ? `Run accepted: ${displayText(accepted.state, 64)}.`
+              : "DataGround accepted the invocation."}
+          </strong>
+          <CommandDetails compact={compact} label="Receipt details">
+            <dl>
+              <div>
+                <dt>Invocation</dt>
+                <dd>{displayText(accepted.invocationId, 64)}</dd>
+              </div>
+              <div>
+                <dt>Operation</dt>
+                <dd>{displayText(accepted.operationId, 64)}</dd>
+              </div>
+              <div>
+                <dt>State</dt>
+                <dd>{displayText(accepted.state, 64)}</dd>
+              </div>
+            </dl>
+          </CommandDetails>
           {onOpenInvocation && <Button onPress={onOpenInvocation}>Open invocation</Button>}
         </div>
       ) : schema && recoveryPending ? (
@@ -215,7 +234,7 @@ export function InvocationComposer({
             errorMessage={validationErrors.$alias}
             isDisabled={!canInvoke || isSubmitting || recoveryPending}
             isRequired
-            label="Alias"
+            label={compact ? "Route" : "Alias"}
             maxLength={63}
             name="alias"
             onChange={onAliasChange}

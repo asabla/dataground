@@ -1,5 +1,6 @@
 import { Button, StatusBadge } from "@dataground/ui";
 import { type ReactNode, useId } from "react";
+import { CommandDetails } from "./CommandDetails";
 
 export interface PublishedServiceRevision {
   publishedAt: string;
@@ -14,6 +15,7 @@ export interface ServiceRevisionPublishError {
 }
 
 export interface ServiceRevisionPublishProps {
+  compact?: boolean;
   canPublish: boolean;
   confirmationVisible?: boolean;
   contractReview?: ReactNode;
@@ -57,6 +59,7 @@ function displayText(value: string, maximum = 255): string {
 }
 
 export function ServiceRevisionPublish({
+  compact = false,
   canPublish,
   confirmationVisible = false,
   contractReview,
@@ -107,40 +110,50 @@ export function ServiceRevisionPublish({
     <section
       aria-busy={isSubmitting || undefined}
       aria-labelledby={titleId}
-      className="dg-service-revision-publish"
+      className={`dg-service-revision-publish${compact ? " dg-command--workbench" : ""}`}
     >
       <div className="dg-service-revision-publish__heading">
         <div>
-          <p className="dg-service-revision-publish__eyebrow">Service registry</p>
-          <h2 id={titleId}>Publish revision</h2>
+          {!compact && <p className="dg-service-revision-publish__eyebrow">Service registry</p>}
+          <h2
+            id={titleId}
+            tabIndex={compact ? -1 : undefined}
+            data-command-heading={compact || undefined}
+          >
+            {compact ? `Review revision ${revisionNumber}` : "Publish revision"}
+          </h2>
         </div>
         <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
       </div>
 
-      <dl className="dg-service-revision-publish__scope">
-        <div>
-          <dt>Isolation domain</dt>
-          <dd>{displayText(isolationDomainId, 64)}</dd>
-        </div>
-        <div>
-          <dt>Agent service</dt>
-          <dd>{displayText(serviceId, 64)}</dd>
-        </div>
-        <div>
-          <dt>Revision</dt>
-          <dd>{displayText(revisionId, 64)}</dd>
-        </div>
-      </dl>
+      <CommandDetails compact={compact}>
+        <dl className="dg-service-revision-publish__scope">
+          <div>
+            <dt>Isolation domain</dt>
+            <dd>{displayText(isolationDomainId, 64)}</dd>
+          </div>
+          <div>
+            <dt>Agent service</dt>
+            <dd>{displayText(serviceId, 64)}</dd>
+          </div>
+          <div>
+            <dt>Revision</dt>
+            <dd>{displayText(revisionId, 64)}</dd>
+          </div>
+        </dl>
+      </CommandDetails>
 
       <dl className="dg-service-revision-publish__facts">
         <div>
           <dt>Revision number</dt>
           <dd>{revisionNumber}</dd>
         </div>
-        <div>
-          <dt>Expected version</dt>
-          <dd>{version}</dd>
-        </div>
+        {!compact && (
+          <div>
+            <dt>Expected version</dt>
+            <dd>{version}</dd>
+          </div>
+        )}
         <div>
           <dt>Runtime profile</dt>
           <dd>{displayText(runtimeProfile, 128)}</dd>
@@ -161,16 +174,38 @@ export function ServiceRevisionPublish({
           <dt>Output schema</dt>
           <dd>{hasOutputSchema ? "Declared" : "Not declared"}</dd>
         </div>
-        <div>
-          <dt>Created by</dt>
-          <dd>{displayText(createdBy, 128)}</dd>
-        </div>
-        <div>
-          <dt>Created at</dt>
-          <dd>{displayText(createdAt, 64)}</dd>
-        </div>
+        {!compact && (
+          <div>
+            <dt>Created by</dt>
+            <dd>{displayText(createdBy, 128)}</dd>
+          </div>
+        )}
+        {!compact && (
+          <div>
+            <dt>Created at</dt>
+            <dd>{displayText(createdAt, 64)}</dd>
+          </div>
+        )}
       </dl>
 
+      {compact && (
+        <CommandDetails compact label="Revision record">
+          <dl>
+            <div>
+              <dt>Expected version</dt>
+              <dd>{version}</dd>
+            </div>
+            <div>
+              <dt>Created by</dt>
+              <dd>{displayText(createdBy, 128)}</dd>
+            </div>
+            <div>
+              <dt>Created at</dt>
+              <dd>{displayText(createdAt, 64)}</dd>
+            </div>
+          </dl>
+        </CommandDetails>
+      )}
       {!published && !isSubmitting && contractReview}
 
       {!canPublish && !published && (
@@ -225,6 +260,12 @@ export function ServiceRevisionPublish({
           className="dg-service-revision-publish__confirmation"
         >
           <legend>Confirm revision publication</legend>
+          {compact && (
+            <p>
+              Publish revision {revisionNumber} in isolation scope{" "}
+              <code>{displayText(isolationDomainId, 64)}</code>.
+            </p>
+          )}
           <p id={confirmationId}>
             Publication makes this exact version immutable and validates every required capability.
             It does not assign or move an alias.

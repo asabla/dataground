@@ -123,3 +123,13 @@ or mismatched read shows an unavailable run; late reads cannot reopen a departed
 location. An authorized exact run read is independent of list permission. Back,
 forward and reconnect restore the selected run view. Output links retain explicit
 result disclosure. Newly accepted invocations enter the same run navigation.
+
+The workbench command presentation uses the shared page surface for service
+creation, revision definition, publication, routing and invocation composition.
+Runtime/capabilities, input and output fields have distinct sections. IDs and
+receipt bookkeeping use secondary disclosures; errors, uncertain outcomes,
+required capabilities and the next action remain visible. Publication and routing
+confirmations restate their exact revision and isolation scope. The same workflow
+controllers and request objects serve both this presentation and the temporary
+classic cards. Command transitions restore focus when their initiating control is
+removed and no other control has focus.
