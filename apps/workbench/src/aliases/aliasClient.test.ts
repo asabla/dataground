@@ -380,7 +380,61 @@ describe("service alias client", () => {
         "alias:request0008",
       );
       assert.equal(result.ok, false);
-      if (!result.ok) assert.equal(result.error.code, "WORKBENCH_ALIAS_SCOPE_MISMATCH");
+      if (!result.ok) {
+        assert.equal(result.error.code, "WORKBENCH_ALIAS_SCOPE_MISMATCH");
+        assert.equal(result.error.retryable, true);
+        assert.equal(result.error.outcomeUnknown, true);
+      }
+    }
+  });
+
+  it("preserves exact recovery for malformed success and server failures without accepting their data", async () => {
+    for (const [status, data] of [
+      [200, undefined],
+      [202, createdAlias],
+      [500, createdAlias],
+      [503, undefined],
+    ] as const) {
+      const result = await assignServiceAlias(
+        {
+          PUT: async () => ({ data, response: new Response(null, { status }) }),
+        } as unknown as DataGroundClient,
+        revision,
+        "stable",
+        undefined,
+        "alias:request0010",
+      );
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.equal(result.error.retryable, true);
+        assert.equal(result.error.outcomeUnknown, true);
+      }
+    }
+    for (const status of [403, 409]) {
+      const result = await assignServiceAlias(
+        {
+          PUT: async () => ({
+            error: {
+              error: {
+                code: "REQUEST_DENIED",
+                message: "Request denied.",
+                correlationId: "cor_alias",
+                retryable: false,
+              },
+            },
+            response: new Response(null, { status }),
+          }),
+        } as unknown as DataGroundClient,
+        revision,
+        "stable",
+        undefined,
+        "alias:request0011",
+      );
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.equal(result.error.retryable, false);
+        assert.notEqual(result.error.outcomeUnknown, true);
+      }
     }
   });
 

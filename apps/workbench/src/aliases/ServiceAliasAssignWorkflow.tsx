@@ -30,6 +30,7 @@ interface AliasState {
 
 export interface ServiceAliasAssignWorkflowProps {
   compact?: boolean;
+  active?: boolean;
   canAssign: boolean;
   client: DataGroundClient;
   createIdempotencyKey?: () => string;
@@ -126,6 +127,7 @@ function aliasScopeKey(
 
 export function ServiceAliasAssignWorkflow({
   compact = false,
+  active = true,
   canAssign,
   client,
   createIdempotencyKey = defaultIdempotencyKey,
@@ -298,6 +300,7 @@ export function ServiceAliasAssignWorkflow({
   return (
     <ServiceAliasAssign
       compact={compact}
+      active={active}
       aliasName={visible.aliasName}
       aliasValidationError={visible.aliasValidationError}
       assigned={

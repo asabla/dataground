@@ -122,6 +122,7 @@ function CommandSessions(props: RetainedServiceCommandsProps) {
           {props.kind === "route" && entry.publication && (
             <ServiceAliasAssignWorkflow
               compact
+              active={props.active !== false && entry.key === current?.key}
               canAssign
               client={props.client}
               revision={entry.publication}

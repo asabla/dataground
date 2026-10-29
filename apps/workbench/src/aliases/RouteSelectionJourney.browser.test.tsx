@@ -1,6 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { userEvent } from "vitest/browser";
 import { DevelopmentWorkbench } from "../App";
 import type { DataGroundClient } from "../contracts/client";
 
@@ -83,19 +84,21 @@ afterEach(async () => {
   window.history.replaceState(null, "", window.location.pathname);
 });
 async function click(text: string, contains = false) {
-  const button = [...host.querySelectorAll("button")].find((value) =>
-    contains
-      ? value.textContent?.includes(text)
-      : value.getAttribute("aria-label") === text || value.textContent === text,
+  const button = [...host.querySelectorAll<HTMLElement>('button, [role="tab"]')].find(
+    (value) =>
+      !value.closest("[hidden], [inert]") &&
+      (contains
+        ? value.textContent?.includes(text)
+        : value.getAttribute("aria-label") === text || value.textContent === text),
   );
   expect(button, host.textContent ?? "").toBeDefined();
-  await act(async () => button?.click());
+  await act(async () => userEvent.click(button as HTMLElement));
 }
-async function open(client: DataGroundClient) {
+async function open(client: DataGroundClient, presentation: "classic" | "workbench" = "classic") {
   await act(async () =>
     root.render(
       <DevelopmentWorkbench
-        presentation="classic"
+        presentation={presentation}
         client={client}
         isolationDomainId={scope}
         onDisconnect={() => {}}
@@ -110,6 +113,8 @@ function fixture(read: (path: string, options: ReadOptions) => unknown) {
     GET: async (path: string, options: ReadOptions) => {
       calls.push(path);
       if (path.endsWith("/agent-services")) return ok({ items: [service] });
+      if (path.endsWith("/agent-services/{serviceId}")) return ok(service);
+      if (path.endsWith("/invocations")) return ok({ items: [] });
       if (path.endsWith("/revisions")) return ok({ items: [newer], nextCursor: "history_cursor" });
       if (path.endsWith("/aliases")) return ok({ items: [canary, stable] });
       return read(path, options);
@@ -213,46 +218,65 @@ it("starts a new draft while retaining the existing service and invalidates a de
   expect(host.textContent).not.toContain("Loading stable route");
 });
 
-it("reopens an exact published revision as the target of a version-checked alias move", async () => {
-  const { client } = fixture((path, options) =>
-    path.endsWith("/aliases/{alias}")
-      ? ok(stable)
-      : ok(options.params.path.revisionId === older.metadata.id ? older : newer),
-  );
-  const commands: unknown[] = [];
-  const movable = {
-    ...client,
-    PUT: async (
-      _path: string,
-      options: {
-        params: { path: { alias: string } };
-        body: { revisionId: string; expectedVersion: number };
-      },
-    ) => {
-      commands.push(options.body);
-      expect(options.params.path.alias).toBe("stable");
-      return ok({
-        ...stable,
-        revisionId: newer.metadata.id,
-        metadata: {
-          ...stable.metadata,
-          version: 3,
-          generation: 3,
-          updatedAt: "2026-09-05T12:02:00Z",
+it.each(["classic", "workbench"] as const)(
+  "reopens an exact published revision as the target of a version-checked alias move in %s",
+  async (presentation) => {
+    const { client } = fixture((path, options) =>
+      path.endsWith("/aliases/{alias}")
+        ? ok(stable)
+        : ok(options.params.path.revisionId === older.metadata.id ? older : newer),
+    );
+    const commands: unknown[] = [];
+    const movable = {
+      ...client,
+      PUT: async (
+        _path: string,
+        options: {
+          params: { path: { alias: string } };
+          body: { revisionId: string; expectedVersion: number };
         },
+      ) => {
+        commands.push(options.body);
+        expect(options.params.path.alias).toBe("stable");
+        return ok({
+          ...stable,
+          revisionId: newer.metadata.id,
+          metadata: {
+            ...stable.metadata,
+            version: 3,
+            generation: 3,
+            updatedAt: "2026-09-05T12:02:00Z",
+          },
+        });
+      },
+    } as unknown as DataGroundClient;
+    await open(movable, presentation);
+    if (presentation === "workbench") await click("Versions");
+    await click("Open revision 80");
+    expect(host.textContent).toContain(
+      presentation === "classic" ? "Move service alias" : "Move route",
+    );
+    expect(commands).toHaveLength(0);
+    await click("Review routing");
+    expect(commands).toHaveLength(0);
+    if (presentation === "workbench") {
+      expect(host.querySelector('[role="dialog"]')?.textContent).toContain("revision 80");
+      const reviewLocation = window.location.hash;
+      await act(async () => {
+        window.history.pushState(null, "", `#/scopes/${scope}/agents/${service.metadata.id}/build`);
+        window.dispatchEvent(new PopStateEvent("popstate"));
       });
-    },
-  } as unknown as DataGroundClient;
-  await open(movable);
-  await click("Open revision 80");
-  expect(host.textContent).toContain("Move service alias");
-  expect(host.textContent).not.toContain("Start invocation");
-  expect(commands).toHaveLength(0);
-  await click("Review routing");
-  expect(commands).toHaveLength(0);
-  await click("Confirm route change");
-  expect(commands).toEqual([{ expectedVersion: 2, revisionId: newer.metadata.id }]);
-});
+      expect(host.querySelector('[role="dialog"]')).toBeNull();
+      await act(async () => {
+        window.history.pushState(null, "", reviewLocation);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      });
+      expect(host.querySelector('[role="dialog"]')?.textContent).toContain("revision 80");
+    }
+    await click("Confirm route change");
+    expect(commands).toEqual([{ expectedVersion: 2, revisionId: newer.metadata.id }]);
+  },
+);
 
 it("rechecks a draft or retired revision when opening history instead of trusting the old row", async () => {
   let retired = false;

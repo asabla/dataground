@@ -316,13 +316,26 @@ export async function assignServiceAlias(
         },
       },
     });
-    if (!data) return { error: responseFailure(error, response.status), ok: false };
+    if (response.status !== 200 || !data) {
+      const problem = responseFailure(error, response.status);
+      return {
+        ok: false,
+        error: {
+          ...problem,
+          ...(response.ok || response.status >= 500 || problem.code === "WORKBENCH_INVALID_RESPONSE"
+            ? { outcomeUnknown: true, retryable: true }
+            : {}),
+        },
+      };
+    }
     const alias = decodeAlias(data, revision, name, current);
     return alias
       ? { alias, ok: true }
       : failure(
           "WORKBENCH_ALIAS_SCOPE_MISMATCH",
-          "DataGround returned alias state outside the requested scope or contract.",
+          "DataGround returned unconfirmed alias state. Recover the original request before changing routing.",
+          true,
+          true,
         );
   } catch {
     return failure(

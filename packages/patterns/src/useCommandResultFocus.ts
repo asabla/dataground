@@ -8,9 +8,17 @@ export function useCommandResultFocus(enabled: boolean, resultKey: string | unde
   useEffect(() => {
     const changed = previous.current !== resultKey;
     previous.current = resultKey;
-    if (!enabled || !changed || !resultKey || document.activeElement !== document.body) return;
-    const element = receipt.current;
-    if (element && !element.closest("[hidden], [inert]")) element.focus();
+    if (!enabled || !changed || !resultKey) return;
+    const restore = () => {
+      if (document.activeElement !== document.body) return;
+      const element = receipt.current;
+      if (element && !element.closest("[hidden], [inert]")) element.focus();
+    };
+    restore();
+    // Modal focus containment can finish after this effect. Check once more at
+    // the next frame, without taking focus from a control the user has selected.
+    const frame = requestAnimationFrame(restore);
+    return () => cancelAnimationFrame(frame);
   }, [enabled, resultKey]);
   return receipt;
 }

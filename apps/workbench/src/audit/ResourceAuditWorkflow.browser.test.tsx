@@ -23,11 +23,20 @@ afterEach(async () => {
   host.remove();
 });
 async function click(label: string) {
-  const button = Array.from(host.querySelectorAll<HTMLElement>('button, [role="menuitem"]')).find(
-    (entry) => (entry.getAttribute("aria-label") ?? entry.textContent) === label,
-  );
-  expect(button).toBeDefined();
-  await act(async () => userEvent.click(button as HTMLElement));
+  const findButton = () =>
+    Array.from(host.querySelectorAll<HTMLElement>('button, [role="menuitem"]')).find(
+      (entry) => (entry.getAttribute("aria-label") ?? entry.textContent) === label,
+    );
+  await expect.poll(findButton).toBeDefined();
+  const button = findButton();
+  await act(async () => {
+    if (button?.getAttribute("role") === "menuitem") {
+      button.focus();
+      await userEvent.keyboard("{Enter}");
+    } else {
+      await userEvent.click(button as HTMLElement);
+    }
+  });
 }
 function pendingClient() {
   const calls: {
@@ -196,6 +205,9 @@ it("allows retired revision audit inspection and closes it when the connection c
   expect(host.querySelector('[aria-label="Open revision 1"]')).toBeNull();
   await click("More actions for revision 1");
   await click("Inspect audit for revision 1");
+  await expect
+    .poll(() => host.querySelector('[aria-label="Revision audit inspection"]'))
+    .not.toBeNull();
   await expect
     .poll(() => document.activeElement)
     .toBe(host.querySelector('[aria-label="Revision audit inspection"]'));

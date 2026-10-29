@@ -169,3 +169,32 @@ it("hides a retained publication dialog on navigation and restores the same revi
   expect(host.querySelector('[role="dialog"]')).toBeNull();
   expect(post).not.toHaveBeenCalled();
 });
+
+it("hides retained route review on navigation and keeps pending routing in its dialog", async () => {
+  let finish!: () => void;
+  const send = vi.fn(
+    () =>
+      new Promise((resolve) => {
+        finish = () =>
+          resolve({
+            response: new Response(null, { status: 503 }),
+          });
+      }),
+  );
+  const client = { PUT: send } as unknown as DataGroundClient;
+  await render("route", client);
+  await click("Review routing");
+  expect(host.querySelector('[role="dialog"]')?.textContent).toContain("revision 1");
+  await render("route", client, first, true, false);
+  expect(host.querySelector('[role="dialog"]')).toBeNull();
+  await render("route", client, first, true, true);
+  expect(host.querySelector('[role="dialog"]')?.textContent).toContain("revision 1");
+  await click("Confirm route change");
+  expect(send).toHaveBeenCalledOnce();
+  expect(host.querySelector('[role="dialog"]')?.textContent).toContain("Changing route");
+  await act(async () => userEvent.keyboard("{Escape}"));
+  expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+  await act(async () => finish());
+  expect(host.querySelector('[role="dialog"]')).toBeNull();
+  expect(host.textContent).toContain("Retry route change");
+});
