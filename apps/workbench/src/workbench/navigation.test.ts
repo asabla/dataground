@@ -10,6 +10,9 @@ it("round-trips scoped directory, create, service and run-list locations", () =>
     { isolationDomainId, view: "workflow" },
     { isolationDomainId, view: "interactions" },
     { isolationDomainId, serviceId, view: "workflow" },
+    { isolationDomainId, serviceId, view: "workflow", serviceTab: "overview" },
+    { isolationDomainId, serviceId, view: "workflow", serviceTab: "versions" },
+    { isolationDomainId, serviceId, view: "workflow", serviceTab: "deployments" },
     { isolationDomainId, serviceId, view: "interactions" },
   ] satisfies WorkbenchRoute[]) {
     assert.deepEqual(parseRoute(routeHash(route), isolationDomainId), route);

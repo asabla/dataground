@@ -64,16 +64,21 @@ afterEach(async () => {
   host.remove();
   window.history.replaceState(null, "", window.location.pathname);
 });
-async function render(client: DataGroundClient) {
+async function render(client: DataGroundClient, presentation: "classic" | "workbench" = "classic") {
   await act(async () =>
     root.render(
-      <DevelopmentWorkbench client={client} isolationDomainId={scope} onDisconnect={() => {}} />,
+      <DevelopmentWorkbench
+        presentation={presentation}
+        client={client}
+        isolationDomainId={scope}
+        onDisconnect={() => {}}
+      />,
     ),
   );
 }
 async function click(text: string) {
   const button = [...host.querySelectorAll("button")].find(
-    (element) => element.textContent === text && !element.closest("[hidden]"),
+    (element) => element.textContent === text && !element.closest("[hidden], [inert]"),
   );
   expect(button, text).toBeDefined();
   await act(async () => button?.click());
@@ -237,4 +242,58 @@ it("retains independent revision drafts and exact retries for two services", asy
   expect(attempts[1]).toEqual(attempts[0]);
   const ids = [...host.querySelectorAll("[id]")].map((element) => element.id);
   expect(new Set(ids).size).toBe(ids.length);
+});
+
+async function selectServiceTab(label: string) {
+  const tab = [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+    (element) => element.textContent === label,
+  );
+  expect(tab).toBeDefined();
+  await act(async () => tab?.click());
+}
+it("retains an uncertain revision attempt across the five service views", async () => {
+  window.history.replaceState(
+    null,
+    "",
+    routeHash({ isolationDomainId: scope, serviceId, view: "workflow" }),
+  );
+  const { client } = fixture();
+  const attempts: unknown[] = [];
+  client.POST = (async (_path: string, options: unknown) => {
+    attempts.push(options);
+    throw new Error("Lost response");
+  }) as DataGroundClient["POST"];
+  await render(client, "workbench");
+  await click("Create revision draft");
+  expect(attempts).toHaveLength(1);
+  await selectServiceTab("Overview");
+  expect(window.location.hash).toContain("/overview");
+  const retry = [...host.querySelectorAll("button")].find(
+    (button) => button.textContent === "Retry revision creation",
+  );
+  expect(retry?.closest("[inert]")).toBeInstanceOf(HTMLElement);
+  await selectServiceTab("Versions");
+  await selectServiceTab("Deployments");
+  await selectServiceTab("Runs");
+  expect(window.location.hash).toContain("/runs");
+  await selectServiceTab("Build");
+  await click("Retry revision creation");
+  expect(attempts).toHaveLength(2);
+  expect(attempts[1]).toEqual(attempts[0]);
+});
+it("restores a direct versions link without changing it to build", async () => {
+  const hash = routeHash({
+    isolationDomainId: scope,
+    serviceId,
+    view: "workflow",
+    serviceTab: "versions",
+  });
+  window.history.replaceState(null, "", hash);
+  const { client } = fixture();
+  await render(client, "workbench");
+  expect(window.location.hash).toBe(hash);
+  expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Versions");
+  await selectServiceTab("Overview");
+  await visit(hash);
+  expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Versions");
 });

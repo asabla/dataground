@@ -13,7 +13,10 @@ The initial supported locations are:
 | No suffix | Service directory |
 | `/new` | Create service |
 | `/runs` | Interaction entry without a selected service |
-| `/{serviceId}/build` | Selected service workflow |
+| `/{serviceId}/overview` | Service summary and next action |
+| `/{serviceId}/build` | Revision authoring and publication |
+| `/{serviceId}/versions` | Revision history and retirement |
+| `/{serviceId}/deployments` | Routes, assignment and withdrawal |
 | `/{serviceId}/runs` | Selected service invocation history |
 
 A direct service location reads that exact service through the authorized public
@@ -41,9 +44,18 @@ navigation. Heading IDs are unique across retained contexts, and audit focus
 returns to the correct resource. Identity or scope changes unmount all sessions
 and invalidate pending reads. Refresh also clears all memory-only sessions.
 Explicitly starting another revision still replaces the revision context within
-that service. Revision-specific command retention, all five service tabs, and
-revision/run/artifact deep links remain subsequent migration work. The production
-screen composition is still in migration.
+that service. Revision-specific command retention and revision/run/artifact deep links remain
+subsequent migration work. The production screen composition is still in migration.
+
+The service workbench uses Overview, Build, Versions, Deployments and Runs as
+separate views. Shared React Aria tabs mount panels on first visit and retain them
+thereafter. Inactive panels are inert and hidden. Tab URLs contain only closed
+view names and resource identities. Read failures stay visible outside the tabs.
+
+The connection form temporarily offers Workbench and Classic presentations for
+validation. They use the same command implementations. Selection is fixed for the
+connection; changing a presentation prop resets the session just as an identity
+change does. Do not switch presentation inside an active command session.
 
 The navigation parser has closed-path tests. Browser lifecycle tests cover
 retained exact-request retries, direct reads, unavailable services, late reads

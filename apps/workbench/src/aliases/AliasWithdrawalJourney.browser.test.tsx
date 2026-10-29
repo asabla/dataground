@@ -127,7 +127,12 @@ it.each(["stable", "canary"])("withdraws %s before retirement", async (name) => 
   try {
     await act(async () =>
       root.render(
-        <DevelopmentWorkbench client={client} isolationDomainId={scope} onDisconnect={() => {}} />,
+        <DevelopmentWorkbench
+          presentation="classic"
+          client={client}
+          isolationDomainId={scope}
+          onDisconnect={() => {}}
+        />,
       ),
     );
     await click("Open service");

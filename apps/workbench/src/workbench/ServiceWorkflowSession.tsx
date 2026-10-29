@@ -29,7 +29,9 @@ import {
   type AgentServiceInvocationSelection,
   type AgentServiceResource,
 } from "../services";
-import type { WorkbenchView } from "./navigation";
+import type { ServiceTab, WorkbenchPresentation, WorkbenchView } from "./navigation";
+
+import { ServiceWorkbenchView } from "./ServiceWorkbenchView";
 
 type WorkflowStageIndex = 0 | 1 | 2 | 3 | 4 | 5;
 
@@ -79,24 +81,35 @@ function mergeRevisionHistory(
 }
 
 interface ServiceWorkflowSessionProps {
+  presentation: WorkbenchPresentation;
+  selectedTab?: ServiceTab;
   client: DataGroundClient;
   isolationDomainId: string;
   initialService?: AgentServiceResource;
   active: boolean;
   view: WorkbenchView;
-  onNavigate: (view: WorkbenchView) => void;
+  onNavigate: (view: WorkbenchView, tab?: ServiceTab) => void;
   onServiceOpened: (service: AgentServiceResource) => void;
 }
 
 export function ServiceWorkflowSession({
   client,
   isolationDomainId,
+  presentation,
+  selectedTab,
   initialService,
   active,
   view,
   onNavigate,
   onServiceOpened,
 }: ServiceWorkflowSessionProps) {
+  const [retainedTab, setRetainedTab] = useState<ServiceTab>("build");
+  const tab = selectedTab ?? retainedTab;
+  useEffect(() => {
+    if (selectedTab) setRetainedTab(selectedTab);
+  }, [selectedTab]);
+  const selectTab = (next: ServiceTab) =>
+    onNavigate(next === "runs" ? "interactions" : "workflow", next);
   const headingPrefix = useId();
   const revisionHistoryTitle = `${headingPrefix}-revisions`;
   const [initialResource] = useState(initialService);
@@ -135,12 +148,23 @@ export function ServiceWorkflowSession({
     if (active && view === "workflow") setWorkflowVisited(true);
     if (active && view === "interactions") setHistoryVisited(true);
   }, [active, view]);
+  const wasActive = useRef(false);
   useEffect(() => {
-    if (active)
+    if (active && (presentation === "classic" || !wasActive.current))
       pageContent.current
         ?.querySelector<HTMLElement>(`[data-workbench-heading="${view}"]`)
         ?.focus();
-  }, [active, view]);
+    wasActive.current = active;
+  }, [active, view, presentation]);
+  const previousTab = useRef(tab);
+  useEffect(() => {
+    if (active && presentation === "workbench" && previousTab.current !== tab) {
+      pageContent.current
+        ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+        ?.focus();
+    }
+    previousTab.current = tab;
+  }, [active, presentation, tab]);
   const aliasReadGeneration = useRef(0);
   const revisionListGeneration = useRef(0);
 
@@ -357,6 +381,7 @@ export function ServiceWorkflowSession({
   }, [initialResource, loadRevisionPage]);
 
   const startServiceRevision = () => {
+    selectTab("build");
     setDraftFormGeneration((current) => current + 1);
     aliasReadGeneration.current++;
     setAliasReadLoading(false);
@@ -388,9 +413,11 @@ export function ServiceWorkflowSession({
       focusCurrentStage
       isolationDomainId={isolationDomainId}
       onAssignAlias={(revision) => {
+        selectTab("deployments");
         if (openedService) void openServiceRevision(openedService, revision.metadata.id);
       }}
       onComposeInvocation={(alias) => {
+        selectTab("runs");
         setObservedAlias(alias);
         setOpenedAlias(alias);
         setOpenedQuestion(undefined);
@@ -424,6 +451,7 @@ export function ServiceWorkflowSession({
         setView("interactions");
       }}
       onOpenRevision={(revision) => {
+        selectTab("build");
         aliasReadGeneration.current++;
         setAliasReadLoading(false);
         setAliasReadError(undefined);
@@ -467,6 +495,213 @@ export function ServiceWorkflowSession({
     />
   );
 
+  const historyPanel = (
+    <>
+      {openedService && (
+        <ServiceRevisionHistoryWorkflow
+          titleId={revisionHistoryTitle}
+          client={client}
+          isolationDomainId={isolationDomainId}
+          serviceId={openedService.metadata.id}
+          error={revisionListError}
+          isLoading={revisionListLoading}
+          isLoadingMore={revisionListLoadingMore}
+          nextCursor={revisionListNextCursor}
+          onLoadMore={() =>
+            revisionListNextCursor && void loadRevisionPage(openedService, revisionListNextCursor)
+          }
+          onRetry={() => void loadRevisionPage(openedService)}
+          onCreate={retirementRevision || withdrawalAlias ? undefined : startServiceRevision}
+          onOpen={
+            retirementRevision || withdrawalAlias
+              ? undefined
+              : (revision) => {
+                  selectTab(revision.state === "published" ? "deployments" : "build");
+                  void openServiceRevision(openedService, revision.metadata.id);
+                }
+          }
+          onRetire={
+            retirementRevision || withdrawalAlias
+              ? undefined
+              : (revision) => {
+                  aliasReadGeneration.current++;
+                  setAliasReadLoading(false);
+                  setAliasReadError(undefined);
+                  setRetirementRevision(revision);
+                  selectTab("versions");
+                }
+          }
+          revisions={revisionHistory}
+        />
+      )}
+    </>
+  );
+  const routesPanel = (
+    <>
+      {openedService && !retirementRevision && !withdrawalAlias && (
+        <ServiceRouteDiscovery
+          client={client}
+          scope={{ isolationDomainId, serviceId: openedService.metadata.id }}
+          canWithdraw
+          onWithdraw={(alias) => {
+            aliasReadGeneration.current++;
+            setAliasReadLoading(false);
+            setAliasReadError(undefined);
+            setWithdrawalAlias(alias);
+            selectTab("deployments");
+          }}
+          onSelect={
+            revisionListLoading || revisionListError
+              ? undefined
+              : (alias) => {
+                  setOpenedQuestion(undefined);
+                  setOpenedApproval(undefined);
+                  setOpenedArtifact(undefined);
+                  setOpenedInvocation(undefined);
+                  selectTab("runs");
+                  void loadObservedAlias(openedService, alias.name, true);
+                }
+          }
+        />
+      )}
+    </>
+  );
+  const withdrawalPanel = (
+    <>
+      {withdrawalAlias &&
+      openedService &&
+      withdrawalAlias.metadata.isolationDomainId === isolationDomainId &&
+      withdrawalAlias.serviceId === openedService.metadata.id ? (
+        <ServiceAliasWithdrawWorkflow
+          alias={withdrawalAlias}
+          canWithdraw
+          client={client}
+          onClose={() => {
+            openService(openedService, true);
+            selectTab("deployments");
+            document.getElementById(revisionHistoryTitle)?.focus();
+          }}
+          onWithdrawn={() => {
+            aliasReadGeneration.current++;
+            setAliasReadLoading(false);
+            setAliasReadError(undefined);
+            setObservedAlias(undefined);
+            setOpenedAlias(undefined);
+          }}
+        />
+      ) : null}
+    </>
+  );
+  const retirementPanel = (
+    <>
+      {retirementRevision &&
+        openedService &&
+        retirementRevision.metadata.isolationDomainId === isolationDomainId &&
+        retirementRevision.serviceId === openedService.metadata.id && (
+          <ServiceRevisionRetireWorkflow
+            key={`${retirementRevision.metadata.id}/${retirementRevision.metadata.version}`}
+            client={client}
+            revision={retirementRevision}
+            canRetire
+            onClose={() => {
+              openService(openedService, true);
+              selectTab("versions");
+              document.getElementById(revisionHistoryTitle)?.focus();
+            }}
+            onRetired={(revision) =>
+              setRevisionHistory((current) => mergeRevisionHistory(current, [revision]))
+            }
+          />
+        )}
+    </>
+  );
+  const readStatus = (
+    <>
+      {openedService && aliasReadLoading && (
+        <section aria-busy="true" className="workbench-empty">
+          <span aria-hidden="true" className="workbench-empty__mark">
+            ◇
+          </span>
+          <h2>
+            {aliasReadTarget.revisionId
+              ? "Loading service revision"
+              : `Loading ${aliasReadTarget.name} route`}
+          </h2>
+          <p>Reading the exact alias state before routing or invoking this service.</p>
+        </section>
+      )}
+      {openedService && aliasReadError && (
+        <section className="workbench-inline-error" role="alert">
+          <p>{aliasReadError.message}</p>
+          <Button
+            onPress={() =>
+              aliasReadTarget.revisionId
+                ? void openServiceRevision(openedService, aliasReadTarget.revisionId)
+                : void loadObservedAlias(
+                    openedService,
+                    aliasReadTarget.name,
+                    aliasReadTarget.required,
+                  )
+            }
+            variant="quiet"
+          >
+            Retry route discovery
+          </Button>
+        </section>
+      )}
+    </>
+  );
+  const commandContent =
+    openedService && revisionHistory.length === 0 && (revisionListLoading || revisionListError)
+      ? null
+      : retirementRevision ||
+          withdrawalAlias ||
+          (openedService && (aliasReadLoading || aliasReadError))
+        ? null
+        : workflow;
+
+  if (presentation === "workbench" && openedService) {
+    return (
+      <div ref={pageContent}>
+        <ServiceWorkbenchView
+          client={client}
+          isolationDomainId={isolationDomainId}
+          view={view}
+          tab={tab}
+          commandTab={currentStage <= 2 ? "build" : currentStage === 3 ? "deployments" : "runs"}
+          nextAction={workflowSteps[currentStage].shortLabel}
+          openedService={openedService}
+          openedRevision={openedRevision}
+          selectedHistory={revisionHistory.find(
+            (revision) => revision.metadata.id === openedRevision?.metadata.id,
+          )}
+          openedAlias={openedAlias}
+          openedInvocation={openedInvocation}
+          retirementRevision={retirementRevision}
+          withdrawalAlias={withdrawalAlias}
+          revisionListLoading={revisionListLoading}
+          revisionListError={revisionListError}
+          aliasReadLoading={aliasReadLoading}
+          aliasReadError={aliasReadError}
+          readStatus={readStatus}
+          commandContent={commandContent}
+          historyPanel={historyPanel}
+          routesPanel={routesPanel}
+          withdrawalPanel={withdrawalPanel}
+          retirementPanel={retirementPanel}
+          selectTab={selectTab}
+          onBack={() => setView("services")}
+          onCreateRevision={startServiceRevision}
+          onCloseInvocation={() => {
+            setOpenedInvocation(undefined);
+            setOpenedQuestion(undefined);
+            setOpenedApproval(undefined);
+            setOpenedArtifact(undefined);
+          }}
+        />
+      </div>
+    );
+  }
   return (
     <div ref={pageContent}>
       {(workflowVisited || view === "workflow") && (
@@ -488,137 +723,11 @@ export function ServiceWorkflowSession({
 
           <div>
             <div className="workbench-stage">
-              {openedService && (
-                <ServiceRevisionHistoryWorkflow
-                  titleId={revisionHistoryTitle}
-                  client={client}
-                  isolationDomainId={isolationDomainId}
-                  serviceId={openedService.metadata.id}
-                  error={revisionListError}
-                  isLoading={revisionListLoading}
-                  isLoadingMore={revisionListLoadingMore}
-                  nextCursor={revisionListNextCursor}
-                  onLoadMore={() =>
-                    revisionListNextCursor &&
-                    void loadRevisionPage(openedService, revisionListNextCursor)
-                  }
-                  onRetry={() => void loadRevisionPage(openedService)}
-                  onCreate={
-                    retirementRevision || withdrawalAlias ? undefined : startServiceRevision
-                  }
-                  onOpen={
-                    retirementRevision || withdrawalAlias
-                      ? undefined
-                      : (revision) => void openServiceRevision(openedService, revision.metadata.id)
-                  }
-                  onRetire={
-                    retirementRevision || withdrawalAlias
-                      ? undefined
-                      : (revision) => {
-                          aliasReadGeneration.current++;
-                          setAliasReadLoading(false);
-                          setAliasReadError(undefined);
-                          setRetirementRevision(revision);
-                        }
-                  }
-                  revisions={revisionHistory}
-                />
-              )}
-              {openedService && !retirementRevision && !withdrawalAlias && (
-                <ServiceRouteDiscovery
-                  client={client}
-                  scope={{ isolationDomainId, serviceId: openedService.metadata.id }}
-                  canWithdraw
-                  onWithdraw={(alias) => {
-                    aliasReadGeneration.current++;
-                    setAliasReadLoading(false);
-                    setAliasReadError(undefined);
-                    setWithdrawalAlias(alias);
-                  }}
-                  onSelect={
-                    revisionListLoading || revisionListError
-                      ? undefined
-                      : (alias) => {
-                          setOpenedQuestion(undefined);
-                          setOpenedApproval(undefined);
-                          setOpenedArtifact(undefined);
-                          setOpenedInvocation(undefined);
-                          void loadObservedAlias(openedService, alias.name, true);
-                        }
-                  }
-                />
-              )}
-              {withdrawalAlias &&
-              openedService &&
-              withdrawalAlias.metadata.isolationDomainId === isolationDomainId &&
-              withdrawalAlias.serviceId === openedService.metadata.id ? (
-                <ServiceAliasWithdrawWorkflow
-                  alias={withdrawalAlias}
-                  canWithdraw
-                  client={client}
-                  onClose={() => {
-                    openService(openedService, true);
-                    document.getElementById(revisionHistoryTitle)?.focus();
-                  }}
-                  onWithdrawn={() => {
-                    aliasReadGeneration.current++;
-                    setAliasReadLoading(false);
-                    setAliasReadError(undefined);
-                    setObservedAlias(undefined);
-                    setOpenedAlias(undefined);
-                  }}
-                />
-              ) : null}
-              {retirementRevision &&
-                openedService &&
-                retirementRevision.metadata.isolationDomainId === isolationDomainId &&
-                retirementRevision.serviceId === openedService.metadata.id && (
-                  <ServiceRevisionRetireWorkflow
-                    key={`${retirementRevision.metadata.id}/${retirementRevision.metadata.version}`}
-                    client={client}
-                    revision={retirementRevision}
-                    canRetire
-                    onClose={() => {
-                      openService(openedService, true);
-                      document.getElementById(revisionHistoryTitle)?.focus();
-                    }}
-                    onRetired={(revision) =>
-                      setRevisionHistory((current) => mergeRevisionHistory(current, [revision]))
-                    }
-                  />
-                )}
-              {openedService && aliasReadLoading && (
-                <section aria-busy="true" className="workbench-empty">
-                  <span aria-hidden="true" className="workbench-empty__mark">
-                    ◇
-                  </span>
-                  <h2>
-                    {aliasReadTarget.revisionId
-                      ? "Loading service revision"
-                      : `Loading ${aliasReadTarget.name} route`}
-                  </h2>
-                  <p>Reading the exact alias state before routing or invoking this service.</p>
-                </section>
-              )}
-              {openedService && aliasReadError && (
-                <section className="workbench-inline-error" role="alert">
-                  <p>{aliasReadError.message}</p>
-                  <Button
-                    onPress={() =>
-                      aliasReadTarget.revisionId
-                        ? void openServiceRevision(openedService, aliasReadTarget.revisionId)
-                        : void loadObservedAlias(
-                            openedService,
-                            aliasReadTarget.name,
-                            aliasReadTarget.required,
-                          )
-                    }
-                    variant="quiet"
-                  >
-                    Retry route discovery
-                  </Button>
-                </section>
-              )}
+              {historyPanel}
+              {routesPanel}
+              {withdrawalPanel}
+              {retirementPanel}
+              {readStatus}
             </div>
           </div>
         </section>

@@ -897,3 +897,40 @@ p {
     flex-wrap: wrap;
   }
 }
+
+.service-workbench {
+  min-width: 0;
+}
+.service-workbench .dg-tabs__panel > * + * {
+  margin-block-start: var(--dg-space-5);
+}
+.service-overview {
+  display: grid;
+  gap: var(--dg-space-6);
+}
+.service-overview__summary {
+  padding-block-end: var(--dg-space-5);
+  border-bottom: var(--dg-border-default) solid var(--dg-color-border-subtle);
+}
+.service-overview dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dg-space-6);
+}
+.service-overview dt {
+  color: var(--dg-color-text-secondary);
+  margin-block-end: var(--dg-space-2);
+}
+.service-overview dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.service-overview details {
+  color: var(--dg-color-text-secondary);
+}
+.service-overview summary {
+  cursor: pointer;
+}
+.service-workbench .workbench-page-heading h1 {
+  overflow-wrap: anywhere;
+}
