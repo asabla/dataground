@@ -349,7 +349,11 @@ export function InvocationInspectionWorkflow({
                   Close artifact
                 </Button>
               </div>
-              <ArtifactWorkflow client={client} reference={selectedArtifact} />
+              <ArtifactWorkflow
+                compact={presentation === "workbench"}
+                client={client}
+                reference={selectedArtifact}
+              />
             </section>
           ) : (
             <section

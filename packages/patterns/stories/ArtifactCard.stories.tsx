@@ -103,3 +103,28 @@ export const NarrowRightToLeft: Story = {
     ),
   ],
 };
+
+export const Workbench: Story = {
+  args: { compact: true },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText(/This artifact is marked sensitive/)).toBeVisible();
+    await expect(canvas.getByText(artifact.metadata.id, { exact: true })).not.toBeVisible();
+    await expect(canvas.getByText(artifact.digest, { exact: true })).not.toBeVisible();
+    await userEvent.click(canvas.getByText("Resource details", { exact: true }));
+    await expect(canvas.getByText(artifact.metadata.id, { exact: true })).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "Copy artifact identifier" })).toBeVisible();
+    await userEvent.click(canvas.getByText("Integrity and provenance", { exact: true }));
+    await expect(canvas.getByText(artifact.digest, { exact: true })).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "Copy content digest" })).toBeVisible();
+  },
+};
+export const WorkbenchDegraded: Story = {
+  args: { compact: true, error: { message: "Metadata refresh was denied.", retryable: false } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("alert")).toBeVisible();
+    await expect(canvas.getByText(/This artifact is marked sensitive/)).toBeVisible();
+    await expect(canvas.getByText(artifact.digest, { exact: true })).not.toBeVisible();
+  },
+};

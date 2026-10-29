@@ -1,6 +1,6 @@
 import { Button, CopyButton, StatusBadge } from "@dataground/ui";
 import { type ReactNode, useId } from "react";
-import { CommandDetails } from "./CommandDetails";
+import { SecondaryDetails } from "./SecondaryDetails";
 
 export interface PublishedServiceRevision {
   publishedAt: string;
@@ -126,7 +126,7 @@ export function ServiceRevisionPublish({
         <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
       </div>
 
-      <CommandDetails compact={compact}>
+      <SecondaryDetails compact={compact}>
         <dl className="dg-service-revision-publish__scope">
           <div>
             <dt>Isolation domain</dt>
@@ -150,7 +150,7 @@ export function ServiceRevisionPublish({
             </dd>
           </div>
         </dl>
-      </CommandDetails>
+      </SecondaryDetails>
 
       <dl className="dg-service-revision-publish__facts">
         <div>
@@ -198,7 +198,7 @@ export function ServiceRevisionPublish({
       </dl>
 
       {compact && (
-        <CommandDetails compact label="Revision record">
+        <SecondaryDetails compact label="Revision record">
           <dl>
             <div>
               <dt>Expected version</dt>
@@ -213,7 +213,7 @@ export function ServiceRevisionPublish({
               <dd>{displayText(createdAt, 64)}</dd>
             </div>
           </dl>
-        </CommandDetails>
+        </SecondaryDetails>
       )}
       {!published && !isSubmitting && contractReview}
 

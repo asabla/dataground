@@ -149,3 +149,21 @@ describe("ArtifactCard", () => {
     assert.match(markup, /…/u);
   });
 });
+
+it("keeps failures and sensitivity visible outside secondary metadata", () => {
+  const markup = renderToStaticMarkup(
+    <ArtifactCard
+      compact
+      artifact={artifact}
+      reference={reference}
+      error={{ message: "Refresh denied.", retryable: false }}
+    />,
+  );
+  const primary = markup.replace(/<details\b[^>]*>[\s\S]*?<\/details>/gu, "");
+  assert.match(primary, /result.json/u);
+  assert.match(primary, /marked sensitive/u);
+  assert.match(primary, /Refresh denied/u);
+  assert.doesNotMatch(primary, /sha256:|art_0000|iso_0000/u);
+  assert.match(markup, /Record updated/u);
+  assert.doesNotMatch(markup, /Last observed/u);
+});

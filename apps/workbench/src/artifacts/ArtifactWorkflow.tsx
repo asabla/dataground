@@ -29,6 +29,7 @@ type ArtifactWorkflowAction =
     };
 
 export interface ArtifactWorkflowProps {
+  compact?: boolean;
   client: DataGroundClient;
   reference: InvocationArtifactReference;
 }
@@ -63,7 +64,7 @@ export function artifactWorkflowReducer(
   }
 }
 
-export function ArtifactWorkflow({ client, reference }: ArtifactWorkflowProps) {
+export function ArtifactWorkflow({ compact = false, client, reference }: ArtifactWorkflowProps) {
   const currentReferenceKey = artifactReferenceKey(reference);
   const [state, setState] = useState<ArtifactWorkflowState>({
     client,
@@ -107,6 +108,7 @@ export function ArtifactWorkflow({ client, reference }: ArtifactWorkflowProps) {
   return (
     <>
       <ArtifactCard
+        compact={compact}
         artifact={stateMatchesReference ? state.artifact : undefined}
         error={stateMatchesReference ? state.error : undefined}
         isLoading={!stateMatchesReference || state.loading}

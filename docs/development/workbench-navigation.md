@@ -170,3 +170,10 @@ view. A link never requests file contents. Content disclosure, authorization,
 digest verification and stale-response fences remain in the existing artifact
 workflow. A changed artifact link replaces a prior event selection so it cannot
 hide the requested artifact.
+
+Artifact inspection leads with the output name, availability, type, size and
+sensitivity. Resource identities and integrity/provenance fields have secondary
+disclosures with explicit copy controls. Errors and sensitive-content notices
+stay visible. The metadata update time is labelled Record updated; it does not
+indicate execution readiness. The compact presentation uses the same content
+authorization and verification controller as the temporary classic card.

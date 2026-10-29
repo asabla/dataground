@@ -299,7 +299,7 @@ export function ServiceRevisionPublishWorkflow({
         {compact ? (
           <>
             <p>Revision {revision.revisionNumber}</p>
-            <details className="dg-command-details">
+            <details className="dg-secondary-details">
               <summary>Resource and operation details</summary>
               <p>
                 Revision <code>{revision.metadata.id}</code>

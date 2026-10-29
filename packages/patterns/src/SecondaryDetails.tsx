@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 
-// Command errors and required decisions stay outside this secondary disclosure.
+// Errors, sensitivity notices and required decisions stay outside this disclosure.
 // Card consumers retain their existing presentation during migration.
-export function CommandDetails({
+export function SecondaryDetails({
   compact,
   children,
   label = "Resource details",
@@ -12,7 +12,7 @@ export function CommandDetails({
   label?: string;
 }) {
   return compact ? (
-    <details className="dg-command-details">
+    <details className="dg-secondary-details">
       <summary>{label}</summary>
       {children}
     </details>

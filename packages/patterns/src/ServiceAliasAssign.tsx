@@ -1,6 +1,6 @@
 import { Button, CopyButton, StatusBadge, TextField } from "@dataground/ui";
 import { useId } from "react";
-import { CommandDetails } from "./CommandDetails";
+import { SecondaryDetails } from "./SecondaryDetails";
 
 export interface AssignedServiceAlias {
   generation: number;
@@ -145,7 +145,7 @@ export function ServiceAliasAssign({
         <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
       </div>
 
-      <CommandDetails compact={compact}>
+      <SecondaryDetails compact={compact}>
         <dl className="dg-service-alias-assign__scope">
           <div>
             <dt>Isolation domain</dt>
@@ -169,7 +169,7 @@ export function ServiceAliasAssign({
             </dd>
           </div>
         </dl>
-      </CommandDetails>
+      </SecondaryDetails>
 
       {compact && (
         <p>
@@ -179,7 +179,7 @@ export function ServiceAliasAssign({
             : "Choose a route name for new runs."}
         </p>
       )}
-      <CommandDetails compact={compact} label="Route record">
+      <SecondaryDetails compact={compact} label="Route record">
         <dl className="dg-service-alias-assign__facts">
           <div>
             <dt>Revision number</dt>
@@ -206,7 +206,7 @@ export function ServiceAliasAssign({
             <dd>{currentVersion ?? 0}</dd>
           </div>
         </dl>
-      </CommandDetails>
+      </SecondaryDetails>
 
       {!canAssign && !blockedReason && !assigned && !alreadyAssigned && (
         <p className="dg-service-alias-assign__authority">
@@ -251,7 +251,7 @@ export function ServiceAliasAssign({
               ? `${displayText(assigned.name, 63)} now routes to revision ${revisionNumber}.`
               : "DataGround routed the alias to the published revision."}
           </strong>
-          <CommandDetails compact={compact} label="Receipt details">
+          <SecondaryDetails compact={compact} label="Receipt details">
             <dl>
               <div>
                 <dt>Alias</dt>
@@ -278,7 +278,7 @@ export function ServiceAliasAssign({
                 <dd>{displayText(assigned.updatedAt, 64)}</dd>
               </div>
             </dl>
-          </CommandDetails>
+          </SecondaryDetails>
           <p>New invocations can use this alias. Existing invocations remain revision-pinned.</p>
           {onComposeInvocation && <Button onPress={onComposeInvocation}>Compose invocation</Button>}
         </div>
