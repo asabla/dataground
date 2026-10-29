@@ -43,6 +43,7 @@ PostgreSQL 18 is required for durable integration tests and durable control-plan
 | `deploy/openshell` | Pinned, loopback-only OpenShell development profile and deny-all fixture |
 | `deploy/storage` | Pinned, disposable S3 enforcement-object conformance candidate |
 | `apps/workbench` | TypeScript/React workbench application |
+| `apps/workbench-prototype` | Isolated fictional design preview; excluded from production builds |
 | `packages/tokens` | DTCG token sources, deterministic generator, themes and densities |
 | `packages/ui` | Accessible React primitives, component styles and Storybook contracts |
 | `packages/patterns` | Product compositions with explicit state and callback contracts |
@@ -132,3 +133,7 @@ The OpenAPI and release-manifest files are compatibility surfaces even in alpha 
 [Public resource audit reads](resource-audit.md) expose scoped lifecycle and publication or invocation authorization records through separate read permissions. These reads require PostgreSQL and commit a disclosure receipt for each returned page.
 
 The [shared runtime adapter contract tests](runtime-adapter-contract.md) apply the same invocation assertions to deterministic fixtures. They are separate from live runtime certification.
+
+## Workbench design review
+
+Use `pnpm dev:prototype` to open the separate, loopback-only design preview on port 5174. The [design specification](../design/workbench-redesign/README.md) describes the screen inventory, API gaps and review gate. `pnpm verify:prototype` checks its local sample state and preview bundle; the repository verification gate also runs this check. Production migration starts only after review of the connected prototype.
