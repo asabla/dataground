@@ -1,6 +1,7 @@
 import { InvocationStatus, isInvocationCancellable } from "@dataground/patterns";
 import "@dataground/patterns/styles.css";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button, DataTable } from "@dataground/ui";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { InvocationArtifactReference } from "../artifacts";
 import type { DataGroundClient } from "../contracts/client";
 import {
@@ -46,6 +47,8 @@ type InvocationWorkflowAction =
     };
 
 export interface InvocationWorkflowProps {
+  compact?: boolean;
+  renderDetails?: (details: { result: ReactNode; files: ReactNode }) => ReactNode;
   canCancel: boolean;
   client: DataGroundClient;
   createIdempotencyKey?: () => string;
@@ -185,6 +188,8 @@ export function invocationReferenceKey(reference: InvocationReference): string {
 }
 
 export function InvocationWorkflow({
+  compact = false,
+  renderDetails,
   canCancel,
   client,
   createIdempotencyKey = defaultIdempotencyKey,
@@ -318,9 +323,74 @@ export function InvocationWorkflow({
     }
   }
 
+  const result =
+    visibleInvocation?.state === "succeeded" && !state.loading && !state.error ? (
+      <InvocationResultWorkflow
+        client={client}
+        onInspectArtifact={
+          onInspectArtifact
+            ? (artifactId) => onInspectArtifact({ ...stableReference, artifactId })
+            : undefined
+        }
+        reference={{
+          ...stableReference,
+          serviceId: visibleInvocation.serviceId,
+          revisionId: visibleInvocation.revisionId,
+        }}
+      />
+    ) : null;
+  const files = (
+    <section aria-label="Run artifacts">
+      <h3>Files and artifacts</h3>
+      <p>
+        These references come from the authorized run record. Open metadata before requesting
+        content.
+      </p>
+      {state.loading || state.error ? (
+        <p>Refresh run state to confirm its artifact references.</p>
+      ) : (
+        <DataTable
+          label="Run artifact references"
+          getRowId={(item) => item.id}
+          getRowLabel={(item) => item.id}
+          columns={[
+            {
+              id: "reference",
+              title: "Artifact reference",
+              isRowHeader: true,
+              render: (item) => <code>{item.id}</code>,
+            },
+            {
+              id: "actions",
+              title: "Actions",
+              render: (item) => (
+                <Button
+                  variant="quiet"
+                  onPress={() => onInspectArtifact?.({ ...stableReference, artifactId: item.id })}
+                  isDisabled={!onInspectArtifact}
+                >
+                  Inspect metadata
+                </Button>
+              ),
+            },
+          ]}
+          items={(visibleInvocation?.artifactIds ?? []).slice(0, 64).map((id) => ({ id }))}
+          emptyMessage="No artifact references recorded."
+        />
+      )}
+      {(visibleInvocation?.artifactIds.length ?? 0) > 64 && (
+        <p>
+          Showing the first 64 of {visibleInvocation?.artifactIds.length} references. Use an
+          authorized API client to inspect the remaining metadata.
+        </p>
+      )}
+    </section>
+  );
+
   return (
     <>
       <InvocationStatus
+        compact={compact}
         canCancel={canCancel && (stateConfirmed || cancellationRecovery)}
         cancellationConfirmationVisible={
           stateMatchesReference && state.cancellationConfirmationVisible
@@ -347,21 +417,7 @@ export function InvocationWorkflow({
         operation={visibleOperation}
         reference={reference}
       />
-      {visibleInvocation?.state === "succeeded" && !state.loading && !state.error ? (
-        <InvocationResultWorkflow
-          client={client}
-          onInspectArtifact={
-            onInspectArtifact
-              ? (artifactId) => onInspectArtifact({ ...stableReference, artifactId })
-              : undefined
-          }
-          reference={{
-            ...stableReference,
-            serviceId: visibleInvocation.serviceId,
-            revisionId: visibleInvocation.revisionId,
-          }}
-        />
-      ) : null}
+      {renderDetails ? renderDetails({ result, files }) : result}
     </>
   );
 }

@@ -77,10 +77,17 @@ function fixture() {
   };
 }
 
-function Journey({ client }: { client: DataGroundClient }) {
+function Journey({
+  client,
+  presentation = "classic",
+}: {
+  client: DataGroundClient;
+  presentation?: "classic" | "workbench";
+}) {
   const [question, setQuestion] = useState<InvocationQuestionReference>();
   return (
     <InvocationInspectionWorkflow
+      presentation={presentation}
       client={client}
       reference={questionReference}
       canCancelInvocation={false}
@@ -197,4 +204,39 @@ it("returns focus to navigation when the retained opener cannot receive focus", 
   opener.disabled = true;
   await click("Close questions");
   expect(document.activeElement).toBe(host.querySelector('[aria-label="Interaction sections"]'));
+});
+
+async function selectTab(name: string) {
+  const tab = [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+    (element) => element.textContent === name,
+  );
+  expect(tab).toBeDefined();
+  await act(async () => tab?.click());
+}
+it("keeps selected request edits beside run tabs and falls back from an inert opener", async () => {
+  const source = fixture();
+  await act(async () => root.render(<Journey client={source.client} presentation="workbench" />));
+  expect(source.get.mock.calls.some(([path]) => path.endsWith("/questions"))).toBe(false);
+  await selectTab("Requests");
+  await click(`Open question ${questionReference.questionId}`);
+  const selection = host.querySelector('[aria-label="Selected interaction item"]');
+  expect(document.activeElement).toBe(selection);
+  const freeText = host.querySelector('input[type="checkbox"]') as HTMLInputElement;
+  await act(async () => freeText.click());
+  const answer = host.querySelector("textarea") as HTMLTextAreaElement;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(
+      answer,
+      "Retained side panel answer",
+    );
+    answer.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await selectTab("Activity");
+  expect(host.querySelector("textarea")).toBe(answer);
+  expect(answer.value).toBe("Retained side panel answer");
+  expect(selection?.closest("[inert]")).toBeNull();
+  expect(host.querySelector(".dg-run-status")?.closest("[inert]")).toBeNull();
+  await click("Close questions");
+  expect(document.activeElement).toBe(host.querySelector('[aria-label="Run views"]'));
+  expect(source.post).not.toHaveBeenCalled();
 });

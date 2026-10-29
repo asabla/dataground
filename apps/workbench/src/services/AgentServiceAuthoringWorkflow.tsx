@@ -37,6 +37,7 @@ export interface AgentServiceInvocationSelection {
 }
 
 export interface AgentServiceAuthoringWorkflowProps {
+  presentation?: "classic" | "workbench";
   aliasDisabledReason?: string;
   canAssignAlias: boolean;
   canCancelInvocation: boolean;
@@ -152,6 +153,7 @@ export function isServiceSelectedForScope(
 }
 
 export function AgentServiceAuthoringWorkflow({
+  presentation = "classic",
   aliasDisabledReason,
   canAssignAlias,
   canCancelInvocation,
@@ -369,6 +371,7 @@ export function AgentServiceAuthoringWorkflow({
         aliasInScope &&
         isInvocationSelectedForAlias(selectedInvocation, selectedAlias, isolationDomainId) ? (
           <InvocationInspectionWorkflow
+            presentation={presentation}
             selectedQuestion={selectedQuestion}
             onInspectQuestion={onInspectQuestion}
             onCloseQuestion={onCloseQuestion}

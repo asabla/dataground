@@ -64,3 +64,22 @@ production React application and an isolated loopback reference API with a
 fictional identity: service creation, draft retention, back navigation, refresh,
 reconnection and exact service loading. This evidence does not establish governed
 runtime or production identity acceptance.
+
+## Run inspection
+
+The workbench presentation keeps the run outcome, loading or degraded state,
+failures and cancellation controls above Activity, Requests, Output, Files and
+Audit tabs. Resource identities and operation bookkeeping are secondary details.
+Created time is labeled as record creation, not execution start. Desired and
+observed operation states remain distinct. A selected question, approval or
+artifact stays beside the surrounding run view, and returns below it on narrow
+screens. Closing inspection returns focus to the opener when it remains usable,
+or to run navigation when the opener is hidden or gone.
+
+The existing invocation controller owns cancellation and exact-request recovery.
+Result, artifact content and audit disclosure retain their explicit access
+controls. Panels load on first visit, then stay mounted. Merely choosing Output
+does not request result content. Files shows a bounded set of references from the
+authorized invocation read; metadata inspection and content reads remain separate.
+The reference API review covers successful creation, publication, routing,
+invocation and explicit result display. It does not prove native execution.

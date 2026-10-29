@@ -1,5 +1,5 @@
 import { Button, StatusBadge, Tabs } from "@dataground/ui";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import type { ServiceAliasResource } from "../aliases";
 import type { DataGroundClient } from "../contracts/client";
 import { InvocationHistoryWorkflow } from "../invocations/InvocationHistoryWorkflow";
@@ -70,6 +70,7 @@ export function ServiceWorkbenchView({
   onCreateRevision,
   onCloseInvocation,
 }: ServiceWorkbenchViewProps) {
+  const [historyInspection, setHistoryInspection] = useState(false);
   return (
     <div className="service-workbench">
       <header className="workbench-page-heading workbench-page-heading--compact">
@@ -254,9 +255,11 @@ export function ServiceWorkbenchView({
                     View invocation history
                   </Button>
                 )}
-                {commandTab === "runs" && commandContent}
+                <div hidden={historyInspection}>{commandTab === "runs" && commandContent}</div>
                 {!openedInvocation && (
                   <InvocationHistoryWorkflow
+                    presentation="workbench"
+                    onInspectionChange={setHistoryInspection}
                     client={client}
                     target={{ isolationDomainId, serviceId: openedService.metadata.id }}
                   />
