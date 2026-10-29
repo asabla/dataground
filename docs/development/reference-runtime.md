@@ -129,3 +129,21 @@ The API evaluates `createWorkspace` and `listWorkspaces` against the isolation d
 Durable creation commits the identity, original idempotency response, safe audit receipt and outbox event in one PostgreSQL transaction. Concurrent retries return one stable identity; a changed request under the same key conflicts. Migration 64 also extends the closed API authorization-audit vocabulary and refuses downgrade while workspace resources or their authorization evidence exist. Process-local mode retains its documented restart limitation.
 
 This establishes workspace identity and metadata for later session and source bindings. It does not provision storage, import a repository, create a source snapshot, grant a host mount, start a session, or add workspace update/deletion operations. Those lifecycle and execution boundaries remain required work before release acceptance.
+
+
+## Exact service reads
+
+The reference and PostgreSQL-backed APIs expose
+`GET /v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}`.
+This returns the public service metadata for the exact pair of identities. It
+does not select a revision or route and does not establish execution readiness.
+A missing service returns `RESOURCE_NOT_FOUND`; an unavailable durable read
+returns the retryable `SERVICE_READ_UNAVAILABLE` error with correlation.
+
+The request requires the `readAgentService` Cedar action on the path-derived
+`DataGround::AgentService` resource. Domain membership and action authorization
+precede lookup. Durable mode records the authorization decision using schema
+migration 76; rollback refuses to remove the action while its evidence remains.
+Deployments with explicit action lists must add this read only for the principals
+and services that should support direct navigation. The development policy
+retains its existing principal and isolation-domain boundary.

@@ -42,6 +42,10 @@ export type AgentServiceCreateResult =
   | { ok: true; service: AgentServiceResource }
   | { error: AgentServiceFailure; ok: false };
 
+export type AgentServiceReadResult =
+  | { ok: true; service: AgentServiceResource }
+  | { error: AgentServiceFailure; ok: false };
+
 export type AgentServiceListResult =
   | { ok: true; page: AgentServicePage }
   | { error: AgentServiceFailure; ok: false };
@@ -310,6 +314,51 @@ export async function listAgentServices(
         retryable: true,
       },
       ok: false,
+    };
+  }
+}
+
+export async function readAgentService(
+  client: DataGroundClient,
+  isolationDomainId: string,
+  serviceId: string,
+): Promise<AgentServiceReadResult> {
+  if (!patterns.isolationDomainId.test(isolationDomainId) || !patterns.serviceId.test(serviceId)) {
+    return {
+      ok: false,
+      error: {
+        code: "WORKBENCH_INVALID_SERVICE_READ_REQUEST",
+        message: "The isolation domain or service identifier is invalid.",
+        retryable: false,
+      },
+    };
+  }
+  try {
+    const { data, error, response } = await client.GET(
+      "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}",
+      { params: { path: { isolationDomainId, serviceId } } },
+    );
+    if (!data) return failedResult(error, response.status);
+    const service = decodeService(data, isolationDomainId);
+    if (response.status !== 200 || !service || service.metadata.id !== serviceId) {
+      return {
+        ok: false,
+        error: {
+          code: "WORKBENCH_SERVICE_READ_SCOPE_MISMATCH",
+          message: "DataGround returned service state outside the requested scope or contract.",
+          retryable: false,
+        },
+      };
+    }
+    return { ok: true, service };
+  } catch {
+    return {
+      ok: false,
+      error: {
+        code: "WORKBENCH_SERVICE_READ_UNAVAILABLE",
+        message: "The Workbench could not reach DataGround to read this service.",
+        retryable: true,
+      },
     };
   }
 }

@@ -20,7 +20,8 @@ completion and from reference-runtime demonstrations.
 
 | Slice | Outcome | Contract and acceptance boundary | State |
 | --- | --- | --- | --- |
-| Resource table | Shared accessible grid with a compact service directory | Existing validated service pages and stale-action guards; Storybook keyboard, sorting and accessibility contracts | Implemented; shared tests and Browser keyboard/theme review passed; repository CI remains the merge gate |
+| Resource table | Shared accessible grid with a compact service directory | Existing validated service pages and stale-action guards; Storybook keyboard, sorting and accessibility contracts | Merged in PR #372; shared tests, Browser keyboard/theme review and repository CI passed |
+| Exact service read | Direct lookup without scanning list pages | Path-derived Cedar action, scoped PostgreSQL read and retained authorization evidence | Implemented; verification in progress |
 | Navigation foundation | Stable resource URLs and browser history; shell separate from command state | Direct links load exact authorized resources; no sensitive contents in URLs or general persistence | Pending |
 | Shared workbench patterns | Tabs, menus, tree, dialogs, detail panels and resizable regions | Each component has a real consumer and Storybook contract; keyboard, focus and both themes | Pending |
 | Agent authoring | Service directory and Overview, Build, Versions, Deployments, Runs views | Reuse creation, publication, routing, retirement and withdrawal commands; preserve drafts and uncertain requests | Pending |
