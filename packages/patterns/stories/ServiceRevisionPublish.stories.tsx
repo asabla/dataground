@@ -103,7 +103,7 @@ export const WorkbenchConfirmation: Story = {
   args: { compact: true, confirmationVisible: true },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement);
-    const decision = canvas.getByRole("group", { name: "Confirm revision publication" });
+    const decision = await canvas.findByRole("dialog", { name: "Confirm revision publication" });
     await expect(decision).toHaveTextContent("iso_00000000000000000001");
     await expect(decision).toHaveTextContent("revision 2");
     await userEvent.click(canvas.getByRole("button", { name: "Confirm publication" }));

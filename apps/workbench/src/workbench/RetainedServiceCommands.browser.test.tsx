@@ -64,6 +64,7 @@ async function render(
   client: DataGroundClient,
   draft = first,
   enabled = true,
+  active = true,
 ) {
   const publication = {
     ...draft,
@@ -79,6 +80,7 @@ async function render(
         service={service}
         isolationDomainId={scope}
         enabled={enabled}
+        active={active}
         revision={draft}
         publication={publication}
         alias={{
@@ -151,4 +153,19 @@ it("clears retained commands for a replacement client and rejects mismatched sco
   });
   expect(host.querySelector("button")).toBeNull();
   expect(send).toHaveBeenCalledOnce();
+});
+
+it("hides a retained publication dialog on navigation and restores the same review", async () => {
+  const post = vi.fn();
+  const client = { POST: post } as unknown as DataGroundClient;
+  await render("publication", client);
+  await click("Review publication");
+  expect(host.querySelector('[role="dialog"]')?.textContent).toContain("Publish revision 1");
+  await render("publication", client, first, true, false);
+  expect(host.querySelector('[role="dialog"]')).toBeNull();
+  await render("publication", client, first, true, true);
+  expect(host.querySelector('[role="dialog"]')?.textContent).toContain("Publish revision 1");
+  await click("Keep as draft");
+  expect(host.querySelector('[role="dialog"]')).toBeNull();
+  expect(post).not.toHaveBeenCalled();
 });

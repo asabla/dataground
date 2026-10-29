@@ -28,6 +28,7 @@ interface RetainedServiceCommandsProps {
   service: AgentServiceResource;
   isolationDomainId: string;
   enabled: boolean;
+  active?: boolean;
   revision?: ServiceRevisionResource;
   publication?: PublishedServiceRevisionResource;
   alias?: ServiceAliasResource;
@@ -109,6 +110,7 @@ function CommandSessions(props: RetainedServiceCommandsProps) {
           {props.kind === "publication" && (
             <ServiceRevisionPublishWorkflow
               compact
+              active={props.active !== false && entry.key === current?.key}
               canPublish
               client={props.client}
               revision={entry.revision}

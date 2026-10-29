@@ -6,6 +6,7 @@ export {
   type DataTableProps,
   type DataTableSort,
 } from "./DataTable";
+export { Dialog, type DialogProps } from "./Dialog";
 export { SelectField, type SelectFieldProps } from "./SelectField";
 export { SplitView, type SplitViewProps } from "./SplitView";
 export { StatusBadge, type StatusBadgeProps, type StatusTone } from "./StatusBadge";
