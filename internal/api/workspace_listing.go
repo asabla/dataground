@@ -29,17 +29,22 @@ type workspacePage struct {
 
 type workspaceListCursor struct {
 	IsolationDomainID string    `json:"isolationDomainId"`
+	Search            string    `json:"search,omitempty"`
 	CreatedAt         time.Time `json:"createdAt"`
 	ID                string    `json:"id"`
 }
 
-func parseWorkspaceListQuery(query url.Values, domainID string) (int, *workspaceListCursor, error) {
+func parseWorkspaceListQuery(raw, domainID string) (int, *workspaceListCursor, error) {
+	query, err := url.ParseQuery(raw)
+	if err != nil || !domain.ValidDiscoverySearch(query.Get("q")) {
+		return 0, nil, errors.New("workspace-list search is invalid")
+	}
 	for name := range query {
-		if name != "limit" && name != "cursor" {
+		if name != "limit" && name != "cursor" && name != "q" {
 			return 0, nil, errors.New("workspace-list query parameter is unknown")
 		}
 	}
-	if len(query["limit"]) > 1 || len(query["cursor"]) > 1 {
+	if len(query["limit"]) > 1 || len(query["cursor"]) > 1 || len(query["q"]) > 1 {
 		return 0, nil, errors.New("workspace-list query parameter is repeated")
 	}
 	limit := defaultWorkspaceListLimit
@@ -68,7 +73,7 @@ func parseWorkspaceListQuery(query url.Values, domainID string) (int, *workspace
 	if err := decoder.Decode(&cursor); err != nil || decoder.Decode(&struct{}{}) != io.EOF {
 		return 0, nil, errors.New("workspace-list cursor is invalid")
 	}
-	if cursor.IsolationDomainID != domainID || cursor.CreatedAt.IsZero() || !workspaceIDPattern.MatchString(cursor.ID) {
+	if cursor.IsolationDomainID != domainID || cursor.Search != discoverySearchDigest(query.Get("q")) || cursor.CreatedAt.IsZero() || !workspaceIDPattern.MatchString(cursor.ID) {
 		return 0, nil, errors.New("workspace-list cursor is invalid")
 	}
 	cursor.CreatedAt = cursor.CreatedAt.UTC()
@@ -79,12 +84,13 @@ func parseWorkspaceListQuery(query url.Values, domainID string) (int, *workspace
 	return limit, &cursor, nil
 }
 
-func encodeWorkspaceListCursor(workspace domain.Workspace) (string, error) {
+func encodeWorkspaceListCursor(workspace domain.Workspace, query string) (string, error) {
 	if workspace.Metadata.CreatedAt.IsZero() || !workspaceIDPattern.MatchString(workspace.Metadata.ID) {
 		return "", errors.New("workspace-list boundary is invalid")
 	}
 	encoded, err := json.Marshal(workspaceListCursor{
 		IsolationDomainID: workspace.Metadata.IsolationDomainID,
+		Search:            discoverySearchDigest(query),
 		CreatedAt:         workspace.Metadata.CreatedAt.UTC(),
 		ID:                workspace.Metadata.ID,
 	})

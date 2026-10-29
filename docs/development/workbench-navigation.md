@@ -254,8 +254,8 @@ executes retirement directly. Opening audit moves focus to the inspection region
 
 Workspace now uses real workspace identities and explicit service relationships.
 Its scope list and exact detail routes are `#/scopes/{scope}/workspaces` and
-`#/scopes/{scope}/workspaces/{workspaceId}`. Lists use bounded API pages; search
-filters only loaded records. Exact workspace and service reads keep independent
+`#/scopes/{scope}/workspaces/{workspaceId}`. Lists use bounded API pages. Workspace and service search runs on the server
+before pagination; sorting applies to loaded results. Exact workspace and service reads keep independent
 authorization. A service's workspace ID supplies a direct return path without
 inferring ownership or execution access.
 

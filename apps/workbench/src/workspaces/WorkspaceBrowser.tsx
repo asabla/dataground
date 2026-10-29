@@ -59,25 +59,22 @@ function WorkspaceList({
   onNavigate,
 }: Pick<Props, "client" | "isolationDomainId" | "onNavigate">) {
   const [query, setQuery] = useState(""),
+    [appliedQuery, setAppliedQuery] = useState(""),
     [creating, setCreating] = useState(false),
     [creation, setCreation] = useState(0),
     [sort, setSort] = useState<DataTableSort>({ column: "created", direction: "descending" });
   const read = useCallback(
-    (cursor?: string) => listWorkspaces(client, isolationDomainId, cursor),
-    [client, isolationDomainId],
+    (cursor?: string) => listWorkspaces(client, isolationDomainId, cursor, appliedQuery),
+    [client, isolationDomainId, appliedQuery],
   );
   const page = useDiscoveryPage(read, "Workspace discovery did not advance. Refresh to recover.");
-  const visible = page.items
-    .filter((w) =>
-      `${w.name} ${w.description ?? ""}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
-    )
-    .sort(
-      (a, b) =>
-        (sort.direction === "descending" ? -1 : 1) *
-        (sort.column === "name"
-          ? a.name.localeCompare(b.name)
-          : Date.parse(a.metadata.createdAt) - Date.parse(b.metadata.createdAt)),
-    );
+  const visible = [...page.items].sort(
+    (a, b) =>
+      (sort.direction === "descending" ? -1 : 1) *
+      (sort.column === "name"
+        ? a.name.localeCompare(b.name)
+        : Date.parse(a.metadata.createdAt) - Date.parse(b.metadata.createdAt)),
+  );
   return (
     <section aria-labelledby="workspaces-title">
       <div className="workbench-page-heading">
@@ -105,20 +102,32 @@ function WorkspaceList({
           }}
         />
       </div>
-      <div className="resource-browser__toolbar">
+      <form
+        className="resource-browser__toolbar resource-browser__toolbar--search"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const value = query.trim();
+          if (value === appliedQuery) void page.load();
+          else setAppliedQuery(value);
+        }}
+      >
         <TextField
-          label="Search loaded workspaces"
+          label="Search workspaces"
+          description="Search by name, description, or workspace ID."
+          maxLength={128}
           type="search"
           value={query}
           onChange={setQuery}
         />
+        <Button type="submit">Search</Button>
         <Button variant="quiet" isDisabled={page.loading} onPress={() => void page.load()}>
           Refresh workspaces
         </Button>
-        <p>
-          {visible.length} of {page.items.length} loaded workspaces shown.
-        </p>
-      </div>
+      </form>
+      <p role="status">
+        {page.items.length} workspaces loaded{appliedQuery ? ` for “${appliedQuery}”` : ""}. Sort
+        applies to loaded results.
+      </p>
       {page.loading && <p role="status">Loading workspaces…</p>}
       {page.error && <p role="alert">{page.error.message}</p>}
       {!page.loading && !page.error && (
@@ -130,8 +139,8 @@ function WorkspaceList({
           sort={sort}
           onSortChange={setSort}
           emptyMessage={
-            page.items.length
-              ? "No loaded workspaces match this search."
+            appliedQuery
+              ? "No workspaces match this search."
               : "No workspaces are available in this scope."
           }
           columns={[

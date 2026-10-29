@@ -81,8 +81,9 @@ func (repository *Repository) ListWorkspaces(
 	beforeCreatedAt *time.Time,
 	beforeID string,
 	limit int,
+	query string,
 ) (WorkspaceListPage, error) {
-	if !repository.Configured() || isolationDomainID == "" || limit < 1 || limit > 100 ||
+	if !repository.Configured() || isolationDomainID == "" || limit < 1 || limit > 100 || !domain.ValidDiscoverySearch(query) ||
 		(beforeCreatedAt == nil) != (beforeID == "") {
 		return WorkspaceListPage{}, errors.New("workspace list request is invalid")
 	}
@@ -91,9 +92,12 @@ func (repository *Repository) ListWorkspaces(
 		FROM workspaces
 		WHERE isolation_domain_id = $1
 		  AND ($2::timestamptz IS NULL OR (created_at, id) < ($2, $3))
+		  AND ($5 = '' OR strpos(translate(name, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), $5) > 0
+		    OR strpos(translate(description, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), $5) > 0
+		    OR strpos(id, $5) > 0)
 		ORDER BY created_at DESC, id DESC
 		LIMIT $4
-	`, isolationDomainID, beforeCreatedAt, beforeID, limit+1)
+	`, isolationDomainID, beforeCreatedAt, beforeID, limit+1, domain.FoldDiscoverySearch(query))
 	if err != nil {
 		return WorkspaceListPage{}, fmt.Errorf("list workspaces: %w", err)
 	}

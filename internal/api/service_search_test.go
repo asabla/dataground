@@ -10,12 +10,15 @@ import (
 	"github.com/asabla/dataground/internal/domain"
 )
 
-func TestServiceSearchPrecedesPaginationAndBindsContinuation(t *testing.T) {
-	for _, workspace := range []bool{false, true} {
-		t.Run(fmt.Sprint(workspace), func(t *testing.T) {
+func TestDiscoverySearchPrecedesPaginationAndBindsContinuation(t *testing.T) {
+	for _, collection := range []string{"services", "workspace-services", "workspaces"} {
+		t.Run(collection, func(t *testing.T) {
 			h := newHandler(t)
 			root := serviceCollectionPath(testDomain)
-			if workspace {
+			if collection == "workspaces" {
+				root = "/v1/isolation-domains/" + testDomain + "/workspaces"
+			}
+			if collection == "workspace-services" {
 				r := workspaceRequest(h, "POST", "/v1/isolation-domains/"+testDomain+"/workspaces", "search-workspace", `{"name":"Research"}`)
 				var w domain.Workspace
 				if r.Code != 201 || json.Unmarshal(r.Body.Bytes(), &w) != nil {

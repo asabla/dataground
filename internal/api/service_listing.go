@@ -37,7 +37,7 @@ type serviceListCursor struct {
 
 func parseServiceListQuery(raw, scope string) (int, *serviceListCursor, error) {
 	query, err := url.ParseQuery(raw)
-	if err != nil || !domain.ValidServiceSearch(query.Get("q")) {
+	if err != nil || !domain.ValidDiscoverySearch(query.Get("q")) {
 		return 0, nil, errors.New("service-list search is invalid")
 	}
 	for name := range query {
@@ -77,7 +77,7 @@ func parseServiceListQuery(raw, scope string) (int, *serviceListCursor, error) {
 	if cursor.CreatedAt.IsZero() || !serviceIDPattern.MatchString(cursor.ID) {
 		return 0, nil, errors.New("service-list cursor is invalid")
 	}
-	if cursor.Search != serviceSearchDigest(query.Get("q")) ||
+	if cursor.Search != discoverySearchDigest(query.Get("q")) ||
 		(cursor.IsolationDomainID != scope && (cursor.IsolationDomainID != "" || cursor.Search != "")) {
 		return 0, nil, errors.New("service-list cursor scope or search differs")
 	}
@@ -95,7 +95,7 @@ func encodeServiceListCursor(service domain.AgentService, query string) (string,
 	}
 	encoded, err := json.Marshal(serviceListCursor{
 		IsolationDomainID: service.Metadata.IsolationDomainID,
-		Search:            serviceSearchDigest(query),
+		Search:            discoverySearchDigest(query),
 		CreatedAt:         service.Metadata.CreatedAt.UTC(),
 		ID:                service.Metadata.ID,
 	})
@@ -105,10 +105,10 @@ func encodeServiceListCursor(service domain.AgentService, query string) (string,
 	return base64.RawURLEncoding.EncodeToString(encoded), nil
 }
 
-func serviceSearchDigest(query string) string {
+func discoverySearchDigest(query string) string {
 	if query == "" {
 		return ""
 	}
-	digest := sha256.Sum256([]byte(domain.FoldServiceSearch(query)))
+	digest := sha256.Sum256([]byte(domain.FoldDiscoverySearch(query)))
 	return base64.RawURLEncoding.EncodeToString(digest[:])
 }

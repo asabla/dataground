@@ -202,7 +202,7 @@ func (repository *Repository) ListWorkspaceServices(ctx context.Context, scope, 
 }
 
 func (repository *Repository) listServices(ctx context.Context, isolationDomainID string, workspaceID *string, beforeCreatedAt *time.Time, beforeID string, limit int, query string) (ServiceListPage, error) {
-	if !domain.ValidServiceSearch(query) || !repository.Configured() || isolationDomainID == "" || limit < 1 || limit > 100 ||
+	if !domain.ValidDiscoverySearch(query) || !repository.Configured() || isolationDomainID == "" || limit < 1 || limit > 100 ||
 		(beforeCreatedAt == nil) != (beforeID == "") {
 		return ServiceListPage{}, errors.New("service list request is invalid")
 	}
@@ -217,7 +217,7 @@ func (repository *Repository) listServices(ctx context.Context, isolationDomainI
 		  AND ($2::timestamptz IS NULL OR (created_at, id) < ($2, $3))
 		ORDER BY created_at DESC, id DESC
 		LIMIT $4
-	`, isolationDomainID, beforeCreatedAt, beforeID, limit+1, workspaceID, domain.FoldServiceSearch(query))
+	`, isolationDomainID, beforeCreatedAt, beforeID, limit+1, workspaceID, domain.FoldDiscoverySearch(query))
 	if err != nil {
 		return ServiceListPage{}, fmt.Errorf("list agent services: %w", err)
 	}

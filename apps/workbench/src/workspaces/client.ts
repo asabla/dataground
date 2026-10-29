@@ -104,17 +104,23 @@ export async function listWorkspaces(
   client: DataGroundClient,
   scope: string,
   cursor?: string,
+  search = "",
 ): Promise<Result<{ page: WorkspacePage }>> {
-  if (!scopePattern.test(scope) || (cursor !== undefined && !cursorPattern.test(cursor)))
+  if (
+    !scopePattern.test(scope) ||
+    (cursor !== undefined && !cursorPattern.test(cursor)) ||
+    Array.from(search).length > 128 ||
+    /[\p{Cc}\p{Cs}]/u.test(search)
+  )
     return failure(
       "WORKBENCH_INVALID_WORKSPACE_REQUEST",
-      "The workspace scope or cursor is invalid.",
+      "The workspace scope, search or cursor is invalid.",
     );
   try {
     const { data, error, response } = await client.GET(root, {
       params: {
         path: { isolationDomainId: scope },
-        query: { limit: 50, ...(cursor ? { cursor } : {}) },
+        query: { limit: 50, ...(cursor ? { cursor } : {}), ...(search ? { q: search } : {}) },
       },
     });
     if (!data) return responseFailure(error, response.status);
