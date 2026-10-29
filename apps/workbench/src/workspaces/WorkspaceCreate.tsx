@@ -86,7 +86,7 @@ export function WorkspaceCreate({
   };
   return (
     <section aria-label="Create workspace" className="workspace-create">
-      <h2>New workspace</h2>
+      <h2 tabIndex={-1}>New workspace</h2>
       <p>Organize related agent services. Access to each service remains separate.</p>
       {created ? (
         <p role="status">

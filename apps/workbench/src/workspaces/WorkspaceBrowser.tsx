@@ -12,6 +12,7 @@ interface Props {
   isolationDomainId: string;
   workspaceId?: string;
   active: boolean;
+  creationRequest?: number;
   onNavigate: (id?: string) => void;
   onOpenService: (id: string) => void;
 }
@@ -25,6 +26,8 @@ export function WorkspaceBrowser(props: Props) {
     <>
       <div hidden={!!workspaceId} inert={!!workspaceId}>
         <WorkspaceList
+          active={active && !workspaceId}
+          creationRequest={props.creationRequest}
           client={client}
           isolationDomainId={isolationDomainId}
           onNavigate={(id) => {
@@ -57,12 +60,23 @@ function WorkspaceList({
   client,
   isolationDomainId,
   onNavigate,
-}: Pick<Props, "client" | "isolationDomainId" | "onNavigate">) {
+  active,
+  creationRequest = 0,
+}: Pick<Props, "client" | "isolationDomainId" | "onNavigate" | "active" | "creationRequest">) {
   const [query, setQuery] = useState(""),
     [appliedQuery, setAppliedQuery] = useState(""),
     [creating, setCreating] = useState(false),
     [creation, setCreation] = useState(0),
     [sort, setSort] = useState<DataTableSort>({ column: "created", direction: "descending" });
+  const creationForm = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (creationRequest > 0) setCreating(true);
+  }, [creationRequest]);
+  useEffect(() => {
+    // A repeated shell action resumes and focuses the same unfinished form.
+    void creationRequest;
+    if (creating && active) creationForm.current?.querySelector<HTMLElement>("h2")?.focus();
+  }, [creating, active, creationRequest]);
   const read = useCallback(
     (cursor?: string) => listWorkspaces(client, isolationDomainId, cursor, appliedQuery),
     [client, isolationDomainId, appliedQuery],
@@ -89,7 +103,7 @@ function WorkspaceList({
           {creating ? "Hide creation form" : "New workspace"}
         </Button>
       </div>
-      <div hidden={!creating} inert={!creating}>
+      <div hidden={!creating} inert={!creating} ref={creationForm}>
         <WorkspaceCreate
           key={creation}
           client={client}

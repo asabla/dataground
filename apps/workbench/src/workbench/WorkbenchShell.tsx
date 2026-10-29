@@ -1,4 +1,4 @@
-import { Button, SelectField, StatusBadge } from "@dataground/ui";
+import { ActionMenu, Button, SelectField, StatusBadge } from "@dataground/ui";
 import { type ReactNode, useState } from "react";
 import type { WorkbenchView } from "./navigation";
 
@@ -7,12 +7,14 @@ export function WorkbenchShell({
   onDisconnect,
   view,
   onNavigate,
+  onCreate,
   children,
 }: {
   isolationDomainId: string;
   onDisconnect: () => void;
   view: WorkbenchView;
   onNavigate: (view: WorkbenchView) => void;
+  onCreate: (kind: "service" | "workspace") => void;
   children: ReactNode;
 }) {
   const [theme, setTheme] = useState<"system" | "light" | "night">("system");
@@ -30,6 +32,17 @@ export function WorkbenchShell({
           <code>{isolationDomainId}</code>
         </section>
         <div className="workbench-topbar__actions">
+          <ActionMenu
+            label="Create resource"
+            triggerLabel="New"
+            items={[
+              { id: "service", label: "Ungrouped agent service" },
+              { id: "workspace", label: "Workspace" },
+            ]}
+            onAction={(kind) => {
+              if (kind === "service" || kind === "workspace") onCreate(kind);
+            }}
+          />
           <SelectField
             label="Theme"
             value={theme}
