@@ -133,3 +133,8 @@ confirmations restate their exact revision and isolation scope. The same workflo
 controllers and request objects serve both this presentation and the temporary
 classic cards. Command transitions restore focus when their initiating control is
 removed and no other control has focus.
+
+Secondary service and command identifiers provide explicit copy controls. They
+report success only after the clipboard write completes and show a safe manual
+copy alternative on failure. Changing the value discards old feedback; the
+control does not copy on mount or store its value in browser persistence.

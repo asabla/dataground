@@ -1,4 +1,4 @@
-import { Button, StatusBadge, TextField } from "@dataground/ui";
+import { Button, CopyButton, StatusBadge, TextField } from "@dataground/ui";
 import { type ReactNode, useId } from "react";
 import { CommandDetails } from "./CommandDetails";
 
@@ -128,11 +128,17 @@ export function ServiceRevisionDraft({
         <dl className="dg-service-revision-draft__scope">
           <div>
             <dt>Isolation domain</dt>
-            <dd>{displayText(isolationDomainId, 64)}</dd>
+            <dd>
+              {displayText(isolationDomainId, 64)}{" "}
+              {compact && <CopyButton label="isolation scope" value={isolationDomainId} />}
+            </dd>
           </div>
           <div>
             <dt>Agent service</dt>
-            <dd>{displayText(serviceId, 64)}</dd>
+            <dd>
+              {displayText(serviceId, 64)}{" "}
+              {compact && <CopyButton label="service identifier" value={serviceId} />}
+            </dd>
           </div>
         </dl>
       </CommandDetails>

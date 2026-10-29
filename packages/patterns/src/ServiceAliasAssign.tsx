@@ -1,4 +1,4 @@
-import { Button, StatusBadge, TextField } from "@dataground/ui";
+import { Button, CopyButton, StatusBadge, TextField } from "@dataground/ui";
 import { useId } from "react";
 import { CommandDetails } from "./CommandDetails";
 
@@ -149,15 +149,24 @@ export function ServiceAliasAssign({
         <dl className="dg-service-alias-assign__scope">
           <div>
             <dt>Isolation domain</dt>
-            <dd>{displayText(isolationDomainId, 64)}</dd>
+            <dd>
+              {displayText(isolationDomainId, 64)}{" "}
+              {compact && <CopyButton label="isolation scope" value={isolationDomainId} />}
+            </dd>
           </div>
           <div>
             <dt>Agent service</dt>
-            <dd>{displayText(serviceId, 64)}</dd>
+            <dd>
+              {displayText(serviceId, 64)}{" "}
+              {compact && <CopyButton label="service identifier" value={serviceId} />}
+            </dd>
           </div>
           <div>
             <dt>Published revision</dt>
-            <dd>{displayText(targetRevisionId, 64)}</dd>
+            <dd>
+              {displayText(targetRevisionId, 64)}{" "}
+              {compact && <CopyButton label="revision identifier" value={targetRevisionId} />}
+            </dd>
           </div>
         </dl>
       </CommandDetails>
