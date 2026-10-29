@@ -46,7 +46,9 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 function button(text: string) {
-  return Array.from(host.querySelectorAll("button")).find((value) => value.textContent === text);
+  return Array.from(host.querySelectorAll("button")).find(
+    (value) => (value.getAttribute("aria-label") ?? value.textContent) === text,
+  );
 }
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -217,7 +219,9 @@ it("finds retained questions from service invocation history without event repla
     ),
   );
   const inspect = Array.from(host.querySelectorAll("button")).find(
-    (value) => value.textContent === `Open invocation ${reference.invocationId}`,
+    (value) =>
+      (value.getAttribute("aria-label") ?? value.textContent) ===
+      `Open invocation ${reference.invocationId}`,
   );
   expect(inspect).toBeDefined();
   await act(async () => inspect?.click());

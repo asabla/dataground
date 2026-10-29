@@ -79,7 +79,15 @@ describe("service revision history panel", () => {
 
 it("offers explicit creation and reopening only with callbacks and excludes retired revisions", () => {
   const markup = render({
-    revisions: [revision, { ...revision, revisionNumber: 3, state: "retired" }],
+    revisions: [
+      revision,
+      {
+        ...revision,
+        metadata: { ...revision.metadata, id: "rev_00000000000000000002" },
+        revisionNumber: 3,
+        state: "retired",
+      },
+    ],
     onCreate: () => {},
     onOpen: () => {},
   });

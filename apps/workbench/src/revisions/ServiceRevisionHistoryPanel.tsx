@@ -1,5 +1,5 @@
-import { Button, StatusBadge } from "@dataground/ui";
-import { useId } from "react";
+import { Button, DataTable, type DataTableSort, SelectField, StatusBadge } from "@dataground/ui";
+import { useId, useState } from "react";
 import type { ServiceRevisionFailure, ServiceRevisionHistoryResource } from "./client";
 
 export interface ServiceRevisionHistoryPanelProps {
@@ -37,6 +37,17 @@ export function ServiceRevisionHistoryPanel({
   onOpen,
   revisions,
 }: ServiceRevisionHistoryPanelProps) {
+  const [sort, setSort] = useState<DataTableSort>({ column: "version", direction: "descending" });
+  const [stateFilter, setStateFilter] = useState("all");
+  const visibleRevisions = revisions
+    .filter((revision) => stateFilter === "all" || revision.state === stateFilter)
+    .sort((a, b) => {
+      const comparison =
+        sort.column === "version"
+          ? a.revisionNumber - b.revisionNumber
+          : a.runtimeProfile.localeCompare(b.runtimeProfile);
+      return (sort.direction === "ascending" ? 1 : -1) * comparison;
+    });
   const generatedTitleId = useId();
   const titleId = suppliedTitleId ?? generatedTitleId;
   return (
@@ -77,56 +88,105 @@ export function ServiceRevisionHistoryPanel({
         </p>
       ) : revisions.length === 0 && !error ? (
         <p className="revision-history__state">
-          No revisions yet. Create the first immutable service definition below.
+          No revisions yet. Use New revision to create the first definition.
         </p>
       ) : revisions.length > 0 ? (
         <>
-          <ol className="revision-history__list">
-            {revisions.map((revision) => (
-              <li key={revision.metadata.id}>
-                <span className="revision-history__number">Revision {revision.revisionNumber}</span>
-                <StatusBadge tone={revisionTone(revision.state)}>{revision.state}</StatusBadge>
-                <code>{revision.runtimeProfile}</code>
-                <span className="revision-history__updated">
-                  Updated{" "}
-                  <time dateTime={revision.metadata.updatedAt}>{revision.metadata.updatedAt}</time>
-                </span>
-                {(onInspectAudit ||
-                  (onOpen && revision.state !== "retired") ||
-                  (onRetire && revision.state === "published")) && (
-                  <div className="revision-history__actions">
-                    {onInspectAudit && (
-                      <Button
-                        variant="quiet"
-                        isDisabled={isLoading || isLoadingMore || !!error}
-                        onPress={() => onInspectAudit(revision)}
-                      >
-                        Inspect audit for revision {revision.revisionNumber}
-                      </Button>
-                    )}
+          <div className="resource-browser__toolbar">
+            <SelectField
+              label="Version state"
+              value={stateFilter}
+              onChange={setStateFilter}
+              options={[
+                { value: "all", label: "All states" },
+                { value: "draft", label: "Draft" },
+                { value: "published", label: "Published" },
+                { value: "retired", label: "Retired" },
+              ]}
+            />
+            <p>
+              {visibleRevisions.length} of {revisions.length} loaded versions shown.
+            </p>
+          </div>
+          <DataTable
+            sort={sort}
+            onSortChange={setSort}
+            label="Loaded service versions"
+            items={visibleRevisions}
+            getRowId={(revision) => revision.metadata.id}
+            getRowLabel={(revision) => `Revision ${revision.revisionNumber}`}
+            isLoading={isLoading || isLoadingMore}
+            emptyMessage="No loaded versions match this state."
+            columns={[
+              {
+                id: "version",
+                title: "Version",
+                allowsSorting: true,
+                isRowHeader: true,
+                render: (revision) => <strong>Revision {revision.revisionNumber}</strong>,
+              },
+              {
+                id: "state",
+                title: "State",
+                render: (revision) => (
+                  <StatusBadge tone={revisionTone(revision.state)}>{revision.state}</StatusBadge>
+                ),
+              },
+              {
+                id: "runtime",
+                title: "Runtime",
+                allowsSorting: true,
+                render: (revision) => revision.runtimeProfile,
+              },
+              {
+                id: "updated",
+                title: "Record updated",
+                render: (revision) => (
+                  <time dateTime={revision.metadata.updatedAt}>
+                    {new Date(revision.metadata.updatedAt).toLocaleString()}
+                  </time>
+                ),
+              },
+              {
+                id: "actions",
+                title: "Actions",
+                render: (revision) => (
+                  <div className="resource-browser__actions">
                     {onOpen && revision.state !== "retired" && (
                       <Button
+                        aria-label={`Open revision ${revision.revisionNumber}`}
                         isDisabled={isLoading || isLoadingMore || !!error}
                         variant="quiet"
                         onPress={() => onOpen(revision)}
                       >
-                        Open revision {revision.revisionNumber}
+                        Open
+                      </Button>
+                    )}
+                    {onInspectAudit && (
+                      <Button
+                        aria-label={`Inspect audit for revision ${revision.revisionNumber}`}
+                        isDisabled={isLoading || isLoadingMore || !!error}
+                        variant="quiet"
+                        onPress={() => onInspectAudit(revision)}
+                      >
+                        Audit
                       </Button>
                     )}
                     {onRetire && revision.state === "published" && (
                       <Button
+                        aria-label={`Retire revision ${revision.revisionNumber}`}
                         isDisabled={isLoading || isLoadingMore || !!error}
                         variant="quiet"
                         onPress={() => onRetire(revision)}
                       >
-                        Retire revision {revision.revisionNumber}
+                        Retire
                       </Button>
                     )}
                   </div>
-                )}
-              </li>
-            ))}
-          </ol>
+                ),
+              },
+            ]}
+          />
           {nextCursor && (
             <div className="revision-history__more">
               <Button isDisabled={isLoadingMore} onPress={onLoadMore} variant="quiet">

@@ -83,3 +83,11 @@ does not request result content. Files shows a bounded set of references from th
 authorized invocation read; metadata inspection and content reads remain separate.
 The reference API review covers successful creation, publication, routing,
 invocation and explicit result display. It does not prove native execution.
+
+Version, route and run browsers use the shared resource table. Sorting and
+filters apply to loaded pages only; each browser states that boundary. Pagination
+continues through the original authorized endpoints. A route shows a revision
+number only when it is present in the loaded, validated revision history;
+otherwise its exact reference remains available in secondary details. Refresh
+and error states disable retained actions. The table refresh dependency contract
+ensures those controls do not retain an earlier enabled state.
