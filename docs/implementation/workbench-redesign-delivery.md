@@ -21,8 +21,8 @@ completion and from reference-runtime demonstrations.
 | Slice | Outcome | Contract and acceptance boundary | State |
 | --- | --- | --- | --- |
 | Resource table | Shared accessible grid with a compact service directory | Existing validated service pages and stale-action guards; Storybook keyboard, sorting and accessibility contracts | Merged in PR #372; shared tests, Browser keyboard/theme review and repository CI passed |
-| Exact service read | Direct lookup without scanning list pages | Path-derived Cedar action, scoped PostgreSQL read and retained authorization evidence | Implemented; verification in progress |
-| Navigation foundation | Stable resource URLs and browser history; shell separate from command state | Direct links load exact authorized resources; no sensitive contents in URLs or general persistence | Pending |
+| Exact service read | Direct lookup without scanning list pages | Path-derived Cedar action, scoped PostgreSQL read and retained authorization evidence | Merged in PR #373; contract, client and repository CI checks passed |
+| Navigation foundation | Scoped service URLs and browser history; connection, shell and workflow session separated | Exact authorized service reads; active context retained across directory/interactions; identity changes clear state | Initial service navigation implemented; per-resource command sessions and revision/run/artifact URLs remain |
 | Shared workbench patterns | Tabs, menus, tree, dialogs, detail panels and resizable regions | Each component has a real consumer and Storybook contract; keyboard, focus and both themes | Pending |
 | Agent authoring | Service directory and Overview, Build, Versions, Deployments, Runs views | Reuse creation, publication, routing, retirement and withdrawal commands; preserve drafts and uncertain requests | Pending |
 | Run and artifact inspection | Outcome/blocker first, activity, decisions, results, files and audit in separate views | Preserve bounded authorized reads, explicit content disclosure, expiry, cancellation and late-response rejection | Pending |
