@@ -1,0 +1,192 @@
+import { act, useState } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { DataGroundClient } from "../contracts/client";
+import type { InvocationQuestionReference } from "../questions";
+import { pendingQuestion, questionReference } from "../questions/fixtures";
+import { InvocationInspectionWorkflow } from "./InvocationInspectionWorkflow";
+
+let host: HTMLDivElement;
+let root: Root;
+beforeEach(() => {
+  (
+    globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+});
+afterEach(async () => {
+  await act(async () => root.unmount());
+  host.remove();
+});
+
+function fixture() {
+  let listed = true;
+  const question = pendingQuestion();
+  const get = vi.fn(async (path: string) => {
+    if (path.endsWith("/events"))
+      return {
+        data: "",
+        response: new Response(null, {
+          status: 200,
+          headers: { "X-DataGround-Has-More": "false" },
+        }),
+      };
+    if (path.endsWith("/questions/{questionId}"))
+      return { data: question, response: new Response(null, { status: 200 }) };
+    if (path.endsWith("/questions"))
+      return {
+        data: {
+          items: listed
+            ? [
+                {
+                  schemaVersion: "dataground.invocation-question-summary/v1",
+                  isolationDomainId: questionReference.isolationDomainId,
+                  invocationId: questionReference.invocationId,
+                  id: question.id,
+                  state: question.state,
+                  version: question.version,
+                  createdAt: question.createdAt,
+                  updatedAt: question.updatedAt,
+                  expiresAt: question.expiresAt,
+                },
+              ]
+            : [],
+        },
+        response: new Response(null, { status: 200 }),
+      };
+    if (path.endsWith("/approvals"))
+      return { data: { items: [] }, response: new Response(null, { status: 200 }) };
+    return { response: new Response(null, { status: 403 }) };
+  });
+  const post = vi.fn();
+  return {
+    client: { GET: get, POST: post } as unknown as DataGroundClient,
+    get,
+    post,
+    removeQuestion: () => {
+      listed = false;
+    },
+  };
+}
+
+function Journey({ client }: { client: DataGroundClient }) {
+  const [question, setQuestion] = useState<InvocationQuestionReference>();
+  return (
+    <InvocationInspectionWorkflow
+      client={client}
+      reference={questionReference}
+      canCancelInvocation={false}
+      canResolveApproval={false}
+      canAnswerQuestion
+      selectedQuestion={question}
+      onInspectQuestion={setQuestion}
+      onCloseQuestion={() => setQuestion(undefined)}
+      onInspectApproval={() => undefined}
+      onCloseApproval={() => undefined}
+      onInspectArtifact={() => undefined}
+      onCloseArtifact={() => undefined}
+    />
+  );
+}
+async function render(client: DataGroundClient) {
+  await act(async () => root.render(<Journey client={client} />));
+}
+function button(label: string) {
+  const result = [...host.querySelectorAll("button")].find((value) => value.textContent === label);
+  expect(result, label).toBeDefined();
+  return result as HTMLButtonElement;
+}
+async function click(label: string) {
+  const target = button(label);
+  target.focus();
+  await act(async () => target.click());
+  return target;
+}
+
+it("moves focus between sections without remounting workflows or sending commands", async () => {
+  const source = fixture();
+  await render(source.client);
+  const initialReads = source.get.mock.calls.length;
+  for (const [label, target] of [
+    ["Activity", "Interaction activity"],
+    ["Questions and approvals", "Interaction questions and approvals"],
+    ["Audit", "Interaction audit"],
+    ["Overview and result", "Interaction overview and result"],
+  ]) {
+    await click(label as string);
+    expect(document.activeElement).toBe(host.querySelector(`[aria-label="${target}"]`));
+  }
+  expect(source.get.mock.calls.length).toBe(initialReads);
+  expect(source.post).not.toHaveBeenCalled();
+});
+
+it("opens the selected request before the overview and retains edits while navigating", async () => {
+  const source = fixture();
+  await render(source.client);
+  const opener = await click(`Open question ${questionReference.questionId}`);
+  const selection = host.querySelector('[aria-label="Selected interaction item"]');
+  const overview = host.querySelector('[aria-label="Interaction overview and result"]');
+  expect(document.activeElement).toBe(selection);
+  expect(
+    (selection?.compareDocumentPosition(overview as Node) ?? 0) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  const freeText = host.querySelector('input[type="checkbox"]') as HTMLInputElement;
+  expect(freeText).not.toBeNull();
+  await act(async () => freeText.click());
+  const answer = host.querySelector("textarea") as HTMLTextAreaElement;
+  expect(answer).not.toBeNull();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(
+      answer,
+      "Keep this unfinished answer",
+    );
+    answer.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const reads = source.get.mock.calls.length;
+  await click("Activity");
+  await click("Selected item");
+  expect(host.querySelector("textarea")).toBe(answer);
+  expect(answer.value).toBe("Keep this unfinished answer");
+  expect(source.get.mock.calls.length).toBe(reads);
+  await click("Questions and approvals");
+  await click(`Open question ${questionReference.questionId}`);
+  expect(document.activeElement).toBe(selection);
+  expect(host.querySelector("textarea")).toBe(answer);
+  expect(answer.value).toBe("Keep this unfinished answer");
+  expect(source.get.mock.calls.length).toBe(reads);
+  await click("Close questions");
+  expect(document.activeElement).toBe(opener);
+  expect(host.querySelector('[aria-label="Selected interaction item"]')).toBeNull();
+  expect(source.post).not.toHaveBeenCalled();
+});
+
+it("returns focus to section navigation if the request opener disappears", async () => {
+  const source = fixture();
+  await render(source.client);
+  await click(`Open question ${questionReference.questionId}`);
+  source.removeQuestion();
+  await click("Refresh questions");
+  await click("Close questions");
+  expect(document.activeElement).toBe(host.querySelector('[aria-label="Interaction sections"]'));
+});
+
+it("does not restore a focus target retained by another connection", async () => {
+  const source = fixture();
+  await render(source.client);
+  await click(`Open question ${questionReference.questionId}`);
+  const replacement = fixture();
+  await render(replacement.client);
+  await click("Close questions");
+  expect(document.activeElement).toBe(host.querySelector('[aria-label="Interaction sections"]'));
+});
+
+it("returns focus to navigation when the retained opener cannot receive focus", async () => {
+  const source = fixture();
+  await render(source.client);
+  const opener = await click(`Open question ${questionReference.questionId}`);
+  opener.disabled = true;
+  await click("Close questions");
+  expect(document.activeElement).toBe(host.querySelector('[aria-label="Interaction sections"]'));
+});

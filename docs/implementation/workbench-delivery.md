@@ -42,12 +42,21 @@ the exact loaded revision object and connection. A changed scope, version,
 connection or loaded object closes it. Pending-request recovery uses the retained
 definition, and accepted or completed publication hides the review.
 
+## Interaction inspection
+
+Interaction inspection provides section navigation for the overview and result,
+activity, questions and approvals, and audit. Opening a question, approval or
+artifact places its inspection before the overview and moves keyboard focus to
+it. Closing the inspection returns focus to its source when that source can still
+receive focus in the same connection and invocation; otherwise it returns to section navigation.
+Section navigation keeps the workflows mounted, so unfinished answers and pending
+request recovery remain available. Resource reads and commands retain their
+existing scope and authorization checks.
+
 ## Next product journeys
 
-Interaction inspection must then provide a coherent path through progress,
-questions, approvals, results and retained artifacts. Native governed execution
-still needs its separate runtime acceptance and workspace-retention integration;
-reference execution cannot prove those boundaries.
+Native governed execution still needs its separate runtime acceptance and
+workspace-retention integration; reference execution cannot prove those boundaries.
 
 After the governed agent-service journey meets its acceptance gates, implement
 the notebook, data and job journeys with their real APIs, persistence and runtime
