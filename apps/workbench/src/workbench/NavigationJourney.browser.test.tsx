@@ -782,3 +782,32 @@ it("resumes recent work from Home without losing drafts and clears recents on co
   ).toContain("No work opened in this connection yet");
   expect(host.querySelector('input[name="service-name"]')).toBeNull();
 });
+
+it("resumes the last service view and exact run location from open work and Home", async () => {
+  const { client } = fixture();
+  await render(client, "workbench");
+  const versions = routeHash({
+    isolationDomainId: scope,
+    serviceId,
+    view: "workflow",
+    serviceTab: "versions",
+  });
+  await visit(versions);
+  await click("Home");
+  await click("Resume");
+  expect(window.location.hash).toBe(versions);
+  const requests = routeHash({
+    isolationDomainId: scope,
+    serviceId,
+    view: "interactions",
+    invocationId: "inv_00000000000000000001",
+    runTab: "requests",
+  });
+  await visit(requests);
+  await click("Home");
+  await click("Direct service");
+  expect(window.location.hash).toBe(requests);
+  await click("Home");
+  await render(fixture().client, "workbench");
+  expect(host.querySelector('[aria-label="Open service work"]')).toBeNull();
+});
