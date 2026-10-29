@@ -1,5 +1,6 @@
-import { Button, StatusBadge, type StatusTone, TextField } from "@dataground/ui";
+import { Button, CopyButton, StatusBadge, type StatusTone, TextField } from "@dataground/ui";
 import { useId } from "react";
+import { SecondaryDetails } from "./SecondaryDetails";
 
 export interface QuestionItem {
   id: string;
@@ -15,6 +16,7 @@ export interface QuestionDraft {
   useFreeText: boolean;
 }
 export interface QuestionRequestProps {
+  compact?: boolean;
   question: {
     id: string;
     invocationId: string;
@@ -46,6 +48,7 @@ const states: Record<string, { label: string; tone: StatusTone }> = {
   delivery_unknown: { label: "Answer delivery unknown", tone: "warning" },
 };
 export function QuestionRequest({
+  compact = false,
   question,
   drafts,
   canAnswer,
@@ -69,27 +72,47 @@ export function QuestionRequest({
     <section
       aria-labelledby={titleId}
       aria-busy={busy || undefined}
-      className="dg-question-request"
+      className={`dg-question-request${compact ? " dg-request--workbench" : ""}`}
     >
       <div className="dg-question-request__heading">
-        <h2 id={titleId}>Invocation questions</h2>
+        <h2 id={titleId}>{compact ? "Answer requests" : "Invocation questions"}</h2>
         <span aria-live="polite">
           <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
         </span>
       </div>
+      <SecondaryDetails compact={compact}>
+        <dl className="dg-question-request__facts">
+          <div>
+            <dt>Isolation domain</dt>
+            <dd>
+              {question.isolationDomainId}{" "}
+              {compact && (
+                <CopyButton
+                  label="isolation domain identifier"
+                  value={question.isolationDomainId}
+                />
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Invocation</dt>
+            <dd>
+              {question.invocationId}{" "}
+              {compact && (
+                <CopyButton label="invocation identifier" value={question.invocationId} />
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Question</dt>
+            <dd>
+              {question.id}{" "}
+              {compact && <CopyButton label="question identifier" value={question.id} />}
+            </dd>
+          </div>
+        </dl>
+      </SecondaryDetails>
       <dl className="dg-question-request__facts">
-        <div>
-          <dt>Isolation domain</dt>
-          <dd>{question.isolationDomainId}</dd>
-        </div>
-        <div>
-          <dt>Invocation</dt>
-          <dd>{question.invocationId}</dd>
-        </div>
-        <div>
-          <dt>Question</dt>
-          <dd>{question.id}</dd>
-        </div>
         <div>
           <dt>Answer by</dt>
           <dd>
@@ -107,6 +130,32 @@ export function QuestionRequest({
         These questions come from the runtime. Answers provide input; they do not grant permission
         to run tools or change the workspace.
       </p>
+      {pending && !canAnswer && <p>This view can observe questions but cannot submit answers.</p>}
+      {expired && question.state === "pending" && (
+        <p>The answer deadline has passed. Refresh to confirm the recorded state.</p>
+      )}
+      {question.state === "answered" && (
+        <p>DataGround recorded the answers. Delivery to the runtime has not been confirmed.</p>
+      )}
+      {question.state === "delivery_unknown" && (
+        <p>The runtime may have received the answers. DataGround will not repeat delivery.</p>
+      )}
+      {frozen && pending && (
+        <p>
+          The submitted answers are retained for an exact retry. Refresh the state before retrying.
+        </p>
+      )}
+      {disabledReason && <p>{disabledReason}</p>}
+      {error && (
+        <div role="alert" className="dg-question-request__error">
+          <p>{error.message}</p>
+          {error.correlationId && (
+            <p>
+              Correlation: <code>{error.correlationId}</code>
+            </p>
+          )}
+        </div>
+      )}
       {question.questions.map((item) => {
         const draft = drafts[item.id] ?? {
           optionIds: [],
@@ -200,32 +249,6 @@ export function QuestionRequest({
           </fieldset>
         );
       })}
-      {pending && !canAnswer && <p>This view can observe questions but cannot submit answers.</p>}
-      {expired && question.state === "pending" && (
-        <p>The answer deadline has passed. Refresh to confirm the recorded state.</p>
-      )}
-      {question.state === "answered" && (
-        <p>DataGround recorded the answers. Delivery to the runtime has not been confirmed.</p>
-      )}
-      {question.state === "delivery_unknown" && (
-        <p>The runtime may have received the answers. DataGround will not repeat delivery.</p>
-      )}
-      {frozen && pending && (
-        <p>
-          The submitted answers are retained for an exact retry. Refresh the state before retrying.
-        </p>
-      )}
-      {disabledReason && <p>{disabledReason}</p>}
-      {error && (
-        <div role="alert" className="dg-question-request__error">
-          <p>{error.message}</p>
-          {error.correlationId && (
-            <p>
-              Correlation: <code>{error.correlationId}</code>
-            </p>
-          )}
-        </div>
-      )}
       <div className="dg-question-request__actions">
         {pending && canAnswer && (
           <Button

@@ -198,3 +198,9 @@ sizes, sensitivity and creation times. Search, state filters and sorting apply t
 the loaded rows only. Listing does not grant access to exact metadata or content;
 inspection uses the existing independent reads. Invalid or repeated pages and
 failed discovery clear the rows, while identity changes reject late responses.
+
+Question and approval inspectors share the run surface. Request identities have
+secondary copy controls; deadlines, recorded decisions, required actions and
+uncertain outcomes remain visible. Question blockers precede the answer fields.
+The compact presentation passes through the same command, expiry, authority and
+exact-request retry controllers as the temporary classic presentation.

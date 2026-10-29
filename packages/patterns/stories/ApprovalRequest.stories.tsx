@@ -156,3 +156,26 @@ export const DeliveryUnknown: Story = {
     await expect(canvas.queryByRole("button", { name: "Deny request" })).not.toBeInTheDocument();
   },
 };
+
+export const Workbench: Story = {
+  args: { compact: true, approval: { ...pendingApproval, expiresAt: "2026-10-29T12:10:00Z" } },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText(pendingApproval.id)).not.toBeVisible();
+    await expect(canvas.getByText("2026-10-29T12:10:00Z")).toBeVisible();
+    await userEvent.click(canvas.getByRole("button", { name: "Deny request" }));
+    await expect(args.onDecision).toHaveBeenCalledWith("deny");
+    await userEvent.click(canvas.getByText("Resource details"));
+    await expect(canvas.getByText(pendingApproval.id)).toBeVisible();
+  },
+};
+export const WorkbenchUncertain: Story = {
+  args: { ...AmbiguousSubmission.args, compact: true },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("alert")).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "Retry approval" })).toBeEnabled();
+    await expect(canvas.queryByRole("button", { name: "Deny request" })).not.toBeInTheDocument();
+    await expect(canvas.getByText(pendingApproval.id)).not.toBeVisible();
+  },
+};
