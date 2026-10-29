@@ -748,13 +748,9 @@ p {
 
 .service-directory__toolbar {
   display: grid;
-  grid-template-columns: minmax(12rem, 1fr) minmax(10rem, 0.45fr) auto;
+  grid-template-columns: minmax(12rem, 1fr) auto minmax(10rem, 0.45fr) auto;
   align-items: start;
   gap: var(--dg-space-4);
-  padding: var(--dg-space-4);
-  border: var(--dg-border-default) solid var(--dg-color-border-default);
-  border-radius: var(--dg-radius-panel);
-  background: var(--dg-color-surface-default);
 }
 
 .service-directory__toolbar > .dg-button {
@@ -967,6 +963,14 @@ p {
   flex-wrap: wrap;
   gap: var(--dg-space-4);
   margin-block: var(--dg-space-4);
+}
+.resource-browser__toolbar--search {
+  align-items: center;
+}
+.resource-browser__toolbar--search > .dg-text-field {
+  flex: 1 1 16rem;
+  min-width: 0;
+  max-width: 32rem;
 }
 .resource-browser__toolbar > p {
   color: var(--dg-color-text-secondary);

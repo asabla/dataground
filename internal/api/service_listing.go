@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -28,17 +29,23 @@ type agentServicePage struct {
 }
 
 type serviceListCursor struct {
-	CreatedAt time.Time `json:"createdAt"`
-	ID        string    `json:"id"`
+	IsolationDomainID string    `json:"isolationDomainId,omitempty"`
+	Search            string    `json:"search,omitempty"`
+	CreatedAt         time.Time `json:"createdAt"`
+	ID                string    `json:"id"`
 }
 
-func parseServiceListQuery(query url.Values) (int, *serviceListCursor, error) {
+func parseServiceListQuery(raw, scope string) (int, *serviceListCursor, error) {
+	query, err := url.ParseQuery(raw)
+	if err != nil || !domain.ValidServiceSearch(query.Get("q")) {
+		return 0, nil, errors.New("service-list search is invalid")
+	}
 	for name := range query {
-		if name != "limit" && name != "cursor" {
+		if name != "limit" && name != "cursor" && name != "q" {
 			return 0, nil, errors.New("service-list query parameter is unknown")
 		}
 	}
-	if len(query["limit"]) > 1 || len(query["cursor"]) > 1 {
+	if len(query["limit"]) > 1 || len(query["cursor"]) > 1 || len(query["q"]) > 1 {
 		return 0, nil, errors.New("service-list query parameter is repeated")
 	}
 	limit := defaultServiceListLimit
@@ -70,6 +77,10 @@ func parseServiceListQuery(query url.Values) (int, *serviceListCursor, error) {
 	if cursor.CreatedAt.IsZero() || !serviceIDPattern.MatchString(cursor.ID) {
 		return 0, nil, errors.New("service-list cursor is invalid")
 	}
+	if cursor.Search != serviceSearchDigest(query.Get("q")) ||
+		(cursor.IsolationDomainID != scope && (cursor.IsolationDomainID != "" || cursor.Search != "")) {
+		return 0, nil, errors.New("service-list cursor scope or search differs")
+	}
 	cursor.CreatedAt = cursor.CreatedAt.UTC()
 	canonical, err := json.Marshal(cursor)
 	if err != nil || base64.RawURLEncoding.EncodeToString(canonical) != rawCursor {
@@ -78,16 +89,26 @@ func parseServiceListQuery(query url.Values) (int, *serviceListCursor, error) {
 	return limit, &cursor, nil
 }
 
-func encodeServiceListCursor(service domain.AgentService) (string, error) {
+func encodeServiceListCursor(service domain.AgentService, query string) (string, error) {
 	if service.Metadata.CreatedAt.IsZero() || !serviceIDPattern.MatchString(service.Metadata.ID) {
 		return "", errors.New("service-list boundary is invalid")
 	}
 	encoded, err := json.Marshal(serviceListCursor{
-		CreatedAt: service.Metadata.CreatedAt.UTC(),
-		ID:        service.Metadata.ID,
+		IsolationDomainID: service.Metadata.IsolationDomainID,
+		Search:            serviceSearchDigest(query),
+		CreatedAt:         service.Metadata.CreatedAt.UTC(),
+		ID:                service.Metadata.ID,
 	})
 	if err != nil {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(encoded), nil
+}
+
+func serviceSearchDigest(query string) string {
+	if query == "" {
+		return ""
+	}
+	digest := sha256.Sum256([]byte(domain.FoldServiceSearch(query)))
+	return base64.RawURLEncoding.EncodeToString(digest[:])
 }

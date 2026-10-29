@@ -201,6 +201,17 @@
         "description": "Requires a separate workspace-scoped discovery grant. Returns bounded metadata with a cursor bound to the isolation domain and workspace. Exact service and execution reads remain independently authorized.",
         "parameters": [
           {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Literal substring of name, description or service ID, applied before pagination. ASCII letters are case-insensitive; other Unicode characters and wildcard characters are literal. Empty means all services. Control characters are rejected. Continuation cursors are bound to this normalized search and isolation scope.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*$"
+            }
+          },
+          {
             "$ref": "#/components/parameters/IsolationDomainId"
           },
           {
@@ -322,6 +333,17 @@
         "summary": "List agent services in an isolation domain",
         "description": "Returns one bounded newest-first page. The opaque cursor continues from the last item without widening isolation scope.",
         "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Literal substring of name, description or service ID, applied before pagination. ASCII letters are case-insensitive; other Unicode characters and wildcard characters are literal. Empty means all services. Control characters are rejected. Continuation cursors are bound to this normalized search and isolation scope.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*$"
+            }
+          },
           { "$ref": "#/components/parameters/IsolationDomainId" },
           {
             "name": "limit",

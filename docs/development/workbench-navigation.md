@@ -325,3 +325,18 @@ presentation uses the same command controller and retains its inline confirmatio
 Closing a withdrawal or retirement page returns lost focus to the selected
 resource tab after the page is replaced. This remains available while the
 corresponding list refreshes; an inactive service cannot take focus.
+
+Agent service discovery supports server-side search in both Agents and an exact
+Workspace. Submit a search by name, description or service ID; the API applies
+it before the newest-first page limit. Sorting applies only to loaded results.
+Search text and results remain in the connected session and are not stored in
+navigation URLs or browser persistence. A changed search clears prior rows and
+cursors; late responses cannot replace the current search.
+
+The optional `q` parameter is a literal substring with at most 128 Unicode
+characters and no control characters. ASCII letters are case-insensitive; other
+Unicode characters retain their case. SQL wildcard characters have no special
+meaning. New cursors bind the isolation scope and normalized search, and workspace
+cursors also bind the workspace. Legacy unfiltered service cursors remain valid
+only for unfiltered reads. The existing discovery grants apply; search grants no
+additional permission to read a service, execute it, or inspect its contents.

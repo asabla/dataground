@@ -281,16 +281,18 @@ function WorkspaceServices({
   workspaceId: string;
   enabled: boolean;
 }) {
+  const [query, setQuery] = useState("");
+  const [appliedQuery, setAppliedQuery] = useState("");
   const read = useCallback(
-    (cursor?: string) => listAgentServices(client, isolationDomainId, cursor, workspaceId),
-    [client, isolationDomainId, workspaceId],
+    (cursor?: string) =>
+      listAgentServices(client, isolationDomainId, cursor, workspaceId, appliedQuery),
+    [client, isolationDomainId, workspaceId, appliedQuery],
   );
   const page = useDiscoveryPage(
     read,
     "Workspace service discovery did not advance. Refresh to recover.",
   );
-  const [query, setQuery] = useState(""),
-    [creating, setCreating] = useState(false),
+  const [creating, setCreating] = useState(false),
     [creation, setCreation] = useState(0),
     [sort, setSort] = useState<DataTableSort>({ column: "created", direction: "descending" });
   const [createdName, setCreatedName] = useState<string>();
@@ -328,38 +330,51 @@ function WorkspaceServices({
           onOpenService={(s) => onOpenService(s.metadata.id)}
         />
       </div>
-      <div className="resource-browser__toolbar">
+      <form
+        className="resource-browser__toolbar resource-browser__toolbar--search"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const value = query.trim();
+          if (value === appliedQuery) void page.load();
+          else setAppliedQuery(value);
+        }}
+      >
         <TextField
-          label="Search loaded workspace services"
+          label="Search workspace services"
+          description="Search by name, description, or service ID."
+          maxLength={128}
           type="search"
           value={query}
           onChange={setQuery}
         />
+        <Button type="submit">Search</Button>
         <Button variant="quiet" isDisabled={page.loading} onPress={() => void page.load()}>
           Refresh workspace services
         </Button>
-      </div>
+      </form>
+      <p role="status">
+        {page.items.length} services loaded{appliedQuery ? ` for “${appliedQuery}”` : ""}. Sort
+        applies to loaded results.
+      </p>
       {page.loading && <p role="status">Loading workspace services…</p>}
       {page.error && <p role="alert">{page.error.message}</p>}
       {!page.loading && !page.error && (
         <DataTable
           label="Workspace agent services"
-          items={page.items
-            .filter((s) => s.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
-            .sort(
-              (a, b) =>
-                (sort.direction === "descending" ? -1 : 1) *
-                (sort.column === "name"
-                  ? a.name.localeCompare(b.name)
-                  : Date.parse(a.metadata.createdAt) - Date.parse(b.metadata.createdAt)),
-            )}
+          items={[...page.items].sort(
+            (a, b) =>
+              (sort.direction === "descending" ? -1 : 1) *
+              (sort.column === "name"
+                ? a.name.localeCompare(b.name)
+                : Date.parse(a.metadata.createdAt) - Date.parse(b.metadata.createdAt)),
+          )}
           sort={sort}
           onSortChange={setSort}
           getRowId={(s) => s.metadata.id}
           getRowLabel={(s) => s.name}
           emptyMessage={
-            page.items.length
-              ? "No loaded services match this search."
+            appliedQuery
+              ? "No services match this search."
               : "No agent services have been created in this workspace."
           }
           columns={[

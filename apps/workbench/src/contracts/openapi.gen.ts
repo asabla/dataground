@@ -1513,6 +1513,8 @@ export interface operations {
     listWorkspaceAgentServices: {
         parameters: {
             query?: {
+                /** @description Literal substring of name, description or service ID, applied before pagination. ASCII letters are case-insensitive; other Unicode characters and wildcard characters are literal. Empty means all services. Control characters are rejected. Continuation cursors are bound to this normalized search and isolation scope. */
+                q?: string;
                 limit?: number;
                 cursor?: string;
             };
@@ -1581,6 +1583,8 @@ export interface operations {
     listAgentServices: {
         parameters: {
             query?: {
+                /** @description Literal substring of name, description or service ID, applied before pagination. ASCII letters are case-insensitive; other Unicode characters and wildcard characters are literal. Empty means all services. Control characters are rejected. Continuation cursors are bound to this normalized search and isolation scope. */
+                q?: string;
                 limit?: number;
                 cursor?: string;
             };
