@@ -21,17 +21,19 @@ interface DiscoveryState {
 
 export function QuestionDiscoveryWorkflow({
   compact = false,
+  refreshGeneration = 0,
   client,
   reference,
   onInspectQuestion,
 }: {
   compact?: boolean;
+  refreshGeneration?: number;
   client: DataGroundClient;
   reference: InvocationQuestionListReference;
   onInspectQuestion: (reference: InvocationQuestionReference) => void;
 }) {
   const { isolationDomainId, invocationId } = reference;
-  const scope = `${isolationDomainId}/${invocationId}`;
+  const scope = `${isolationDomainId}/${invocationId}/${refreshGeneration}`;
   const titleId = useId();
   const [stateFilter, setStateFilter] = useState("all");
   const [sort, setSort] = useState<DataTableSort>({ column: "created", direction: "descending" });

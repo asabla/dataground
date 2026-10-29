@@ -49,6 +49,7 @@ type ApprovalWorkflowAction =
 export interface ApprovalWorkflowProps {
   compact?: boolean;
   canResolve: boolean;
+  onResolved?: () => void;
   client: DataGroundClient;
   initialApproval?: InvocationApproval;
   reference: InvocationApprovalReference;
@@ -215,6 +216,7 @@ function approvalExpired(approval: InvocationApproval | undefined): boolean {
 function ApprovalSession({
   compact = false,
   canResolve,
+  onResolved,
   client,
   createIdempotencyKey = defaultIdempotencyKey,
   initialApproval,
@@ -332,6 +334,7 @@ function ApprovalSession({
         );
         if (requestGeneration.current === generation) {
           dispatch({ attempt, referenceKey, result, type: "submission-finished" });
+          if (result.ok) onResolved?.();
         }
       } finally {
         if (submissionLock.current === lock) {
@@ -341,6 +344,7 @@ function ApprovalSession({
     },
     [
       canResolve,
+      onResolved,
       state.loading,
       state.error,
       client,

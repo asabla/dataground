@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
 import { expect, fn, userEvent, within } from "storybook/test";
 import { ApprovalRequest, type ApprovalResource } from "../src/ApprovalRequest";
 import "../src/styles.css";
@@ -28,6 +29,23 @@ const meta = {
 
 export default meta;
 type Story = StoryObj<typeof meta>;
+export const CompletionFocus: Story = {
+  render: function Completion(args) {
+    const [recorded, setRecorded] = useState(false);
+    return (
+      <ApprovalRequest
+        {...args}
+        compact
+        approval={{ ...args.approval, state: recorded ? "resolved" : "pending" }}
+        onDecision={() => setRecorded(true)}
+      />
+    );
+  },
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Deny request" }));
+    await expect(canvasElement.querySelector(".dg-approval-request__heading")).toHaveFocus();
+  },
+};
 
 export const Pending: Story = {
   play: async ({ args, canvasElement }) => {
