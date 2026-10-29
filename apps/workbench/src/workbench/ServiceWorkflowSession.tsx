@@ -778,6 +778,7 @@ export function ServiceWorkflowSession({
     openedService && (
       <RetainedServiceCommands
         kind={kind}
+        active={active && view === "workflow" && tab === "build"}
         client={client}
         service={openedService}
         isolationDomainId={isolationDomainId}

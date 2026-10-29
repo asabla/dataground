@@ -32,6 +32,7 @@ interface PublicationState {
 
 export interface ServiceRevisionPublishWorkflowProps {
   compact?: boolean;
+  active?: boolean;
   canPublish: boolean;
   client: DataGroundClient;
   createIdempotencyKey?: () => string;
@@ -88,6 +89,7 @@ function revisionScopeKey(revision: ServiceRevisionResource): string {
 
 export function ServiceRevisionPublishWorkflow({
   compact = false,
+  active = true,
   canPublish,
   client,
   createIdempotencyKey = defaultIdempotencyKey,
@@ -358,6 +360,7 @@ export function ServiceRevisionPublishWorkflow({
     <section ref={feedback} tabIndex={-1} aria-label="Revision publication">
       <ServiceRevisionPublish
         compact={compact}
+        active={active}
         canPublish={canPublish}
         confirmationVisible={visible.confirming}
         contractReview={

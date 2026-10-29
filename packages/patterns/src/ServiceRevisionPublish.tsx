@@ -1,4 +1,4 @@
-import { Button, CopyButton, StatusBadge } from "@dataground/ui";
+import { Button, CopyButton, Dialog, StatusBadge } from "@dataground/ui";
 import { type ReactNode, useId } from "react";
 import { SecondaryDetails } from "./SecondaryDetails";
 
@@ -16,6 +16,7 @@ export interface ServiceRevisionPublishError {
 
 export interface ServiceRevisionPublishProps {
   compact?: boolean;
+  active?: boolean;
   canPublish: boolean;
   confirmationVisible?: boolean;
   contractReview?: ReactNode;
@@ -60,6 +61,7 @@ function displayText(value: string, maximum = 255): string {
 
 export function ServiceRevisionPublish({
   compact = false,
+  active = true,
   canPublish,
   confirmationVisible = false,
   contractReview,
@@ -105,6 +107,8 @@ export function ServiceRevisionPublish({
           ? { label: "Confirmation required", tone: "warning" as const }
           : { label: "Draft revision", tone: "neutral" as const };
   const actionDisabled = !canPublish || isSubmitting || onConfirm === undefined;
+
+  const dialogOpen = compact && active && confirmationVisible && !recoveryPending && !published;
 
   return (
     <section
@@ -263,18 +267,12 @@ export function ServiceRevisionPublish({
           </p>
           {onAssignAlias && <Button onPress={onAssignAlias}>Assign alias</Button>}
         </div>
-      ) : confirmationVisible && !recoveryPending ? (
+      ) : !compact && confirmationVisible && !recoveryPending ? (
         <fieldset
           aria-describedby={confirmationId}
           className="dg-service-revision-publish__confirmation"
         >
           <legend>Confirm revision publication</legend>
-          {compact && (
-            <p>
-              Publish revision {revisionNumber} in isolation scope{" "}
-              <code>{displayText(isolationDomainId, 64)}</code>.
-            </p>
-          )}
           <p id={confirmationId}>
             Publication makes this exact version immutable and validates every required capability.
             It does not assign or move an alias.
@@ -314,6 +312,37 @@ export function ServiceRevisionPublish({
             )}
           </div>
         </>
+      )}
+      {compact && (
+        <Dialog
+          title="Confirm revision publication"
+          isOpen={dialogOpen}
+          isDismissDisabled={isSubmitting}
+          onClose={() => onDismissConfirmation?.()}
+        >
+          <p>
+            Publish revision {revisionNumber} in isolation scope{" "}
+            <code>{displayText(isolationDomainId, 64)}</code>.
+          </p>
+          <p>
+            Publication makes this exact version immutable and validates every required capability.
+            It does not assign or move an alias.
+          </p>
+          {isSubmitting && <p role="status">Publishing revision…</p>}
+          <div className="dg-dialog__actions">
+            <Button
+              autoFocus
+              isDisabled={isSubmitting}
+              onPress={onDismissConfirmation}
+              variant="quiet"
+            >
+              Keep as draft
+            </Button>
+            <Button isDisabled={actionDisabled} onPress={onConfirm} variant="primary">
+              {isSubmitting ? "Publishing revision…" : "Confirm publication"}
+            </Button>
+          </div>
+        </Dialog>
       )}
     </section>
   );

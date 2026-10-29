@@ -233,3 +233,11 @@ reader identity includes the connection, scope and server filters. New reads
 invalidate prior row actions immediately; stale responses, repeated pages and
 closed views cannot restore access to those rows. The controller retains no
 credentials or content and does not replace API authorization.
+
+Workbench publication uses the shared React Aria dialog for its bounded decision.
+The dialog retains the local theme, contains keyboard focus and returns focus on
+close. The non-mutating action receives initial focus. A pending submission blocks
+Escape and dismissal; its existing exact-request recovery remains in the page
+when the outcome is uncertain. Retained publication sessions receive an explicit
+visibility boundary, so a hidden service or tab cannot leave a modal open. The
+classic presentation retains its inline confirmation and shares the same command.
