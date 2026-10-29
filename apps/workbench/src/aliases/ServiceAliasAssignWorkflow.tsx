@@ -125,7 +125,43 @@ function aliasScopeKey(
   ]);
 }
 
-export function ServiceAliasAssignWorkflow({
+export function ServiceAliasAssignWorkflow(props: ServiceAliasAssignWorkflowProps) {
+  const scope = aliasScopeKey(props.revision, props.currentAlias);
+  const [session, setSession] = useState({
+    client: props.client,
+    scope,
+    generation: 0,
+    createNew: false,
+  });
+  if (session.client !== props.client || session.scope !== scope) {
+    setSession({
+      client: props.client,
+      scope,
+      generation: session.generation + 1,
+      createNew: false,
+    });
+    return null;
+  }
+  return (
+    <AliasAssignmentSession
+      {...props}
+      key={session.generation}
+      autoFocusAlias={session.createNew && props.compact === true && props.active !== false}
+      currentAlias={session.createNew ? undefined : props.currentAlias}
+      initialAliasName={session.createNew ? "" : props.initialAliasName}
+      onCreateAnotherRoute={() =>
+        setSession((current) =>
+          current.client === props.client && current.scope === scope
+            ? { ...current, generation: current.generation + 1, createNew: true }
+            : current,
+        )
+      }
+    />
+  );
+}
+
+function AliasAssignmentSession({
+  autoFocusAlias,
   compact = false,
   active = true,
   canAssign,
@@ -136,8 +172,12 @@ export function ServiceAliasAssignWorkflow({
   initialAliasName,
   onAliasAssigned,
   onComposeInvocation,
+  onCreateAnotherRoute,
   revision,
-}: ServiceAliasAssignWorkflowProps) {
+}: ServiceAliasAssignWorkflowProps & {
+  autoFocusAlias: boolean;
+  onCreateAnotherRoute: () => void;
+}) {
   const scopeKey = aliasScopeKey(revision, currentAlias);
   const defaultAliasName = currentAlias?.name ?? initialAliasName ?? "stable";
   const observedScopeValid = isServiceAliasAssignmentScopeValid(
@@ -165,6 +205,10 @@ export function ServiceAliasAssignWorkflow({
       scopeKey,
       submitting: false,
     });
+    return () => {
+      requestGeneration.current++;
+      submissionLock.current = undefined;
+    };
   }, [defaultAliasName, scopeKey]);
 
   const confirm = useCallback(async () => {
@@ -301,6 +345,7 @@ export function ServiceAliasAssignWorkflow({
     <ServiceAliasAssign
       compact={compact}
       active={active}
+      autoFocusAlias={autoFocusAlias}
       aliasName={visible.aliasName}
       aliasValidationError={visible.aliasValidationError}
       assigned={
@@ -344,6 +389,15 @@ export function ServiceAliasAssignWorkflow({
       }
       onComposeInvocation={
         routedAlias && onComposeInvocation ? () => onComposeInvocation(routedAlias) : undefined
+      }
+      onCreateAnotherRoute={
+        canAssign &&
+        observedScopeValid &&
+        routedAlias &&
+        !visible.submitting &&
+        !visible.recoveryAttempt
+          ? onCreateAnotherRoute
+          : undefined
       }
       onConfirm={confirm}
       onDismissConfirmation={() =>
