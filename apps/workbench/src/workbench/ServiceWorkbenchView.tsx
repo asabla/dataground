@@ -34,6 +34,8 @@ interface ServiceWorkbenchViewProps {
   aliasReadError?: unknown;
   readStatus: ReactNode;
   commandContent: ReactNode;
+  draftContent: ReactNode;
+  draftActive: boolean;
   historyPanel: ReactNode;
   routesPanel: ReactNode;
   withdrawalPanel: ReactNode;
@@ -66,6 +68,8 @@ export function ServiceWorkbenchView({
   aliasReadError,
   readStatus,
   commandContent,
+  draftContent,
+  draftActive,
   historyPanel,
   routesPanel,
   withdrawalPanel,
@@ -199,6 +203,9 @@ export function ServiceWorkbenchView({
             label: "Build",
             content: (
               <>
+                <div hidden={!draftActive} inert={!draftActive}>
+                  {draftContent}
+                </div>
                 {commandTab === "build" ? (
                   commandContent
                 ) : (

@@ -138,3 +138,10 @@ Secondary service and command identifiers provide explicit copy controls. They
 report success only after the clipboard write completes and show a safe manual
 copy alternative on failure. Changing the value discards old feedback; the
 control does not copy on mount or store its value in browser persistence.
+
+Revision drafting has a stable slot in Build. Opening a saved version, discovering
+a route, or returning through New revision keeps the unfinished draft and its
+exact recovery request. A fresh draft replaces it only after creation was
+confirmed. Hidden drafts are inert; changing connection identity or scope still
+removes the service session. The temporary classic presentation retains its
+existing navigation behavior.

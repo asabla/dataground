@@ -424,3 +424,82 @@ it("keeps denied run locations out of inspection and permits a new explicit read
   await click("Retry run read");
   expect(selectedRunTab()).toBe("Output");
 });
+
+it("keeps an uncertain draft when opening another version and starting revision work again", async () => {
+  const revision = {
+    metadata: { ...service.metadata, id: "rev_00000000000000000001", version: 2, generation: 2 },
+    serviceId,
+    revisionNumber: 1,
+    state: "published",
+    publishedAt: service.metadata.updatedAt,
+    runtimeProfile: "reference/v1",
+    requiredCapabilities: [],
+  };
+  const attempts: unknown[] = [];
+  const client = {
+    GET: async (path: string) => {
+      if (path.endsWith("/{serviceId}")) return ok(service);
+      if (path.endsWith("/{revisionId}")) return ok(revision);
+      if (path.endsWith("/{alias}")) return absent("SERVICE_ALIAS_NOT_FOUND");
+      if (path.endsWith("/revisions")) return ok({ items: [revision] });
+      return ok({ items: [] });
+    },
+    POST: async (_path: string, options: unknown) => {
+      attempts.push(options);
+      throw new Error("Lost response");
+    },
+  } as unknown as DataGroundClient;
+  window.history.replaceState(
+    null,
+    "",
+    routeHash({ isolationDomainId: scope, serviceId, view: "workflow", serviceTab: "versions" }),
+  );
+  await render(client, "workbench");
+  await click("New revision");
+  await click("Create revision draft");
+  expect(attempts).toHaveLength(1);
+  await selectServiceTab("Versions");
+  const open = host.querySelector<HTMLButtonElement>('button[aria-label="Open revision 1"]');
+  expect(open).not.toBeNull();
+  await act(async () => open?.click());
+  expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Deployments");
+  await selectServiceTab("Versions");
+  await click("New revision");
+  await click("Retry revision creation");
+  expect(attempts).toHaveLength(2);
+  expect(attempts[1]).toEqual(attempts[0]);
+});
+
+it("starts a clean draft only after the previous draft was confirmed", async () => {
+  const { client } = fixture();
+  const created = {
+    metadata: { ...service.metadata, id: "rev_00000000000000000002" },
+    serviceId,
+    revisionNumber: 1,
+    state: "draft",
+    runtimeProfile: "reference/v1",
+    requiredCapabilities: [],
+  };
+  client.POST = (async () => ok(created)) as DataGroundClient["POST"];
+  window.history.replaceState(
+    null,
+    "",
+    routeHash({ isolationDomainId: scope, serviceId, view: "workflow" }),
+  );
+  await render(client, "workbench");
+  await click("Create revision draft");
+  await click("Open revision");
+  await selectServiceTab("Versions");
+  await click("New revision");
+  expect(
+    [...host.querySelectorAll("button")].some(
+      (button) =>
+        button.textContent === "Create revision draft" && !button.closest("[hidden], [inert]"),
+    ),
+  ).toBe(true);
+  expect(
+    [...host.querySelectorAll("button")].some(
+      (button) => button.textContent === "Open revision" && !button.closest("[hidden], [inert]"),
+    ),
+  ).toBe(false);
+});
