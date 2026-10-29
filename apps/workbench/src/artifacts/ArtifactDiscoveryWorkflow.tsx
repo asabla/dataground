@@ -6,25 +6,15 @@ import {
   StatusBadge,
   TextField,
 } from "@dataground/ui";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useId, useState } from "react";
 import type { DataGroundClient } from "../contracts/client";
+import { useDiscoveryPage } from "../discovery/useDiscoveryPage";
 import {
-  type ArtifactFailure,
   type InvocationArtifact,
   type InvocationArtifactListReference,
   type InvocationArtifactReference,
   listInvocationArtifacts,
 } from "./client";
-
-interface DiscoveryState {
-  client: DataGroundClient;
-  scope: string;
-  loading: boolean;
-  items: InvocationArtifact[];
-  seenCursors: string[];
-  nextCursor?: string;
-  error?: ArtifactFailure;
-}
 
 export function ArtifactDiscoveryWorkflow({
   client,
@@ -36,106 +26,21 @@ export function ArtifactDiscoveryWorkflow({
   onInspectArtifact?: (reference: InvocationArtifactReference) => void;
 }) {
   const { isolationDomainId, invocationId } = reference;
-  const scope = `${isolationDomainId}/${invocationId}`;
   const titleId = useId();
   const [stateFilter, setStateFilter] = useState("all");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<DataTableSort>({ column: "created", direction: "descending" });
-  const sequence = useRef(0);
-  const activeRequest = useRef<number | undefined>(undefined);
-  const currentIdentity = useRef({ client, scope });
-  currentIdentity.current = { client, scope };
-  const [state, setState] = useState<DiscoveryState>({
-    client,
-    scope,
-    loading: true,
-    items: [],
-    seenCursors: [],
-  });
-  const currentState = useRef(state);
-  currentState.current = state;
-  const load = useCallback(
-    async (cursor?: string) => {
-      if (
-        currentIdentity.current.client !== client ||
-        currentIdentity.current.scope !== scope ||
-        activeRequest.current !== undefined
-      )
-        return;
-      const requestId = ++sequence.current;
-      activeRequest.current = requestId;
-      setState((previous) => ({
-        client,
-        scope,
-        loading: true,
-        items: cursor === undefined ? [] : previous.items,
-        seenCursors: cursor === undefined ? [] : previous.seenCursors,
-      }));
-      const result = await listInvocationArtifacts(
-        client,
-        { isolationDomainId, invocationId },
-        cursor,
-      );
-      if (
-        sequence.current !== requestId ||
-        currentIdentity.current.client !== client ||
-        currentIdentity.current.scope !== scope
-      )
-        return;
-      activeRequest.current = undefined;
-      setState((previous) => {
-        if (!result.ok)
-          return { ...previous, loading: false, items: [], seenCursors: [], error: result.error };
-        const { items, nextCursor } = result.page;
-        if (
-          (nextCursor !== undefined && previous.seenCursors.includes(nextCursor)) ||
-          items.some((item) =>
-            previous.items.some((existing) => existing.metadata.id === item.metadata.id),
-          )
-        ) {
-          return {
-            ...previous,
-            loading: false,
-            items: [],
-            seenCursors: [],
-            error: {
-              code: "WORKBENCH_ARTIFACT_DISCOVERY_STALLED",
-              message: "Artifact discovery did not advance. Refresh artifacts to recover.",
-              retryable: false,
-            },
-          };
-        }
-        return {
-          ...previous,
-          loading: false,
-          items: [...previous.items, ...items],
-          nextCursor,
-          seenCursors:
-            nextCursor === undefined ? previous.seenCursors : [...previous.seenCursors, nextCursor],
-        };
-      });
-    },
-    [client, scope, isolationDomainId, invocationId],
+  const read = useCallback(
+    (cursor?: string) =>
+      listInvocationArtifacts(client, { isolationDomainId, invocationId }, cursor),
+    [client, isolationDomainId, invocationId],
   );
-  useEffect(() => {
-    activeRequest.current = undefined;
-    void load();
-    return () => {
-      sequence.current++;
-      activeRequest.current = undefined;
-    };
-  }, [load]);
-  const current = state.client === client && state.scope === scope;
-  const loading = !current || state.loading;
-  const items = current ? state.items : [];
+  const { items, loading, error, nextCursor, load, canAct } = useDiscoveryPage(
+    read,
+    "Artifact discovery did not advance. Refresh artifacts to recover.",
+  );
   const inspect = (item: InvocationArtifact) => {
-    if (
-      currentState.current === state &&
-      !state.error &&
-      currentIdentity.current.client === client &&
-      currentIdentity.current.scope === scope &&
-      activeRequest.current === undefined
-    )
+    if (canAct())
       onInspectArtifact?.({ isolationDomainId, invocationId, artifactId: item.metadata.id });
   };
   const visibleItems = items
@@ -163,12 +68,12 @@ export function ArtifactDiscoveryWorkflow({
         </Button>
       </div>
       {loading && <p role="status">Loading artifacts…</p>}
-      {current && state.error && (
+      {error && (
         <div role="alert" className="workbench-inline-error">
-          <p>{state.error.message}</p>
+          <p>{error.message}</p>
         </div>
       )}
-      {!loading && !state.error && items.length === 0 && <p>No artifacts recorded for this run.</p>}
+      {!loading && !error && items.length === 0 && <p>No artifacts recorded for this run.</p>}
       {items.length > 0 && (
         <>
           <div className="resource-browser__toolbar">
@@ -267,12 +172,12 @@ export function ArtifactDiscoveryWorkflow({
           />
         </>
       )}
-      {current && state.nextCursor && !state.error && (
+      {nextCursor && !error && (
         <Button
           variant="quiet"
           isDisabled={loading}
           onPress={() => {
-            if (currentState.current === state) void load(state.nextCursor);
+            if (canAct()) void load(nextCursor);
           }}
         >
           Load more artifacts
