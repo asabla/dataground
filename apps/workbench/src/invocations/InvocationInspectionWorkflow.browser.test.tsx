@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import type { DataGroundClient } from "../contracts/client";
 import type { InvocationQuestionReference } from "../questions";
-import { pendingQuestion, questionReference } from "../questions/fixtures";
+import { answeredQuestion, pendingQuestion, questionReference } from "../questions/fixtures";
 import { InvocationInspectionWorkflow } from "./InvocationInspectionWorkflow";
 
 let host: HTMLDivElement;
@@ -46,7 +46,7 @@ function fixture(withActivity = false) {
     source: "runtime",
   };
   let listed = true;
-  const question = pendingQuestion();
+  let question = pendingQuestion();
   const get = vi.fn(async (path: string) => {
     if (path.endsWith("/events"))
       return {
@@ -85,7 +85,10 @@ function fixture(withActivity = false) {
       return { data: { items: [] }, response: new Response(null, { status: 200 }) };
     return { response: new Response(null, { status: 403 }) };
   });
-  const post = vi.fn();
+  const post = vi.fn(async () => {
+    question = answeredQuestion(question);
+    return { data: question, response: new Response(null, { status: 200 }) };
+  });
   return {
     client: { GET: get, POST: post } as unknown as DataGroundClient,
     get,
@@ -137,6 +140,32 @@ async function click(label: string) {
   await act(async () => userEvent.click(target));
   return target;
 }
+
+it("refreshes the question list after acceptance and keeps the selected receipt in context", async () => {
+  const source = fixture();
+  await act(async () => root.render(<Journey client={source.client} presentation="workbench" />));
+  const requests = [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+    (tab) => tab.textContent === "Requests",
+  );
+  await act(async () => userEvent.click(requests as HTMLElement));
+  await click(`Open question ${questionReference.questionId}`);
+  await act(async () =>
+    userEvent.click(host.querySelector('input[type="radio"]') as HTMLInputElement),
+  );
+  await click("Submit answers");
+  await expect
+    .poll(
+      () => host.querySelector('[role="grid"][aria-label="Loaded question requests"]')?.textContent,
+    )
+    .toContain("answered");
+  await expect
+    .poll(() => document.activeElement)
+    .toBe(host.querySelector(".dg-question-request__heading"));
+  expect(host.querySelector('[aria-label="Selected interaction item"]')?.textContent).toContain(
+    "Answers recorded",
+  );
+  expect(source.post).toHaveBeenCalledOnce();
+});
 
 it("moves focus between sections without remounting workflows or sending commands", async () => {
   const source = fixture();

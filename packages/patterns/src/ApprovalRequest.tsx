@@ -1,6 +1,7 @@
 import { Button, CopyButton, StatusBadge, type StatusTone } from "@dataground/ui";
 import { useId } from "react";
 import { SecondaryDetails } from "./SecondaryDetails";
+import { useCommandResultFocus } from "./useCommandResultFocus";
 
 export type ApprovalDecision = "approve" | "deny";
 
@@ -90,6 +91,10 @@ export function ApprovalRequest({
   const titleId = useId();
   const presentation = statePresentation(approval.state);
   const pending = approval.state === "pending";
+  const receipt = useCommandResultFocus(
+    compact,
+    pending ? undefined : `${approval.id}:${approval.state}`,
+  );
   const actionLabel = actionLabels[approval.requestedAction];
   const canSubmit = pending && actionLabel !== undefined && canResolve && onDecision !== undefined;
 
@@ -99,7 +104,11 @@ export function ApprovalRequest({
       aria-labelledby={titleId}
       className={`dg-approval-request${compact ? " dg-request--workbench" : ""}`}
     >
-      <div className="dg-approval-request__heading">
+      <div
+        ref={receipt}
+        tabIndex={compact ? -1 : undefined}
+        className="dg-approval-request__heading"
+      >
         <div>
           <p className="dg-approval-request__eyebrow">Invocation approval</p>
           <h2 id={titleId}>{actionLabel ?? "Unrecognized requested action"}</h2>

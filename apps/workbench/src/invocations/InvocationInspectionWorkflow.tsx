@@ -116,6 +116,8 @@ export function InvocationInspectionWorkflow({
     artifactKey?: string;
   }>();
   const [retainedTab, setActiveTab] = useState<RunTab>("activity");
+  const [questionRefresh, setQuestionRefresh] = useState(0);
+  const [approvalRefresh, setApprovalRefresh] = useState(0);
   const activeTab = selectedTab ?? retainedTab;
   const approvalBlockedTitleId = useId();
   const approvalInspectionTitleId = useId();
@@ -289,6 +291,7 @@ export function InvocationInspectionWorkflow({
                 client={client}
                 reference={selectedQuestion}
                 canAnswer={canAnswerQuestion}
+                onAnswered={() => setQuestionRefresh((value) => value + 1)}
               />
             </section>
           ) : (
@@ -323,6 +326,7 @@ export function InvocationInspectionWorkflow({
                 canResolve={canResolveApproval}
                 client={client}
                 reference={selectedApproval}
+                onResolved={() => setApprovalRefresh((value) => value + 1)}
               />
             </section>
           ) : (
@@ -423,6 +427,7 @@ export function InvocationInspectionWorkflow({
           client={client}
           reference={reference}
           onInspectQuestion={inspectQuestion}
+          refreshGeneration={questionRefresh}
         />
       )}
       <ApprovalDiscoveryWorkflow
@@ -430,6 +435,7 @@ export function InvocationInspectionWorkflow({
         client={client}
         reference={reference}
         onInspectApproval={inspectApproval}
+        refreshGeneration={approvalRefresh}
       />
     </section>
   );

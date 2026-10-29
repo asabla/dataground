@@ -61,6 +61,25 @@ const meta = {
 } satisfies Meta<typeof QuestionRequest>;
 export default meta;
 type Story = StoryObj<typeof meta>;
+export const CompletionFocus: Story = {
+  render: function Completion(args) {
+    const [recorded, setRecorded] = useState(false);
+    return (
+      <QuestionRequest
+        {...args}
+        compact
+        complete
+        drafts={{ item_1: { optionIds: ["option_1"], text: "", useFreeText: false } }}
+        question={{ ...args.question, state: recorded ? "answered" : "pending" }}
+        onSubmit={() => setRecorded(true)}
+      />
+    );
+  },
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Submit answers" }));
+    await expect(canvasElement.querySelector(".dg-question-request__heading")).toHaveFocus();
+  },
+};
 export const Pending: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);

@@ -1,6 +1,7 @@
 import { Button, CopyButton, StatusBadge, type StatusTone, TextField } from "@dataground/ui";
 import { useId } from "react";
 import { SecondaryDetails } from "./SecondaryDetails";
+import { useCommandResultFocus } from "./useCommandResultFocus";
 
 export interface QuestionItem {
   id: string;
@@ -67,6 +68,10 @@ export function QuestionRequest({
     expired && question.state === "pending" ? "expired" : question.state
   ] ?? { label: "Unknown question state", tone: "neutral" };
   const pending = question.state === "pending" && !expired;
+  const receipt = useCommandResultFocus(
+    compact,
+    question.state === "pending" ? undefined : `${question.id}:${question.state}`,
+  );
   const editable = pending && canAnswer && !busy && !frozen && !disabledReason;
   return (
     <section
@@ -74,7 +79,11 @@ export function QuestionRequest({
       aria-busy={busy || undefined}
       className={`dg-question-request${compact ? " dg-request--workbench" : ""}`}
     >
-      <div className="dg-question-request__heading">
+      <div
+        ref={receipt}
+        tabIndex={compact ? -1 : undefined}
+        className="dg-question-request__heading"
+      >
         <h2 id={titleId}>{compact ? "Answer requests" : "Invocation questions"}</h2>
         <span aria-live="polite">
           <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
