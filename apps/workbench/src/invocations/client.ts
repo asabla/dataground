@@ -760,19 +760,26 @@ export async function cancelInvocation(
         path: reference,
       },
     });
-    if (!data) {
-      return failedResult(
+    if ((response.status !== 200 && response.status !== 202) || !data) {
+      const failure = failedResult(
         error,
         response.status,
         "DataGround returned a cancellation response the Workbench could not interpret.",
       );
+      return response.ok ||
+        response.status >= 500 ||
+        failure.error.code === "WORKBENCH_INVALID_RESPONSE"
+        ? { ...failure, error: { ...failure.error, retryable: true, outcomeUnknown: true } }
+        : failure;
     }
     const invocation = decodeInvocation(data, reference);
     return invocation
       ? completeSnapshot(client, invocation)
       : failure(
           "WORKBENCH_INVOCATION_SCOPE_MISMATCH",
-          "DataGround returned cancellation state outside the requested invocation scope.",
+          "DataGround returned unconfirmed cancellation state. Recover the original request before taking another action.",
+          true,
+          true,
         );
   } catch {
     return failure(

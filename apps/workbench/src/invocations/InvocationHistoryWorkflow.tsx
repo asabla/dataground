@@ -16,6 +16,7 @@ import { InvocationInspectionWorkflow } from "./InvocationInspectionWorkflow";
 import type { RunLocation, RunTab } from "./navigation";
 
 export interface InvocationHistoryWorkflowProps {
+  active?: boolean;
   refreshGeneration?: number;
   presentation?: "classic" | "workbench";
   location?: RunLocation;
@@ -36,6 +37,7 @@ export function InvocationHistoryWorkflow(props: InvocationHistoryWorkflowProps)
 }
 
 function InvocationHistorySession({
+  active: sessionActive = true,
   refreshGeneration = 0,
   client,
   target,
@@ -227,7 +229,7 @@ function InvocationHistorySession({
         </section>
       )}
       {opened.map((item) => {
-        const active = invocation?.metadata.id === item.metadata.id;
+        const active = sessionActive && invocation?.metadata.id === item.metadata.id;
         return (
           <div key={item.metadata.id} hidden={!active} inert={!active}>
             <RunInspectionSession
@@ -524,6 +526,7 @@ function RunInspectionSession({
         </Button>
       </div>
       <InvocationInspectionWorkflow
+        active={active}
         selectedTab={selectedTab}
         onSelectTab={onSelectTab}
         presentation={presentation}

@@ -48,6 +48,7 @@ type InvocationWorkflowAction =
 
 export interface InvocationWorkflowProps {
   compact?: boolean;
+  active?: boolean;
   renderDetails?: (details: { result: ReactNode; files: ReactNode }) => ReactNode;
   canCancel: boolean;
   client: DataGroundClient;
@@ -189,6 +190,7 @@ export function invocationReferenceKey(reference: InvocationReference): string {
 
 export function InvocationWorkflow({
   compact = false,
+  active = true,
   renderDetails,
   canCancel,
   client,
@@ -354,6 +356,7 @@ export function InvocationWorkflow({
     <>
       <InvocationStatus
         compact={compact}
+        active={active}
         canCancel={canCancel && (stateConfirmed || cancellationRecovery)}
         cancellationConfirmationVisible={
           stateMatchesReference && state.cancellationConfirmationVisible

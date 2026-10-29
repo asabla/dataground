@@ -828,6 +828,7 @@ export function ServiceWorkflowSession({
     return (
       <div ref={pageContent}>
         <ServiceWorkbenchView
+          active={active}
           runRefreshGeneration={runRefreshGeneration}
           runLocation={runLocation}
           onRunNavigate={onRunNavigate}

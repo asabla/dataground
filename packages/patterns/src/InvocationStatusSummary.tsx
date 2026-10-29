@@ -7,6 +7,7 @@ import {
   type StatePresentation,
   statePresentations,
 } from "./invocationPresentation";
+import { useCommandResultFocus } from "./useCommandResultFocus";
 
 interface InvocationStatusSummaryProps extends InvocationStatusProps {
   titleId: string;
@@ -32,13 +33,19 @@ export function InvocationStatusSummary({
   canCancel,
   disabledReason,
 }: InvocationStatusSummaryProps) {
+  const outcome = useCommandResultFocus(
+    true,
+    isLoading || isCancelling
+      ? undefined
+      : `${invocation?.state ?? "unavailable"}/${error?.message ?? ""}`,
+  );
   return (
     <section
       className="dg-run-status"
       aria-labelledby={titleId}
       aria-busy={isLoading || isCancelling || undefined}
     >
-      <div className="dg-run-status__heading">
+      <div className="dg-run-status__heading" ref={outcome} tabIndex={-1}>
         <h2 id={titleId}>Run outcome</h2>
         <span role="status">
           <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
