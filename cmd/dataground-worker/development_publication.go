@@ -42,7 +42,8 @@ func loadDevelopmentPublication(args []string, lookup environmentLookup) (develo
 	flags.SetOutput(io.Discard)
 	var version, deadline string
 	selectedProfile, _ := lookup("DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE")
-	sourcePublication := selectedProfile == workspaceLocalRuntimeProfile
+	ownedPublication := selectedProfile == ownedWorkspaceRuntimeProfile
+	sourcePublication := selectedProfile == workspaceLocalRuntimeProfile || ownedPublication
 	if sourcePublication && config.command != "publish-development" && config.command != "reconcile-authorized-publication" && config.command != "prepare-publication-configuration" {
 		return config, errDevelopmentPublication
 	}
@@ -90,7 +91,7 @@ func loadDevelopmentPublication(args []string, lookup environmentLookup) (develo
 	if err != nil || strconv.Itoa(config.input.ExpectedVersion) != version {
 		return config, errDevelopmentPublication
 	}
-	if profile, _ := lookup("DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE"); profile != strictLocalRuntimeProfile && profile != workspaceLocalRuntimeProfile {
+	if profile, _ := lookup("DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE"); profile != strictLocalRuntimeProfile && profile != workspaceLocalRuntimeProfile && profile != ownedWorkspaceRuntimeProfile {
 		return config, errDevelopmentPublication
 	}
 	acceptance, err := loadLocalRuntimeAcceptanceConfig(lookup)
@@ -110,6 +111,9 @@ func loadDevelopmentPublication(args []string, lookup environmentLookup) (develo
 	if sourcePublication {
 		config.input.Contract = persistence.WorkspaceDevelopmentPublicationContract
 	}
+	if ownedPublication {
+		config.input.Contract = persistence.OwnedWorkspacePublicationContract
+	}
 	config.input.Target = persistence.InvocationDispatchTarget{IsolationDomainID: acceptance.target.isolationDomainID, ServiceID: acceptance.target.serviceID, RevisionID: acceptance.target.revisionID, RuntimeProfile: persistence.GovernedInvocationRuntimeProfile}
 	// Freeze every verifier and routing input in command identity. Paths are kept
 	// only in this hash; receipts and audit never disclose deployment routing.
@@ -120,7 +124,9 @@ func loadDevelopmentPublication(args []string, lookup environmentLookup) (develo
 	if err != nil {
 		return config, errDevelopmentPublication
 	}
-	if sourcePublication {
+	if ownedPublication {
+		pins = append([]byte("dataground.development-publication-inputs/v3\x00"), pins...)
+	} else if sourcePublication {
 		pins = append([]byte("dataground.development-publication-inputs/v2\x00"), pins...)
 	}
 	digest := sha256.Sum256(pins)
@@ -264,6 +270,9 @@ func (config developmentPublicationConfiguration) isPublicationConsumer() bool {
 	return config.command == "reconcile-development-publication" || config.authorizedPublication()
 }
 func (config developmentPublicationConfiguration) publicationPolicyContract() string {
+	if config.acceptance.workspaceExport {
+		return reconcile.InvocationAuthorizationPolicyWorkspaceExportContract
+	}
 	if config.acceptance.workspaceSource {
 		return reconcile.InvocationAuthorizationPolicySourceContract
 	}
@@ -282,6 +291,9 @@ func writePublicPublicationConfiguration(output io.Writer, input persistence.Dev
 	contract := "dataground.api-governed-publication/v1"
 	if input.Contract == persistence.WorkspaceDevelopmentPublicationContract {
 		contract = "dataground.api-governed-publication/v2"
+	}
+	if input.Contract == persistence.OwnedWorkspacePublicationContract {
+		contract = "dataground.api-governed-publication/v3"
 	}
 	configuration := struct {
 		Contract           string `json:"contract"`

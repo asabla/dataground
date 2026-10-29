@@ -18,8 +18,11 @@ const AuthorizedDevelopmentVersion = 4
 // AuthorizedWorkspaceDevelopmentVersion binds a source-capable plan and policy.
 const AuthorizedWorkspaceDevelopmentVersion = 5
 
+// AuthorizedOwnedWorkspaceVersion binds the owned-runtime acceptance and export policy.
+const AuthorizedOwnedWorkspaceVersion = 6
+
 func IsAuthorizedDevelopmentVersion(version int) bool {
-	return version == AuthorizedDevelopmentVersion || version == AuthorizedWorkspaceDevelopmentVersion
+	return version == AuthorizedDevelopmentVersion || version == AuthorizedWorkspaceDevelopmentVersion || version == AuthorizedOwnedWorkspaceVersion
 }
 
 type State string

@@ -32,20 +32,25 @@ func preparePublicationSourceFixture(t *testing.T, ctx context.Context, repo *pe
 }
 
 func TestWorkspaceDevelopmentPublicationPinsSourceBindingAndAtomicReplay(t *testing.T) {
+	t.Run("source", func(t *testing.T) { testWorkspaceDevelopmentPublication(t, false) })
+	t.Run("owned", func(t *testing.T) { testWorkspaceDevelopmentPublication(t, true) })
+}
+
+func testWorkspaceDevelopmentPublication(t *testing.T, owned bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	pool := resetOperatorAuditDatabase(t, ctx)
 	defer pool.Close()
 	defer func() {
 		if _, err := pool.Exec(context.Background(), `TRUNCATE workspace_change_export_decisions,invocation_workspace_quiescence_completions,invocation_workspace_quiescence_intents,invocation_workspace_change_completions,invocation_workspace_change_exports,invocation_workspace_completions,invocation_workspace_preparations,service_revision_execution_plans,workspace_source_grants,workspace_source_use_decisions,workspace_source_completions,workspace_source_installations,workspaces,
- invocation_authorization_entity_activations,invocation_authorization_entity_generations,invocation_authorization_policy_withdrawals,invocation_authorization_policies,provider_credential_authorization_decisions,provider_credential_grant_events CASCADE`); err != nil {
+ audit_records,invocation_authorization_entity_activations,invocation_authorization_entity_generations,invocation_authorization_policy_withdrawals,invocation_authorization_policies,provider_credential_authorization_decisions,provider_credential_grant_events CASCADE`); err != nil {
 			t.Error(err)
 		}
 	}()
 	repo := persistence.NewRepository(pool)
 	store := executionpostgres.New(pool)
 	create := func(t *testing.T) developmentPublicationFixture {
-		return newDevelopmentPublicationFixtureWithSource(t, ctx, repo, store, nil, true)
+		return newDevelopmentPublicationFixtureForProfile(t, ctx, repo, store, nil, true, owned)
 	}
 	t.Run("publication precedes source grants and replay remains read-only", func(t *testing.T) {
 		fixture := create(t)
@@ -59,7 +64,7 @@ func TestWorkspaceDevelopmentPublicationPinsSourceBindingAndAtomicReplay(t *test
 			t.Fatal("source publication failed", err)
 		}
 		var receipt map[string]any
-		if json.Unmarshal(result.Body, &receipt) != nil || receipt["contract"] != persistence.WorkspaceDevelopmentPublicationContract || len(receipt) != 7 {
+		if json.Unmarshal(result.Body, &receipt) != nil || receipt["contract"] != fixture.input.Contract || len(receipt) != 7 {
 			t.Fatal("unsafe source publication receipt")
 		}
 		var metadata []byte
@@ -67,8 +72,18 @@ func TestWorkspaceDevelopmentPublicationPinsSourceBindingAndAtomicReplay(t *test
 			t.Fatal(err)
 		}
 		var fields map[string]any
-		if json.Unmarshal(metadata, &fields) != nil || fields["publicationContract"] != persistence.WorkspaceDevelopmentPublicationContract {
+		if json.Unmarshal(metadata, &fields) != nil || fields["publicationContract"] != fixture.input.Contract {
 			t.Fatal("missing source publication audit provenance")
+		}
+		if owned {
+			db, err := persistence.OpenSQL(ctx, testDatabaseURL(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			if err := persistence.MigrateDownTo(ctx, db, 82); err == nil {
+				t.Fatal("downgrade removed owned atomic publication support")
+			}
 		}
 		var grants int
 		if err := pool.QueryRow(ctx, `SELECT count(*) FROM workspace_source_grants WHERE isolation_domain_id=$1`, fixture.input.Target.IsolationDomainID).Scan(&grants); err != nil || grants != 0 {
@@ -88,6 +103,9 @@ func TestWorkspaceDevelopmentPublicationPinsSourceBindingAndAtomicReplay(t *test
 		}
 		changed := fixture.input
 		changed.Contract = persistence.DevelopmentPublicationContract
+		if owned {
+			changed.Contract = persistence.WorkspaceDevelopmentPublicationContract
+		}
 		if _, err := repo.PublishDevelopmentRevision(ctx, changed, verify); err == nil {
 			t.Fatal("replay replaced publication contract")
 		}
@@ -102,8 +120,14 @@ func TestWorkspaceDevelopmentPublicationPinsSourceBindingAndAtomicReplay(t *test
 				fixture.evidence.ExpiresAt = time.Now().Add(-time.Second)
 			case "wrong-profile":
 				fixture.evidence.Profile = persistence.StrictDevelopmentPublicationProfile
+				if owned {
+					fixture.evidence.Profile = persistence.WorkspaceDevelopmentPublicationProfile
+				}
 			case "legacy-contract":
 				fixture.input.Contract = persistence.DevelopmentPublicationContract
+				if owned {
+					fixture.input.Contract = persistence.WorkspaceDevelopmentPublicationContract
+				}
 			case "wrong-scope":
 				fixture.input.Target.IsolationDomainID = identity.New("iso")
 			case "policy-withdrawn":

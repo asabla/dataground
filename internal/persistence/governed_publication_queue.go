@@ -240,6 +240,9 @@ func developmentPublicationOperationID(input DevelopmentPublicationInput, versio
 		if version == publication.AuthorizedWorkspaceDevelopmentVersion {
 			suffix = ":authorized-publication:v2"
 		}
+		if version == publication.AuthorizedOwnedWorkspaceVersion {
+			suffix = ":authorized-publication:v3"
+		}
 	}
 	return identity.Derived("op", input.Target.IsolationDomainID+":"+input.Target.RevisionID+suffix)
 }
