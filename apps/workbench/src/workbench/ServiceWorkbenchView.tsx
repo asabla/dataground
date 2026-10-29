@@ -13,6 +13,7 @@ import type { AgentServiceInvocationSelection, AgentServiceResource } from "../s
 import { isServiceTab, type ServiceTab, type WorkbenchView } from "./navigation";
 
 interface ServiceWorkbenchViewProps {
+  runRefreshGeneration?: number;
   runLocation?: RunLocation;
   onRunNavigate: (location: RunLocation) => void;
   client: DataGroundClient;
@@ -50,6 +51,7 @@ interface ServiceWorkbenchViewProps {
 }
 
 export function ServiceWorkbenchView({
+  runRefreshGeneration = 0,
   runLocation,
   onRunNavigate,
   client,
@@ -278,6 +280,7 @@ export function ServiceWorkbenchView({
                 </div>
                 <div hidden={!!openedInvocation && !runLocation?.invocationId}>
                   <InvocationHistoryWorkflow
+                    refreshGeneration={runRefreshGeneration}
                     presentation="workbench"
                     location={runLocation ?? {}}
                     onNavigate={onRunNavigate}

@@ -1,6 +1,7 @@
 import { Button, CopyButton, SelectField, StatusBadge, TextField } from "@dataground/ui";
 import { useId } from "react";
 import { SecondaryDetails } from "./SecondaryDetails";
+import { useCommandResultFocus } from "./useCommandResultFocus";
 
 export interface InvocationComposerField {
   description?: string;
@@ -88,6 +89,7 @@ export function InvocationComposer({
   values,
 }: InvocationComposerProps) {
   const titleId = useId();
+  const receipt = useCommandResultFocus(compact, accepted?.invocationId);
   const unavailable = schemaError !== undefined || schema === undefined;
   const disabled =
     !canInvoke || unavailable || accepted !== undefined || isSubmitting || onSubmit === undefined;
@@ -182,7 +184,12 @@ export function InvocationComposer({
       )}
 
       {accepted ? (
-        <div className="dg-invocation-composer__accepted" aria-live="polite">
+        <div
+          ref={receipt}
+          tabIndex={compact ? -1 : undefined}
+          className="dg-invocation-composer__accepted"
+          aria-live="polite"
+        >
           <strong>
             {compact
               ? `Run accepted: ${displayText(accepted.state, 64)}.`

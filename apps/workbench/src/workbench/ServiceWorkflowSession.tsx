@@ -120,6 +120,7 @@ export function ServiceWorkflowSession({
   onOpenWorkspace,
   onServiceOpened,
 }: ServiceWorkflowSessionProps) {
+  const [runRefreshGeneration, setRunRefreshGeneration] = useState(0);
   const [routeRefreshGeneration, setRouteRefreshGeneration] = useState(0);
   const [retainedTab, setRetainedTab] = useState<ServiceTab>("build");
   const tab = selectedTab ?? retainedTab;
@@ -815,6 +816,10 @@ export function ServiceWorkflowSession({
           setRevisionListLoadingMore(false);
           setRevisionHistory((current) => mergeRevisionHistory(current, [revision]));
         }}
+        onInvocationCreated={(reference) => {
+          if (reference.isolationDomainId === isolationDomainId)
+            setRunRefreshGeneration((v) => v + 1);
+        }}
         onOpenInvocation={(reference) => onRunNavigate({ invocationId: reference.invocationId })}
       />
     );
@@ -823,6 +828,7 @@ export function ServiceWorkflowSession({
     return (
       <div ref={pageContent}>
         <ServiceWorkbenchView
+          runRefreshGeneration={runRefreshGeneration}
           runLocation={runLocation}
           onRunNavigate={onRunNavigate}
           client={client}
