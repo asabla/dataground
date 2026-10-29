@@ -1,4 +1,4 @@
-import { Button, StatusBadge } from "@dataground/ui";
+import { Button, Dialog, StatusBadge } from "@dataground/ui";
 import { useId } from "react";
 import { InvocationStatusSummary } from "./InvocationStatusSummary";
 import {
@@ -72,6 +72,7 @@ export interface InvocationStatusError {
 
 export interface InvocationStatusProps {
   compact?: boolean;
+  active?: boolean;
   canCancel: boolean;
   cancellationConfirmationVisible?: boolean;
   cancellationRecovery?: boolean;
@@ -98,6 +99,7 @@ export function isInvocationCancellable(state: string): boolean {
 
 export function InvocationStatus({
   compact = false,
+  active = true,
   canCancel,
   cancellationConfirmationVisible = false,
   cancellationRecovery = false,
@@ -148,7 +150,7 @@ export function InvocationStatus({
         </Button>
       )}
       {cancellationActionAvailable &&
-        !cancellationConfirmationVisible &&
+        (!cancellationConfirmationVisible || compact) &&
         !canRecoverCancellation && (
           <Button onPress={onRequestCancellation} variant="danger">
             Request cancellation
@@ -161,28 +163,58 @@ export function InvocationStatus({
       )}
     </div>
   );
-  const confirmation = (
-    <>
-      {cancellationActionAvailable &&
-        cancellationConfirmationVisible &&
-        !canRecoverCancellation && (
-          <fieldset className="dg-invocation-status__confirmation">
-            <legend id={confirmationId}>Confirm invocation cancellation</legend>
-            <p>
-              Cancellation is durable and cannot be withdrawn. DataGround may still need to
-              reconcile in-flight effects before the invocation becomes cancelled.
-            </p>
-            <div className="dg-invocation-status__confirmation-actions">
-              <Button isDisabled={isCancelling} onPress={onConfirmCancellation} variant="danger">
-                {isCancelling ? "Submitting cancellation…" : "Confirm cancellation"}
-              </Button>
-              <Button isDisabled={isCancelling} onPress={onDismissCancellation} variant="quiet">
-                Keep running
-              </Button>
-            </div>
-          </fieldset>
-        )}
-    </>
+  const confirmation = compact ? (
+    <Dialog
+      title="Cancel this run?"
+      isOpen={
+        active &&
+        (isCancelling ||
+          !!(
+            cancellationActionAvailable &&
+            cancellationConfirmationVisible &&
+            !canRecoverCancellation
+          ))
+      }
+      isDismissDisabled={isCancelling}
+      onClose={() => onDismissCancellation?.()}
+    >
+      <p>
+        Cancel the run on route <strong>{displayText(invocation?.alias ?? "", 63)}</strong> in
+        isolation scope <code>{displayText(reference.isolationDomainId, 64)}</code>.
+      </p>
+      <p>
+        Cancellation cannot be withdrawn. DataGround must reconcile any in-flight effects before it
+        can confirm that the run has stopped.
+      </p>
+      <div className="dg-invocation-status__confirmation-actions">
+        <Button autoFocus isDisabled={isCancelling} onPress={onDismissCancellation} variant="quiet">
+          Keep running
+        </Button>
+        <Button isDisabled={isCancelling} onPress={onConfirmCancellation} variant="danger">
+          {isCancelling ? "Submitting cancellation…" : "Confirm cancellation"}
+        </Button>
+      </div>
+    </Dialog>
+  ) : (
+    cancellationActionAvailable &&
+    cancellationConfirmationVisible &&
+    !canRecoverCancellation && (
+      <fieldset className="dg-invocation-status__confirmation">
+        <legend id={confirmationId}>Confirm invocation cancellation</legend>
+        <p>
+          Cancellation is durable and cannot be withdrawn. DataGround may still need to reconcile
+          in-flight effects before the invocation becomes cancelled.
+        </p>
+        <div className="dg-invocation-status__confirmation-actions">
+          <Button isDisabled={isCancelling} onPress={onConfirmCancellation} variant="danger">
+            {isCancelling ? "Submitting cancellation…" : "Confirm cancellation"}
+          </Button>
+          <Button isDisabled={isCancelling} onPress={onDismissCancellation} variant="quiet">
+            Keep running
+          </Button>
+        </div>
+      </fieldset>
+    )
   );
   if (compact)
     return (

@@ -400,35 +400,91 @@ describe("invocation status client", () => {
     assert.equal(requested, false);
   });
 
-  it("submits cancellation with an empty body and exact idempotency key", async () => {
-    const calls: Array<{ options: unknown; path: string }> = [];
-    const client = {
-      GET: async (path: string, options: unknown) => {
-        calls.push({ options, path });
-        return { data: operation, response: new Response(null, { status: 200 }) };
-      },
-      POST: async (path: string, options: unknown) => {
-        calls.push({ options, path });
-        return {
-          data: { ...invocation, state: "cancelling" },
-          response: new Response(null, { status: 202 }),
-        };
-      },
-    } as unknown as DataGroundClient;
-
-    const result = await cancelInvocation(client, reference, "cancel:stable0001");
-
-    assert.equal(result.ok, true);
-    assert.deepEqual(calls[0], {
-      options: {
-        body: {},
-        params: {
-          header: { "Idempotency-Key": "cancel:stable0001" },
-          path: reference,
+  it.each([200, 202])(
+    "accepts cancellation status %i with an empty body and exact idempotency key",
+    async (status) => {
+      const calls: Array<{ options: unknown; path: string }> = [];
+      const client = {
+        GET: async (path: string, options: unknown) => {
+          calls.push({ options, path });
+          return { data: operation, response: new Response(null, { status: 200 }) };
         },
-      },
-      path: "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel",
-    });
+        POST: async (path: string, options: unknown) => {
+          calls.push({ options, path });
+          return {
+            data: { ...invocation, state: status === 200 ? "cancelled" : "cancelling" },
+            response: new Response(null, { status }),
+          };
+        },
+      } as unknown as DataGroundClient;
+
+      const result = await cancelInvocation(client, reference, "cancel:stable0001");
+
+      assert.equal(result.ok, true);
+      assert.deepEqual(calls[0], {
+        options: {
+          body: {},
+          params: {
+            header: { "Idempotency-Key": "cancel:stable0001" },
+            path: reference,
+          },
+        },
+        path: "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/actions/cancel",
+      });
+    },
+  );
+
+  it("retains uncertain cancellation receipts and preserves explicit denials", async () => {
+    for (const status of [200, 201, 202, 500, 503, 403, 409]) {
+      const explicit = status === 403 || status === 409;
+      const result = await cancelInvocation(
+        {
+          POST: async () => ({
+            ...(status === 201 || status === 500 ? { data: invocation } : {}),
+            ...(explicit
+              ? {
+                  error: {
+                    error: {
+                      code: "REQUEST_DENIED",
+                      message: "Request denied.",
+                      correlationId: "cor_review",
+                      retryable: false,
+                    },
+                  },
+                }
+              : {}),
+            response: new Response(null, { status }),
+          }),
+          GET: async () => assert.fail("Unconfirmed cancellation must not load another operation"),
+        } as unknown as DataGroundClient,
+        reference,
+        "cancel:unconfirmed0001",
+      );
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.equal(result.error.retryable, !explicit);
+        assert.equal(result.error.outcomeUnknown === true, !explicit);
+      }
+    }
+    const substituted = await cancelInvocation(
+      {
+        POST: async () => ({
+          data: {
+            ...invocation,
+            metadata: { ...invocation.metadata, isolationDomainId: "iso_00000000000000000002" },
+          },
+          response: new Response(null, { status: 202 }),
+        }),
+        GET: async () => assert.fail("A substituted receipt must not load another operation"),
+      } as unknown as DataGroundClient,
+      reference,
+      "cancel:unconfirmed0002",
+    );
+    assert.equal(substituted.ok, false);
+    if (!substituted.ok) {
+      assert.equal(substituted.error.outcomeUnknown, true);
+      assert.equal(substituted.error.retryable, true);
+    }
   });
 
   it("classifies thrown cancellation transport as an uncertain retryable outcome", async () => {

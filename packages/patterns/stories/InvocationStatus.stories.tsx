@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
 import { expect, fn, userEvent, within } from "storybook/test";
 import { InvocationStatus, type InvocationStatusResource } from "../src/InvocationStatus";
 import "../src/styles.css";
@@ -217,5 +218,69 @@ export const CompactUncertainCancellation: Story = {
     const canvas = within(canvasElement);
     await userEvent.click(canvas.getByRole("button", { name: "Retry cancellation" }));
     await expect(args.onConfirmCancellation).toHaveBeenCalledOnce();
+  },
+};
+
+export const WorkbenchCancellation: Story = {
+  args: { compact: true },
+  render: function Cancellation(args) {
+    const [confirmation, setConfirmation] = useState(false);
+    const [cancelled, setCancelled] = useState(false);
+    return (
+      <InvocationStatus
+        {...args}
+        cancellationConfirmationVisible={confirmation}
+        invocation={{ ...invocation, state: cancelled ? "cancelled" : "running" }}
+        operation={{
+          ...operation,
+          command: cancelled ? "cancel" : "invoke",
+          desiredState: cancelled ? "cancelled" : "succeeded",
+          observedState: cancelled ? "cancelled" : "running",
+        }}
+        onRequestCancellation={() => setConfirmation(true)}
+        onDismissCancellation={() => setConfirmation(false)}
+        onConfirmCancellation={() => {
+          setConfirmation(false);
+          setCancelled(true);
+        }}
+      />
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const request = canvas.getByRole("button", { name: "Request cancellation" });
+    await userEvent.click(request);
+    const dialog = await canvas.findByRole("dialog", { name: "Cancel this run?" });
+    await expect(within(dialog).getByRole("button", { name: "Keep running" })).toHaveFocus();
+    await expect(within(dialog).getByText(reference.isolationDomainId)).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect(canvas.queryByRole("dialog")).not.toBeInTheDocument();
+    await expect(request).toHaveFocus();
+    await userEvent.click(request);
+    await userEvent.click(canvas.getByRole("button", { name: "Confirm cancellation" }));
+    await expect(canvas.getByText("Invocation cancelled")).toBeVisible();
+    await expect(canvas.getByRole("heading", { name: "Run outcome" }).parentElement).toHaveFocus();
+  },
+};
+
+export const WorkbenchCancellationPending: Story = {
+  args: { compact: true, isCancelling: true },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    const dialog = await canvas.findByRole("dialog", { name: "Cancel this run?" });
+    await expect(within(dialog).getByRole("button", { name: "Keep running" })).toBeDisabled();
+    await expect(
+      within(dialog).getByRole("button", { name: "Submitting cancellation…" }),
+    ).toBeDisabled();
+    await userEvent.keyboard("{Escape}");
+    await expect(dialog).toBeVisible();
+    await expect(args.onDismissCancellation).not.toHaveBeenCalled();
+  },
+};
+
+export const WorkbenchCancellationInactive: Story = {
+  args: { compact: true, active: false, cancellationConfirmationVisible: true },
+  play: async ({ canvasElement }) => {
+    await expect(within(canvasElement).queryByRole("dialog")).not.toBeInTheDocument();
   },
 };

@@ -25,6 +25,7 @@ const approvalIdPattern = /^apr_[0-9a-z]{20,32}$/u;
 const artifactIdPattern = /^art_[0-9a-z]{20,32}$/u;
 
 export interface InvocationInspectionWorkflowProps {
+  active?: boolean;
   presentation?: "classic" | "workbench";
   selectedTab?: RunTab;
   onSelectTab?: (tab: RunTab) => void;
@@ -91,6 +92,7 @@ function focusSection(section: HTMLElement | null) {
 
 export function InvocationInspectionWorkflow({
   presentation = "classic",
+  active = true,
   selectedTab,
   onSelectTab,
   canCancelInvocation,
@@ -465,6 +467,7 @@ export function InvocationInspectionWorkflow({
           primary={
             <InvocationWorkflow
               compact
+              active={active}
               client={client}
               reference={reference}
               canCancel={canCancelInvocation}

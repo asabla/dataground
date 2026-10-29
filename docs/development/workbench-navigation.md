@@ -313,3 +313,11 @@ Home recents and open-service controls return to the last selected service view,
 revision or run location in the current connection. They retain only parsed
 resource identities and view names in memory. Connection or scope replacement
 clears these return locations together with the retained work.
+
+Workbench cancellation uses a bounded dialog that names the route and isolation
+scope. Keep running receives initial focus; Escape returns focus to the request
+control. Submission prevents dismissal until its response is known. Hidden service
+or run contexts cannot keep a cancellation modal open. The outcome heading recovers
+lost focus after completion. Malformed responses retain the exact cancellation
+request for recovery; a confirmed denial or conflict remains terminal. The classic
+presentation uses the same command controller and retains its inline confirmation.
