@@ -102,7 +102,7 @@ func TestInvocationRuntimeApprovalWaitDrainsEventsAndRenewsLease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = driver.runTurn(ctx, claim, effect, turn, output, target, execution.ExecutionRef{}, nil, false, 0)
+	_, err = driver.runTurn(ctx, claim, effect, turn, output, target, execution.ExecutionRef{}, nil, false, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestInvocationRuntimeApprovalQueuedAtCompletionIsClosedWithoutDecision(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := driver.runTurn(context.Background(), claim, effect, turn, output, target, execution.ExecutionRef{}, nil, false, 0); err != nil {
+	if _, err := driver.runTurn(context.Background(), claim, effect, turn, output, target, execution.ExecutionRef{}, nil, false, 0, nil); err != nil {
 		t.Fatal(err)
 	}
 	if store.approval.State != "closed" || turn.decisionID != "" || store.effectiveDecision != "" || runtimeStore.completeCalls != 1 {
@@ -251,7 +251,7 @@ func TestInvocationRuntimeApprovalAndQuestionCanWaitTogether(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := questions.driver.runTurn(ctx, claim, questions.effect, turn, output, questions.target, execution.ExecutionRef{}, nil, true, time.Minute); err != nil {
+	if _, err := questions.driver.runTurn(ctx, claim, questions.effect, turn, output, questions.target, execution.ExecutionRef{}, nil, true, time.Minute, nil); err != nil {
 		t.Fatal(err)
 	}
 	if questionStore.value.State != "delivered" || approvalStore.approval.State != "delivered" || turn.answerCalls != 1 || turn.decisionID != "approval-1" || runtimeStore.completeCalls != 1 {
@@ -315,7 +315,7 @@ func TestInvocationRuntimeExpiredApprovalDoesNotWaitForeverForInterruption(t *te
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	_, err = driver.runTurn(ctx, claim, effect, turn, output, target, execution.ExecutionRef{}, nil, false, 0)
+	_, err = driver.runTurn(ctx, claim, effect, turn, output, target, execution.ExecutionRef{}, nil, false, 0, nil)
 	if !errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil || turn.interruptedDeadline.IsZero() || store.approval.State != "closed" || turn.decisionID != "" {
 		t.Fatalf("unacknowledged interrupt blocked expiry cleanup: %v", err)
 	}

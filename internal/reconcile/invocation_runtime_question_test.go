@@ -306,7 +306,7 @@ func TestInvocationRuntimeQuestionWaitKeepsDrainingEventsAndRenewingLease(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = questions.driver.runTurn(ctx, claim, questions.effect, turn, output, questions.target, execution.ExecutionRef{}, nil, true, time.Minute)
+	_, err = questions.driver.runTurn(ctx, claim, questions.effect, turn, output, questions.target, execution.ExecutionRef{}, nil, true, time.Minute, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +333,7 @@ func TestInvocationRuntimeQuestionQueuedAtTurnCompletionNeverDelivers(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = questions.driver.runTurn(context.Background(), claim, questions.effect, turn, output, questions.target, execution.ExecutionRef{}, nil, true, time.Minute)
+	_, err = questions.driver.runTurn(context.Background(), claim, questions.effect, turn, output, questions.target, execution.ExecutionRef{}, nil, true, time.Minute, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
