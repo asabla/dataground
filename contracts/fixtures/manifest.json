@@ -1,5 +1,20 @@
 {
   "fixtures": [
+    {
+      "file": "valid/workspace-agent-service.json",
+      "schema": "WorkspaceAgentService",
+      "valid": true
+    },
+    {
+      "file": "valid/workspace-agent-service-page.json",
+      "schema": "WorkspaceAgentServicePage",
+      "valid": true
+    },
+    {
+      "file": "invalid/workspace-agent-service-missing-relationship.json",
+      "schema": "WorkspaceAgentService",
+      "valid": false
+    },
     { "file": "valid/workspace-page-empty.json", "schema": "WorkspacePage", "valid": true },
     {
       "file": "invalid/create-workspace-nul.json",

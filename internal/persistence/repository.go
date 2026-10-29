@@ -51,6 +51,7 @@ func (problem *DomainError) Error() string {
 }
 
 type CreateServiceInput struct {
+	WorkspaceID   string
 	ID            string
 	Name          string
 	Description   string
@@ -131,8 +132,22 @@ func (repository *Repository) CreateService(
 	idempotency Idempotency,
 	input CreateServiceInput,
 ) (CommandResult, error) {
+	if input.WorkspaceID != "" && !workspaceRecordID.MatchString(input.WorkspaceID) {
+		return CommandResult{}, errors.New("service workspace is invalid")
+	}
 	return repository.execute(ctx, idempotency, func(tx pgx.Tx, now time.Time) (int, any, error) {
+		if input.WorkspaceID != "" {
+			var found string
+			err := tx.QueryRow(ctx, `SELECT id FROM workspaces WHERE isolation_domain_id=$1 AND id=$2 FOR KEY SHARE`, idempotency.IsolationDomainID, input.WorkspaceID).Scan(&found)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return 0, nil, &DomainError{Code: "RESOURCE_NOT_FOUND", Message: "Workspace was not found."}
+			}
+			if err != nil {
+				return 0, nil, fmt.Errorf("read service workspace: %w", err)
+			}
+		}
 		service := domain.AgentService{
+			WorkspaceID: input.WorkspaceID,
 			Metadata:    metadata(input.ID, idempotency.IsolationDomainID, input.ActorID, now),
 			Name:        input.Name,
 			Description: input.Description,
@@ -140,9 +155,9 @@ func (repository *Repository) CreateService(
 		_, err := tx.Exec(ctx, `
 			INSERT INTO agent_services (
 				isolation_domain_id, id, name, description, generation, version,
-				created_at, updated_at, created_by
-			) VALUES ($1, $2, $3, $4, 1, 1, $5, $5, $6)
-		`, idempotency.IsolationDomainID, input.ID, input.Name, input.Description, now, input.ActorID)
+				created_at, updated_at, created_by, workspace_id
+			) VALUES ($1, $2, $3, $4, 1, 1, $5, $5, $6, NULLIF($7,''))
+		`, idempotency.IsolationDomainID, input.ID, input.Name, input.Description, now, input.ActorID, input.WorkspaceID)
 		if err != nil {
 			return 0, nil, fmt.Errorf("insert agent service: %w", err)
 		}
@@ -172,18 +187,33 @@ func (repository *Repository) ListServices(
 	beforeID string,
 	limit int,
 ) (ServiceListPage, error) {
+	return repository.listServices(ctx, isolationDomainID, nil, beforeCreatedAt, beforeID, limit)
+}
+
+func (repository *Repository) ListWorkspaceServices(ctx context.Context, scope, workspaceID string, beforeCreatedAt *time.Time, beforeID string, limit int) (ServiceListPage, error) {
+	if !workspaceRecordID.MatchString(workspaceID) {
+		return ServiceListPage{}, errors.New("workspace service query is invalid")
+	}
+	if _, err := repository.GetWorkspace(ctx, scope, workspaceID); err != nil {
+		return ServiceListPage{}, err
+	}
+	return repository.listServices(ctx, scope, &workspaceID, beforeCreatedAt, beforeID, limit)
+}
+
+func (repository *Repository) listServices(ctx context.Context, isolationDomainID string, workspaceID *string, beforeCreatedAt *time.Time, beforeID string, limit int) (ServiceListPage, error) {
 	if !repository.Configured() || isolationDomainID == "" || limit < 1 || limit > 100 ||
 		(beforeCreatedAt == nil) != (beforeID == "") {
 		return ServiceListPage{}, errors.New("service list request is invalid")
 	}
 	rows, err := repository.pool.Query(ctx, `
-		SELECT id, name, description, generation, version, created_at, updated_at, created_by
+		SELECT id, name, description, generation, version, created_at, updated_at, created_by, COALESCE(workspace_id,'')
 		FROM agent_services
 		WHERE isolation_domain_id = $1
+		  AND ($5::text IS NULL OR workspace_id = $5)
 		  AND ($2::timestamptz IS NULL OR (created_at, id) < ($2, $3))
 		ORDER BY created_at DESC, id DESC
 		LIMIT $4
-	`, isolationDomainID, beforeCreatedAt, beforeID, limit+1)
+	`, isolationDomainID, beforeCreatedAt, beforeID, limit+1, workspaceID)
 	if err != nil {
 		return ServiceListPage{}, fmt.Errorf("list agent services: %w", err)
 	}
@@ -201,6 +231,7 @@ func (repository *Repository) ListServices(
 			&service.Metadata.CreatedAt,
 			&service.Metadata.UpdatedAt,
 			&service.Metadata.CreatedBy,
+			&service.WorkspaceID,
 		); err != nil {
 			return ServiceListPage{}, fmt.Errorf("scan agent service: %w", err)
 		}
