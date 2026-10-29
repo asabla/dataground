@@ -82,6 +82,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/isolation-domains/{isolationDomainId}/workspaces/{workspaceId}/agent-services": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List agent services in one workspace
+         * @description Requires a separate workspace-scoped discovery grant. Returns bounded metadata with a cursor bound to the isolation domain and workspace. Exact service and execution reads remain independently authorized.
+         */
+        get: operations["listWorkspaceAgentServices"];
+        put?: never;
+        /**
+         * Create an agent service in one workspace
+         * @description Requires a separate workspace-scoped creation grant. The service retains this explicit workspace identity. The relationship does not grant source, execution or content access and cannot be changed through this API. Existing scope-level creation remains unassigned.
+         */
+        post: operations["createWorkspaceAgentService"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/isolation-domains/{isolationDomainId}/agent-services": {
         parameters: {
             query?: never;
@@ -798,9 +822,20 @@ export interface components {
         };
         WorkspaceId: string;
         AgentService: {
+            /** @description Explicit organization relationship when assigned at creation. It grants no execution or content authority. */
+            workspaceId?: components["schemas"]["WorkspaceId"];
             metadata: components["schemas"]["ResourceMetadata"];
             name: string;
             description?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        WorkspaceAgentService: components["schemas"]["AgentService"] & {
+            workspaceId: components["schemas"]["WorkspaceId"];
+        };
+        WorkspaceAgentServicePage: {
+            items: components["schemas"]["WorkspaceAgentService"][];
+            nextCursor?: string;
         } & {
             [key: string]: unknown;
         };
@@ -1472,6 +1507,74 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    listWorkspaceAgentServices: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded agent-service page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceAgentServicePage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    createWorkspaceAgentService: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque caller key scoped to the isolation domain, HTTP method, and route. Reuse with a different body fails with IDEMPOTENCY_KEY_REUSED. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAgentServiceRequest"];
+            };
+        };
+        responses: {
+            /** @description Agent service created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceAgentService"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            415: components["responses"]["Error"];
             503: components["responses"]["Error"];
         };
     };

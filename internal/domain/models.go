@@ -23,6 +23,7 @@ type Workspace struct {
 }
 
 type AgentService struct {
+	WorkspaceID string           `json:"workspaceId,omitempty"`
 	Metadata    ResourceMetadata `json:"metadata"`
 	Name        string           `json:"name"`
 	Description string           `json:"description,omitempty"`

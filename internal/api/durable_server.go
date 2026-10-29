@@ -183,6 +183,8 @@ func newDurableHandler(
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/workspaces", protected(authz.CreateWorkspace, authz.IsolationDomain, "", server.createWorkspace))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/workspaces", protected(authz.ListWorkspaces, authz.IsolationDomain, "", server.listWorkspaces))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/workspaces/{workspaceId}", protected(authz.ReadWorkspace, authz.Workspace, "workspaceId", server.getWorkspace))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/workspaces/{workspaceId}/agent-services", protected(authz.CreateWorkspaceAgentService, authz.Workspace, "workspaceId", server.createAgentService))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/workspaces/{workspaceId}/agent-services", protected(authz.ListWorkspaceAgentServices, authz.Workspace, "workspaceId", server.listWorkspaceAgentServices))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations", protected(authz.ListScopeInvocations, authz.IsolationDomain, "", server.listScopeInvocations))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/artifacts", protected(authz.ListScopeArtifacts, authz.IsolationDomain, "", server.listScopeArtifacts))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/agent-services", protected(
@@ -372,8 +374,15 @@ func (server *DurableServer) createAgentService(response http.ResponseWriter, re
 		if input.Name == "" || len(input.Name) > 128 {
 			return encodedResult(invalidField("name", "Name must contain between 1 and 128 characters."))
 		}
+		if len(input.Description) > 2048 {
+			return encodedResult(invalidField("description", "Description must not exceed 2048 characters."))
+		}
+		workspaceID := request.PathValue("workspaceId")
+		if workspaceID != "" && !workspaceIDPattern.MatchString(workspaceID) {
+			return encodedResult(invalidField("workspaceId", "Workspace identifier is invalid."))
+		}
 		return server.repository.CreateService(request.Context(), commandIdempotency(request, domainID, actorID, body), persistence.CreateServiceInput{
-			ID: identity.New("svc"), Name: input.Name, Description: input.Description,
+			WorkspaceID: workspaceID, ID: identity.New("svc"), Name: input.Name, Description: input.Description,
 			ActorID: actorID, CorrelationID: correlationID,
 		})
 	})

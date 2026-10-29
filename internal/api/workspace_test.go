@@ -107,7 +107,7 @@ func TestWorkspaceRoutesBindIndependentActionsBeforeBodyRead(t *testing.T) {
 		action       authz.Action
 		kind         authz.ResourceType
 		id           string
-	}{{"POST", path, authz.CreateWorkspace, authz.IsolationDomain, testDomain}, {"GET", path, authz.ListWorkspaces, authz.IsolationDomain, testDomain}, {"GET", path + "/wsp_00000000000000000001", authz.ReadWorkspace, authz.Workspace, "wsp_00000000000000000001"}} {
+	}{{"POST", path, authz.CreateWorkspace, authz.IsolationDomain, testDomain}, {"GET", path, authz.ListWorkspaces, authz.IsolationDomain, testDomain}, {"GET", path + "/wsp_00000000000000000001", authz.ReadWorkspace, authz.Workspace, "wsp_00000000000000000001"}, {"POST", path + "/wsp_00000000000000000001/agent-services", authz.CreateWorkspaceAgentService, authz.Workspace, "wsp_00000000000000000001"}, {"GET", path + "/wsp_00000000000000000001/agent-services", authz.ListWorkspaceAgentServices, authz.Workspace, "wsp_00000000000000000001"}} {
 		calls := 0
 		h, err := api.NewHandler(authentication, authorizerFunc(func(_ context.Context, r authz.Request) error {
 			calls++

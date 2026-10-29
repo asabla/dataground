@@ -194,6 +194,128 @@
         }
       }
     },
+    "/v1/isolation-domains/{isolationDomainId}/workspaces/{workspaceId}/agent-services": {
+      "get": {
+        "operationId": "listWorkspaceAgentServices",
+        "summary": "List agent services in one workspace",
+        "description": "Requires a separate workspace-scoped discovery grant. Returns bounded metadata with a cursor bound to the isolation domain and workspace. Exact service and execution reads remain independently authorized.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded agent-service page.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceAgentServicePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createWorkspaceAgentService",
+        "summary": "Create an agent service in one workspace",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAgentServiceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Agent service created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceAgentService"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "description": "Requires a separate workspace-scoped creation grant. The service retains this explicit workspace identity. The relationship does not grant source, execution or content access and cannot be changed through this API. Existing scope-level creation remains unassigned."
+      }
+    },
     "/v1/isolation-domains/{isolationDomainId}/agent-services": {
       "get": {
         "operationId": "listAgentServices",
@@ -2285,9 +2407,48 @@
         "additionalProperties": true,
         "required": ["metadata", "name"],
         "properties": {
+          "workspaceId": {
+            "$ref": "#/components/schemas/WorkspaceId",
+            "description": "Explicit organization relationship when assigned at creation. It grants no execution or content authority."
+          },
           "metadata": { "$ref": "#/components/schemas/ResourceMetadata" },
           "name": { "type": "string", "minLength": 1, "maxLength": 128 },
           "description": { "type": "string", "maxLength": 2048 }
+        }
+      },
+      "WorkspaceAgentService": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AgentService"
+          },
+          {
+            "type": "object",
+            "required": ["workspaceId"],
+            "properties": {
+              "workspaceId": {
+                "$ref": "#/components/schemas/WorkspaceId"
+              }
+            }
+          }
+        ]
+      },
+      "WorkspaceAgentServicePage": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceAgentService"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
         }
       },
       "AgentServicePage": {

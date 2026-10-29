@@ -142,6 +142,8 @@ func (server *Server) handler(
 	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/workspaces", protected(authz.CreateWorkspace, authz.IsolationDomain, "", server.createWorkspace))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/workspaces", protected(authz.ListWorkspaces, authz.IsolationDomain, "", server.listWorkspaces))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/workspaces/{workspaceId}", protected(authz.ReadWorkspace, authz.Workspace, "workspaceId", server.getWorkspace))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/workspaces/{workspaceId}/agent-services", protected(authz.CreateWorkspaceAgentService, authz.Workspace, "workspaceId", server.createAgentService))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/workspaces/{workspaceId}/agent-services", protected(authz.ListWorkspaceAgentServices, authz.Workspace, "workspaceId", server.listWorkspaceAgentServices))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations", protected(authz.ListScopeInvocations, authz.IsolationDomain, "", server.listScopeInvocations))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/artifacts", protected(authz.ListScopeArtifacts, authz.IsolationDomain, "", server.listScopeArtifacts))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/agent-services", protected(
@@ -301,8 +303,18 @@ func (server *Server) createAgentService(response http.ResponseWriter, request *
 			return invalidField("description", "Description must not exceed 2048 characters.")
 		}
 
+		workspaceID := request.PathValue("workspaceId")
+		if workspaceID != "" {
+			if !workspaceIDPattern.MatchString(workspaceID) {
+				return invalidField("workspaceId", "Workspace identifier is invalid.")
+			}
+			if _, exists := server.workspaces[resourceKey(domainID, workspaceID)]; !exists {
+				return http.StatusNotFound, ErrorEnvelope{Error: safeErrorWithCorrelation(authenticatedCorrelationID(request), "RESOURCE_NOT_FOUND", "Workspace was not found.", false)}
+			}
+		}
 		now := server.now()
 		service := AgentService{
+			WorkspaceID: workspaceID,
 			Metadata:    newMetadata(newID("svc"), domainID, actorID, now),
 			Name:        input.Name,
 			Description: input.Description,
