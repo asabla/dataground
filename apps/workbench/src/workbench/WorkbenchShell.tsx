@@ -55,7 +55,7 @@ export function WorkbenchShell({
           <p className="workbench-sidebar__label">Workbench</p>
           <nav aria-label="Primary navigation">
             <Button
-              aria-current={view !== "interactions" ? "page" : undefined}
+              aria-current={view === "services" || view === "workflow" ? "page" : undefined}
               className="workbench-nav-button"
               onPress={() => onNavigate("services")}
               variant="quiet"
@@ -70,6 +70,16 @@ export function WorkbenchShell({
             >
               {scopeRuns ? "Runs" : "Interactions"}
             </Button>
+            {scopeRuns && (
+              <Button
+                aria-current={view === "artifacts" ? "page" : undefined}
+                className="workbench-nav-button"
+                onPress={() => onNavigate("artifacts")}
+                variant="quiet"
+              >
+                Artifacts
+              </Button>
+            )}
           </nav>
         </aside>
         {children}

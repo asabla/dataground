@@ -1,5 +1,6 @@
 import { Button } from "@dataground/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ScopeArtifactBrowser } from "../artifacts/ScopeArtifactBrowser";
 import type { DataGroundClient } from "../contracts/client";
 import { ScopeRunBrowser } from "../invocations/ScopeRunBrowser";
 import {
@@ -79,7 +80,7 @@ export function WorkbenchSession({
   const serviceListGeneration = useRef(0);
   const pageContent = useRef<HTMLDivElement>(null);
   const activeSession =
-    route?.view === "services"
+    route?.view === "services" || route?.view === "artifacts"
       ? undefined
       : route?.serviceId
         ? sessions.find((session) => session.service?.metadata.id === route.serviceId)
@@ -91,6 +92,9 @@ export function WorkbenchSession({
     !!route && view === "interactions" && !route.serviceId && presentation === "workbench";
   const [visitedScopeRuns, setVisitedScopeRuns] = useState(showScopeRuns);
   if (showScopeRuns && !visitedScopeRuns) setVisitedScopeRuns(true);
+  const showArtifacts = !!route && view === "artifacts" && presentation === "workbench";
+  const [visitedArtifacts, setVisitedArtifacts] = useState(showArtifacts);
+  if (showArtifacts && !visitedArtifacts) setVisitedArtifacts(true);
   const resolvingService = !!route?.serviceId && !activeSession;
 
   const loadServicePage = useCallback(
@@ -140,7 +144,7 @@ export function WorkbenchSession({
     const generation = ++serviceReadGeneration.current;
     setServiceReadError(undefined);
     setServiceReadLoading(false);
-    if (!route || route.view === "services") return;
+    if (!route || route.view === "services" || route.view === "artifacts") return;
     if (!route.serviceId) {
       if (
         route.view === "workflow" &&
@@ -187,9 +191,19 @@ export function WorkbenchSession({
           ? "services-title"
           : showScopeRuns
             ? "scope-runs-title"
-            : undefined;
+            : showArtifacts
+              ? "scope-artifacts-title"
+              : undefined;
     if (id) pageContent.current?.querySelector<HTMLElement>(`#${id}`)?.focus();
-  }, [route, resolvingService, serviceReadLoading, serviceReadError, view, showScopeRuns]);
+  }, [
+    route,
+    resolvingService,
+    serviceReadLoading,
+    serviceReadError,
+    view,
+    showScopeRuns,
+    showArtifacts,
+  ]);
 
   const navigateToService = (service: AgentServiceResource, next: WorkbenchView = "workflow") => {
     rememberService(service);
@@ -211,7 +225,9 @@ export function WorkbenchSession({
     navigate({
       isolationDomainId,
       view: next,
-      ...(next === "services" || (next === "interactions" && presentation === "workbench")
+      ...(next === "services" ||
+      next === "artifacts" ||
+      (next === "interactions" && presentation === "workbench")
         ? {}
         : { serviceId: context?.service?.metadata.id }),
     });
@@ -320,6 +336,30 @@ export function WorkbenchSession({
             </h1>
             <p>Select a service to browse its invocation history.</p>
             <Button onPress={() => navigateView("services")}>View agent services</Button>
+          </section>
+        )}
+        {visitedArtifacts && presentation === "workbench" && (
+          <div hidden={!showArtifacts} inert={!showArtifacts}>
+            <ScopeArtifactBrowser
+              client={client}
+              isolationDomainId={isolationDomainId}
+              onOpen={(artifact) =>
+                navigate({
+                  isolationDomainId,
+                  view: "interactions",
+                  serviceId: artifact.serviceId,
+                  invocationId: artifact.invocationId,
+                  runTab: "files",
+                  artifactId: artifact.metadata.id,
+                })
+              }
+            />
+          </div>
+        )}
+        {route?.view === "artifacts" && presentation === "classic" && (
+          <section>
+            <h1>Artifacts</h1>
+            <p>Select the workbench presentation to browse artifacts across runs.</p>
           </section>
         )}
         {visitedScopeRuns && presentation === "workbench" && (
