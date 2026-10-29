@@ -127,3 +127,35 @@ node scripts/local-runtime-acceptance-test-fixture.mjs \
 ```
 
 The destination must be new, with an owner-only mode-0700 parent. This command repeats real preparation and verification, generates a random service scope, and writes only the evidence snapshots, public trust, signed envelope, and `fixture.json` with their digest pins. Every file has mode 0600. The private test key stays in memory and is never written. The fixed reviewer and reason identify ephemeral conformance trust; this command cannot accept a caller-selected scope or key. Remove the directory after the test. These files do not represent an operational reviewer, durable trust administration, or release acceptance.
+
+## Owned runtime and workspace-export diagnostic
+
+The local conformance command accepts `--workspace-export` only with
+`--workspace-source` and the existing strict candidate selection. This selects
+[diagnostic version 7](../../deploy/openshell/runtime-owned-workspace-diagnostic.schema.json).
+The selected image must contain the source, native-owner and change-export
+helpers. Missing helpers fail the diagnostic. An image label or a successful
+source-only diagnostic does not supply this proof.
+
+Every native session in this diagnostic uses the process-owner transport: the
+source read-back, eight model cases, artifact production, and a final controlled
+writer. Sessions are sequential and have distinct owner bindings. Each must
+close with its exact terminal acknowledgement before another starts. Concurrent
+session starts are rejected. A failed transport start, missing acknowledgement
+or reused binding prevents export evidence. Source materialization stops before
+the first native session.
+
+The final probe writes fixed binary content, adds a file and an empty directory,
+removes an executable, and starts a detached writer. A second native command
+observes that the detached writer continues after its launch command exits.
+After confirmed owner cleanup, the probe exports changes through the gateway,
+rejects a foreign scope, reconstructs the expected tree, and requires an exact
+second export. Its bounded receipt falls inside the artifact case, before the
+sandbox teardown case. Only synthetic fixture metadata enters the diagnostic;
+private command output and change bytes are not included.
+
+This is a disposable development test. It does not establish exclusion of
+writers started outside this launcher, durable retention in the worker, or
+permission to delete user workspaces. The existing v1–v3 acceptance contracts
+reject this diagnostic. A separate acceptance contract and worker composition
+are required before these observations can authorize governed execution.

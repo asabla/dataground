@@ -19,6 +19,7 @@ var diagnosticModelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,12
 // LocalDiagnosticConfig deliberately has no workflow identity or acceptance
 // fields. A local run cannot produce the CI evidence used for certification.
 type LocalDiagnosticConfig struct {
+	WorkspaceExport          bool
 	WorkspaceSource          bool
 	SupervisorCandidateImage string
 	RepositoryRoot           string
@@ -48,6 +49,7 @@ func launchLocalDiagnostic(ctx context.Context, config LocalDiagnosticConfig, de
 	defer cancel()
 	result, err := launch(runCtx, LauncherConfig{
 		workspaceSource: config.WorkspaceSource,
+		workspaceExport: config.WorkspaceExport,
 		RepositoryRoot:  config.RepositoryRoot, WorkspaceRoot: config.WorkspaceRoot,
 		CredentialDirectory: config.CredentialDirectory, OpenShellBinary: config.OpenShellBinary,
 		DockerBinary: config.DockerBinary, Provenance: Provenance{SourceCommit: config.SourceCommit},
@@ -59,7 +61,7 @@ func launchLocalDiagnostic(ctx context.Context, config LocalDiagnosticConfig, de
 	if err != nil {
 		return LocalDiagnosticResult{}, err
 	}
-	if !result.complete || result.workspaceSourceRequired != config.WorkspaceSource || result.diagnosticModel != config.Model || result.candidateImage != config.CandidateImage || result.policyProfile != config.PolicyProfile || result.supervisorCandidateImage != config.SupervisorCandidateImage || result.record.Run.Provenance.WorkflowRunID != 0 || result.record.Run.Provenance.Workflow != "" || result.record.Run.Provenance.ArtifactName != "" {
+	if !result.complete || result.workspaceExportRequired != config.WorkspaceExport || result.workspaceSourceRequired != config.WorkspaceSource || result.diagnosticModel != config.Model || result.candidateImage != config.CandidateImage || result.policyProfile != config.PolicyProfile || result.supervisorCandidateImage != config.SupervisorCandidateImage || result.record.Run.Provenance.WorkflowRunID != 0 || result.record.Run.Provenance.Workflow != "" || result.record.Run.Provenance.ArtifactName != "" {
 		return LocalDiagnosticResult{}, ErrLauncherRun
 	}
 	return LocalDiagnosticResult{result: result}, nil
@@ -122,9 +124,34 @@ func (result LocalDiagnosticResult) MarshalJSON() ([]byte, error) {
 	} else if value.workspaceSource != nil {
 		return nil, ErrRunIncomplete
 	}
+	if value.workspaceExportRequired {
+		if !value.workspaceSourceRequired || !validOwnedWorkspaceDiagnostic(value.workspaceExport, value.record.Run.ID) {
+			return nil, ErrRunIncomplete
+		}
+		// The export proof must fall inside the artifact case, after all model
+		// sessions closed and before the sandbox teardown case.
+		matched := false
+		for _, check := range value.record.Checks {
+			if check.Name != CheckArtifactExport {
+				continue
+			}
+			begin, a := time.Parse(time.RFC3339Nano, check.StartedAt)
+			end, b := time.Parse(time.RFC3339Nano, check.FinishedAt)
+			captureStart, _ := time.Parse(time.RFC3339Nano, value.workspaceExport.StartedAt)
+			captureEnd, _ := time.Parse(time.RFC3339Nano, value.workspaceExport.FinishedAt)
+			matched = a == nil && b == nil && !captureStart.Before(begin) && !captureEnd.After(end)
+		}
+		if !matched {
+			return nil, ErrRunIncomplete
+		}
+		schema = ownedWorkspaceDiagnosticSchema
+	} else if value.workspaceExport != nil {
+		return nil, ErrRunIncomplete
+	}
 	// Use a closed local shape rather than serializing and editing CI evidence.
 	return json.Marshal(localDiagnosticRecord{
 		WorkspaceSource:     value.workspaceSource,
+		WorkspaceExport:     value.workspaceExport,
 		SupervisorCandidate: supervisorCandidate,
 		PolicySource:        policySource, SchemaVersion: schema, Profile: value.record.Profile, CandidateCredentialCheck: credentialCheck,
 		Run: localDiagnosticRun{ID: value.record.Run.ID, Resources: value.record.Run.Resources,
@@ -135,6 +162,7 @@ func (result LocalDiagnosticResult) MarshalJSON() ([]byte, error) {
 }
 
 type localDiagnosticRecord struct {
+	WorkspaceExport          *diagnosticWorkspaceExport     `json:"workspaceExport,omitempty"`
 	WorkspaceSource          *diagnosticWorkspaceSource     `json:"workspaceSource,omitempty"`
 	SupervisorCandidate      *diagnosticSupervisorCandidate `json:"supervisorCandidate,omitempty"`
 	PolicySource             *diagnosticPolicySource        `json:"policySource,omitempty"`

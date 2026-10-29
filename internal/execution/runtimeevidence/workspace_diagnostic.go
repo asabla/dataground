@@ -82,7 +82,11 @@ func checkLauncherWorkspace(ctx context.Context, runID string, value execution.E
 	if !ok || bound.provider == nil || value.IsolationDomainID != runtimeIsolationDomain(runID) || value.ID != runtimeExecutionID(runID) {
 		return nil, ErrCase
 	}
-	return checkWorkspaceDiagnostic(ctx, runID, bound.provider, execution.ExecutionRef{IsolationDomainID: value.IsolationDomainID, ID: value.ID})
+	var provider workspaceDiagnosticProvider = bound.provider
+	if bound.owned != nil {
+		provider = bound.owned
+	}
+	return checkWorkspaceDiagnostic(ctx, runID, provider, execution.ExecutionRef{IsolationDomainID: value.IsolationDomainID, ID: value.ID})
 }
 
 func checkWorkspaceDiagnostic(ctx context.Context, runID string, provider workspaceDiagnosticProvider, ref execution.ExecutionRef) (*diagnosticWorkspaceSource, error) {
@@ -153,6 +157,29 @@ func checkWorkspaceNative(ctx context.Context, provider workspaceDiagnosticProvi
 			outcome = ErrCase
 		}
 	}()
+	command, err := workspaceNativeCommand(session, map[string]any{"type": "readOnly", "networkAccess": false})
+	if err != nil {
+		return ErrCase
+	}
+	output, err := command([]string{"python3", "-c", workspaceNativeProbe})
+	var observed struct {
+		Content        string `json:"content"`
+		FileMode       int    `json:"fileMode"`
+		ExecutableMode int    `json:"executableMode"`
+		Link           string `json:"link"`
+		LinkedContent  string `json:"linkedContent"`
+	}
+	if err != nil || json.Unmarshal([]byte(output), &observed) != nil || observed.Content != "00ff0a2a" || observed.LinkedContent != observed.Content || observed.FileMode != 0600 || observed.ExecutableMode != 0700 || observed.Link != "src/data.bin" {
+		return ErrCase
+	}
+	if output, err := command([]string{"/sandbox/workspace/run.sh"}); err != nil || output != "DATAGROUND_SOURCE_EXECUTABLE_OK\n" {
+		return ErrCase
+	}
+	return nil
+}
+
+// Both probes use fixed repository-owned commands and bounded private responses.
+func workspaceNativeCommand(session execution.RuntimeSession, policy map[string]any) (func([]string) (string, error), error) {
 	scanner := bufio.NewScanner(io.LimitReader(session.Output(), 128<<10))
 	scanner.Buffer(make([]byte, 4096), 16<<10)
 	id := 0
@@ -190,10 +217,10 @@ func checkWorkspaceNative(ctx context.Context, provider workspaceDiagnosticProvi
 		return nil, ErrCase
 	}
 	if _, err := call("initialize", map[string]any{"clientInfo": map[string]any{"name": "dataground-workspace-diagnostic", "version": "1"}, "capabilities": map[string]any{"experimentalApi": true}}); err != nil {
-		return ErrCase
+		return nil, ErrCase
 	}
 	command := func(args []string) (string, error) {
-		response, err := call("command/exec", map[string]any{"command": args, "cwd": "/sandbox/workspace", "sandboxPolicy": map[string]any{"type": "readOnly", "networkAccess": false}, "timeoutMs": 10000, "outputBytesCap": 4096})
+		response, err := call("command/exec", map[string]any{"command": args, "cwd": "/sandbox/workspace", "sandboxPolicy": policy, "timeoutMs": 10000, "outputBytesCap": 4096})
 		var result struct {
 			ExitCode *int   `json:"exitCode"`
 			Stdout   string `json:"stdout"`
@@ -204,19 +231,5 @@ func checkWorkspaceNative(ctx context.Context, provider workspaceDiagnosticProvi
 		}
 		return result.Stdout, nil
 	}
-	output, err := command([]string{"python3", "-c", workspaceNativeProbe})
-	var observed struct {
-		Content        string `json:"content"`
-		FileMode       int    `json:"fileMode"`
-		ExecutableMode int    `json:"executableMode"`
-		Link           string `json:"link"`
-		LinkedContent  string `json:"linkedContent"`
-	}
-	if err != nil || json.Unmarshal([]byte(output), &observed) != nil || observed.Content != "00ff0a2a" || observed.LinkedContent != observed.Content || observed.FileMode != 0600 || observed.ExecutableMode != 0700 || observed.Link != "src/data.bin" {
-		return ErrCase
-	}
-	if output, err := command([]string{"/sandbox/workspace/run.sh"}); err != nil || output != "DATAGROUND_SOURCE_EXECUTABLE_OK\n" {
-		return ErrCase
-	}
-	return nil
+	return command, nil
 }

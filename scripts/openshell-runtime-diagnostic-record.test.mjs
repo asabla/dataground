@@ -315,3 +315,102 @@ test("supervisor diagnostics require independent image and realized topology bin
     assert.notEqual(verifyDiagnostic(changed, selected).length, 0);
   }
 });
+
+test("owned workspace diagnostics bind all sessions and export before teardown", async () => {
+  const value = JSON.parse(
+    await readFile(
+      new URL(
+        "../deploy/openshell/diagnostics/codex-workspace-candidate-arm64-20261015.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  value.profile.composeSHA256 = currentProfile.runtime.conformance.topology.composeSHA256;
+  const selected = {
+    sourceCommit: value.run.sourceCommit,
+    candidateImage: value.profile.sandboxImage,
+    supervisorImage: value.profile.supervisorImage,
+    workspaceSource: true,
+    workspaceExport: true,
+  };
+  const artifact = value.checks.find((item) => item.name === "artifact-export");
+  value.schemaVersion = "dataground.dev.openshell-runtime-diagnostic/v7";
+  value.workspaceExport = {
+    profile: "openshell-owned-workspace-diagnostic/v1",
+    runId: value.run.id,
+    startedAt: new Date(Date.parse(artifact.finishedAt) - 2).toISOString(),
+    finishedAt: new Date(Date.parse(artifact.finishedAt) - 1).toISOString(),
+    ownedSessions: 11,
+    changes: {
+      schemaVersion: "dataground.workspace-changes/v1",
+      digest: `sha256:${"d".repeat(64)}`,
+      sizeBytes: 1800,
+      baseArchiveDigest: value.workspaceSource.archiveDigest,
+      resultArchiveDigest: `sha256:${"e".repeat(64)}`,
+      changeCount: 5,
+      entryCount: 6,
+      sourceBytes: 15,
+    },
+    checks: [
+      "owned-model-sessions",
+      "terminal-owner-acknowledgements",
+      "detached-writer-observed",
+      "binary-change-export",
+      "exact-repeated-export",
+      "restored-tree",
+      "cross-domain-denial",
+    ],
+  };
+  assert.deepEqual(verifyDiagnostic(value, selected), []);
+  assert.notEqual(verifyDiagnostic(value, { ...selected, workspaceExport: false }).length, 0);
+  assert.notEqual(verifyDiagnostic(value, { ...selected, workspaceSource: false }).length, 0);
+  for (const change of [
+    (v) => {
+      delete v.workspaceExport;
+    },
+    (v) => {
+      delete v.workspaceSource;
+    },
+    (v) => {
+      v.workspaceExport.runId = "f".repeat(32);
+    },
+    (v) => {
+      v.workspaceExport.ownedSessions--;
+    },
+    (v) => {
+      v.workspaceExport.checks.reverse();
+    },
+    (v) => {
+      v.workspaceExport.changes.baseArchiveDigest = v.workspaceExport.changes.resultArchiveDigest;
+    },
+    (v) => {
+      v.workspaceExport.changes.sourceBytes++;
+    },
+    (v) => {
+      v.workspaceExport.changes.sizeBytes = 65537;
+    },
+    (v) => {
+      v.workspaceExport.startedAt = v.run.startedAt;
+    },
+    (v) => {
+      v.workspaceExport.finishedAt = v.run.finishedAt;
+    },
+    (v) => {
+      v.workspaceExport.startedAt = v.workspaceExport.finishedAt;
+    },
+    (v) => {
+      v.workspaceExport.privateContent = "withheld";
+    },
+    (v) => {
+      v.schemaVersion = "dataground.dev.openshell-runtime-diagnostic/v6";
+    },
+    (v) => {
+      v.certificationEligible = true;
+    },
+  ]) {
+    const invalid = structuredClone(value);
+    change(invalid);
+    assert.notEqual(verifyDiagnostic(invalid, selected).length, 0);
+  }
+});
