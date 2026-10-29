@@ -1,4 +1,5 @@
 export { Button, type ButtonProps, type ButtonVariant } from "./Button";
+export { CopyButton, type CopyButtonProps } from "./CopyButton";
 export {
   DataTable,
   type DataTableColumn,

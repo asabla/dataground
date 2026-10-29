@@ -293,3 +293,18 @@
 .dg-tabs__panel[data-inert] {
   display: none;
 }
+
+.dg-copy-button {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dg-space-2);
+  font-size: var(--dg-font-size-caption);
+}
+.dg-copy-button .dg-button {
+  min-height: var(--dg-density-control-height);
+  padding: var(--dg-space-1) var(--dg-space-2);
+}
+.dg-copy-button [role="alert"] {
+  color: var(--dg-color-status-critical);
+}

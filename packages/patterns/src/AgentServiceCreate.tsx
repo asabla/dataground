@@ -1,4 +1,4 @@
-import { Button, StatusBadge, TextField } from "@dataground/ui";
+import { Button, CopyButton, StatusBadge, TextField } from "@dataground/ui";
 import { useId } from "react";
 import { CommandDetails } from "./CommandDetails";
 
@@ -108,7 +108,10 @@ export function AgentServiceCreate({
         <dl className="dg-agent-service-create__scope">
           <div>
             <dt>Isolation domain</dt>
-            <dd>{displayText(isolationDomainId, 64)}</dd>
+            <dd>
+              {displayText(isolationDomainId, 64)}{" "}
+              {compact && <CopyButton label="isolation scope" value={isolationDomainId} />}
+            </dd>
           </div>
         </dl>
       </CommandDetails>

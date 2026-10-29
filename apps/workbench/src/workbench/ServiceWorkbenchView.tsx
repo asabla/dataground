@@ -1,4 +1,4 @@
-import { Button, StatusBadge, Tabs } from "@dataground/ui";
+import { Button, CopyButton, StatusBadge, Tabs } from "@dataground/ui";
 import { type ReactNode, useState } from "react";
 import type { ServiceAliasResource } from "../aliases";
 import type { DataGroundClient } from "../contracts/client";
@@ -179,7 +179,8 @@ export function ServiceWorkbenchView({
                     <div>
                       <dt>Service identifier</dt>
                       <dd>
-                        <code>{openedService.metadata.id}</code>
+                        <code>{openedService.metadata.id}</code>{" "}
+                        <CopyButton label="service identifier" value={openedService.metadata.id} />
                       </dd>
                     </div>
                     <div>

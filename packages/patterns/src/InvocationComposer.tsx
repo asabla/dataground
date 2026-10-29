@@ -1,4 +1,4 @@
-import { Button, SelectField, StatusBadge, TextField } from "@dataground/ui";
+import { Button, CopyButton, SelectField, StatusBadge, TextField } from "@dataground/ui";
 import { useId } from "react";
 import { CommandDetails } from "./CommandDetails";
 
@@ -135,11 +135,17 @@ export function InvocationComposer({
         <dl className="dg-invocation-composer__scope">
           <div>
             <dt>Isolation domain</dt>
-            <dd>{displayText(target.isolationDomainId, 64)}</dd>
+            <dd>
+              {displayText(target.isolationDomainId, 64)}{" "}
+              {compact && <CopyButton label="isolation scope" value={target.isolationDomainId} />}
+            </dd>
           </div>
           <div>
             <dt>Agent service</dt>
-            <dd>{displayText(target.serviceId, 64)}</dd>
+            <dd>
+              {displayText(target.serviceId, 64)}{" "}
+              {compact && <CopyButton label="service identifier" value={target.serviceId} />}
+            </dd>
           </div>
         </dl>
       </CommandDetails>
