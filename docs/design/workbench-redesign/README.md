@@ -1,6 +1,6 @@
 # Workbench redesign: design review
 
-Status: stages 1 and 2. This is a proposed product design and an isolated, connected React prototype. Production migration requires review of this complete prototype. It does not establish production feature availability, runtime certification, Databricks parity, or WCAG conformance.
+Status: stages 1 and 2 complete; the user approved the connected prototype on 29 October 2026 and authorized production migration and missing-feature delivery. The prototype remains an isolated design reference. Track implementation in [production delivery](../../implementation/workbench-redesign-delivery.md). It does not establish production feature availability, runtime certification, Databricks parity, or WCAG conformance.
 
 Start the preview with `pnpm dev:prototype`, then open <http://127.0.0.1:5174/>. The preview uses fictional Northstar Retail data. The review strip provides failure states and a screen-specific review guide. Use **Dark** in the application header to compare themes. Refresh resets all sample state. Hash navigation retains drafts during the current page session.
 
@@ -166,9 +166,9 @@ See [review evidence](review-evidence.md) for actual screenshots and completed c
 
 ## Review gate and subsequent delivery
 
-Stop here for the user's review of the complete connected prototype. Automated checks cannot approve the product direction. Review whether the first view makes resource, state and next action clear; whether lists allow comparison; whether both analyst and builder journeys have a coherent location; and whether the density, editor layout and inspection behavior are suitable.
+The user completed the prototype review and approved implementation on 29 October 2026. The design gate is cleared. Automated checks alone do not approve the product direction. Review whether the first view makes resource, state and next action clear; whether lists allow comparison; whether both analyst and builder journeys have a coherent location; and whether the density, editor layout and inspection behavior are suitable.
 
-After approval, stage 3 introduces shared tables, tabs, trees, menus, dialogs, details and resizable regions with real consumers, Storybook contracts and accessible behavior. Production URLs must support direct links, refresh and browser history. Navigation and command state must be separate; pending exact requests and forms must survive supported navigation and clear on identity/scope change.
+Stage 3 introduces shared tables, tabs, trees, menus, dialogs, details and resizable regions with real consumers, Storybook contracts and accessible behavior. Production URLs must support direct links, refresh and browser history. Navigation and command state must be separate; pending exact requests and forms must survive supported navigation and clear on identity/scope change.
 
 Stage 4 migrates the complete agent journey using the same proven command implementations. Keep a temporary presentation switch during validation and remove it after the full journey passes acceptance. Stage 5 adds analyst and operations journeys against actual platform services, after the governed-agent prerequisite. Unsupported destinations stay in the prototype until implemented and authorized.
 

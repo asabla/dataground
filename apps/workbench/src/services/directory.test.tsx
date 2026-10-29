@@ -60,6 +60,14 @@ describe("service directory", () => {
     assert.deepEqual(selectDirectoryServices([tied, older], "", "name"), [older, tied]);
   });
 
+  it("presents comparable resources in a named table without foregrounding internal IDs", () => {
+    const markup = renderToStaticMarkup(<ServiceDirectory {...props} />);
+    assert.match(markup, /<table[^>]+aria-label="Loaded agent services"/u);
+    assert.match(markup, /role="rowheader"/u);
+    assert.match(markup, /<time datetime=/iu);
+    assert.doesNotMatch(markup, /<code>svc_/u);
+  });
+
   it("keeps page loading available when the loaded-page search has no matches", () => {
     const markup = renderToStaticMarkup(<ServiceDirectory {...props} query="missing" />);
     assert.match(markup, /No matching loaded services/u);

@@ -1,4 +1,4 @@
-import { Button, SelectField, TextField } from "@dataground/ui";
+import { Button, DataTable, SelectField, TextField } from "@dataground/ui";
 import { useRef } from "react";
 import type { AgentServiceFailure, AgentServiceResource } from "./client";
 import { type ServiceSort, selectDirectoryServices } from "./directory";
@@ -100,45 +100,59 @@ export function ServiceDirectory({
       )}
 
       {visible.length > 0 ? (
-        <ul
-          className="service-directory__list"
-          aria-label="Loaded agent services"
-          aria-busy={loading}
-        >
-          {visible.map((service) => (
-            <li key={service.metadata.id}>
-              <div className="service-directory__identity">
-                <h2>{service.name}</h2>
-                <p>{service.description || "No description"}</p>
-                <code>{service.metadata.id}</code>
-              </div>
-              <div className="service-directory__updated">
-                <span>Updated</span>
+        <DataTable
+          label="Loaded agent services"
+          items={visible}
+          getRowId={(service) => service.metadata.id}
+          getRowLabel={(service) => service.name}
+          isLoading={loading}
+          columns={[
+            {
+              id: "name",
+              title: "Service",
+              isRowHeader: true,
+              render: (service) => (
+                <div className="service-directory__identity">
+                  <strong>{service.name}</strong>
+                  <p>{service.description || "No description"}</p>
+                </div>
+              ),
+            },
+            {
+              id: "updated",
+              title: "Updated",
+              render: (service) => (
                 <time dateTime={service.metadata.updatedAt}>
                   {new Date(service.metadata.updatedAt).toLocaleString()}
                 </time>
-              </div>
-              <div className="service-directory__actions">
-                <Button
-                  aria-label={`Open service ${service.name}`}
-                  isDisabled={unavailable}
-                  onPress={() => onOpen(service)}
-                  variant="secondary"
-                >
-                  Open service
-                </Button>
-                <Button
-                  aria-label={`View interactions for ${service.name}`}
-                  isDisabled={unavailable}
-                  onPress={() => onHistory(service)}
-                  variant="quiet"
-                >
-                  View interactions
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
+              ),
+            },
+            {
+              id: "actions",
+              title: "Actions",
+              render: (service) => (
+                <div className="service-directory__actions">
+                  <Button
+                    aria-label={`Open service ${service.name}`}
+                    isDisabled={unavailable}
+                    onPress={() => onOpen(service)}
+                    variant="quiet"
+                  >
+                    Open service
+                  </Button>
+                  <Button
+                    aria-label={`View interactions for ${service.name}`}
+                    isDisabled={unavailable}
+                    onPress={() => onHistory(service)}
+                    variant="quiet"
+                  >
+                    View interactions
+                  </Button>
+                </div>
+              ),
+            },
+          ]}
+        />
       ) : !loading && !error ? (
         <div className="workbench-empty">
           <h2>
