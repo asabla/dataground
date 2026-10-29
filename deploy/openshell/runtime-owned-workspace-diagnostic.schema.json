@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v7.json",
+  "title": "DataGround local owned runtime and workspace export diagnostic",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "certificationEligible",
+    "profile",
+    "run",
+    "checks",
+    "cleanup",
+    "result",
+    "candidateCredentialCheck",
+    "policySource",
+    "supervisorCandidate",
+    "workspaceSource",
+    "workspaceExport"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "dataground.dev.openshell-runtime-diagnostic/v7"
+    },
+    "certificationEligible": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v6.json#/properties/certificationEligible"
+    },
+    "profile": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v6.json#/properties/profile"
+    },
+    "run": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v6.json#/properties/run"
+    },
+    "checks": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v6.json#/properties/checks"
+    },
+    "cleanup": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v6.json#/properties/cleanup"
+    },
+    "result": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v6.json#/properties/result"
+    },
+    "candidateCredentialCheck": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v6.json#/properties/candidateCredentialCheck"
+    },
+    "policySource": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v6.json#/properties/policySource"
+    },
+    "supervisorCandidate": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v6.json#/properties/supervisorCandidate"
+    },
+    "workspaceSource": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v6.json#/properties/workspaceSource"
+    },
+    "workspaceExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "runId",
+        "startedAt",
+        "finishedAt",
+        "ownedSessions",
+        "changes",
+        "checks"
+      ],
+      "properties": {
+        "profile": {
+          "const": "openshell-owned-workspace-diagnostic/v1"
+        },
+        "runId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "startedAt": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json#/$defs/timestamp"
+        },
+        "finishedAt": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json#/$defs/timestamp"
+        },
+        "ownedSessions": {
+          "const": 11
+        },
+        "changes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "digest",
+            "sizeBytes",
+            "baseArchiveDigest",
+            "resultArchiveDigest",
+            "changeCount",
+            "entryCount",
+            "sourceBytes"
+          ],
+          "properties": {
+            "schemaVersion": {
+              "const": "dataground.workspace-changes/v1"
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "sizeBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65536
+            },
+            "baseArchiveDigest": {
+              "const": "sha256:923eacd2ade97fcaa909d0427e23a1a868f5e7ee1c15f82c476d2207bfc7c613"
+            },
+            "resultArchiveDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "changeCount": {
+              "const": 5
+            },
+            "entryCount": {
+              "const": 6
+            },
+            "sourceBytes": {
+              "const": 15
+            }
+          }
+        },
+        "checks": {
+          "const": [
+            "owned-model-sessions",
+            "terminal-owner-acknowledgements",
+            "detached-writer-observed",
+            "binary-change-export",
+            "exact-repeated-export",
+            "restored-tree",
+            "cross-domain-denial"
+          ]
+        }
+      }
+    }
+  }
+}

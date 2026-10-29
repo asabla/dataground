@@ -86,6 +86,8 @@ Recovery first reads the exact retained intent. An existing object must pass com
 
 ## Verification and limits
 
+The opt-in [owned runtime diagnostic](local-runtime-acceptance.md#owned-runtime-and-workspace-export-diagnostic) runs the model cases through the native owner and requires final synthetic change export before its fixture teardown. This diagnostic is separate from worker acceptance and durable retention.
+
 Package and command tests cover binary round trips, additions and deletions, empty directories, type replacement, executable normalization, contained links, exact repeated capture, base and result substitution, malformed encodings, unsafe node types, hard links, escaping or dangling links, limits, cancellation and unchanged live workspace contents. The command tests use the real capture and apply boundary with temporary trees; the Linux test binaries also run on Linux ARM64. SSH transport tests also cover target substitution, source and result substitution, output and diagnostic limits, failed exit, lost acknowledgement and cancellation after partial output. Existing source-transfer tests protect the shared stream-exchange behavior.
 
 An opt-in Docker integration builds both helpers into a disposable layer over an exact image. It uses a controlled SSH peer to export real Linux binary changes, recover a lost acknowledgement, repeat the same artifact, reject an escaping link and verify unchanged workspace contents. The test owns the only writer. It does not establish live gateway authorization or a production quiescence mechanism. For example:

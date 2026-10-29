@@ -28,6 +28,7 @@ var (
 )
 
 type LauncherConfig struct {
+	workspaceExport          bool
 	workspaceSource          bool
 	diagnosticModel          string
 	candidateImage           string
@@ -72,6 +73,7 @@ type launcherPorts interface {
 }
 
 type launcherDependencies struct {
+	prepareOwned   func(string, execution.Execution, launcherPorts) (*ownedDiagnosticProvider, error)
 	checkWorkspace func(context.Context, string, execution.Execution, launcherPorts) (*diagnosticWorkspaceSource, error)
 	checkCandidate func(context.Context, LauncherConfig) error
 	newRunID       func() (string, error)
@@ -107,7 +109,7 @@ func launch(
 	config LauncherConfig,
 	dependencies launcherDependencies,
 ) (result Result, outcome error) {
-	if ctx == nil || !validLauncherConfig(config) || !validLauncherDependencies(dependencies) || (config.workspaceSource && dependencies.checkWorkspace == nil) {
+	if ctx == nil || !validLauncherConfig(config) || !validLauncherDependencies(dependencies) || (config.workspaceSource && dependencies.checkWorkspace == nil) || (config.workspaceExport && dependencies.prepareOwned == nil) {
 		return Result{}, ErrLauncherConfiguration
 	}
 	if err := ctx.Err(); err != nil {
@@ -224,6 +226,14 @@ func launch(
 		return Result{}, launcherFailure(ctx, ErrLauncherRun)
 	}
 	state.executionCreated = true
+	var owned *ownedDiagnosticProvider
+	if config.workspaceExport {
+		phase = "workspace-owner"
+		owned, err = dependencies.prepareOwned(runID, executionValue, ports)
+		if err != nil || owned == nil {
+			return Result{}, ErrLauncherRun
+		}
+	}
 	var sourceEvidence *diagnosticWorkspaceSource
 	if config.workspaceSource {
 		phase = "workspace-source"
@@ -260,11 +270,19 @@ func launch(
 		return Result{}, launcherFailure(ctx, ErrLauncherRun)
 	}
 	result.workspaceSourceRequired, result.workspaceSource = config.workspaceSource, sourceEvidence
+	if config.workspaceExport {
+		result.workspaceExportRequired = true
+		result.workspaceExport = owned.Evidence()
+		if !validOwnedWorkspaceDiagnostic(result.workspaceExport, runID) {
+			return Result{}, ErrLauncherRun
+		}
+	}
 	return result, nil
 }
 
 func defaultLauncherDependencies() launcherDependencies {
 	return launcherDependencies{
+		prepareOwned:   prepareLauncherOwnedWorkspace,
 		checkWorkspace: checkLauncherWorkspace,
 		checkCandidate: func(ctx context.Context, config LauncherConfig) error {
 			selection := canarylauncher.Config{
@@ -293,7 +311,7 @@ func defaultLauncherDependencies() launcherDependencies {
 }
 
 func validLauncherConfig(config LauncherConfig) bool {
-	return (!config.workspaceSource || config.supervisorCandidateImage != "") && validSupervisorSelection(config.supervisorCandidateImage, config.policyProfile, config.candidateImage, config.diagnosticModel) && config.candidateGatewaySHA256 == "" && config.RepositoryRoot != "" &&
+	return (!config.workspaceExport || config.workspaceSource) && (!config.workspaceSource || config.supervisorCandidateImage != "") && validSupervisorSelection(config.supervisorCandidateImage, config.policyProfile, config.candidateImage, config.diagnosticModel) && config.candidateGatewaySHA256 == "" && config.RepositoryRoot != "" &&
 		config.WorkspaceRoot != "" &&
 		config.CredentialDirectory != "" &&
 		validRunProvenance(config.Provenance, config.diagnosticModel)
@@ -338,6 +356,7 @@ func readRuntimeLauncherPolicy(config LauncherConfig) ([]byte, error) {
 }
 
 type runtimeLauncherPorts struct {
+	owned    *ownedDiagnosticProvider
 	store    execution.StateStore
 	provider *openshell.Provider
 }
@@ -473,6 +492,13 @@ func newRuntimeLauncherHarness(
 		runtimePorts.store == nil || workspace == nil {
 		return nil, ErrLauncherConfiguration
 	}
+	var harnessProvider HarnessProvider = runtimePorts.provider
+	if config.workspaceExport != (runtimePorts.owned != nil) {
+		return nil, ErrLauncherConfiguration
+	}
+	if runtimePorts.owned != nil {
+		harnessProvider = runtimePorts.owned
+	}
 	return NewHarness(HarnessConfig{
 		diagnosticModel:          config.diagnosticModel,
 		candidateImage:           config.candidateImage,
@@ -483,7 +509,7 @@ func newRuntimeLauncherHarness(
 		Provenance:               config.Provenance,
 		ExecutionID:              executionValue.ID,
 		Store:                    runtimePorts.store,
-		Provider:                 runtimePorts.provider,
+		Provider:                 harnessProvider,
 		Cleanup: Cleanup{
 			Sandbox:         runtimeCreator.Cleanup,
 			ProviderBinding: runtimeProvider.Cleanup,
@@ -560,3 +586,14 @@ func (LauncherConfig) MarshalJSON() ([]byte, error) {
 }
 
 var _ json.Marshaler = LauncherConfig{}
+
+func prepareLauncherOwnedWorkspace(runID string, value execution.Execution, ports launcherPorts) (*ownedDiagnosticProvider, error) {
+	bound, ok := ports.(*runtimeLauncherPorts)
+	if !ok || bound.provider == nil || bound.owned != nil || !runIDPattern.MatchString(runID) || value.IsolationDomainID != runtimeIsolationDomain(runID) || value.ID != runtimeExecutionID(runID) {
+		return nil, ErrLauncherConfiguration
+	}
+	bound.owned = &ownedDiagnosticProvider{backend: bound.provider, runID: runID, ref: execution.ExecutionRef{IsolationDomainID: value.IsolationDomainID, ID: value.ID}, open: func(ctx context.Context, ref execution.ExecutionRef) (ownedDiagnosticSession, error) {
+		return bound.provider.StartOwnedRuntime(ctx, ref)
+	}}
+	return bound.owned, nil
+}

@@ -1081,3 +1081,41 @@ test("source preparation checks the pulled helper metadata independently of the 
     true,
   );
 });
+
+test("source acceptance cannot authorize the owned-export diagnostic", () => {
+  const f = workspaceInputs();
+  f.diagnostic.schemaVersion = "dataground.dev.openshell-runtime-diagnostic/v7";
+  const check = f.diagnostic.checks.find((item) => item.name === "artifact-export");
+  f.diagnostic.workspaceExport = {
+    profile: "openshell-owned-workspace-diagnostic/v1",
+    runId: f.diagnostic.run.id,
+    startedAt: check.startedAt,
+    finishedAt: check.finishedAt,
+    ownedSessions: 11,
+    changes: {
+      schemaVersion: "dataground.workspace-changes/v1",
+      digest: `sha256:${"d".repeat(64)}`,
+      sizeBytes: 1800,
+      baseArchiveDigest: f.diagnostic.workspaceSource.archiveDigest,
+      resultArchiveDigest: `sha256:${"e".repeat(64)}`,
+      changeCount: 5,
+      entryCount: 6,
+      sourceBytes: 15,
+    },
+    checks: [
+      "owned-model-sessions",
+      "terminal-owner-acknowledgements",
+      "detached-writer-observed",
+      "binary-change-export",
+      "exact-repeated-export",
+      "restored-tree",
+      "cross-domain-denial",
+    ],
+  };
+  f.artifacts.diagnostic = Buffer.from(JSON.stringify(f.diagnostic));
+  f.statement.diagnosticSHA256 = hash(f.artifacts.diagnostic);
+  assert.throws(() =>
+    prepareAcceptance(canonicalJSON(f.statement), f.trustBytes, f.artifacts, f.expected, f.run),
+  );
+  assert.throws(() => verifyWorkspaceFixture(f));
+});
