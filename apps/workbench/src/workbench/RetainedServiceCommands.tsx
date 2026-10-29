@@ -35,6 +35,7 @@ interface RetainedServiceCommandsProps {
   observedAlias?: ServiceAliasResource;
   onAssignAlias: (revision: PublishedServiceRevisionResource) => void;
   onPublished: (revision: PublishedServiceRevisionResource) => void;
+  onAliasAssigned?: (alias: ServiceAliasResource) => void;
   onComposeInvocation: (alias: ServiceAliasResource) => void;
   onOpenInvocation: (reference: InvocationReference) => void;
 }
@@ -125,6 +126,7 @@ function CommandSessions(props: RetainedServiceCommandsProps) {
               client={props.client}
               revision={entry.publication}
               currentAlias={entry.observedAlias}
+              onAliasAssigned={props.onAliasAssigned}
               onComposeInvocation={props.onComposeInvocation}
             />
           )}

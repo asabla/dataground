@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
 import { expect, fn, userEvent, within } from "storybook/test";
 import { ServiceRevisionDraft } from "../src/ServiceRevisionDraft";
 import "../src/styles.css";
@@ -102,5 +103,50 @@ export const Workbench: Story = {
     await expect(details).toHaveAttribute("open");
     await userEvent.click(canvas.getByText("Resource details"));
     await expect(details).not.toHaveAttribute("open");
+  },
+};
+
+export const WorkbenchCompletionFocus: Story = {
+  render: function Completion(args) {
+    const [complete, setComplete] = useState(false);
+    return (
+      <ServiceRevisionDraft
+        {...args}
+        compact
+        created={complete ? Created.args?.created : undefined}
+        onSubmit={() => setComplete(true)}
+      />
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: "Create revision draft" }));
+    await expect(canvasElement.querySelector(".dg-service-revision-draft__created")).toHaveFocus();
+  },
+};
+
+export const HiddenCompletionKeepsFocus: Story = {
+  render: function HiddenCompletion(args) {
+    const [complete, setComplete] = useState(false);
+    return (
+      <>
+        <button type="button" onClick={() => setComplete(true)}>
+          Complete hidden request
+        </button>
+        <div hidden>
+          <ServiceRevisionDraft
+            {...args}
+            compact
+            created={complete ? Created.args?.created : undefined}
+          />
+        </div>
+      </>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement),
+      trigger = canvas.getByRole("button", { name: "Complete hidden request" });
+    await userEvent.click(trigger);
+    await expect(trigger).toHaveFocus();
   },
 };

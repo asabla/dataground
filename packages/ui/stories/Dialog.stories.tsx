@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { Button } from "../src/Button";
 import { Dialog, type DialogProps } from "../src/Dialog";
 
@@ -53,10 +53,10 @@ export const Decision: Story = {
     await expect(keep).toHaveFocus();
     await userEvent.keyboard("{Escape}");
     await expect(canvas.queryByRole("dialog")).not.toBeInTheDocument();
-    await expect(trigger).toHaveFocus();
+    await waitFor(() => expect(trigger).toHaveFocus());
     await userEvent.keyboard("{Enter}");
     await userEvent.click(canvas.getByRole("button", { name: "Keep draft" }));
-    await expect(trigger).toHaveFocus();
+    await waitFor(() => expect(trigger).toHaveFocus());
   },
 };
 

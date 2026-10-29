@@ -1,6 +1,7 @@
 import { Button, CopyButton, StatusBadge, TextField } from "@dataground/ui";
 import { useId } from "react";
 import { SecondaryDetails } from "./SecondaryDetails";
+import { useCommandResultFocus } from "./useCommandResultFocus";
 
 export interface AssignedServiceAlias {
   generation: number;
@@ -89,6 +90,10 @@ export function ServiceAliasAssign({
   targetVersion,
 }: ServiceAliasAssignProps) {
   const titleId = useId();
+  const receipt = useCommandResultFocus(
+    compact,
+    assigned ? `${assigned.id}/${assigned.version}` : undefined,
+  );
   const confirmationId = useId();
   const alreadyAssigned =
     blockedReason === undefined &&
@@ -245,7 +250,12 @@ export function ServiceAliasAssign({
       )}
 
       {assigned ? (
-        <div className="dg-service-alias-assign__assigned" aria-live="polite">
+        <div
+          ref={receipt}
+          tabIndex={compact ? -1 : undefined}
+          className="dg-service-alias-assign__assigned"
+          aria-live="polite"
+        >
           <strong>
             {compact
               ? `${displayText(assigned.name, 63)} now routes to revision ${revisionNumber}.`
