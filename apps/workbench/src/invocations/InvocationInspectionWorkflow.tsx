@@ -399,12 +399,14 @@ export function InvocationInspectionWorkflow({
     >
       {inspectQuestion && (
         <QuestionDiscoveryWorkflow
+          compact={presentation === "workbench"}
           client={client}
           reference={reference}
           onInspectQuestion={inspectQuestion}
         />
       )}
       <ApprovalDiscoveryWorkflow
+        compact={presentation === "workbench"}
         client={client}
         reference={reference}
         onInspectApproval={inspectApproval}

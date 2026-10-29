@@ -58,96 +58,113 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-it("discovers paged questions and reads the selected request without submitting an answer", async () => {
-  const more = deferred<ReturnType<typeof response>>();
-  const reads = vi.fn(
-    async (
-      path: string,
-      options: { params: { query?: { cursor?: string }; path: { questionId?: string } } },
-    ) => {
-      if (path.endsWith("/{questionId}"))
-        return response({ ...pendingQuestion(), id: options.params.path.questionId });
-      if (options.params.query?.cursor) return more.promise;
-      return response({ items: [question()], nextCursor: "cursor-1" });
-    },
-  );
-  const post = vi.fn();
-  const client = { GET: reads, POST: post } as unknown as DataGroundClient;
-  function Journey() {
-    const [selected, setSelected] = useState<InvocationQuestionReference>();
-    return (
-      <>
+it.each([false, true])(
+  "discovers paged questions and reads the selected request without submitting an answer (compact=%s)",
+  async (compact) => {
+    const more = deferred<ReturnType<typeof response>>();
+    const reads = vi.fn(
+      async (
+        path: string,
+        options: { params: { query?: { cursor?: string }; path: { questionId?: string } } },
+      ) => {
+        if (path.endsWith("/{questionId}"))
+          return response({ ...pendingQuestion(), id: options.params.path.questionId });
+        if (options.params.query?.cursor) return more.promise;
+        return response({ items: [question()], nextCursor: "cursor-1" });
+      },
+    );
+    const post = vi.fn();
+    const client = { GET: reads, POST: post } as unknown as DataGroundClient;
+    function Journey() {
+      const [selected, setSelected] = useState<InvocationQuestionReference>();
+      return (
+        <>
+          <QuestionDiscoveryWorkflow
+            compact={compact}
+            client={client}
+            reference={reference}
+            onInspectQuestion={setSelected}
+          />
+          {selected && <QuestionWorkflow client={client} reference={selected} canAnswer={false} />}
+        </>
+      );
+    }
+    await act(async () => root.render(<Journey />));
+    const loadMore = button("Load more questions");
+    await act(async () => {
+      loadMore?.click();
+      loadMore?.click();
+    });
+    expect(reads).toHaveBeenCalledTimes(2);
+    expect(button(`Open question ${firstID}`)?.disabled).toBe(true);
+    await act(async () => more.resolve(response({ items: [question(secondID)] })));
+    const open = button(`Open question ${secondID}`);
+    if (compact) {
+      await act(async () =>
+        userEvent.click(
+          open?.closest('[role="row"]')?.querySelector('[role="rowheader"]') as HTMLElement,
+        ),
+      );
+      await act(async () => userEvent.keyboard("{End}"));
+    } else {
+      await act(async () => open?.focus());
+    }
+    expect(document.activeElement).toBe(open);
+    await act(async () => userEvent.keyboard("{Enter}"));
+    expect(reads).toHaveBeenCalledTimes(3);
+    expect(host.textContent).toContain("Which environment should the report describe?");
+    expect(post).not.toHaveBeenCalled();
+    expect(button("Submit answers")).toBeUndefined();
+    await act(async () => button("Refresh questions")?.click());
+    expect(button(`Open question ${secondID}`)).toBeUndefined();
+  },
+);
+
+it.each([false, true])(
+  "removes prior requests on denial and blocks stale controls (compact=%s)",
+  async (compact) => {
+    let denied = false;
+    const inspected = vi.fn();
+    const client = {
+      GET: async () =>
+        denied
+          ? {
+              error: {
+                error: {
+                  code: "FORBIDDEN",
+                  message: "Access denied.",
+                  retryable: false,
+                  correlationId: "cor_00000000000000000001",
+                },
+              },
+              response: new Response(null, { status: 403 }),
+            }
+          : response({ items: [question()], nextCursor: "cursor-1" }),
+    } as unknown as DataGroundClient;
+    await act(async () =>
+      root.render(
         <QuestionDiscoveryWorkflow
+          compact={compact}
           client={client}
           reference={reference}
-          onInspectQuestion={setSelected}
-        />
-        {selected && <QuestionWorkflow client={client} reference={selected} canAnswer={false} />}
-      </>
+          onInspectQuestion={inspected}
+        />,
+      ),
     );
-  }
-  await act(async () => root.render(<Journey />));
-  const loadMore = button("Load more questions");
-  await act(async () => {
-    loadMore?.click();
-    loadMore?.click();
-  });
-  expect(reads).toHaveBeenCalledTimes(2);
-  expect(button(`Open question ${firstID}`)?.disabled).toBe(true);
-  await act(async () => more.resolve(response({ items: [question(secondID)] })));
-  const open = button(`Open question ${secondID}`);
-  await act(async () => open?.focus());
-  expect(document.activeElement).toBe(open);
-  await act(async () => userEvent.keyboard("{Enter}"));
-  expect(reads).toHaveBeenCalledTimes(3);
-  expect(host.textContent).toContain("Which environment should the report describe?");
-  expect(post).not.toHaveBeenCalled();
-  expect(button("Submit answers")).toBeUndefined();
-  await act(async () => button("Refresh questions")?.click());
-  expect(button(`Open question ${secondID}`)).toBeUndefined();
-});
-
-it("removes prior requests on denial and blocks stale controls", async () => {
-  let denied = false;
-  const inspected = vi.fn();
-  const client = {
-    GET: async () =>
-      denied
-        ? {
-            error: {
-              error: {
-                code: "FORBIDDEN",
-                message: "Access denied.",
-                retryable: false,
-                correlationId: "cor_00000000000000000001",
-              },
-            },
-            response: new Response(null, { status: 403 }),
-          }
-        : response({ items: [question()], nextCursor: "cursor-1" }),
-  } as unknown as DataGroundClient;
-  await act(async () =>
-    root.render(
-      <QuestionDiscoveryWorkflow
-        client={client}
-        reference={reference}
-        onInspectQuestion={inspected}
-      />,
-    ),
-  );
-  const old = button(`Open question ${firstID}`);
-  denied = true;
-  await act(async () => button("Load more questions")?.click());
-  expect(host.textContent).toContain("not authorized to discover questions");
-  expect(button(`Open question ${firstID}`)).toBeUndefined();
-  await act(async () => old?.click());
-  expect(inspected).not.toHaveBeenCalled();
-  denied = false;
-  await act(async () => button("Refresh questions")?.click());
-  await act(async () => button("Load more questions")?.click());
-  expect(host.textContent).toContain("could not interpret");
-  expect(button(`Open question ${firstID}`)).toBeUndefined();
-});
+    const old = button(`Open question ${firstID}`);
+    denied = true;
+    await act(async () => button("Load more questions")?.click());
+    expect(host.textContent).toContain("not authorized to discover questions");
+    expect(button(`Open question ${firstID}`)).toBeUndefined();
+    await act(async () => old?.click());
+    expect(inspected).not.toHaveBeenCalled();
+    denied = false;
+    await act(async () => button("Refresh questions")?.click());
+    await act(async () => button("Load more questions")?.click());
+    expect(host.textContent).toContain("could not interpret");
+    expect(button(`Open question ${firstID}`)).toBeUndefined();
+  },
+);
 
 it("ignores delayed responses after connection or invocation changes", async () => {
   const pending = deferred<ReturnType<typeof response>>();

@@ -1,4 +1,4 @@
-import { Button, StatusBadge } from "@dataground/ui";
+import { Button, DataTable, type DataTableSort, SelectField, StatusBadge } from "@dataground/ui";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { DataGroundClient } from "../contracts/client";
 import {
@@ -20,10 +20,12 @@ interface DiscoveryState {
 }
 
 export function ApprovalDiscoveryWorkflow({
+  compact = false,
   client,
   reference,
   onInspectApproval,
 }: {
+  compact?: boolean;
   client: DataGroundClient;
   reference: InvocationApprovalListReference;
   onInspectApproval: (reference: InvocationApprovalReference) => void;
@@ -31,6 +33,8 @@ export function ApprovalDiscoveryWorkflow({
   const { isolationDomainId, invocationId } = reference;
   const scope = `${isolationDomainId}/${invocationId}`;
   const titleId = useId();
+  const [stateFilter, setStateFilter] = useState("all");
+  const [sort, setSort] = useState<DataTableSort>({ column: "created", direction: "descending" });
   const sequence = useRef(0);
   const activeRequest = useRef<number | undefined>(undefined);
   const currentIdentity = useRef({ client, scope });
@@ -116,14 +120,31 @@ export function ApprovalDiscoveryWorkflow({
   const current = state.client === client && state.scope === scope;
   const loading = !current || state.loading;
   const items = current ? state.items : [];
+  const inspect = (item: InvocationApproval) => {
+    if (
+      currentState.current === state &&
+      !state.error &&
+      currentIdentity.current.client === client &&
+      currentIdentity.current.scope === scope &&
+      activeRequest.current === undefined
+    )
+      onInspectApproval({ isolationDomainId, invocationId, approvalId: item.id });
+  };
+  const visibleItems = items
+    .filter((item) => stateFilter === "all" || item.state === stateFilter)
+    .sort(
+      (left, right) =>
+        (sort.direction === "descending" ? -1 : 1) *
+        (Date.parse(left.createdAt) - Date.parse(right.createdAt)),
+    );
   return (
     <section aria-labelledby={titleId} className="invocation-history">
       <div className="workbench-page-heading workbench-page-heading--compact">
         <div>
           <h2 id={titleId}>Invocation approvals</h2>
           <p>
-            Retained requests, newest first. Refresh to find new requests and current states. Open a
-            request to read its latest state before making a decision.
+            Retained requests. Refresh to find new requests and current states. Open a request to
+            read its latest state before making a decision.
           </p>
         </div>
         <Button
@@ -145,39 +166,132 @@ export function ApprovalDiscoveryWorkflow({
       {!loading && !state.error && items.length === 0 && (
         <p>No retained approval requests for this invocation.</p>
       )}
-      {items.length > 0 && (
-        <ol className="invocation-history-list">
-          {items.map((item) => (
-            <li key={item.id}>
-              <StatusBadge tone={item.state === "delivery_unknown" ? "warning" : "neutral"}>
-                {item.state.replaceAll("_", " ")}
-              </StatusBadge>
+      {items.length > 0 &&
+        (compact ? (
+          <>
+            <div className="resource-browser__toolbar">
+              <SelectField
+                label="Approval state"
+                value={stateFilter}
+                onChange={setStateFilter}
+                options={[
+                  { value: "all", label: "All states" },
+                  ...[
+                    "pending",
+                    "resolved",
+                    "delivering",
+                    "delivered",
+                    "expired",
+                    "closed",
+                    "delivery_unknown",
+                  ].map((value) => ({ value, label: value.replaceAll("_", " ") })),
+                ]}
+              />
               <p>
-                {item.requestedAction === "process.execute"
-                  ? "Run a process"
-                  : "Change workspace files"}{" "}
-                · <time dateTime={item.createdAt}>{item.createdAt}</time>
+                {visibleItems.length} of {items.length} loaded requests shown.
               </p>
-              <Button
-                variant="quiet"
-                isDisabled={loading}
-                onPress={() => {
-                  if (
-                    currentState.current === state &&
-                    !state.error &&
-                    currentIdentity.current.client === client &&
-                    currentIdentity.current.scope === scope &&
-                    activeRequest.current === undefined
-                  )
-                    onInspectApproval({ isolationDomainId, invocationId, approvalId: item.id });
-                }}
-              >
-                Open approval {item.id}
-              </Button>
-            </li>
-          ))}
-        </ol>
-      )}
+            </div>
+            <DataTable
+              label="Loaded approval requests"
+              items={visibleItems}
+              getRowId={(item) => item.id}
+              getRowLabel={(item) =>
+                `Approval received ${new Date(item.createdAt).toLocaleString()}`
+              }
+              sort={sort}
+              onSortChange={setSort}
+              isLoading={loading}
+              emptyMessage="No loaded requests match this state."
+              columns={[
+                {
+                  id: "request",
+                  title: "Request",
+                  isRowHeader: true,
+                  render: (item) => (
+                    <strong>
+                      {item.requestedAction === "process.execute"
+                        ? "Run a process"
+                        : "Change workspace files"}
+                    </strong>
+                  ),
+                },
+                {
+                  id: "state",
+                  title: "State",
+                  render: (item) => (
+                    <StatusBadge
+                      tone={
+                        item.state === "pending" || item.state === "delivery_unknown"
+                          ? "warning"
+                          : "neutral"
+                      }
+                    >
+                      {item.state.replaceAll("_", " ")}
+                    </StatusBadge>
+                  ),
+                },
+                {
+                  id: "created",
+                  title: "Received",
+                  allowsSorting: true,
+                  render: (item) => (
+                    <time dateTime={item.createdAt}>
+                      {new Date(item.createdAt).toLocaleString()}
+                    </time>
+                  ),
+                },
+                {
+                  id: "expires",
+                  title: "Expires",
+                  render: (item) => {
+                    const expiresAt =
+                      item.schemaVersion === "dataground.invocation-approval/v2"
+                        ? item.expiresAt
+                        : undefined;
+                    return expiresAt ? (
+                      <time dateTime={expiresAt}>{new Date(expiresAt).toLocaleString()}</time>
+                    ) : (
+                      "Not supplied"
+                    );
+                  },
+                },
+                {
+                  id: "actions",
+                  title: "Actions",
+                  render: (item) => (
+                    <Button
+                      aria-label={`Open approval ${item.id}`}
+                      variant="quiet"
+                      isDisabled={loading}
+                      onPress={() => inspect(item)}
+                    >
+                      Open
+                    </Button>
+                  ),
+                },
+              ]}
+            />
+          </>
+        ) : (
+          <ol className="invocation-history-list">
+            {items.map((item) => (
+              <li key={item.id}>
+                <StatusBadge tone={item.state === "delivery_unknown" ? "warning" : "neutral"}>
+                  {item.state.replaceAll("_", " ")}
+                </StatusBadge>
+                <p>
+                  {item.requestedAction === "process.execute"
+                    ? "Run a process"
+                    : "Change workspace files"}{" "}
+                  · <time dateTime={item.createdAt}>{item.createdAt}</time>
+                </p>
+                <Button variant="quiet" isDisabled={loading} onPress={() => inspect(item)}>
+                  Open approval {item.id}
+                </Button>
+              </li>
+            ))}
+          </ol>
+        ))}
       {current && state.nextCursor && !state.error && (
         <Button
           variant="quiet"

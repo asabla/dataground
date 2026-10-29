@@ -154,3 +154,10 @@ to the same observed context restores the original retry request. Confirmed new
 resource versions create separate command contexts. Entry scope checks and the
 existing server authorization, version and idempotency checks remain required;
 retention does not grant access or change a route's API semantics.
+
+Requests uses compact question and approval tables with loaded-page state filters,
+received-time sorting and declared expiry. Row actions open the existing focused
+inspection; question content and approval effects keep their separate access and
+confirmation boundaries. Missing expiry in an older approval contract is shown
+as not supplied. Refresh, pagination, denial and stale-control guards are shared
+with the temporary classic lists.
