@@ -4,6 +4,7 @@ import type { DataGroundClient } from "../contracts/client";
 import {
   cancelInvocation,
   invokeAgentService,
+  listScopeInvocations,
   readInvocationResult,
   readInvocationStatus,
 } from "./client";
@@ -569,5 +570,88 @@ describe("explicit invocation result reads", () => {
     assert.ok(result.ok);
     assert.equal(result.text.includes("\u202e"), false);
     assert.equal(result.text.includes("\\u202e"), true);
+  });
+});
+
+describe("scope run discovery", () => {
+  const item = { ...invocation, serviceName: "Analysis assistant" };
+  it("uses one bounded scope query and projects summary fields only", async () => {
+    const calls: unknown[] = [];
+    const client = {
+      GET: async (path: string, options: unknown) => {
+        calls.push({ path, options });
+        return {
+          data: { items: [item], nextCursor: "page-2" },
+          response: new Response(null, { status: 200 }),
+        };
+      },
+    } as unknown as DataGroundClient;
+    const result = await listScopeInvocations(client, reference.isolationDomainId, "running");
+    assert.deepEqual(calls, [
+      {
+        path: "/v1/isolation-domains/{isolationDomainId}/invocations",
+        options: {
+          params: {
+            path: { isolationDomainId: reference.isolationDomainId },
+            query: { limit: 50, state: "running" },
+          },
+        },
+      },
+    ]);
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.ok(result.page.items[0]);
+      assert.equal(result.page.items[0].serviceName, item.serviceName);
+      assert.equal("result" in result.page.items[0], false);
+      assert.equal("input" in result.page.items[0], false);
+      assert.equal("nativeEndpoint" in result.page.items[0].metadata, false);
+    }
+  });
+  it("rejects out-of-scope, duplicate, mismatched-state and nonadvancing pages", async () => {
+    for (const page of [
+      {
+        items: [
+          {
+            ...item,
+            metadata: { ...item.metadata, isolationDomainId: "iso_00000000000000000002" },
+          },
+        ],
+      },
+      { items: [item, item] },
+      { items: [{ ...item, state: "failed" }] },
+      { items: [{ ...item, serviceName: "" }] },
+      { items: [item], nextCursor: "page-1" },
+      { items: [], nextCursor: "page-2" },
+      { items: Array(51).fill(item) },
+    ]) {
+      const client = {
+        GET: async () => ({ data: page, response: new Response(null, { status: 200 }) }),
+      } as unknown as DataGroundClient;
+      assert.equal(
+        (await listScopeInvocations(client, reference.isolationDomainId, "running", "page-1")).ok,
+        false,
+      );
+    }
+  });
+  it("does not issue malformed requests and reports safe network errors", async () => {
+    let reads = 0;
+    const client = {
+      GET: async () => {
+        reads++;
+        throw new Error("private upstream");
+      },
+    } as unknown as DataGroundClient;
+    assert.equal((await listScopeInvocations(client, "bad")).ok, false);
+    assert.equal(
+      (await listScopeInvocations(client, reference.isolationDomainId, undefined, "bad cursor")).ok,
+      false,
+    );
+    assert.equal(reads, 0);
+    const result = await listScopeInvocations(client, reference.isolationDomainId);
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.retryable, true);
+      assert.equal(result.error.message.includes("private"), false);
+    }
   });
 });

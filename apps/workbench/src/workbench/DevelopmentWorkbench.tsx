@@ -1,6 +1,7 @@
 import { Button } from "@dataground/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DataGroundClient } from "../contracts/client";
+import { ScopeRunBrowser } from "../invocations/ScopeRunBrowser";
 import {
   type AgentServiceFailure,
   type AgentServiceResource,
@@ -86,6 +87,10 @@ export function WorkbenchSession({
           ? sessions.find((session) => !session.service)
           : undefined;
   const view = route?.view ?? "services";
+  const showScopeRuns =
+    !!route && view === "interactions" && !route.serviceId && presentation === "workbench";
+  const [visitedScopeRuns, setVisitedScopeRuns] = useState(showScopeRuns);
+  if (showScopeRuns && !visitedScopeRuns) setVisitedScopeRuns(true);
   const resolvingService = !!route?.serviceId && !activeSession;
 
   const loadServicePage = useCallback(
@@ -180,9 +185,11 @@ export function WorkbenchSession({
         ? "service-read-title"
         : view === "services"
           ? "services-title"
-          : undefined;
+          : showScopeRuns
+            ? "scope-runs-title"
+            : undefined;
     if (id) pageContent.current?.querySelector<HTMLElement>(`#${id}`)?.focus();
-  }, [route, resolvingService, serviceReadLoading, serviceReadError, view]);
+  }, [route, resolvingService, serviceReadLoading, serviceReadError, view, showScopeRuns]);
 
   const navigateToService = (service: AgentServiceResource, next: WorkbenchView = "workflow") => {
     rememberService(service);
@@ -204,7 +211,9 @@ export function WorkbenchSession({
     navigate({
       isolationDomainId,
       view: next,
-      ...(next === "services" ? {} : { serviceId: context?.service?.metadata.id }),
+      ...(next === "services" || (next === "interactions" && presentation === "workbench")
+        ? {}
+        : { serviceId: context?.service?.metadata.id }),
     });
   };
   const create = () => navigate({ isolationDomainId, view: "workflow" });
@@ -227,6 +236,7 @@ export function WorkbenchSession({
       onDisconnect={onDisconnect}
       view={view}
       onNavigate={navigateView}
+      scopeRuns={presentation === "workbench"}
     >
       <div className="workbench-main" ref={pageContent}>
         {sessions.length > 0 && (
@@ -303,7 +313,7 @@ export function WorkbenchSession({
             />
           </section>
         )}
-        {route && view === "interactions" && !route.serviceId && (
+        {route && view === "interactions" && !route.serviceId && presentation === "classic" && (
           <section aria-labelledby="interactions-title">
             <h1 id="interactions-title" tabIndex={-1}>
               Interactions
@@ -311,6 +321,22 @@ export function WorkbenchSession({
             <p>Select a service to browse its invocation history.</p>
             <Button onPress={() => navigateView("services")}>View agent services</Button>
           </section>
+        )}
+        {visitedScopeRuns && presentation === "workbench" && (
+          <div hidden={!showScopeRuns} inert={!showScopeRuns}>
+            <ScopeRunBrowser
+              client={client}
+              isolationDomainId={isolationDomainId}
+              onOpen={(run) =>
+                navigate({
+                  isolationDomainId,
+                  serviceId: run.serviceId,
+                  view: "interactions",
+                  invocationId: run.metadata.id,
+                })
+              }
+            />
+          </div>
         )}
         {sessions.map((session) => {
           const active =

@@ -708,3 +708,54 @@ it("does not restore a late revision after starting a new draft", async () => {
     ),
   ).toBe(true);
 });
+
+it("retains the scope run filter after an independently denied service read", async () => {
+  const reads: string[] = [];
+  const client = {
+    GET: async (path: string) => {
+      reads.push(path);
+      if (path.endsWith("/{serviceId}")) return absent("FORBIDDEN");
+      if (path === "/v1/isolation-domains/{isolationDomainId}/invocations")
+        return ok({
+          items: [
+            {
+              metadata: { ...service.metadata, id: "inv_00000000000000000001" },
+              serviceId,
+              serviceName: service.name,
+              revisionId: "rev_00000000000000000001",
+              alias: "stable",
+              state: "failed",
+              operationId: "op_00000000000000000001",
+              correlationId: "cor_navigation",
+            },
+          ],
+        });
+      return ok({ items: [] });
+    },
+  } as unknown as DataGroundClient;
+  await visit(routeHash({ isolationDomainId: scope, view: "interactions" }));
+  await render(client, "workbench");
+  const field = Array.from(host.querySelectorAll("select")).find((element) =>
+    element.closest(".dg-select-field")?.textContent?.includes("Run state"),
+  );
+  expect(field).toBeDefined();
+  await act(async () => {
+    if (field) {
+      field.value = "failed";
+      field.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+  const inspect = host.querySelector<HTMLButtonElement>(
+    '[aria-label="Inspect Direct service, stable, failed"]',
+  );
+  await act(async () => inspect?.click());
+  expect(window.location.hash).toContain("inv_00000000000000000001");
+  expect(host.textContent).toContain("Service unavailable");
+  expect(reads.some((path) => path.endsWith("/invocations/{invocationId}"))).toBe(false);
+  await click("Runs");
+  expect(field?.value).toBe("failed");
+  expect(host.querySelector("#scope-runs-title")?.closest("[hidden]")).toBeNull();
+  expect(
+    reads.filter((path) => path === "/v1/isolation-domains/{isolationDomainId}/invocations"),
+  ).toHaveLength(2);
+});
