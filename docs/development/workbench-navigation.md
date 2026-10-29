@@ -250,3 +250,9 @@ failed or unknown state, shows up to eight summaries and links to exact inspecti
 It reports query denial separately from an empty list and does not load prompts,
 results or files. Runs remains the full paginated browser. Saved resources and
 analyst recents require their future durable contracts.
+
+Version rows keep Open as the primary action. Their shared React Aria action menu
+contains audit inspection and, for published revisions, retirement review. The
+menu retains its local theme and visibility boundary, skips disabled items and
+returns focus on dismissal. It invokes the same guarded callbacks; it never
+executes retirement directly. Opening audit moves focus to the inspection region.

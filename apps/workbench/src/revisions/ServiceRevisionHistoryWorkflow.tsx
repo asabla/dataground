@@ -1,5 +1,5 @@
 import { Button } from "@dataground/ui";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { validResourceAuditReference } from "../audit/client";
 import { ResourceAuditWorkflow } from "../audit/ResourceAuditWorkflow";
 import type { DataGroundClient } from "../contracts/client";
@@ -22,6 +22,7 @@ export function ServiceRevisionHistoryWorkflow({
   const generatedTitleId = useId();
   const titleId = suppliedTitleId ?? generatedTitleId;
   const scope = `${isolationDomainId}/${serviceId}`;
+  const inspection = useRef<HTMLElement>(null);
   const [selected, setSelected] = useState<{
     client: DataGroundClient;
     scope: string;
@@ -45,6 +46,9 @@ export function ServiceRevisionHistoryWorkflow({
     )
       ? selected
       : undefined;
+  useEffect(() => {
+    if (visible) inspection.current?.focus();
+  }, [visible]);
   return (
     <>
       <ServiceRevisionHistoryPanel
@@ -67,7 +71,7 @@ export function ServiceRevisionHistoryWorkflow({
         }}
       />
       {visible && (
-        <section aria-label="Revision audit inspection">
+        <section aria-label="Revision audit inspection" ref={inspection} tabIndex={-1}>
           <Button
             variant="quiet"
             onPress={() => {

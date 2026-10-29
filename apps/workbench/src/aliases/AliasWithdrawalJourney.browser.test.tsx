@@ -125,11 +125,12 @@ it.each([
   document.body.append(host);
   const root = createRoot(host);
   async function click(text: string, contains = false) {
-    const button = Array.from(host.querySelectorAll<HTMLElement>('button, [role="tab"]')).find(
-      (element) =>
-        contains
-          ? element.textContent?.includes(text)
-          : element.getAttribute("aria-label") === text || element.textContent === text,
+    const button = Array.from(
+      host.querySelectorAll<HTMLElement>('button, [role="tab"], [role="menuitem"]'),
+    ).find((element) =>
+      contains
+        ? element.textContent?.includes(text)
+        : element.getAttribute("aria-label") === text || element.textContent === text,
     );
     expect(button, host.textContent ?? "").toBeDefined();
     await act(async () => button?.click());
@@ -158,6 +159,7 @@ it.each([
     expect(aliasReads).toBe(2);
     expect(host.querySelector(`[aria-label="Withdraw ${name} alias"]`)).toBeNull();
     if (presentation === "workbench") await click("Versions");
+    await click("More actions for revision 1");
     await click("Retire revision 1");
     await click("Confirm retirement");
     expect(retired).toBe(true);
