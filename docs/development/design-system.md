@@ -25,6 +25,18 @@ confirmation controls. It hides that slot during submission and after confirmed
 publication. The workbench owns bounded JSON disclosure, connection and revision
 binding, and retained-request selection; the pattern does not interpret schemas.
 
+## Resource tables
+
+`DataTable` is the shared React Aria resource-grid primitive, first used by the
+service directory. It provides named table, column and row-header semantics,
+keyboard cell navigation, explicit row controls, horizontal overflow, loading
+and empty content, and optional controlled sorting. The consumer supplies
+validated items, stable row IDs and text labels, row-header columns, ordering,
+pagination and action availability. The component does not infer authorization,
+perform requests, select resources, or reorder data itself. Stale service rows
+remain readable but their actions stay disabled until an authoritative refresh
+succeeds. Resource IDs remain searchable without occupying a default table column.
+
 ## Token contract
 
 Source files under `packages/tokens/src` target the [DTCG Format Module 2025.10](https://www.designtokens.org/tr/2025.10/format/) and [Color Module 2025.10](https://www.designtokens.org/tr/2025.10/color/). The repository compiler intentionally supports only the token types it emits: color, dimension, duration, font family, font weight, number, and whole-token aliases. Unsupported types fail generation instead of being guessed.
