@@ -157,6 +157,23 @@ export function ApprovalRequest({
             <dt>Version</dt>
             <dd>{approval.version}</dd>
           </div>
+          {compact && approval.resolvedBy && (
+            <div>
+              <dt>Decided by</dt>
+              <dd>
+                {approval.resolvedBy}{" "}
+                <CopyButton label="deciding actor identifier" value={approval.resolvedBy} />
+              </dd>
+            </div>
+          )}
+          {compact && (
+            <div>
+              <dt>Record updated</dt>
+              <dd>
+                <time dateTime={approval.updatedAt}>{approval.updatedAt}</time>
+              </dd>
+            </div>
+          )}
         </dl>
       </SecondaryDetails>
       <dl className="dg-approval-request__facts">
@@ -188,7 +205,7 @@ export function ApprovalRequest({
             <dd>{decisionLabel(approval.decision)}</dd>
           </div>
         )}
-        {approval.resolvedBy && (
+        {!compact && approval.resolvedBy && (
           <div>
             <dt>Decided by</dt>
             <dd>{approval.resolvedBy}</dd>
@@ -202,12 +219,14 @@ export function ApprovalRequest({
             </dd>
           </div>
         )}
-        <div>
-          <dt>Record updated</dt>
-          <dd>
-            <time dateTime={approval.updatedAt}>{approval.updatedAt}</time>
-          </dd>
-        </div>
+        {!compact && (
+          <div>
+            <dt>Record updated</dt>
+            <dd>
+              <time dateTime={approval.updatedAt}>{approval.updatedAt}</time>
+            </dd>
+          </div>
+        )}
       </dl>
 
       <p className="dg-approval-request__authority">

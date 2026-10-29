@@ -119,6 +119,15 @@ export function QuestionRequest({
               {compact && <CopyButton label="question identifier" value={question.id} />}
             </dd>
           </div>
+          {compact && question.answeredBy && (
+            <div>
+              <dt>Answered by</dt>
+              <dd>
+                {question.answeredBy}{" "}
+                <CopyButton label="answering actor identifier" value={question.answeredBy} />
+              </dd>
+            </div>
+          )}
         </dl>
       </SecondaryDetails>
       <dl className="dg-question-request__facts">
@@ -128,7 +137,7 @@ export function QuestionRequest({
             <time dateTime={question.expiresAt}>{question.expiresAt}</time>
           </dd>
         </div>
-        {question.answeredBy && (
+        {!compact && question.answeredBy && (
           <div>
             <dt>Answered by</dt>
             <dd>{question.answeredBy}</dd>
