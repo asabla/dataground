@@ -19,6 +19,7 @@ import {
   type PublishedServiceRevisionResource,
   readServiceRevision,
   resumeServiceRevision,
+  ServiceRevisionDraftWorkflow,
   type ServiceRevisionFailure,
   type ServiceRevisionHistoryResource,
   ServiceRevisionHistoryWorkflow,
@@ -119,6 +120,7 @@ export function ServiceWorkflowSession({
   const revisionHistoryTitle = `${headingPrefix}-revisions`;
   const [initialResource] = useState(initialService);
   const [draftFormGeneration, setDraftFormGeneration] = useState(0);
+  const [draftCompleted, setDraftCompleted] = useState(false);
   const [observedAlias, setObservedAlias] = useState<ServiceAliasResource>();
   const [openedAlias, setOpenedAlias] = useState<ServiceAliasResource>();
   const [openedQuestion, setOpenedQuestion] = useState<InvocationQuestionReference>();
@@ -407,7 +409,10 @@ export function ServiceWorkflowSession({
 
   const startServiceRevision = () => {
     selectTab("build");
-    setDraftFormGeneration((current) => current + 1);
+    if (presentation === "classic" || draftCompleted) {
+      setDraftFormGeneration((current) => current + 1);
+      setDraftCompleted(false);
+    }
     aliasReadGeneration.current++;
     setAliasReadLoading(false);
     setAliasReadError(undefined);
@@ -421,6 +426,22 @@ export function ServiceWorkflowSession({
     setOpenedRevision(undefined);
     setRetirementRevision(undefined);
     setWithdrawalAlias(undefined);
+  };
+
+  const openDraftRevision = (revision: ServiceRevisionResource) => {
+    selectTab("build");
+    aliasReadGeneration.current++;
+    setAliasReadLoading(false);
+    setAliasReadError(undefined);
+    revisionListGeneration.current++;
+    setOpenedAlias(undefined);
+    setOpenedQuestion(undefined);
+    setOpenedApproval(undefined);
+    setOpenedArtifact(undefined);
+    setOpenedInvocation(undefined);
+    setOpenedPublishedRevision(undefined);
+    setOpenedRevision(revision);
+    setRevisionHistory((current) => mergeRevisionHistory(current, [historyFromDraft(revision)]));
   };
 
   const workflow = (
@@ -480,23 +501,7 @@ export function ServiceWorkflowSession({
           setView("interactions");
         }
       }}
-      onOpenRevision={(revision) => {
-        selectTab("build");
-        aliasReadGeneration.current++;
-        setAliasReadLoading(false);
-        setAliasReadError(undefined);
-        revisionListGeneration.current++;
-        setOpenedAlias(undefined);
-        setOpenedQuestion(undefined);
-        setOpenedApproval(undefined);
-        setOpenedArtifact(undefined);
-        setOpenedInvocation(undefined);
-        setOpenedPublishedRevision(undefined);
-        setOpenedRevision(revision);
-        setRevisionHistory((current) =>
-          mergeRevisionHistory(current, [historyFromDraft(revision)]),
-        );
-      }}
+      onOpenRevision={openDraftRevision}
       onOpenService={(service) => {
         openService(service);
         onServiceOpened(service);
@@ -721,7 +726,20 @@ export function ServiceWorkflowSession({
           aliasReadLoading={aliasReadLoading}
           aliasReadError={aliasReadError}
           readStatus={readStatus}
-          commandContent={commandContent}
+          commandContent={currentStage === 1 ? null : commandContent}
+          draftActive={currentStage === 1 && commandContent !== null}
+          draftContent={
+            <ServiceRevisionDraftWorkflow
+              key={draftFormGeneration}
+              compact
+              canCreateRevision
+              client={client}
+              isolationDomainId={isolationDomainId}
+              serviceId={openedService.metadata.id}
+              onRevisionCreated={() => setDraftCompleted(true)}
+              onOpenRevision={openDraftRevision}
+            />
+          }
           historyPanel={historyPanel}
           routesPanel={routesPanel}
           withdrawalPanel={withdrawalPanel}
