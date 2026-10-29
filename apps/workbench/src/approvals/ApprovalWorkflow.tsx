@@ -47,6 +47,7 @@ type ApprovalWorkflowAction =
     };
 
 export interface ApprovalWorkflowProps {
+  compact?: boolean;
   canResolve: boolean;
   client: DataGroundClient;
   initialApproval?: InvocationApproval;
@@ -212,6 +213,7 @@ function approvalExpired(approval: InvocationApproval | undefined): boolean {
 }
 
 function ApprovalSession({
+  compact = false,
   canResolve,
   client,
   createIdempotencyKey = defaultIdempotencyKey,
@@ -403,6 +405,7 @@ function ApprovalSession({
 
   return (
     <ApprovalRequest
+      compact={compact}
       approval={visibleApproval as ApprovalResource}
       canResolve={resolutionAvailable}
       disabledReason={disabledReason}

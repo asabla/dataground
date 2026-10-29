@@ -49,3 +49,21 @@ it("keeps observer, expiry and uncertain delivery distinct", () => {
   assert.match(unknown, /will not repeat delivery/u);
   assert.doesNotMatch(unknown, /Submit answers/u);
 });
+
+it("keeps deadlines and unknown outcomes outside the compact resource disclosure", () => {
+  const html = renderToStaticMarkup(
+    <QuestionRequest
+      {...props}
+      compact
+      frozen
+      error={{ message: "Outcome unknown." }}
+      disabledReason="Refresh before retry."
+    />,
+  );
+  const details = html.match(/<details[\s\S]*?<\/details>/u)?.[0] ?? "";
+  assert.match(details, /qst_00000000000000000001/u);
+  assert.doesNotMatch(details, /Answer by|Outcome unknown|Refresh before retry/u);
+  assert.match(html, /Answer requests/u);
+  assert.ok(html.indexOf("Outcome unknown") < html.indexOf("<fieldset"));
+  assert.match(html, /disabled=""[^>]*>Retry same answers/u);
+});

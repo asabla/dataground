@@ -15,6 +15,7 @@ import {
 } from "./client";
 
 export interface QuestionWorkflowProps {
+  compact?: boolean;
   client: DataGroundClient;
   reference: InvocationQuestionReference;
   canAnswer: boolean;
@@ -59,6 +60,7 @@ export function QuestionWorkflow(props: QuestionWorkflowProps) {
   return <QuestionSession key={identity.generation} {...props} />;
 }
 function QuestionSession({
+  compact = false,
   client,
   reference,
   canAnswer,
@@ -210,6 +212,7 @@ function QuestionSession({
   const answers = state.attempt?.answers ?? draftQuestionAnswers(state.question, state.drafts);
   return (
     <QuestionRequest
+      compact={compact}
       question={state.question}
       drafts={state.drafts}
       canAnswer={canAnswer}

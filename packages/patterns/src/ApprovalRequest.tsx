@@ -1,5 +1,6 @@
-import { Button, StatusBadge, type StatusTone } from "@dataground/ui";
+import { Button, CopyButton, StatusBadge, type StatusTone } from "@dataground/ui";
 import { useId } from "react";
+import { SecondaryDetails } from "./SecondaryDetails";
 
 export type ApprovalDecision = "approve" | "deny";
 
@@ -27,6 +28,7 @@ export interface ApprovalRequestError {
 }
 
 export interface ApprovalRequestProps {
+  compact?: boolean;
   approval: ApprovalResource;
   canResolve: boolean;
   disabledReason?: string;
@@ -74,6 +76,7 @@ function submissionLabel(decision: ApprovalDecision, isSubmitting: boolean): str
 }
 
 export function ApprovalRequest({
+  compact = false,
   approval,
   canResolve,
   disabledReason,
@@ -94,7 +97,7 @@ export function ApprovalRequest({
     <section
       aria-busy={isSubmitting || undefined}
       aria-labelledby={titleId}
-      className="dg-approval-request"
+      className={`dg-approval-request${compact ? " dg-request--workbench" : ""}`}
     >
       <div className="dg-approval-request__heading">
         <div>
@@ -111,23 +114,43 @@ export function ApprovalRequest({
         </p>
       )}
 
+      <SecondaryDetails compact={compact}>
+        <dl className="dg-approval-request__facts">
+          <div>
+            <dt>Isolation domain</dt>
+            <dd>
+              {approval.isolationDomainId}{" "}
+              {compact && (
+                <CopyButton
+                  label="isolation domain identifier"
+                  value={approval.isolationDomainId}
+                />
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Invocation</dt>
+            <dd>
+              {approval.invocationId}{" "}
+              {compact && (
+                <CopyButton label="invocation identifier" value={approval.invocationId} />
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Approval</dt>
+            <dd>
+              {approval.id}{" "}
+              {compact && <CopyButton label="approval identifier" value={approval.id} />}
+            </dd>
+          </div>
+          <div>
+            <dt>Version</dt>
+            <dd>{approval.version}</dd>
+          </div>
+        </dl>
+      </SecondaryDetails>
       <dl className="dg-approval-request__facts">
-        <div>
-          <dt>Isolation domain</dt>
-          <dd>{approval.isolationDomainId}</dd>
-        </div>
-        <div>
-          <dt>Invocation</dt>
-          <dd>{approval.invocationId}</dd>
-        </div>
-        <div>
-          <dt>Approval</dt>
-          <dd>{approval.id}</dd>
-        </div>
-        <div>
-          <dt>Version</dt>
-          <dd>{approval.version}</dd>
-        </div>
         <div>
           <dt>Requested at</dt>
           <dd>
@@ -171,7 +194,7 @@ export function ApprovalRequest({
           </div>
         )}
         <div>
-          <dt>Last observed</dt>
+          <dt>Record updated</dt>
           <dd>
             <time dateTime={approval.updatedAt}>{approval.updatedAt}</time>
           </dd>

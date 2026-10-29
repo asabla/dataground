@@ -126,3 +126,29 @@ export const NarrowRightToLeft: Story = {
     await expect(bounds.right).toBeLessThanOrEqual(container.right);
   },
 };
+
+export const Workbench: Story = {
+  args: { compact: true },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText(question.id)).not.toBeVisible();
+    await expect(canvas.getByText(question.expiresAt)).toBeVisible();
+    await userEvent.click(canvas.getByRole("radio", { name: "Development The local workspace." }));
+    await userEvent.click(canvas.getByRole("button", { name: "Submit answers" }));
+    await expect(args.onSubmit).toHaveBeenCalled();
+    await userEvent.click(canvas.getByText("Resource details"));
+    await expect(canvas.getByText(question.id)).toBeVisible();
+  },
+};
+export const WorkbenchUncertain: Story = {
+  args: { ...UncertainSubmission.args, compact: true },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("alert")).toBeVisible();
+    await expect(
+      canvas.getByRole("radio", { name: "Development The local workspace." }),
+    ).toBeDisabled();
+    await expect(canvas.getByRole("button", { name: "Retry same answers" })).toBeDisabled();
+    await expect(canvas.getByText(question.id)).not.toBeVisible();
+  },
+};

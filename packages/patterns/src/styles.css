@@ -1551,3 +1551,17 @@
   background: transparent;
   box-shadow: none;
 }
+
+.dg-request--workbench {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.dg-request--workbench .dg-question-request__item {
+  border: 0;
+  border-top: var(--dg-border-default) solid var(--dg-color-border-default);
+  padding: var(--dg-space-4) 0;
+}

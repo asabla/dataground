@@ -285,6 +285,7 @@ export function InvocationInspectionWorkflow({
                 Close questions
               </Button>
               <QuestionWorkflow
+                compact={presentation === "workbench"}
                 client={client}
                 reference={selectedQuestion}
                 canAnswer={canAnswerQuestion}
@@ -302,19 +303,23 @@ export function InvocationInspectionWorkflow({
         {selectedApproval &&
           (isApprovalSelectedForInvocation(selectedApproval, reference) ? (
             <section
-              aria-labelledby={approvalInspectionTitleId}
+              aria-labelledby={presentation === "classic" ? approvalInspectionTitleId : undefined}
+              aria-label={presentation === "workbench" ? "Approval inspection" : undefined}
               className="product-workflow__inspection"
             >
               <div className="product-workflow__inspection-heading">
-                <div>
-                  <p className="workbench-kicker">Runtime decision</p>
-                  <h2 id={approvalInspectionTitleId}>Approval request</h2>
-                </div>
+                {presentation === "classic" && (
+                  <div>
+                    <p className="workbench-kicker">Runtime decision</p>
+                    <h2 id={approvalInspectionTitleId}>Approval request</h2>
+                  </div>
+                )}
                 <Button onPress={() => closeInspection(onCloseApproval)} variant="quiet">
                   Close approval
                 </Button>
               </div>
               <ApprovalWorkflow
+                compact={presentation === "workbench"}
                 canResolve={canResolveApproval}
                 client={client}
                 reference={selectedApproval}
