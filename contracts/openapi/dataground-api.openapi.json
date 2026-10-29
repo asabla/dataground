@@ -707,6 +707,78 @@
         }
       }
     },
+    "/v1/isolation-domains/{isolationDomainId}/invocations": {
+      "get": {
+        "operationId": "listScopeInvocations",
+        "summary": "List invocation summaries across the authorized isolation scope",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "accepted",
+                "running",
+                "waiting",
+                "cancelling",
+                "succeeded",
+                "failed",
+                "cancelled",
+                "unknown"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded cross-service invocation summaries with current service names.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScopeInvocationPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "description": "Requires listScopeInvocations on the isolation domain. This distinct grant permits summary metadata and service names for every service in that scope; it does not grant individual service, invocation, event, artifact or content reads. Results are newest creation first with identifier tie-breaking. Each page repeats authorization. The cursor binds scope and the state filter. Pages expose current state and current service names, not a frozen snapshot; refresh from the first page for new or changed runs. Inputs, outputs, runtime errors and artifact contents are excluded."
+      }
+    },
     "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations": {
       "get": {
         "operationId": "listInvocations",
@@ -2244,6 +2316,82 @@
           "inputTokens": { "type": "integer", "minimum": 0 },
           "outputTokens": { "type": "integer", "minimum": 0 },
           "totalTokens": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "ScopeInvocationSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "metadata",
+          "serviceId",
+          "revisionId",
+          "alias",
+          "state",
+          "correlationId",
+          "operationId",
+          "serviceName"
+        ],
+        "properties": {
+          "metadata": {
+            "$ref": "#/components/schemas/ResourceMetadata"
+          },
+          "serviceId": {
+            "$ref": "#/components/schemas/ServiceId"
+          },
+          "revisionId": {
+            "$ref": "#/components/schemas/RevisionId"
+          },
+          "alias": {
+            "$ref": "#/components/schemas/AliasName"
+          },
+          "state": {
+            "enum": [
+              "accepted",
+              "running",
+              "waiting",
+              "cancelling",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "unknown"
+            ]
+          },
+          "correlationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "operationId": {
+            "$ref": "#/components/schemas/OperationId"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "serviceName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          }
+        }
+      },
+      "ScopeInvocationPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/ScopeInvocationSummary"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
         }
       },
       "InvocationSummary": {

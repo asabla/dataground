@@ -259,6 +259,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/isolation-domains/{isolationDomainId}/invocations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List invocation summaries across the authorized isolation scope
+         * @description Requires listScopeInvocations on the isolation domain. This distinct grant permits summary metadata and service names for every service in that scope; it does not grant individual service, invocation, event, artifact or content reads. Results are newest creation first with identifier tie-breaking. Each page repeats authorization. The cursor binds scope and the state filter. Pages expose current state and current service names, not a frozen snapshot; refresh from the first page for new or changed runs. Inputs, outputs, runtime errors and artifact contents are excluded.
+         */
+        get: operations["listScopeInvocations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/isolation-domains/{isolationDomainId}/agent-services/{serviceId}/invocations": {
         parameters: {
             query?: never;
@@ -824,6 +844,23 @@ export interface components {
             totalTokens: number;
         } & {
             [key: string]: unknown;
+        };
+        ScopeInvocationSummary: {
+            metadata: components["schemas"]["ResourceMetadata"];
+            serviceId: components["schemas"]["ServiceId"];
+            revisionId: components["schemas"]["RevisionId"];
+            alias: components["schemas"]["AliasName"];
+            /** @enum {unknown} */
+            state: "accepted" | "running" | "waiting" | "cancelling" | "succeeded" | "failed" | "cancelled" | "unknown";
+            correlationId: string;
+            operationId: components["schemas"]["OperationId"];
+            /** Format: date-time */
+            completedAt?: string;
+            serviceName: string;
+        };
+        ScopeInvocationPage: {
+            items: components["schemas"]["ScopeInvocationSummary"][];
+            nextCursor?: string;
         };
         InvocationSummary: {
             metadata: components["schemas"]["ResourceMetadata"];
@@ -1802,6 +1839,36 @@ export interface operations {
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
             415: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    listScopeInvocations: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+                state?: "accepted" | "running" | "waiting" | "cancelling" | "succeeded" | "failed" | "cancelled" | "unknown";
+            };
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded cross-service invocation summaries with current service names. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScopeInvocationPage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             503: components["responses"]["Error"];
         };
     };

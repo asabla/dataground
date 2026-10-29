@@ -25,6 +25,7 @@ func TestDevelopmentCedarAuthorizerBindsPrincipalDomainAndClosedActions(t *testi
 	}
 	principal := newPrincipal(t, testActor, testDomain)
 	requests := []authz.Request{
+		request(principal, authz.ListScopeInvocations, authz.IsolationDomain, testDomain),
 		request(principal, authz.CreateWorkspace, authz.IsolationDomain, testDomain),
 		request(principal, authz.ListWorkspaces, authz.IsolationDomain, testDomain),
 		request(principal, authz.ReadWorkspace, authz.Workspace, "wsp_00000000000000000001"),

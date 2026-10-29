@@ -108,6 +108,13 @@ type InvocationSummary struct {
 	CompletedAt   *time.Time       `json:"completedAt,omitempty"`
 }
 
+// ScopeInvocationSummary adds the current service name to the separately
+// authorized, content-free scope discovery projection.
+type ScopeInvocationSummary struct {
+	InvocationSummary
+	ServiceName string `json:"serviceName"`
+}
+
 type EventEnvelope struct {
 	Source            string                     `json:"source,omitempty"`
 	SchemaVersion     string                     `json:"schemaVersion"`
