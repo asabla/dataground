@@ -33,7 +33,9 @@ interface ServiceWorkbenchViewProps {
   aliasReadLoading: boolean;
   aliasReadError?: unknown;
   readStatus: ReactNode;
-  commandContent: ReactNode;
+  publicationContent: ReactNode;
+  routingContent: ReactNode;
+  invocationContent: ReactNode;
   draftContent: ReactNode;
   draftActive: boolean;
   historyPanel: ReactNode;
@@ -67,7 +69,9 @@ export function ServiceWorkbenchView({
   aliasReadLoading,
   aliasReadError,
   readStatus,
-  commandContent,
+  publicationContent,
+  routingContent,
+  invocationContent,
   draftContent,
   draftActive,
   historyPanel,
@@ -206,9 +210,8 @@ export function ServiceWorkbenchView({
                 <div hidden={!draftActive} inert={!draftActive}>
                   {draftContent}
                 </div>
-                {commandTab === "build" ? (
-                  commandContent
-                ) : (
+                {publicationContent}
+                {commandTab !== "build" && (
                   <section>
                     <h2>Revision definition</h2>
                     <p>
@@ -249,7 +252,7 @@ export function ServiceWorkbenchView({
               <>
                 {routesPanel}
                 {withdrawalPanel}
-                {commandTab === "deployments" && commandContent}
+                {routingContent}
               </>
             ),
           },
@@ -269,7 +272,7 @@ export function ServiceWorkbenchView({
                   </Button>
                 )}
                 <div hidden={historyInspection || !!runLocation?.invocationId}>
-                  {commandTab === "runs" && commandContent}
+                  {invocationContent}
                 </div>
                 <div hidden={!!openedInvocation && !runLocation?.invocationId}>
                   <InvocationHistoryWorkflow
