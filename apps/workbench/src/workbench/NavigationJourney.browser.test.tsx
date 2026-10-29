@@ -77,7 +77,7 @@ async function render(client: DataGroundClient, presentation: "classic" | "workb
   );
 }
 async function click(text: string) {
-  const button = [...host.querySelectorAll("button")].find(
+  const button = [...host.querySelectorAll<HTMLElement>('button, [role="tab"]')].find(
     (element) => element.textContent === text && !element.closest("[hidden], [inert]"),
   );
   expect(button, text).toBeDefined();
@@ -320,4 +320,107 @@ it("changes theme without replacing an unfinished command form", async () => {
     expect(host.querySelector('input[name="service-name"]')).toBe(input);
     expect((input as HTMLInputElement).value).toBe("Theme-safe draft");
   }
+});
+
+const runId = "inv_00000000000000000001";
+const run = {
+  metadata: { ...service.metadata, id: runId },
+  serviceId,
+  revisionId: "rev_00000000000000000001",
+  operationId: "op_00000000000000000001",
+  correlationId: "cor_navigation",
+  alias: "stable",
+  state: "succeeded",
+  artifactIds: [],
+  input: {},
+};
+function runFixture(exact: () => unknown = () => ok(run)) {
+  const source = fixture();
+  const baseGet = source.client.GET;
+  source.client.GET = (async (path: string, options: never) => {
+    if (path.endsWith("/invocations/{invocationId}")) {
+      source.reads.push(path);
+      return exact();
+    }
+    if (path.endsWith("/operations/{operationId}"))
+      return ok({
+        metadata: { ...service.metadata, id: run.operationId },
+        kind: "invocation",
+        command: "invoke",
+        desiredState: "succeeded",
+        observedState: "succeeded",
+        stateMachineVersion: 1,
+        attempt: 1,
+        correlationId: run.correlationId,
+      });
+    return baseGet(path as never, options);
+  }) as DataGroundClient["GET"];
+  return source;
+}
+const runRoute = (runTab?: "output" | "files") =>
+  routeHash({
+    isolationDomainId: scope,
+    serviceId,
+    view: "interactions",
+    invocationId: runId,
+    ...(runTab ? { runTab } : {}),
+  });
+function selectedRunTab() {
+  return [...host.querySelectorAll('[role="tab"][aria-selected="true"]')].find((element) =>
+    element.closest('[aria-label="Run views"]'),
+  )?.textContent;
+}
+it("opens an exact run outside the list and restores its view through browser navigation", async () => {
+  window.history.replaceState(null, "", runRoute("output"));
+  const source = runFixture();
+  await render(source.client, "workbench");
+  expect(selectedRunTab()).toBe("Output");
+  expect(host.textContent).toContain("Show the completed result using your current access.");
+  expect(source.reads.some((path) => path.endsWith("/result"))).toBe(false);
+  await click("Files");
+  expect(window.location.hash).toBe(runRoute("files"));
+  await visit(runRoute("output"));
+  expect(selectedRunTab()).toBe("Output");
+  await click("Back to invocation history");
+  expect(window.location.hash).toBe(
+    routeHash({ isolationDomainId: scope, serviceId, view: "interactions" }),
+  );
+  const before = source.reads.filter((path) => path.endsWith("/invocations/{invocationId}")).length;
+  await visit(runRoute("output"));
+  expect(selectedRunTab()).toBe("Output");
+  expect(source.reads.filter((path) => path.endsWith("/invocations/{invocationId}"))).toHaveLength(
+    before,
+  );
+});
+it("does not inspect a direct run belonging to another service", async () => {
+  window.history.replaceState(null, "", runRoute("output"));
+  await render(
+    runFixture(() => ok({ ...run, serviceId: "svc_00000000000000000002" })).client,
+    "workbench",
+  );
+  expect(host.textContent).toContain("This run does not belong to the selected service.");
+  expect(selectedRunTab()).toBeUndefined();
+  expect(host.querySelector('[aria-label="Run outcome"]')).toBeNull();
+});
+it("discards a late direct-run read after returning to history", async () => {
+  let finish: (value: unknown) => void = () => {};
+  const pending = new Promise((resolve) => {
+    finish = resolve;
+  });
+  window.history.replaceState(null, "", runRoute("output"));
+  await render(runFixture(() => pending).client, "workbench");
+  await click("Back to invocation history");
+  await act(async () => finish(ok(run)));
+  expect(selectedRunTab()).toBeUndefined();
+  expect(host.querySelector('[aria-label="Run outcome"]')).toBeNull();
+});
+it("keeps denied run locations out of inspection and permits a new explicit read", async () => {
+  let allow = false;
+  window.history.replaceState(null, "", runRoute("output"));
+  await render(runFixture(() => (allow ? ok(run) : absent("FORBIDDEN"))).client, "workbench");
+  expect(host.textContent).toContain("Run unavailable");
+  expect(selectedRunTab()).toBeUndefined();
+  allow = true;
+  await click("Retry run read");
+  expect(selectedRunTab()).toBe("Output");
 });

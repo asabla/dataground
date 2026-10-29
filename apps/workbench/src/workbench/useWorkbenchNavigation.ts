@@ -14,6 +14,8 @@ export function useWorkbenchNavigation(isolationDomainId: string) {
         current?.isolationDomainId === next?.isolationDomainId &&
         current?.serviceId === next?.serviceId &&
         current?.serviceTab === next?.serviceTab &&
+        current?.invocationId === next?.invocationId &&
+        current?.runTab === next?.runTab &&
         current?.view === next?.view
           ? current
           : next,

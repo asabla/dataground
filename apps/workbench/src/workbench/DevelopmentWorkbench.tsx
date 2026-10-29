@@ -320,6 +320,18 @@ export function WorkbenchSession({
             <div key={session.key} hidden={!active}>
               <ServiceWorkflowSession
                 presentation={presentation}
+                runLocation={
+                  active ? { invocationId: route?.invocationId, tab: route?.runTab } : undefined
+                }
+                onRunNavigate={(location) =>
+                  navigate({
+                    isolationDomainId,
+                    serviceId: session.service?.metadata.id,
+                    view: "interactions",
+                    invocationId: location.invocationId,
+                    runTab: location.tab,
+                  })
+                }
                 selectedTab={
                   active
                     ? view === "interactions"

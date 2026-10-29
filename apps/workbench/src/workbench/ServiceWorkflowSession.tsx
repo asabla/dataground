@@ -12,6 +12,7 @@ import type { InvocationApprovalReference } from "../approvals";
 import type { InvocationArtifactReference } from "../artifacts";
 import type { DataGroundClient } from "../contracts/client";
 import { InvocationHistoryWorkflow } from "../invocations/InvocationHistoryWorkflow";
+import type { RunLocation } from "../invocations/navigation";
 import type { InvocationQuestionReference } from "../questions";
 import {
   listServiceRevisions,
@@ -83,6 +84,8 @@ function mergeRevisionHistory(
 interface ServiceWorkflowSessionProps {
   presentation: WorkbenchPresentation;
   selectedTab?: ServiceTab;
+  runLocation?: RunLocation;
+  onRunNavigate: (location: RunLocation) => void;
   client: DataGroundClient;
   isolationDomainId: string;
   initialService?: AgentServiceResource;
@@ -97,6 +100,8 @@ export function ServiceWorkflowSession({
   isolationDomainId,
   presentation,
   selectedTab,
+  runLocation,
+  onRunNavigate,
   initialService,
   active,
   view,
@@ -448,8 +453,12 @@ export function ServiceWorkflowSession({
         setOpenedQuestion(undefined);
         setOpenedApproval(undefined);
         setOpenedArtifact(undefined);
-        setOpenedInvocation(selection);
-        setView("interactions");
+        if (presentation === "workbench") {
+          onRunNavigate({ invocationId: selection.reference.invocationId });
+        } else {
+          setOpenedInvocation(selection);
+          setView("interactions");
+        }
       }}
       onOpenRevision={(revision) => {
         selectTab("build");
@@ -670,6 +679,8 @@ export function ServiceWorkflowSession({
     return (
       <div ref={pageContent}>
         <ServiceWorkbenchView
+          runLocation={runLocation}
+          onRunNavigate={onRunNavigate}
           client={client}
           isolationDomainId={isolationDomainId}
           view={view}

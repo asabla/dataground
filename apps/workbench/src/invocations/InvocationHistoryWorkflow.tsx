@@ -6,14 +6,19 @@ import type { DataGroundClient } from "../contracts/client";
 import type { InvocationQuestionReference } from "../questions";
 import {
   type AgentServiceInvocationTarget,
+  type InvocationFailure,
   type InvocationSummaryResource,
   listInvocations,
+  readInvocationStatus,
 } from "./client";
 import { invocationHistoryReducer } from "./history";
 import { InvocationInspectionWorkflow } from "./InvocationInspectionWorkflow";
+import type { RunLocation, RunTab } from "./navigation";
 
 export interface InvocationHistoryWorkflowProps {
   presentation?: "classic" | "workbench";
+  location?: RunLocation;
+  onNavigate?: (location: RunLocation) => void;
   onInspectionChange?: (inspecting: boolean) => void;
   client: DataGroundClient;
   target: AgentServiceInvocationTarget;
@@ -33,6 +38,8 @@ function InvocationHistorySession({
   client,
   target,
   presentation = "classic",
+  location,
+  onNavigate,
   onInspectionChange,
 }: InvocationHistoryWorkflowProps) {
   const [sort, setSort] = useState<DataTableSort>({ column: "created", direction: "descending" });
@@ -55,22 +62,103 @@ function InvocationHistorySession({
     invocation: InvocationSummaryResource;
   }>();
   const [opened, setOpened] = useState<InvocationSummaryResource[]>([]);
+  const openedRef = useRef(opened);
+  openedRef.current = opened;
+  const [locationRead, setLocationRead] = useState<{
+    id: string;
+    loading: boolean;
+    error?: InvocationFailure;
+  }>();
+  const locationGeneration = useRef(0);
+  const desiredInvocation = location?.invocationId;
+  const controlled = location !== undefined;
+  const desiredRef = useRef(desiredInvocation);
+  desiredRef.current = desiredInvocation;
+  const loadLocation = useCallback(() => {
+    if (!controlled) return;
+    const generation = ++locationGeneration.current;
+    setSelected(undefined);
+    setLocationRead(undefined);
+    if (!desiredInvocation) return;
+    const retained = openedRef.current.find((item) => item.metadata.id === desiredInvocation);
+    if (retained) {
+      setSelected({ client, invocation: retained });
+      return;
+    }
+    setLocationRead({ id: desiredInvocation, loading: true });
+    void readInvocationStatus(client, { isolationDomainId, invocationId: desiredInvocation }).then(
+      (result) => {
+        if (generation !== locationGeneration.current) return;
+        if (!result.ok) {
+          if ([401, 403].includes(result.error.status ?? 0)) setOpened([]);
+          setLocationRead({ id: desiredInvocation, loading: false, error: result.error });
+          return;
+        }
+        if (result.invocation.serviceId !== serviceId) {
+          setLocationRead({
+            id: desiredInvocation,
+            loading: false,
+            error: {
+              code: "WORKBENCH_INVOCATION_SERVICE_MISMATCH",
+              message: "This run does not belong to the selected service.",
+              retryable: false,
+            },
+          });
+          return;
+        }
+        // Retain only the public summary used for navigation. Results and operation
+        // contents remain in their separately authorized inspection workflows.
+        const {
+          metadata,
+          serviceId: boundServiceId,
+          revisionId,
+          operationId,
+          correlationId,
+          alias,
+          state,
+          completedAt,
+        } = result.invocation;
+        const invocation: InvocationSummaryResource = {
+          metadata,
+          serviceId: boundServiceId,
+          revisionId,
+          operationId,
+          correlationId,
+          alias,
+          state,
+          completedAt,
+        };
+        setOpened((current) =>
+          current.some((item) => item.metadata.id === invocation.metadata.id)
+            ? current
+            : [...current, invocation],
+        );
+        setSelected({ client, invocation });
+        setLocationRead({ id: desiredInvocation, loading: false });
+      },
+    );
+    return () => {
+      locationGeneration.current++;
+    };
+  }, [client, isolationDomainId, serviceId, controlled, desiredInvocation]);
+  useEffect(() => loadLocation(), [loadLocation]);
+
   const load = useCallback(
     async (cursor?: string) => {
       const requestId = ++sequence.current;
-      if (cursor === undefined) {
-        setSelected(undefined);
-      }
+      if (cursor === undefined && !controlled) setSelected(undefined);
       dispatch({ type: "requested", client, scope, requestId, cursor });
       const result = await listInvocations(client, { isolationDomainId, serviceId }, cursor);
       if (sequence.current !== requestId) return;
-      if (!result.ok && [401, 403].includes(result.error.status ?? 0)) {
+      // Exact-run reads have their own authorization. A list denial must not
+      // replace an independently authorized direct location with a loading view.
+      if (!desiredRef.current && !result.ok && [401, 403].includes(result.error.status ?? 0)) {
         setOpened([]);
         setSelected(undefined);
       }
       dispatch({ type: "received", requestId, result });
     },
-    [client, scope, isolationDomainId, serviceId],
+    [client, scope, isolationDomainId, serviceId, controlled],
   );
   useEffect(() => {
     setStateFilter("all");
@@ -87,23 +175,54 @@ function InvocationHistorySession({
     current &&
     selected?.client === client &&
     selected.invocation.metadata.isolationDomainId === isolationDomainId &&
-    selected.invocation.serviceId === serviceId
+    selected.invocation.serviceId === serviceId &&
+    (!controlled || selected.invocation.metadata.id === desiredInvocation)
       ? selected.invocation
       : undefined;
   useEffect(() => {
-    if (!invocation && returnFocusId.current) {
-      document.getElementById(returnFocusId.current)?.focus();
+    if (!invocation && !desiredInvocation && returnFocusId.current) {
+      (document.getElementById(returnFocusId.current) ?? document.getElementById(titleId))?.focus();
       returnFocusId.current = undefined;
     }
-  }, [invocation]);
+  }, [invocation, desiredInvocation, titleId]);
   useEffect(() => {
-    onInspectionChange?.(invocation !== undefined);
+    onInspectionChange?.(invocation !== undefined || !!desiredInvocation);
     return () => onInspectionChange?.(false);
-  }, [invocation, onInspectionChange]);
+  }, [invocation, desiredInvocation, onInspectionChange]);
   const items = current ? state.items : [];
   const loading = !current || state.loading;
   return (
     <>
+      {controlled && desiredInvocation && !invocation && (
+        <section aria-label="Run location" aria-busy={locationRead?.loading || undefined}>
+          <h2>
+            {locationRead?.id === desiredInvocation && locationRead.error
+              ? "Run unavailable"
+              : "Loading run"}
+          </h2>
+          {locationRead?.id === desiredInvocation && locationRead.error && (
+            <div role="alert">
+              <p>{locationRead.error.message}</p>
+              <Button
+                onPress={() => {
+                  loadLocation();
+                }}
+              >
+                Retry run read
+              </Button>
+            </div>
+          )}
+          <Button
+            variant="quiet"
+            onPress={() => {
+              returnFocusId.current = titleId;
+              onNavigate?.({});
+            }}
+          >
+            Back to invocation history
+          </Button>
+        </section>
+      )}
       {opened.map((item) => {
         const active = invocation?.metadata.id === item.metadata.id;
         return (
@@ -113,9 +232,20 @@ function InvocationHistorySession({
               invocation={item}
               presentation={presentation}
               active={active}
+              selectedTab={active && controlled ? (location?.tab ?? "activity") : undefined}
+              onSelectTab={
+                controlled
+                  ? (tab) =>
+                      onNavigate?.({
+                        invocationId: item.metadata.id,
+                        tab: tab === "activity" ? undefined : tab,
+                      })
+                  : undefined
+              }
               onBack={() => {
                 returnFocusId.current = `${titleId}-open-${item.metadata.id}`;
                 setSelected(undefined);
+                if (controlled) onNavigate?.({});
                 if (presentation === "classic") setOpened([]);
               }}
             />
@@ -125,12 +255,14 @@ function InvocationHistorySession({
       <section
         aria-labelledby={titleId}
         className="invocation-history"
-        hidden={!!invocation}
-        inert={!!invocation}
+        hidden={!!invocation || !!desiredInvocation}
+        inert={!!invocation || !!desiredInvocation}
       >
         <div className="workbench-page-heading workbench-page-heading--compact">
           <div>
-            <h2 id={titleId}>Invocation history</h2>
+            <h2 id={titleId} tabIndex={-1}>
+              Invocation history
+            </h2>
             <p>Earlier runs of this service, newest first. Open a run to read its current state.</p>
           </div>
           <Button
@@ -263,7 +395,8 @@ function InvocationHistorySession({
                             ? current
                             : [...current, item],
                         );
-                        setSelected({ client, invocation: item });
+                        if (controlled) onNavigate?.({ invocationId: item.metadata.id });
+                        else setSelected({ client, invocation: item });
                       }}
                     >
                       Open run
@@ -297,12 +430,16 @@ function RunInspectionSession({
   invocation,
   presentation,
   active,
+  selectedTab,
+  onSelectTab,
   onBack,
 }: {
   client: DataGroundClient;
   invocation: InvocationSummaryResource;
   presentation: "classic" | "workbench";
   active: boolean;
+  selectedTab?: RunTab;
+  onSelectTab?: (tab: RunTab) => void;
   onBack: () => void;
 }) {
   const titleId = useId();
@@ -324,6 +461,8 @@ function RunInspectionSession({
         </Button>
       </div>
       <InvocationInspectionWorkflow
+        selectedTab={selectedTab}
+        onSelectTab={onSelectTab}
         presentation={presentation}
         client={client}
         canCancelInvocation

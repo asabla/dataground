@@ -3,6 +3,7 @@ import { type ReactNode, useState } from "react";
 import type { ServiceAliasResource } from "../aliases";
 import type { DataGroundClient } from "../contracts/client";
 import { InvocationHistoryWorkflow } from "../invocations/InvocationHistoryWorkflow";
+import type { RunLocation } from "../invocations/navigation";
 import type {
   ServiceRevisionFailure,
   ServiceRevisionHistoryResource,
@@ -12,6 +13,8 @@ import type { AgentServiceInvocationSelection, AgentServiceResource } from "../s
 import { isServiceTab, type ServiceTab, type WorkbenchView } from "./navigation";
 
 interface ServiceWorkbenchViewProps {
+  runLocation?: RunLocation;
+  onRunNavigate: (location: RunLocation) => void;
   client: DataGroundClient;
   isolationDomainId: string;
   view: WorkbenchView;
@@ -42,6 +45,8 @@ interface ServiceWorkbenchViewProps {
 }
 
 export function ServiceWorkbenchView({
+  runLocation,
+  onRunNavigate,
   client,
   isolationDomainId,
   view,
@@ -245,7 +250,7 @@ export function ServiceWorkbenchView({
             label: "Runs",
             content: (
               <>
-                {openedInvocation && (
+                {openedInvocation && !runLocation?.invocationId && (
                   <Button
                     variant="quiet"
                     onPress={() => {
@@ -255,16 +260,20 @@ export function ServiceWorkbenchView({
                     View invocation history
                   </Button>
                 )}
-                <div hidden={historyInspection}>{commandTab === "runs" && commandContent}</div>
-                {!openedInvocation && (
+                <div hidden={historyInspection || !!runLocation?.invocationId}>
+                  {commandTab === "runs" && commandContent}
+                </div>
+                <div hidden={!!openedInvocation && !runLocation?.invocationId}>
                   <InvocationHistoryWorkflow
                     presentation="workbench"
+                    location={runLocation ?? {}}
+                    onNavigate={onRunNavigate}
                     onInspectionChange={setHistoryInspection}
                     client={client}
                     target={{ isolationDomainId, serviceId: openedService.metadata.id }}
                   />
-                )}
-                {commandTab !== "runs" && (
+                </div>
+                {commandTab !== "runs" && !runLocation?.invocationId && (
                   <p>
                     Select a published route in{" "}
                     <Button variant="quiet" onPress={() => selectTab("deployments")}>
