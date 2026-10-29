@@ -527,6 +527,26 @@
       "schema": "AuditExportRevocationSourceRegistry",
       "document": "audit-export-revocation-source-registry",
       "valid": false
+    },
+    {
+      "file": "valid/saved-resource-page.json",
+      "schema": "SavedResourcePage",
+      "valid": true
+    },
+    {
+      "file": "valid/set-saved-resource.json",
+      "schema": "SetSavedResourceRequest",
+      "valid": true
+    },
+    {
+      "file": "invalid/saved-resource-kind-mismatch.json",
+      "schema": "SetSavedResourceRequest",
+      "valid": false
+    },
+    {
+      "file": "invalid/saved-resource-owner.json",
+      "schema": "SetSavedResourceRequest",
+      "valid": false
     }
   ]
 }

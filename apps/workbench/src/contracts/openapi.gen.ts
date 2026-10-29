@@ -4,6 +4,30 @@
  */
 
 export interface paths {
+    "/v1/isolation-domains/{isolationDomainId}/saved-resources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the current principal’s saved resources
+         * @description Requires listSavedResources on the isolation domain. Returns only references saved by the authenticated principal kind and ID, with current navigation metadata. This permission discloses metadata of those saved targets; exact resource and content reads remain independently authorized. Newest save first with resource-ID tie breaking. Cursors bind scope and principal. Each page repeats authorization and reads current state, not a snapshot. No names, prompts, results or contents are stored in the saved reference.
+         */
+        get: operations["listSavedResources"];
+        put?: never;
+        /**
+         * Save or remove a reference for the current principal
+         * @description Requires setSavedResource on the isolation domain. The authenticated principal kind and ID determine the private collection; the caller cannot choose an owner. Saving requires an existing target within this scope and grants no resource or content access. Removing an unavailable target is allowed. Repeated saves preserve the original save position; removing and saving again uses a new position. The exact request is idempotent and bound to principal kind and ID. A replay returns the original receipt and does not override later commands; refresh the list to observe current state. No resource content or ownership is changed.
+         */
+        post: operations["setSavedResource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/livez": {
         parameters: {
             query?: never;
@@ -643,6 +667,150 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        SetSavedResourceRequest: {
+            /** @constant */
+            kind: "workspace";
+            resourceId: components["schemas"]["WorkspaceId"];
+            saved: boolean;
+        } | {
+            /** @constant */
+            kind: "agent-service";
+            resourceId: components["schemas"]["ServiceId"];
+            saved: boolean;
+        } | {
+            /** @constant */
+            kind: "invocation";
+            resourceId: components["schemas"]["InvocationId"];
+            saved: boolean;
+        } | {
+            /** @constant */
+            kind: "artifact";
+            resourceId: components["schemas"]["ArtifactId"];
+            saved: boolean;
+        };
+        SavedResourceState: {
+            isolationDomainId: components["schemas"]["IsolationDomainId"];
+            /** @constant */
+            kind: "workspace";
+            resourceId: components["schemas"]["WorkspaceId"];
+            saved: boolean;
+            /** Format: date-time */
+            updatedAt: string;
+        } | {
+            isolationDomainId: components["schemas"]["IsolationDomainId"];
+            /** @constant */
+            kind: "agent-service";
+            resourceId: components["schemas"]["ServiceId"];
+            saved: boolean;
+            /** Format: date-time */
+            updatedAt: string;
+        } | {
+            isolationDomainId: components["schemas"]["IsolationDomainId"];
+            /** @constant */
+            kind: "invocation";
+            resourceId: components["schemas"]["InvocationId"];
+            saved: boolean;
+            /** Format: date-time */
+            updatedAt: string;
+        } | {
+            isolationDomainId: components["schemas"]["IsolationDomainId"];
+            /** @constant */
+            kind: "artifact";
+            resourceId: components["schemas"]["ArtifactId"];
+            saved: boolean;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description A reference saved by the current authenticated principal. Resource metadata is current, not a saved copy. An absent resource means metadata is unavailable; the reference can still be removed. */
+        SavedResource: {
+            isolationDomainId: components["schemas"]["IsolationDomainId"];
+            /** @constant */
+            kind: "workspace";
+            resourceId: components["schemas"]["WorkspaceId"];
+            /** Format: date-time */
+            savedAt: string;
+            resource?: {
+                metadata: {
+                    id: components["schemas"]["WorkspaceId"];
+                    isolationDomainId: components["schemas"]["IsolationDomainId"];
+                    /** Format: date-time */
+                    createdAt: string;
+                };
+                /** @constant */
+                kind: "workspace";
+                name: string;
+                description?: string;
+            };
+        } | {
+            isolationDomainId: components["schemas"]["IsolationDomainId"];
+            /** @constant */
+            kind: "agent-service";
+            resourceId: components["schemas"]["ServiceId"];
+            /** Format: date-time */
+            savedAt: string;
+            resource?: {
+                metadata: {
+                    id: components["schemas"]["ServiceId"];
+                    isolationDomainId: components["schemas"]["IsolationDomainId"];
+                    /** Format: date-time */
+                    createdAt: string;
+                };
+                /** @constant */
+                kind: "agent-service";
+                name: string;
+                description?: string;
+                workspaceId?: components["schemas"]["WorkspaceId"];
+            };
+        } | {
+            isolationDomainId: components["schemas"]["IsolationDomainId"];
+            /** @constant */
+            kind: "invocation";
+            resourceId: components["schemas"]["InvocationId"];
+            /** Format: date-time */
+            savedAt: string;
+            resource?: {
+                metadata: {
+                    id: components["schemas"]["InvocationId"];
+                    isolationDomainId: components["schemas"]["IsolationDomainId"];
+                    /** Format: date-time */
+                    createdAt: string;
+                };
+                /** @constant */
+                kind: "invocation";
+                name: string;
+                workspaceId?: components["schemas"]["WorkspaceId"];
+                serviceId: components["schemas"]["ServiceId"];
+                /** @enum {string} */
+                state: "accepted" | "running" | "waiting" | "cancelling" | "succeeded" | "failed" | "cancelled" | "unknown";
+            };
+        } | {
+            isolationDomainId: components["schemas"]["IsolationDomainId"];
+            /** @constant */
+            kind: "artifact";
+            resourceId: components["schemas"]["ArtifactId"];
+            /** Format: date-time */
+            savedAt: string;
+            resource?: {
+                metadata: {
+                    id: components["schemas"]["ArtifactId"];
+                    isolationDomainId: components["schemas"]["IsolationDomainId"];
+                    /** Format: date-time */
+                    createdAt: string;
+                };
+                /** @constant */
+                kind: "artifact";
+                name: string;
+                workspaceId?: components["schemas"]["WorkspaceId"];
+                serviceId: components["schemas"]["ServiceId"];
+                /** @enum {string} */
+                state: "pending" | "available" | "failed" | "deleted";
+                invocationId: components["schemas"]["InvocationId"];
+            };
+        };
+        SavedResourcePage: {
+            items: components["schemas"]["SavedResource"][];
+            nextCursor?: string;
+        };
         ResourceSearchResult: {
             metadata: {
                 id: components["schemas"]["WorkspaceId"];
@@ -1455,6 +1623,71 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listSavedResources: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of saved references. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedResourcePage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    setSavedResource: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque caller key scoped to the isolation domain, HTTP method, and route. Reuse with a different body fails with IDEMPOTENCY_KEY_REUSED. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetSavedResourceRequest"];
+            };
+        };
+        responses: {
+            /** @description The saved-state command receipt. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedResourceState"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            415: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
     getLiveness: {
         parameters: {
             query?: never;

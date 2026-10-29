@@ -44,6 +44,7 @@ type storedResponse struct {
 type Server struct {
 	mu                   sync.RWMutex
 	workspaces           map[string]domain.Workspace
+	savedResources       map[savedResourceKey]domain.SavedResourceState
 	services             map[string]AgentService
 	revisions            map[string]ServiceRevision
 	revisionCounts       map[string]int
@@ -80,6 +81,7 @@ func NewRateLimitedDPoPHandler(
 func NewServer() *Server {
 	return &Server{
 		workspaces:           make(map[string]domain.Workspace),
+		savedResources:       make(map[savedResourceKey]domain.SavedResourceState),
 		services:             make(map[string]AgentService),
 		revisions:            make(map[string]ServiceRevision),
 		revisionCounts:       make(map[string]int),
@@ -147,6 +149,8 @@ func (server *Server) handler(
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations", protected(authz.ListScopeInvocations, authz.IsolationDomain, "", server.listScopeInvocations))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/artifacts", protected(authz.ListScopeArtifacts, authz.IsolationDomain, "", server.listScopeArtifacts))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/search", protected(authz.SearchResources, authz.IsolationDomain, "", server.searchResources))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/saved-resources", protected(authz.ListSavedResources, authz.IsolationDomain, "", server.listSavedResources))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/saved-resources", protected(authz.SetSavedResource, authz.IsolationDomain, "", server.setSavedResource))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/agent-services", protected(
 		authz.ListAgentServices, authz.IsolationDomain, "", server.listAgentServices,
 	))
@@ -889,6 +893,10 @@ func (server *Server) getInvocationArtifact(response http.ResponseWriter, reques
 }
 
 func (server *Server) mutate(response http.ResponseWriter, request *http.Request, mutation func(string, []byte) (int, any)) {
+	server.mutateWithDigest(response, request, mutation, authenticatedRequestDigest)
+}
+
+func (server *Server) mutateWithDigest(response http.ResponseWriter, request *http.Request, mutation func(string, []byte) (int, any), requestDigest func(string, []byte) [sha256.Size]byte) {
 	actorID := authenticatedActorID(request)
 	if actorID == "" {
 		writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeError("AUTHENTICATION_UNAVAILABLE", "Authentication is temporarily unavailable.", true)})
@@ -914,7 +922,7 @@ func (server *Server) mutate(response http.ResponseWriter, request *http.Request
 		writeJSON(response, http.StatusBadRequest, ErrorEnvelope{Error: safeError("INVALID_REQUEST", "Request body is invalid or too large.", false)})
 		return
 	}
-	digest := authenticatedRequestDigest(actorID, body)
+	digest := requestDigest(actorID, body)
 	cacheKey := request.Method + " " + request.URL.EscapedPath() + " " + key
 
 	server.mu.Lock()

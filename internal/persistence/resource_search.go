@@ -22,20 +22,7 @@ func (repository *Repository) SearchResources(ctx context.Context, scope, query,
 	}
 	rows, err := repository.pool.Query(ctx, `
  SELECT id,kind,name,description,workspace_id,service_id,invocation_id,state,created_at FROM (
-   SELECT id,'workspace'::text kind,name,description,''::text workspace_id,''::text service_id,''::text invocation_id,''::text state,created_at
-   FROM workspaces WHERE isolation_domain_id=$1
-   UNION ALL
-   SELECT id,'agent-service',name,description,COALESCE(workspace_id,''),'','','',created_at
-   FROM agent_services WHERE isolation_domain_id=$1
-   UNION ALL
-   SELECT i.id,'invocation',s.name,'',COALESCE(s.workspace_id,''),i.service_id,'',i.state,i.created_at
-   FROM invocations i JOIN agent_services s ON s.isolation_domain_id=i.isolation_domain_id AND s.id=i.service_id
-   WHERE i.isolation_domain_id=$1
-   UNION ALL
-   SELECT a.id,'artifact',a.name,'',COALESCE(s.workspace_id,''),i.service_id,a.invocation_id,a.state,a.created_at
-   FROM artifacts a JOIN invocations i ON i.isolation_domain_id=a.isolation_domain_id AND i.id=a.invocation_id
-   JOIN agent_services s ON s.isolation_domain_id=i.isolation_domain_id AND s.id=i.service_id
-   WHERE a.isolation_domain_id=$1
+`+resourceNavigationSQL+`
  ) resources
  WHERE ($3='' OR kind=$3)
  AND (strpos(translate(name,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),$2)>0
@@ -64,3 +51,21 @@ func (repository *Repository) SearchResources(ctx context.Context, scope, query,
 	}
 	return ResourceSearchPage{Items: items, HasMore: more}, nil
 }
+
+// Shared by authorized metadata discovery; $1 is always the isolation scope.
+const resourceNavigationSQL = `
+   SELECT id,'workspace'::text kind,name,description,''::text workspace_id,''::text service_id,''::text invocation_id,''::text state,created_at
+   FROM workspaces WHERE isolation_domain_id=$1
+   UNION ALL
+   SELECT id,'agent-service',name,description,COALESCE(workspace_id,''),'','','',created_at
+   FROM agent_services WHERE isolation_domain_id=$1
+   UNION ALL
+   SELECT i.id,'invocation',s.name,'',COALESCE(s.workspace_id,''),i.service_id,'',i.state,i.created_at
+   FROM invocations i JOIN agent_services s ON s.isolation_domain_id=i.isolation_domain_id AND s.id=i.service_id
+   WHERE i.isolation_domain_id=$1
+   UNION ALL
+   SELECT a.id,'artifact',a.name,'',COALESCE(s.workspace_id,''),i.service_id,a.invocation_id,a.state,a.created_at
+   FROM artifacts a JOIN invocations i ON i.isolation_domain_id=a.isolation_domain_id AND i.id=a.invocation_id
+   JOIN agent_services s ON s.isolation_domain_id=i.isolation_domain_id AND s.id=i.service_id
+   WHERE a.isolation_domain_id=$1
+`
