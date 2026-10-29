@@ -22,6 +22,7 @@ export interface ServiceAliasAssignError {
 export interface ServiceAliasAssignProps {
   compact?: boolean;
   active?: boolean;
+  autoFocusAlias?: boolean;
   aliasName: string;
   aliasValidationError?: string;
   assigned?: AssignedServiceAlias;
@@ -37,6 +38,7 @@ export interface ServiceAliasAssignProps {
   isSubmitting?: boolean;
   onAliasNameChange?: (value: string) => void;
   onComposeInvocation?: () => void;
+  onCreateAnotherRoute?: () => void;
   onConfirm?: () => void;
   onDismissConfirmation?: () => void;
   onRequestConfirmation?: () => void;
@@ -67,6 +69,7 @@ function displayText(value: string, maximum = 255): string {
 export function ServiceAliasAssign({
   compact = false,
   active = true,
+  autoFocusAlias = false,
   aliasName,
   aliasValidationError,
   assigned,
@@ -82,6 +85,7 @@ export function ServiceAliasAssign({
   isSubmitting = false,
   onAliasNameChange,
   onComposeInvocation,
+  onCreateAnotherRoute,
   onConfirm,
   onDismissConfirmation,
   onRequestConfirmation,
@@ -293,12 +297,22 @@ export function ServiceAliasAssign({
           </SecondaryDetails>
           <p>New invocations can use this alias. Existing invocations remain revision-pinned.</p>
           {onComposeInvocation && <Button onPress={onComposeInvocation}>Compose invocation</Button>}
+          {compact && canAssign && !blockedReason && onCreateAnotherRoute && (
+            <Button variant="quiet" onPress={onCreateAnotherRoute}>
+              Create another route
+            </Button>
+          )}
         </div>
       ) : alreadyAssigned ? (
         <div className="dg-service-alias-assign__assigned" aria-live="polite">
           <strong>The alias already targets this published revision.</strong>
           <p>No routing command is needed. Existing invocations remain revision-pinned.</p>
           {onComposeInvocation && <Button onPress={onComposeInvocation}>Compose invocation</Button>}
+          {compact && canAssign && !blockedReason && onCreateAnotherRoute && (
+            <Button variant="quiet" onPress={onCreateAnotherRoute}>
+              Create another route
+            </Button>
+          )}
         </div>
       ) : !compact && confirmationVisible && !recoveryPending ? (
         <fieldset
@@ -339,6 +353,7 @@ export function ServiceAliasAssign({
             </p>
           ) : (
             <TextField
+              autoFocus={autoFocusAlias}
               description="Stable lowercase route name for new invocations."
               errorMessage={aliasValidationError}
               isDisabled={!canAssign || blockedReason !== undefined || isSubmitting}

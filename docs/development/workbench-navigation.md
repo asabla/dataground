@@ -289,3 +289,10 @@ results. Acceptance refreshes the selected service's authorized run history with
 changing the current run location or clearing its filter. A late earlier history
 page cannot replace the refreshed list. Result and request contents still require
 their own inspection reads.
+
+A successfully assigned or already observed route offers **Create another route**.
+This opens a blank name for the same published revision and uses the create-only
+zero-version precondition. It does not move the previous alias. A pending or
+uncertain request cannot be replaced by that action; its exact retry remains.
+Connection or revision changes discard the new-route form and invalidate late
+responses from the previous command session.

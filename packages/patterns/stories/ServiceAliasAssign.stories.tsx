@@ -186,3 +186,13 @@ export const InactiveConfirmation: Story = {
     await expect(within(canvasElement).queryByRole("dialog")).not.toBeInTheDocument();
   },
 };
+
+export const AdditionalRoute: Story = {
+  args: { ...Assigned.args, compact: true, onCreateAnotherRoute: fn() },
+  play: async ({ args, canvasElement }) => {
+    await userEvent.click(
+      within(canvasElement).getByRole("button", { name: "Create another route" }),
+    );
+    await expect(args.onCreateAnotherRoute).toHaveBeenCalledOnce();
+  },
+};
