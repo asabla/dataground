@@ -22,16 +22,37 @@ completion and from reference-runtime demonstrations.
 | --- | --- | --- | --- |
 | Resource table | Shared accessible grid with a compact service directory | Existing validated service pages and stale-action guards; Storybook keyboard, sorting and accessibility contracts | Merged in PR #372; shared tests, Browser keyboard/theme review and repository CI passed |
 | Exact service read | Direct lookup without scanning list pages | Path-derived Cedar action, scoped PostgreSQL read and retained authorization evidence | Merged in PR #373; contract, client and repository CI checks passed |
-| Navigation foundation | Scoped service URLs and browser history; connection, shell and workflow session separated | Exact authorized service reads; independent service contexts retained across navigation; identity changes clear state | Merged in PR #374 and #375; run URLs implemented; revision/artifact URLs and revision-specific retention remain |
-| Shared workbench patterns | Tabs, menus, tree, dialogs, detail panels and resizable regions | Each component has a real consumer and Storybook contract; keyboard, focus and both themes | Tabs merged in PR #376 with service consumers; other patterns pending |
-| Agent authoring | Service directory and Overview, Build, Versions, Deployments, Runs views | Reuse creation, publication, routing, retirement and withdrawal commands; preserve drafts and uncertain requests | Five service views merged in PR #376; compact version, route and run tables implemented; inner command presentation and revision retention remain |
-| Run and artifact inspection | Outcome/blocker first, activity, decisions, results, files and audit in separate views | Preserve bounded authorized reads, explicit content disclosure, expiry, cancellation and late-response rejection | Run outcome and retained inspection tabs merged in PR #377; compact event table and contextual event inspection merged in PR #379; retained run sessions and run URLs implemented; artifact navigation and deep links remain |
+| Navigation foundation | Scoped service URLs and browser history; connection, shell and workflow session separated | Exact authorized service reads; independent service contexts retained across navigation; identity changes clear state | Merged in PR #374, #375, #381, #384, #385, #387 and #389; service, revision, run and artifact URLs and retained drafts/commands are implemented |
+| Shared workbench patterns | Tabs, menus, tree, dialogs, detail panels and resizable regions | Each component has a real consumer and Storybook contract; keyboard, focus and both themes | Tables, tabs, copy controls and bounded split views merged in PR #372, #376, #383 and #390 with consumers and Storybook contracts; publication dialog is in PR #402; menus and trees remain |
+| Agent authoring | Service directory and Overview, Build, Versions, Deployments, Runs views | Reuse creation, publication, routing, retirement and withdrawal commands; preserve drafts and uncertain requests | Five service views, compact version/route/run tables, authoring layout and revision retention merged through PR #389; focused withdrawal and retirement presentation merged in PR #394 |
+| Run and artifact inspection | Outcome/blocker first, activity, decisions, results, files and audit in separate views | Preserve bounded authorized reads, explicit content disclosure, expiry, cancellation and late-response rejection | Run outcome, retained views, compact activity/request browsers, contextual inspection and artifact deep links merged through PR #390; paginated artifact metadata API and Files browser merged in PR #391 and #392; flat request inspection merged in PR #393 |
 | Agent migration acceptance | Complete replacement journey and temporary presentation comparison | Same command implementations; remove old presentation only after full journey acceptance | Pending |
 | Governed execution prerequisite | Complete accepted runtime and workspace-retention integration | Exact-image acceptance and real local execution evidence; internal helper tests alone are insufficient | Pending |
+| Scope run discovery | One authorized paginated list across agent services, with server-side state filters and exact detail links | Separate scope-level metadata permission; service, run and content reads remain independently authorized; no browser fan-out | API and retained Runs browser merged in PR #395 and #396 after repository CI passed |
+| Scope artifact discovery | One authorized metadata browser across runs, with source links | Separate scope metadata permission; exact service, run, artifact and content reads remain independently authorized | API in PR #399, browser in PR #400 and shared discovery controller in PR #401; CI and merge pending |
+| Home | Recent session work and bounded attention preview | Connection-local recents and authorized scope queries; saved-resource contracts remain separate | Implementation branch prepared; review and CI pending |
 | Workspace/search summaries | Explicit membership, paginated search and cross-resource attention | New authorized public read models; no per-service browser fan-out | Pending |
 | Catalog and SQL | Discover, inspect, execute, cancel, view results/history and save | Real metadata/query services, bounded results, durable state and isolation tests | Pending |
 | Notebooks | Versioned document editing, kernel interaction and retained output | Optimistic concurrency and the specified platform-mediated Jupyter contract | Pending |
 | Jobs and operations | Definitions, runs, task inspection, supported recovery and administration | Durable resource-specific state machines; observed evidence and public administration contracts | Pending |
+
+## Runtime and migration status
+
+The source-worker conformance record documents development model-backed source
+execution and the authenticated public publication/invocation journey under
+short-lived local trust. It does not establish operational or production
+acceptance. The workspace change exporter remains an internal controller:
+accepted helper images, a complete writer fence, worker teardown integration,
+retention resolution, ordered journals and checkpoints remain. See
+[governed source conformance](../development/governed-source-conformance.md) and
+[workspace change export](../development/workspace-change-export.md). Broad data,
+notebook and job integration still follows that governed-agent prerequisite.
+
+The classic presentation remains selectable while replacement-journey acceptance
+is incomplete. Request, lifecycle, run and artifact views use the existing
+command and recovery implementations. Fixture Browser checks prove navigation
+and presentation; reference-API checks prove only that development profile.
+Neither replaces representative-user testing or release certification.
 
 ## Verification and completion
 
