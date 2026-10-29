@@ -265,6 +265,24 @@ assert.equal(validateScopeRuns({ items: [scopeRun] }), true);
 assert.equal(validateScopeRuns({ items: Array(101).fill(scopeRun) }), false);
 assert.equal(validateScopeRuns({ items: [{ ...scopeRun, input: { prompt: "private" } }] }), false);
 assert.equal(validateScopeRuns({ items: [scopeRun], nextCursor: "" }), false);
+const validateScopeArtifacts = ajv.compile({
+  $ref: "urn:dataground:openapi:v1#/components/schemas/ScopeArtifactPage",
+});
+const scopeArtifact = {
+  ...artifactDescriptor,
+  serviceId: scopeRun.serviceId,
+  serviceName: scopeRun.serviceName,
+  revisionId: scopeRun.revisionId,
+};
+assert.equal(validateScopeArtifacts({ items: [] }), true);
+assert.equal(validateScopeArtifacts({ items: [scopeArtifact] }), true);
+assert.equal(validateScopeArtifacts({ items: Array(101).fill(scopeArtifact) }), false);
+assert.equal(
+  validateScopeArtifacts({ items: [{ ...scopeArtifact, storageKey: "private" }] }),
+  false,
+);
+assert.equal(validateScopeArtifacts({ items: [{ ...scopeArtifact, serviceName: "" }] }), false);
+assert.equal(validateScopeArtifacts({ items: [scopeArtifact], nextCursor: "" }), false);
 const validateResourceAuditPage = ajv.compile({
   $ref: "urn:dataground:openapi:v1#/components/schemas/ResourceAuditPage",
 });

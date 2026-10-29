@@ -259,6 +259,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/isolation-domains/{isolationDomainId}/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List artifact metadata across runs in an isolation scope
+         * @description Requires the separate listScopeArtifacts permission on the isolation domain. Returns descriptors and source navigation for all services in that scope. Exact artifact metadata, content, service and invocation reads remain independently authorized. No object contents or storage locations are returned.
+         */
+        get: operations["listScopeArtifacts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/isolation-domains/{isolationDomainId}/invocations": {
         parameters: {
             query?: never;
@@ -844,6 +864,26 @@ export interface components {
             totalTokens: number;
         } & {
             [key: string]: unknown;
+        };
+        ScopeArtifactSummary: {
+            metadata: components["schemas"]["ResourceMetadata"];
+            invocationId: components["schemas"]["InvocationId"];
+            name: string;
+            /** @enum {unknown} */
+            kind: "file" | "structured-output" | "event-payload" | "log" | "other";
+            mediaType: string;
+            sizeBytes: number;
+            digest: string;
+            /** @enum {unknown} */
+            state: "pending" | "available" | "failed" | "deleted";
+            sensitive: boolean;
+            serviceId: components["schemas"]["ServiceId"];
+            serviceName: string;
+            revisionId: components["schemas"]["RevisionId"];
+        };
+        ScopeArtifactPage: {
+            items: components["schemas"]["ScopeArtifactSummary"][];
+            nextCursor?: string;
         };
         ScopeInvocationSummary: {
             metadata: components["schemas"]["ResourceMetadata"];
@@ -1839,6 +1879,36 @@ export interface operations {
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
             415: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    listScopeArtifacts: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+                state?: "pending" | "available" | "failed" | "deleted";
+            };
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded artifact descriptors with source service and run navigation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScopeArtifactPage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             503: components["responses"]["Error"];
         };
     };

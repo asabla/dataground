@@ -193,3 +193,25 @@ Reference mode reads its process-local records. Durable mode joins services and
 invocations on both scope and resource identity; migration 78 adds bounded-read
 indexes and the closed audit action. Its downgrade refuses retained discovery
 decisions. This endpoint does not add a scheduler or runtime capability.
+
+## Cross-run artifact discovery
+
+`GET /v1/isolation-domains/{isolationDomainId}/artifacts` requires the separate
+Cedar `listScopeArtifacts` action on that isolation domain. This grant discloses
+artifact descriptors, including sensitive artifact names, current service names
+and source run/revision identifiers across the scope. It does not grant exact
+artifact, content, service or invocation reads. Per-run artifact-list permission
+does not imply this broader grant.
+
+The endpoint accepts `limit` (1–100, default 50), a returned `cursor`, and one
+optional artifact `state`: pending, available, failed or deleted. Pages sort by
+creation time and identifier, newest first. Each continuation binds the exact
+scope and filter and repeats authorization. Names and retention states reflect
+current records; they are not a frozen snapshot. Refresh from the first page to
+include new or changed records. The endpoint returns no object content or storage
+location and uses `Cache-Control: no-store`.
+
+Reference mode joins process-local records. Durable mode joins artifacts, runs
+and services on both isolation scope and identity. Migration 79 adds discovery
+indexes and the closed audit action; downgrade refuses retained authorization
+evidence. This read model adds no retention or deletion authority.

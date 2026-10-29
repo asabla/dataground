@@ -707,6 +707,69 @@
         }
       }
     },
+    "/v1/isolation-domains/{isolationDomainId}/artifacts": {
+      "get": {
+        "operationId": "listScopeArtifacts",
+        "summary": "List artifact metadata across runs in an isolation scope",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["pending", "available", "failed", "deleted"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded artifact descriptors with source service and run navigation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScopeArtifactPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "description": "Requires the separate listScopeArtifacts permission on the isolation domain. Returns descriptors and source navigation for all services in that scope. Exact artifact metadata, content, service and invocation reads remain independently authorized. No object contents or storage locations are returned."
+      }
+    },
     "/v1/isolation-domains/{isolationDomainId}/invocations": {
       "get": {
         "operationId": "listScopeInvocations",
@@ -2316,6 +2379,89 @@
           "inputTokens": { "type": "integer", "minimum": 0 },
           "outputTokens": { "type": "integer", "minimum": 0 },
           "totalTokens": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "ScopeArtifactSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "metadata",
+          "invocationId",
+          "name",
+          "kind",
+          "mediaType",
+          "sizeBytes",
+          "digest",
+          "state",
+          "sensitive",
+          "serviceId",
+          "serviceName",
+          "revisionId"
+        ],
+        "properties": {
+          "metadata": {
+            "$ref": "#/components/schemas/ResourceMetadata"
+          },
+          "invocationId": {
+            "$ref": "#/components/schemas/InvocationId"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "kind": {
+            "enum": ["file", "structured-output", "event-payload", "log", "other"]
+          },
+          "mediaType": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "state": {
+            "enum": ["pending", "available", "failed", "deleted"]
+          },
+          "sensitive": {
+            "type": "boolean"
+          },
+          "serviceId": {
+            "$ref": "#/components/schemas/ServiceId"
+          },
+          "serviceName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "revisionId": {
+            "$ref": "#/components/schemas/RevisionId"
+          }
+        }
+      },
+      "ScopeArtifactPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/ScopeArtifactSummary"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
         }
       },
       "ScopeInvocationSummary": {
