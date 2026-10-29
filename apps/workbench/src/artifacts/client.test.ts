@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import type { DataGroundClient } from "../contracts/client";
-import { readInvocationArtifact } from "./client";
+import { listInvocationArtifacts, readInvocationArtifact } from "./client";
 
 const reference = {
   artifactId: "art_00000000000000000001",
@@ -155,5 +155,94 @@ describe("invocation artifact client", () => {
       assert.equal(transportResult.error.code, "WORKBENCH_NETWORK_UNAVAILABLE");
       assert.doesNotMatch(transportResult.error.message, /object-store/u);
     }
+  });
+});
+
+describe("invocation artifact discovery client", () => {
+  const listReference = {
+    isolationDomainId: reference.isolationDomainId,
+    invocationId: reference.invocationId,
+  };
+  it("requests bounded metadata without requesting content", async () => {
+    const calls: unknown[] = [];
+    const client = {
+      GET: async (path: string, options: unknown) => {
+        calls.push({ path, options });
+        return {
+          data: { items: [{ ...artifact, content: "must not escape" }], nextCursor: "next-1" },
+          response: new Response(null, { status: 200 }),
+        };
+      },
+    } as unknown as DataGroundClient;
+    const result = await listInvocationArtifacts(client, listReference, "prior-1");
+    assert.deepEqual(calls, [
+      {
+        path: "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts",
+        options: { params: { path: listReference, query: { limit: 50, cursor: "prior-1" } } },
+      },
+    ]);
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.page.items[0]?.name, artifact.name);
+      assert.equal("content" in (result.page.items[0] ?? {}), false);
+    }
+  });
+  it("rejects malformed, unbounded, duplicate and cross-scope pages", async () => {
+    for (const data of [
+      { items: [artifact, artifact] },
+      { items: Array(51).fill(artifact) },
+      { items: [{ ...artifact, invocationId: "inv_00000000000000000002" }] },
+      {
+        items: [
+          {
+            ...artifact,
+            metadata: { ...artifact.metadata, isolationDomainId: "iso_00000000000000000002" },
+          },
+        ],
+      },
+      { items: [artifact], nextCursor: "prior-1" },
+      { items: [], nextCursor: "next-1" },
+      { items: [artifact], nextCursor: "invalid cursor" },
+      { items: [null] },
+    ]) {
+      const client = {
+        GET: async () => ({ data, response: new Response(null, { status: 200 }) }),
+      } as unknown as DataGroundClient;
+      const result = await listInvocationArtifacts(client, listReference, "prior-1");
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.equal(result.error.code, "WORKBENCH_ARTIFACT_PAGE_INVALID");
+    }
+  });
+  it("rejects invalid references before transport and preserves safe failures", async () => {
+    let reads = 0;
+    const client = {
+      GET: async () => {
+        reads++;
+        throw new Error("secret transport detail");
+      },
+    } as unknown as DataGroundClient;
+    for (const [scope, cursor] of [
+      [{ ...listReference, invocationId: "bad" }, undefined],
+      [listReference, "bad cursor"],
+    ] as const)
+      assert.equal((await listInvocationArtifacts(client, scope, cursor)).ok, false);
+    assert.equal(reads, 0);
+    const result = await listInvocationArtifacts(client, listReference);
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.retryable, true);
+      assert.doesNotMatch(result.error.message, /secret/u);
+    }
+    const denied = await listInvocationArtifacts(
+      {
+        GET: async () => ({
+          error: { error: { code: "FORBIDDEN", message: "Access denied.", retryable: false } },
+          response: new Response(null, { status: 403 }),
+        }),
+      } as unknown as DataGroundClient,
+      listReference,
+    );
+    assert.equal(denied.ok, false);
+    if (!denied.ok) assert.equal(denied.error.status, 403);
   });
 });
