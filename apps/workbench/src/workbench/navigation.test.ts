@@ -59,3 +59,46 @@ it("round-trips exact run locations and closed inspection views", () => {
   assert.throws(() => routeHash({ isolationDomainId, view: "interactions", invocationId }));
   assert.throws(() => routeHash({ isolationDomainId, serviceId, view: "workflow", invocationId }));
 });
+
+it("round-trips artifact inspection in its run view and rejects content-bearing artifact links", () => {
+  const artifactId = "art_00000000000000000001";
+  for (const runTab of [undefined, "requests", "output", "files", "audit"] as const) {
+    const route: WorkbenchRoute = {
+      isolationDomainId,
+      serviceId,
+      invocationId,
+      artifactId,
+      view: "interactions",
+      ...(runTab ? { runTab } : {}),
+    };
+    assert.deepEqual(parseRoute(routeHash(route), isolationDomainId), route);
+  }
+  const valid = routeHash({
+    isolationDomainId,
+    serviceId,
+    invocationId,
+    artifactId,
+    view: "interactions",
+  });
+  for (const bad of [
+    valid.replace(artifactId, ""),
+    valid.replace(artifactId, "%61rt_00000000000000000001"),
+    valid.replace("/artifacts/", "/unknown/"),
+    `${valid}/content`,
+    `${valid}?token=secret`,
+    `${valid}/`,
+  ])
+    assert.equal(parseRoute(bad, isolationDomainId), undefined);
+  assert.throws(() =>
+    routeHash({ isolationDomainId, serviceId, view: "interactions", artifactId }),
+  );
+  assert.throws(() =>
+    routeHash({
+      isolationDomainId,
+      serviceId,
+      invocationId,
+      view: "interactions",
+      artifactId: "../secret",
+    }),
+  );
+});

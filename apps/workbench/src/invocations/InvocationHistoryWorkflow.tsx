@@ -233,12 +233,26 @@ function InvocationHistorySession({
               presentation={presentation}
               active={active}
               selectedTab={active && controlled ? (location?.tab ?? "activity") : undefined}
+              artifactLocation={
+                active && controlled ? { artifactId: location?.artifactId } : undefined
+              }
+              onArtifactNavigate={
+                controlled
+                  ? (artifactId) =>
+                      onNavigate?.({
+                        invocationId: item.metadata.id,
+                        tab: location?.tab,
+                        artifactId,
+                      })
+                  : undefined
+              }
               onSelectTab={
                 controlled
                   ? (tab) =>
                       onNavigate?.({
                         invocationId: item.metadata.id,
                         tab: tab === "activity" ? undefined : tab,
+                        artifactId: location?.artifactId,
                       })
                   : undefined
               }
@@ -432,6 +446,8 @@ function RunInspectionSession({
   active,
   selectedTab,
   onSelectTab,
+  artifactLocation,
+  onArtifactNavigate,
   onBack,
 }: {
   client: DataGroundClient;
@@ -440,6 +456,8 @@ function RunInspectionSession({
   active: boolean;
   selectedTab?: RunTab;
   onSelectTab?: (tab: RunTab) => void;
+  artifactLocation?: { artifactId?: string };
+  onArtifactNavigate?: (artifactId?: string) => void;
   onBack: () => void;
 }) {
   const titleId = useId();
@@ -447,8 +465,49 @@ function RunInspectionSession({
   const [question, setQuestion] = useState<InvocationQuestionReference>();
   const [approval, setApproval] = useState<InvocationApprovalReference>();
   const [artifact, setArtifact] = useState<InvocationArtifactReference>();
+  const selectedArtifact =
+    artifactLocation === undefined
+      ? artifact
+      : artifactLocation.artifactId
+        ? {
+            artifactId: artifactLocation.artifactId,
+            invocationId: invocation.metadata.id,
+            isolationDomainId: invocation.metadata.isolationDomainId,
+          }
+        : undefined;
+  const artifactControlled = artifactLocation !== undefined;
+  const locationArtifactId = artifactLocation?.artifactId;
   useEffect(() => {
-    if (active) heading.current?.focus();
+    if (!artifactControlled) return;
+    setArtifact(
+      locationArtifactId
+        ? {
+            artifactId: locationArtifactId,
+            invocationId: invocation.metadata.id,
+            isolationDomainId: invocation.metadata.isolationDomainId,
+          }
+        : undefined,
+    );
+    if (locationArtifactId) {
+      setQuestion(undefined);
+      setApproval(undefined);
+    }
+  }, [
+    artifactControlled,
+    locationArtifactId,
+    invocation.metadata.id,
+    invocation.metadata.isolationDomainId,
+  ]);
+  const clearArtifact = () => {
+    setArtifact(undefined);
+    if (selectedArtifact) onArtifactNavigate?.(undefined);
+  };
+  useEffect(() => {
+    if (!active) return;
+    const inspector = heading.current
+      ?.closest("section")
+      ?.querySelector<HTMLElement>('[aria-label="Selected interaction item"]');
+    (inspector ?? heading.current)?.focus();
   }, [active]);
   return (
     <section aria-labelledby={titleId} className="invocation-history">
@@ -472,26 +531,32 @@ function RunInspectionSession({
           isolationDomainId: invocation.metadata.isolationDomainId,
           invocationId: invocation.metadata.id,
         }}
-        selectedQuestion={question}
+        selectedQuestion={artifactLocation?.artifactId ? undefined : question}
         onCloseQuestion={() => setQuestion(undefined)}
-        selectedApproval={approval}
-        selectedArtifact={artifact}
+        selectedApproval={artifactLocation?.artifactId ? undefined : approval}
+        selectedArtifact={selectedArtifact}
         onCloseApproval={() => setApproval(undefined)}
-        onCloseArtifact={() => setArtifact(undefined)}
+        onCloseArtifact={clearArtifact}
         onInspectQuestion={(reference) => {
           setApproval(undefined);
-          setArtifact(undefined);
+          clearArtifact();
           setQuestion(reference);
         }}
         onInspectApproval={(reference) => {
           setQuestion(undefined);
-          setArtifact(undefined);
+          clearArtifact();
           setApproval(reference);
         }}
         onInspectArtifact={(reference) => {
+          if (
+            reference.invocationId !== invocation.metadata.id ||
+            reference.isolationDomainId !== invocation.metadata.isolationDomainId
+          )
+            return;
           setApproval(undefined);
           setQuestion(undefined);
           setArtifact(reference);
+          onArtifactNavigate?.(reference.artifactId);
         }}
       />
     </section>

@@ -113,6 +113,7 @@ export function InvocationInspectionWorkflow({
     client: DataGroundClient;
     scope: string;
     event: TimelineEvent;
+    artifactKey?: string;
   }>();
   const [retainedTab, setActiveTab] = useState<RunTab>("activity");
   const activeTab = selectedTab ?? retainedTab;
@@ -130,8 +131,13 @@ export function InvocationInspectionWorkflow({
     { element: HTMLElement; client: DataGroundClient; scope: string } | undefined
   >(undefined);
   const scope = `${reference.isolationDomainId}/${reference.invocationId}`;
+  const artifactKey = selectedArtifact
+    ? `${selectedArtifact.isolationDomainId}/${selectedArtifact.invocationId}/${selectedArtifact.artifactId}`
+    : undefined;
   const selectedEvent =
-    activitySelection?.client === client && activitySelection.scope === scope
+    activitySelection?.client === client &&
+    activitySelection.scope === scope &&
+    activitySelection.artifactKey === artifactKey
       ? activitySelection.event
       : undefined;
   const hasSelection = !!(
@@ -157,9 +163,11 @@ export function InvocationInspectionWorkflow({
     if (origin.current?.client !== client || origin.current?.scope !== scope)
       origin.current = undefined;
     setActivitySelection((current) =>
-      current?.client === client && current.scope === scope ? current : undefined,
+      current?.client === client && current.scope === scope && current.artifactKey === artifactKey
+        ? current
+        : undefined,
     );
-  }, [client, scope]);
+  }, [client, scope, artifactKey]);
   useEffect(() => {
     if (hasSelection && selectionKey) focusSection(inspection.current);
   }, [hasSelection, selectionKey]);
@@ -378,7 +386,7 @@ export function InvocationInspectionWorkflow({
                 )
                   return;
                 beginInspection();
-                setActivitySelection({ client, scope, event });
+                setActivitySelection({ client, scope, event, artifactKey });
               }
             : undefined
         }
