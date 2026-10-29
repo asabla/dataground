@@ -5,6 +5,7 @@ import { DevelopmentWorkbench } from "../App";
 import type { DataGroundClient } from "../contracts/client";
 
 it.each(["stable", "canary"])("withdraws %s before retirement", async (name) => {
+  window.history.replaceState(null, "", window.location.pathname);
   (
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -148,5 +149,6 @@ it.each(["stable", "canary"])("withdraws %s before retirement", async (name) => 
   } finally {
     await act(async () => root.unmount());
     host.remove();
+    window.history.replaceState(null, "", window.location.pathname);
   }
 });

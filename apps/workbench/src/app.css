@@ -233,6 +233,10 @@ p {
   padding: clamp(1.5rem, 4vw, 3rem);
 }
 
+.workbench-command-region:not([hidden]) {
+  margin-block-start: var(--dg-space-5);
+}
+
 .workbench-page-heading {
   display: flex;
   gap: var(--dg-space-5);

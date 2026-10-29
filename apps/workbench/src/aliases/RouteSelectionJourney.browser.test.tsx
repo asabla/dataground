@@ -69,6 +69,7 @@ type ReadOptions = { params: { path: { alias?: string; revisionId?: string } } }
 let host: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
+  window.history.replaceState(null, "", window.location.pathname);
   (
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -79,6 +80,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
+  window.history.replaceState(null, "", window.location.pathname);
 });
 async function click(text: string, contains = false) {
   const button = [...host.querySelectorAll("button")].find((value) =>
