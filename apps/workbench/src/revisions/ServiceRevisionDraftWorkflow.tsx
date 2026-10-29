@@ -37,6 +37,7 @@ interface RevisionDraftState extends ServiceRevisionDraftValues {
 }
 
 export interface ServiceRevisionDraftWorkflowProps {
+  compact?: boolean;
   canCreateRevision: boolean;
   client: DataGroundClient;
   createIdempotencyKey?: () => string;
@@ -156,6 +157,7 @@ function initialValues({
 }
 
 export function ServiceRevisionDraftWorkflow({
+  compact = false,
   canCreateRevision,
   client,
   createIdempotencyKey = defaultIdempotencyKey,
@@ -344,6 +346,7 @@ export function ServiceRevisionDraftWorkflow({
 
   return (
     <ServiceRevisionDraft
+      compact={compact}
       canCreateRevision={canCreateRevision}
       created={
         createdRevision

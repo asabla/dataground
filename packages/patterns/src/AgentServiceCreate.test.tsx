@@ -72,3 +72,20 @@ describe("AgentServiceCreate", () => {
     assert.doesNotMatch(markup, /Create service/u);
   });
 });
+
+it("keeps required recovery visible outside secondary metadata in the workbench", () => {
+  const markup = renderToStaticMarkup(
+    <AgentServiceCreate
+      {...props}
+      compact
+      recoveryPending
+      error={{ message: "Outcome unknown", retryable: true }}
+      onSubmit={() => undefined}
+    />,
+  );
+  assert.match(markup, /dg-command--workbench/u);
+  assert.match(markup, /<details[^>]*><summary>Resource details<\/summary>/u);
+  assert.ok(markup.indexOf("</details>") < markup.indexOf('role="alert"'));
+  assert.match(markup, /Retry service creation/u);
+  assert.doesNotMatch(markup, /Reference service|A governed service/u);
+});

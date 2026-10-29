@@ -31,6 +31,7 @@ interface PublicationState {
 }
 
 export interface ServiceRevisionPublishWorkflowProps {
+  compact?: boolean;
   canPublish: boolean;
   client: DataGroundClient;
   createIdempotencyKey?: () => string;
@@ -86,6 +87,7 @@ function revisionScopeKey(revision: ServiceRevisionResource): string {
 }
 
 export function ServiceRevisionPublishWorkflow({
+  compact = false,
   canPublish,
   client,
   createIdempotencyKey = defaultIdempotencyKey,
@@ -287,19 +289,36 @@ export function ServiceRevisionPublishWorkflow({
         ref={feedback}
         tabIndex={-1}
         aria-label="Revision publication"
-        className="product-workflow__inspection"
+        className={compact ? "dg-command--workbench" : "product-workflow__inspection"}
       >
         <h2>Publication accepted</h2>
         <p>
           The revision is not ready for routing until its operation and exact published definition
           are confirmed.
         </p>
-        <p>
-          Revision <code>{revision.metadata.id}</code>
-        </p>
-        <p>
-          Operation <code>{operation.id}</code>
-        </p>
+        {compact ? (
+          <>
+            <p>Revision {revision.revisionNumber}</p>
+            <details className="dg-command-details">
+              <summary>Resource and operation details</summary>
+              <p>
+                Revision <code>{revision.metadata.id}</code>
+              </p>
+              <p>
+                Operation <code>{operation.id}</code>
+              </p>
+            </details>
+          </>
+        ) : (
+          <>
+            <p>
+              Revision <code>{revision.metadata.id}</code>
+            </p>
+            <p>
+              Operation <code>{operation.id}</code>
+            </p>
+          </>
+        )}
         <p>
           Last observed state:{" "}
           <StatusBadge
@@ -338,6 +357,7 @@ export function ServiceRevisionPublishWorkflow({
   return (
     <section ref={feedback} tabIndex={-1} aria-label="Revision publication">
       <ServiceRevisionPublish
+        compact={compact}
         canPublish={canPublish}
         confirmationVisible={visible.confirming}
         contractReview={

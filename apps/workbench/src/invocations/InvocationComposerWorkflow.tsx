@@ -34,6 +34,7 @@ interface ComposerWorkflowState {
 }
 
 export interface InvocationComposerWorkflowProps {
+  compact?: boolean;
   canInvoke: boolean;
   client: DataGroundClient;
   createIdempotencyKey?: () => string;
@@ -81,6 +82,7 @@ export function invocationTargetKey(target: AgentServiceInvocationTarget): strin
 }
 
 export function InvocationComposerWorkflow({
+  compact = false,
   canInvoke,
   client,
   createIdempotencyKey = defaultIdempotencyKey,
@@ -237,6 +239,7 @@ export function InvocationComposerWorkflow({
 
   return (
     <InvocationComposer
+      compact={compact}
       accepted={
         visible.accepted
           ? {

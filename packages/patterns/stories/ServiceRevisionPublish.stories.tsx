@@ -85,3 +85,28 @@ export const Published: Story = {
     published: { publishedAt: "2026-08-14T16:01:00Z", version: 2 },
   },
 };
+
+export const Workbench: Story = {
+  args: { compact: true },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const details = canvasElement.querySelector("details");
+    await expect(details).not.toHaveAttribute("open");
+    await userEvent.click(canvas.getByText("Resource details"));
+    await expect(details).toHaveAttribute("open");
+    await userEvent.click(canvas.getByText("Resource details"));
+    await expect(details).not.toHaveAttribute("open");
+  },
+};
+
+export const WorkbenchConfirmation: Story = {
+  args: { compact: true, confirmationVisible: true },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    const decision = canvas.getByRole("group", { name: "Confirm revision publication" });
+    await expect(decision).toHaveTextContent("iso_00000000000000000001");
+    await expect(decision).toHaveTextContent("revision 2");
+    await userEvent.click(canvas.getByRole("button", { name: "Confirm publication" }));
+    await expect(args.onConfirm).toHaveBeenCalledOnce();
+  },
+};

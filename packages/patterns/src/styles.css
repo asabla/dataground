@@ -1472,3 +1472,74 @@
   max-width: 32rem;
   overflow-wrap: anywhere;
 }
+
+/* Shell command views share the page surface. Required decisions remain visible. */
+.dg-command--workbench {
+  max-width: 64rem;
+  padding: var(--dg-space-4) 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  gap: var(--dg-space-5);
+}
+.dg-command-details {
+  color: var(--dg-color-text-secondary);
+  font-size: var(--dg-font-size-caption);
+}
+.dg-command-details summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.dg-command-details summary:focus-visible {
+  outline: var(--dg-border-strong) solid var(--dg-color-focus);
+  outline-offset: var(--dg-space-1);
+}
+.dg-command-details dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: var(--dg-space-4);
+  margin: var(--dg-space-4) 0;
+}
+.dg-command-details dt {
+  font-weight: var(--dg-font-weight-medium);
+}
+.dg-command-details dd {
+  margin: var(--dg-space-1) 0 0;
+  overflow-wrap: anywhere;
+}
+.dg-command-section {
+  display: grid;
+  gap: var(--dg-space-4);
+  border-bottom: var(--dg-border-default) solid var(--dg-color-border-default);
+  padding-bottom: var(--dg-space-5);
+}
+.dg-command-section h3 {
+  margin: 0;
+  font-size: var(--dg-font-size-body);
+  color: var(--dg-color-text-primary);
+}
+.dg-command--workbench .dg-service-revision-draft__form {
+  gap: var(--dg-space-5);
+}
+
+.dg-command-runtime {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+.dg-command-runtime h3 {
+  grid-column: 1 / -1;
+}
+.dg-command--workbench textarea[name="revision-required-capabilities"] {
+  min-height: 5rem;
+}
+@media (max-width: 45rem) {
+  .dg-command-runtime {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.dg-command-fields {
+  display: grid;
+  gap: var(--dg-space-4);
+}

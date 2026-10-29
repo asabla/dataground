@@ -242,6 +242,7 @@ export function AgentServiceAuthoringWorkflow({
     <>
       {(!focusCurrentStage || activeStage === "service") && (
         <AgentServiceCreateWorkflow
+          compact={presentation === "workbench"}
           canCreate={canCreateService}
           client={client}
           disabledReason={serviceDisabledReason}
@@ -254,6 +255,7 @@ export function AgentServiceAuthoringWorkflow({
         (!focusCurrentStage || activeStage === "revision") &&
         (serviceInScope ? (
           <ServiceRevisionDraftWorkflow
+            compact={presentation === "workbench"}
             canCreateRevision={canCreateRevision}
             client={client}
             disabledReason={revisionDisabledReason}
@@ -280,6 +282,7 @@ export function AgentServiceAuthoringWorkflow({
         (!focusCurrentStage || activeStage === "publication") &&
         (selectedService && revisionInScope ? (
           <ServiceRevisionPublishWorkflow
+            compact={presentation === "workbench"}
             canPublish={canPublishRevision}
             client={client}
             disabledReason={publicationDisabledReason}
@@ -306,6 +309,7 @@ export function AgentServiceAuthoringWorkflow({
         (!focusCurrentStage || activeStage === "alias") &&
         (selectedService && selectedRevision && publishedRevisionInScope ? (
           <ServiceAliasAssignWorkflow
+            compact={presentation === "workbench"}
             canAssign={canAssignAlias}
             client={client}
             currentAlias={observedAlias}
@@ -332,6 +336,7 @@ export function AgentServiceAuthoringWorkflow({
         (!focusCurrentStage || activeStage === "invocation") &&
         (selectedService && selectedRevision && selectedPublishedRevision && aliasInScope ? (
           <InvocationComposerWorkflow
+            compact={presentation === "workbench"}
             canInvoke={canInvokeService}
             client={client}
             disabledReason={invocationDisabledReason}

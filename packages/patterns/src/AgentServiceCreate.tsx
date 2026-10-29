@@ -1,5 +1,6 @@
 import { Button, StatusBadge, TextField } from "@dataground/ui";
 import { useId } from "react";
+import { CommandDetails } from "./CommandDetails";
 
 export interface CreatedAgentService {
   createdAt: string;
@@ -16,6 +17,7 @@ export interface AgentServiceCreateError {
 }
 
 export interface AgentServiceCreateProps {
+  compact?: boolean;
   canCreate: boolean;
   created?: CreatedAgentService;
   description: string;
@@ -50,6 +52,7 @@ function displayText(value: string, maximum = 255): string {
 }
 
 export function AgentServiceCreate({
+  compact = false,
   canCreate,
   created,
   description,
@@ -85,22 +88,30 @@ export function AgentServiceCreate({
     <section
       aria-busy={isSubmitting || undefined}
       aria-labelledby={titleId}
-      className="dg-agent-service-create"
+      className={`dg-agent-service-create${compact ? " dg-command--workbench" : ""}`}
     >
       <div className="dg-agent-service-create__heading">
         <div>
-          <p className="dg-agent-service-create__eyebrow">Service registry</p>
-          <h2 id={titleId}>Create agent service</h2>
+          {!compact && <p className="dg-agent-service-create__eyebrow">Service registry</p>}
+          <h2
+            id={titleId}
+            tabIndex={compact ? -1 : undefined}
+            data-command-heading={compact || undefined}
+          >
+            {compact ? "New agent service" : "Create agent service"}
+          </h2>
         </div>
         <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
       </div>
 
-      <dl className="dg-agent-service-create__scope">
-        <div>
-          <dt>Isolation domain</dt>
-          <dd>{displayText(isolationDomainId, 64)}</dd>
-        </div>
-      </dl>
+      <CommandDetails compact={compact}>
+        <dl className="dg-agent-service-create__scope">
+          <div>
+            <dt>Isolation domain</dt>
+            <dd>{displayText(isolationDomainId, 64)}</dd>
+          </div>
+        </dl>
+      </CommandDetails>
 
       {!canCreate && (
         <p className="dg-agent-service-create__authority">
@@ -131,29 +142,35 @@ export function AgentServiceCreate({
 
       {created ? (
         <div className="dg-agent-service-create__created" aria-live="polite">
-          <strong>DataGround created the service.</strong>
-          <dl>
-            <div>
-              <dt>Service</dt>
-              <dd>{displayText(created.id, 64)}</dd>
-            </div>
-            <div>
-              <dt>Name</dt>
-              <dd>{displayText(created.name, 128)}</dd>
-            </div>
-            <div>
-              <dt>Version</dt>
-              <dd>{created.version}</dd>
-            </div>
-            <div>
-              <dt>Created by</dt>
-              <dd>{displayText(created.createdBy, 128)}</dd>
-            </div>
-            <div>
-              <dt>Created at</dt>
-              <dd>{displayText(created.createdAt, 64)}</dd>
-            </div>
-          </dl>
+          <strong>
+            {compact
+              ? `${displayText(created.name, 128)} is ready to configure.`
+              : "DataGround created the service."}
+          </strong>
+          <CommandDetails compact={compact} label="Receipt details">
+            <dl>
+              <div>
+                <dt>Service</dt>
+                <dd>{displayText(created.id, 64)}</dd>
+              </div>
+              <div>
+                <dt>Name</dt>
+                <dd>{displayText(created.name, 128)}</dd>
+              </div>
+              <div>
+                <dt>Version</dt>
+                <dd>{created.version}</dd>
+              </div>
+              <div>
+                <dt>Created by</dt>
+                <dd>{displayText(created.createdBy, 128)}</dd>
+              </div>
+              <div>
+                <dt>Created at</dt>
+                <dd>{displayText(created.createdAt, 64)}</dd>
+              </div>
+            </dl>
+          </CommandDetails>
           {onOpenService && <Button onPress={onOpenService}>Open service</Button>}
         </div>
       ) : recoveryPending ? (
