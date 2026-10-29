@@ -271,3 +271,9 @@ from a different area. Identity or scope changes clear these forms. Workspace
 creation and metadata reads work against the reference and durable API profiles;
 this area does not yet contain notebook documents, files, saved queries or a
 resource tree. Those destinations require their own public contracts.
+
+Successful service, revision and route commands return lost focus to their receipt
+when their submit control disappears. Hidden sessions and other focused controls
+are not interrupted. A completed route assignment also refreshes the authorized
+route list, preserves its loaded-name filter and rejects an older page that
+finishes after the refresh. The list still requires its own discovery permission.

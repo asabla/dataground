@@ -1,6 +1,7 @@
 import { Button, CopyButton, StatusBadge, TextField } from "@dataground/ui";
 import { type ReactNode, useId } from "react";
 import { SecondaryDetails } from "./SecondaryDetails";
+import { useCommandResultFocus } from "./useCommandResultFocus";
 
 export interface CreatedServiceRevision {
   createdAt: string;
@@ -88,6 +89,7 @@ export function ServiceRevisionDraft({
   validationErrors = {},
 }: ServiceRevisionDraftProps) {
   const titleId = useId();
+  const receipt = useCommandResultFocus(compact, created?.id);
   const disabled =
     !canCreateRevision || created !== undefined || isSubmitting || onSubmit === undefined;
   const presentation = created
@@ -173,7 +175,12 @@ export function ServiceRevisionDraft({
       )}
 
       {created ? (
-        <div className="dg-service-revision-draft__created" aria-live="polite">
+        <div
+          ref={receipt}
+          tabIndex={compact ? -1 : undefined}
+          className="dg-service-revision-draft__created"
+          aria-live="polite"
+        >
           <strong>
             {compact
               ? `Revision ${created.revisionNumber} is saved as a draft.`

@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
 import { expect, fn, userEvent, within } from "storybook/test";
 import { ServiceAliasAssign } from "../src/ServiceAliasAssign";
 import "../src/styles.css";
@@ -114,5 +115,25 @@ export const WorkbenchConfirmation: Story = {
     await expect(decision).toHaveTextContent("revision 2");
     await userEvent.click(canvas.getByRole("button", { name: "Confirm route change" }));
     await expect(args.onConfirm).toHaveBeenCalledOnce();
+  },
+};
+
+export const WorkbenchCompletionFocus: Story = {
+  render: function Completion(args) {
+    const [complete, setComplete] = useState(false);
+    return (
+      <ServiceAliasAssign
+        {...args}
+        compact
+        confirmationVisible
+        assigned={complete ? Assigned.args?.assigned : undefined}
+        onConfirm={() => setComplete(true)}
+      />
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: "Confirm route change" }));
+    await expect(canvasElement.querySelector(".dg-service-alias-assign__assigned")).toHaveFocus();
   },
 };

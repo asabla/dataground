@@ -198,3 +198,71 @@ it("offers observation without withdrawal controls and stops stalled pagination"
   expect(host.textContent).toContain("did not advance");
   expect(host.textContent).not.toContain("Load more routes");
 });
+
+it("reconciles a completed route mutation without clearing the user's loaded-name filter", async () => {
+  let count = 0;
+  const newer = {
+    ...alias,
+    revisionId: "rev_00000000000000000002",
+    metadata: { ...alias.metadata, version: 2 },
+  };
+  const selected = vi.fn();
+  const client = {
+    GET: async () => page([++count === 1 ? alias : newer]),
+  } as unknown as DataGroundClient;
+  const render = (refreshGeneration: number) =>
+    root.render(
+      <ServiceRouteDiscovery
+        client={client}
+        scope={scope}
+        refreshGeneration={refreshGeneration}
+        onWithdraw={() => {}}
+        onSelect={selected}
+        revisionNumbers={
+          new Map([
+            [alias.revisionId, 1],
+            [newer.revisionId, 2],
+          ])
+        }
+      />,
+    );
+  await act(async () => render(0));
+  const input = host.querySelector('input[type="search"]') as HTMLInputElement;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
+      input,
+      "canary",
+    );
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => render(1));
+  expect(count).toBe(2);
+  expect((host.querySelector('input[type="search"]') as HTMLInputElement).value).toBe("canary");
+  expect(host.textContent).toContain("Revision 2");
+  await click("Use canary route");
+  expect(selected).toHaveBeenCalledWith(newer);
+});
+it("rejects a late pre-mutation route page", async () => {
+  let complete!: (value: ReturnType<typeof page>) => void;
+  let count = 0;
+  const pending = new Promise<ReturnType<typeof page>>((resolve) => {
+    complete = resolve;
+  });
+  const client = {
+    GET: async () => (++count === 1 ? pending : page([stable])),
+  } as unknown as DataGroundClient;
+  const render = (refreshGeneration: number) =>
+    root.render(
+      <ServiceRouteDiscovery
+        client={client}
+        scope={scope}
+        refreshGeneration={refreshGeneration}
+        onWithdraw={() => {}}
+      />,
+    );
+  await act(async () => render(0));
+  await act(async () => render(1));
+  await act(async () => complete(page([alias])));
+  expect(host.textContent).toContain("stable");
+  expect(host.textContent).not.toContain("canary");
+});

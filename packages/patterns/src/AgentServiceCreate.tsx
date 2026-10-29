@@ -1,6 +1,7 @@
 import { Button, CopyButton, StatusBadge, TextField } from "@dataground/ui";
 import { useId } from "react";
 import { SecondaryDetails } from "./SecondaryDetails";
+import { useCommandResultFocus } from "./useCommandResultFocus";
 
 export interface CreatedAgentService {
   createdAt: string;
@@ -69,6 +70,7 @@ export function AgentServiceCreate({
   validationErrors = {},
 }: AgentServiceCreateProps) {
   const titleId = useId();
+  const receipt = useCommandResultFocus(compact, created?.id);
   const disabled = !canCreate || created !== undefined || isSubmitting || onSubmit === undefined;
   const presentation = created
     ? { label: "Service created", tone: "success" as const }
@@ -144,7 +146,12 @@ export function AgentServiceCreate({
       )}
 
       {created ? (
-        <div className="dg-agent-service-create__created" aria-live="polite">
+        <div
+          ref={receipt}
+          tabIndex={compact ? -1 : undefined}
+          className="dg-agent-service-create__created"
+          aria-live="polite"
+        >
           <strong>
             {compact
               ? `${displayText(created.name, 128)} is ready to configure.`

@@ -120,6 +120,7 @@ export function ServiceWorkflowSession({
   onOpenWorkspace,
   onServiceOpened,
 }: ServiceWorkflowSessionProps) {
+  const [routeRefreshGeneration, setRouteRefreshGeneration] = useState(0);
   const [retainedTab, setRetainedTab] = useState<ServiceTab>("build");
   const tab = selectedTab ?? retainedTab;
   useEffect(() => {
@@ -636,6 +637,7 @@ export function ServiceWorkflowSession({
     <>
       {openedService && !retirementRevision && !withdrawalAlias && (
         <ServiceRouteDiscovery
+          refreshGeneration={routeRefreshGeneration}
           revisionNumbers={
             new Map(
               revisionHistory.map((revision) => [revision.metadata.id, revision.revisionNumber]),
@@ -791,6 +793,13 @@ export function ServiceWorkflowSession({
         observedAlias={observedAlias}
         onAssignAlias={assignPublishedRevision}
         onComposeInvocation={composeAliasInvocation}
+        onAliasAssigned={(alias) => {
+          if (
+            alias.metadata.isolationDomainId === isolationDomainId &&
+            alias.serviceId === openedService.metadata.id
+          )
+            setRouteRefreshGeneration((v) => v + 1);
+        }}
         onPublished={(revision) => {
           if (
             revision.metadata.isolationDomainId !== isolationDomainId ||

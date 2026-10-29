@@ -9,6 +9,7 @@ import {
 import { aliasDiscoveryReducer } from "./discovery";
 
 export interface ServiceRouteDiscoveryProps {
+  refreshGeneration?: number;
   revisionNumbers?: ReadonlyMap<string, number>;
   client: DataGroundClient;
   scope: ServiceAliasReadScope;
@@ -18,6 +19,7 @@ export interface ServiceRouteDiscoveryProps {
 }
 
 export function ServiceRouteDiscovery({
+  refreshGeneration = 0,
   revisionNumbers,
   client,
   scope: { isolationDomainId, serviceId },
@@ -27,7 +29,11 @@ export function ServiceRouteDiscovery({
 }: ServiceRouteDiscoveryProps) {
   const [sort, setSort] = useState<DataTableSort>({ column: "name", direction: "ascending" });
   const [query, setQuery] = useState("");
-  const scope = `${isolationDomainId}/${serviceId}`;
+  const resourceScope = `${isolationDomainId}/${serviceId}`;
+  const scope = `${resourceScope}/${refreshGeneration}`;
+  const currentScope = useRef({ client, scope });
+  currentScope.current = { client, scope };
+  const searchScope = useRef({ client, resourceScope });
   const titleId = useId();
   const sequence = useRef(0);
   const inFlight = useRef(false);
@@ -55,14 +61,20 @@ export function ServiceRouteDiscovery({
     [client, isolationDomainId, serviceId, scope],
   );
   useEffect(() => {
-    setQuery("");
+    if (
+      searchScope.current.client !== client ||
+      searchScope.current.resourceScope !== resourceScope
+    ) {
+      searchScope.current = { client, resourceScope };
+      setQuery("");
+    }
     void load();
     return () => {
       sequence.current++;
       inFlight.current = false;
       readTrigger.current = null;
     };
-  }, [load]);
+  }, [load, client, resourceScope]);
   // Connection and scope changes hide prior rows before effects or late reads run.
   const current = state.client === client && state.scope === scope;
   const items = current ? state.items : [];
@@ -76,7 +88,11 @@ export function ServiceRouteDiscovery({
       heading.current?.focus();
   }, [loading, current]);
   const read = (cursor?: string) => {
-    if (!inFlight.current) {
+    if (
+      currentScope.current.client === client &&
+      currentScope.current.scope === scope &&
+      !inFlight.current
+    ) {
       readTrigger.current = document.activeElement;
       void load(cursor);
     }
@@ -180,7 +196,14 @@ export function ServiceRouteDiscovery({
                         isDisabled={loading || !!error}
                         variant="quiet"
                         onPress={() => {
-                          if (current && !inFlight.current && !loading && !error)
+                          if (
+                            current &&
+                            currentScope.current.client === client &&
+                            currentScope.current.scope === scope &&
+                            !inFlight.current &&
+                            !loading &&
+                            !error
+                          )
                             onSelect({ ...alias, metadata: { ...alias.metadata } });
                         }}
                       >
@@ -193,7 +216,15 @@ export function ServiceRouteDiscovery({
                         isDisabled={loading || !!error}
                         variant="quiet"
                         onPress={() => {
-                          if (current && !inFlight.current && !loading && !error && canWithdraw)
+                          if (
+                            current &&
+                            currentScope.current.client === client &&
+                            currentScope.current.scope === scope &&
+                            !inFlight.current &&
+                            !loading &&
+                            !error &&
+                            canWithdraw
+                          )
                             onWithdraw({ ...alias, metadata: { ...alias.metadata } });
                         }}
                       >
