@@ -1,5 +1,44 @@
 @import "@dataground/tokens/styles.css";
 
+.dg-action-menu-host {
+  display: contents;
+}
+
+.dg-action-menu-popover {
+  z-index: 90;
+  max-width: min(24rem, calc(100vw - var(--dg-space-6)));
+  overflow: auto;
+  border: var(--dg-border-default) solid var(--dg-color-border-default);
+  border-radius: var(--dg-radius-control);
+  background: var(--dg-color-surface-default);
+  color: var(--dg-color-text-primary);
+}
+
+.dg-action-menu {
+  min-width: 10rem;
+  padding: var(--dg-space-2);
+  outline: none;
+}
+
+.dg-action-menu__item {
+  padding: var(--dg-space-3) var(--dg-space-4);
+  border-radius: var(--dg-radius-control);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  outline: none;
+}
+
+.dg-action-menu__item[data-focused] {
+  background: var(--dg-color-action-subtle);
+  outline: var(--dg-border-strong) solid var(--dg-color-focus);
+  outline-offset: calc(-1 * var(--dg-border-strong));
+}
+
+.dg-action-menu__item[data-disabled] {
+  color: var(--dg-color-text-secondary);
+  cursor: not-allowed;
+}
+
 .dg-dialog-host {
   display: contents;
 }

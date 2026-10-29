@@ -1,6 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { userEvent } from "vitest/browser";
 import type { DataGroundClient } from "../contracts/client";
 import type { ServiceRevisionHistoryResource } from "../revisions/client";
 import { ServiceRevisionHistoryWorkflow } from "../revisions/ServiceRevisionHistoryWorkflow";
@@ -22,11 +23,11 @@ afterEach(async () => {
   host.remove();
 });
 async function click(label: string) {
-  const button = Array.from(host.querySelectorAll("button")).find(
+  const button = Array.from(host.querySelectorAll<HTMLElement>('button, [role="menuitem"]')).find(
     (entry) => (entry.getAttribute("aria-label") ?? entry.textContent) === label,
   );
   expect(button).toBeDefined();
-  await act(async () => button?.click());
+  await act(async () => userEvent.click(button as HTMLElement));
 }
 function pendingClient() {
   const calls: {
@@ -193,7 +194,11 @@ it("allows retired revision audit inspection and closes it when the connection c
     root.render(<ServiceRevisionHistoryWorkflow {...props} client={source.client} />),
   );
   expect(host.querySelector('[aria-label="Open revision 1"]')).toBeNull();
+  await click("More actions for revision 1");
   await click("Inspect audit for revision 1");
+  await expect
+    .poll(() => document.activeElement)
+    .toBe(host.querySelector('[aria-label="Revision audit inspection"]'));
   expect(source.calls).toHaveLength(0);
   await click("Show audit");
   expect(source.call(0).params.revisionId).toBe(revision.metadata.id);
@@ -208,6 +213,7 @@ it("allows retired revision audit inspection and closes it when the connection c
   expect(host.textContent).toContain("private-actor");
   await click("Close revision audit");
   expect(document.activeElement).toBe(host.querySelector(".revision-history h2"));
+  await click("More actions for revision 1");
   await click("Inspect audit for revision 1");
   await click("Show audit");
   await act(async () =>
@@ -225,6 +231,7 @@ it("allows retired revision audit inspection and closes it when the connection c
       />,
     ),
   );
+  await click("More actions for revision 1");
   await click("Inspect audit for revision 1");
   expect(host.textContent).not.toContain("Close revision audit");
   expect(other.calls).toHaveLength(0);

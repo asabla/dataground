@@ -1,3 +1,4 @@
+export { ActionMenu, type ActionMenuItem, type ActionMenuProps } from "./ActionMenu";
 export { Button, type ButtonProps, type ButtonVariant } from "./Button";
 export { CopyButton, type CopyButtonProps } from "./CopyButton";
 export {

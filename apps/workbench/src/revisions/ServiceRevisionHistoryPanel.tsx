@@ -1,4 +1,11 @@
-import { Button, DataTable, type DataTableSort, SelectField, StatusBadge } from "@dataground/ui";
+import {
+  ActionMenu,
+  Button,
+  DataTable,
+  type DataTableSort,
+  SelectField,
+  StatusBadge,
+} from "@dataground/ui";
 import { useId, useState } from "react";
 import type { ServiceRevisionFailure, ServiceRevisionHistoryResource } from "./client";
 
@@ -162,25 +169,35 @@ export function ServiceRevisionHistoryPanel({
                         Open
                       </Button>
                     )}
-                    {onInspectAudit && (
-                      <Button
-                        aria-label={`Inspect audit for revision ${revision.revisionNumber}`}
+                    {(onInspectAudit || (onRetire && revision.state === "published")) && (
+                      <ActionMenu
+                        label={`More actions for revision ${revision.revisionNumber}`}
                         isDisabled={isLoading || isLoadingMore || !!error}
-                        variant="quiet"
-                        onPress={() => onInspectAudit(revision)}
-                      >
-                        Audit
-                      </Button>
-                    )}
-                    {onRetire && revision.state === "published" && (
-                      <Button
-                        aria-label={`Retire revision ${revision.revisionNumber}`}
-                        isDisabled={isLoading || isLoadingMore || !!error}
-                        variant="quiet"
-                        onPress={() => onRetire(revision)}
-                      >
-                        Retire
-                      </Button>
+                        items={[
+                          ...(onInspectAudit
+                            ? [
+                                {
+                                  id: "audit",
+                                  label: `Inspect audit for revision ${revision.revisionNumber}`,
+                                },
+                              ]
+                            : []),
+                          ...(onRetire && revision.state === "published"
+                            ? [
+                                {
+                                  id: "retire",
+                                  label: `Retire revision ${revision.revisionNumber}`,
+                                },
+                              ]
+                            : []),
+                        ]}
+                        onAction={(action) => {
+                          if (isLoading || isLoadingMore || error) return;
+                          if (action === "audit") onInspectAudit?.(revision);
+                          if (action === "retire" && revision.state === "published")
+                            onRetire?.(revision);
+                        }}
+                      />
                     )}
                   </div>
                 ),

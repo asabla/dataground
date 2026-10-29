@@ -50,7 +50,7 @@ describe("service revision history panel", () => {
   });
 
   it("offers retirement only for published revisions when a handler is available", () => {
-    assert.doesNotMatch(render({ revisions: [revision] }), /Retire revision/u);
+    assert.doesNotMatch(render({ revisions: [revision] }), /More actions for revision/u);
     const markup = render({
       revisions: [
         revision,
@@ -63,8 +63,8 @@ describe("service revision history panel", () => {
       ],
       onRetire: () => undefined,
     });
-    assert.match(markup, /Retire revision 2/u);
-    assert.doesNotMatch(markup, /Retire revision 3/u);
+    assert.match(markup, /More actions for revision 2/u);
+    assert.doesNotMatch(markup, /More actions for revision 3/u);
   });
 
   it("renders state text, runtime profile, time, and pagination", () => {
