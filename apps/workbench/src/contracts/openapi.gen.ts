@@ -475,6 +475,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List invocation artifact metadata
+         * @description Lists authorized artifact descriptors, newest creation first with identifier tie-breaking. The listInvocationArtifacts grant on the invocation permits descriptor metadata, including names and sensitivity; it does not grant individual reads or file content access. Object keys, storage addresses and content bytes are excluded. Each page requires authorization, and the cursor binds isolation domain and invocation. Pages report current state rather than a frozen snapshot. Refresh from the first page for new artifacts or changed states.
+         */
+        get: operations["listInvocationArtifacts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/questions": {
         parameters: {
             query?: never;
@@ -841,6 +861,10 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         } & (unknown & unknown & unknown & unknown & unknown);
+        InvocationArtifactPage: {
+            items: components["schemas"]["ArtifactDescriptor"][];
+            nextCursor?: string;
+        };
         InvocationQuestionPage: {
             items: components["schemas"]["InvocationQuestionSummary"][];
             nextCursor?: string;
@@ -2214,6 +2238,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InvocationApprovalPage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    listInvocationArtifacts: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                invocationId: components["parameters"]["InvocationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A bounded page of artifact descriptors. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvocationArtifactPage"];
                 };
             };
             400: components["responses"]["Error"];

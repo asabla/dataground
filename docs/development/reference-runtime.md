@@ -147,3 +147,26 @@ migration 76; rollback refuses to remove the action while its evidence remains.
 Deployments with explicit action lists must add this read only for the principals
 and services that should support direct navigation. The development policy
 retains its existing principal and isolation-domain boundary.
+
+## Invocation artifact discovery
+
+`GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts`
+returns up to 100 artifact descriptors per page, with a default limit of 50.
+Pages sort by creation time and ID in descending order. A canonical cursor binds
+the continuation to the same isolation domain and invocation. State changes do
+not move a record across the creation-time boundary. Refresh from the first page
+for newly created outputs or changed metadata; the pages are not a snapshot.
+
+The separate `listInvocationArtifacts` Cedar action on the invocation grants
+access to descriptor metadata, including names and sensitivity. It does not
+grant exact artifact reads or content access. Each page requires authentication,
+domain membership and action authorization before query parsing or lookup.
+Responses use `Cache-Control: no-store`. The API reads neither artifact bytes nor
+storage bindings. An unavailable durable read returns the retryable
+`INVOCATION_ARTIFACT_LIST_UNAVAILABLE` error with request correlation.
+
+Migration 77 adds the scoped pagination index and audit action. Downgrade refuses
+to discard retained artifact-list authorization evidence. Explicit deployment
+policies must grant this action only to principals allowed to discover the run's
+artifact metadata. Reference mode lists its process-local descriptors with the
+same pagination contract and retains its restart limitation.
