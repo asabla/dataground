@@ -21,13 +21,17 @@ const strictSchema = JSON.parse(
 const workspaceSchema = JSON.parse(
   readFileSync(join(root, "deploy/openshell/local-workspace-runtime-acceptance.schema.json")),
 );
+const ownedWorkspaceSchema = JSON.parse(
+  readFileSync(join(root, "deploy/openshell/local-owned-workspace-runtime-acceptance.schema.json")),
+);
 const ajv = new Ajv2020({ strict: true, allErrors: true });
 addFormats(ajv);
 ajv.addSchema(schema);
 ajv.addSchema(strictSchema);
 ajv.addSchema(workspaceSchema);
+ajv.addSchema(ownedWorkspaceSchema);
 const documents = (suffix) => ({
-  anyOf: [schema, strictSchema, workspaceSchema].map((value) => ({
+  anyOf: [schema, strictSchema, workspaceSchema, ownedWorkspaceSchema].map((value) => ({
     $ref: `${value.$id}${suffix}`,
   })),
 });
@@ -36,17 +40,24 @@ const validateStatement = ajv.compile(documents("#/$defs/statement"));
 const validateTrust = ajv.compile(documents("#/$defs/trust"));
 const day = 24 * 60 * 60 * 1000;
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
-const workspaceAcceptance = (statement) =>
-  statement.contract === "dataground.local-runtime-acceptance-statement/v3";
+const ownedWorkspaceAcceptance = (statement) =>
+  statement.contract === "dataground.local-runtime-acceptance-statement/v4";
 const acceptanceVersion = (statement) =>
-  workspaceAcceptance(statement)
-    ? 3
-    : statement.contract === "dataground.local-runtime-acceptance-statement/v2"
-      ? 2
-      : 1;
+  ownedWorkspaceAcceptance(statement)
+    ? 4
+    : statement.contract === "dataground.local-runtime-acceptance-statement/v3"
+      ? 3
+      : statement.contract === "dataground.local-runtime-acceptance-statement/v2"
+        ? 2
+        : 1;
+const workspaceAcceptance = (statement) => acceptanceVersion(statement) >= 3;
 const strictAcceptance = (statement) => acceptanceVersion(statement) >= 2;
 const runtimeCandidate = (statement) =>
-  workspaceAcceptance(statement) ? "codex-workspace" : "codex";
+  ownedWorkspaceAcceptance(statement)
+    ? "codex-workspace-export"
+    : workspaceAcceptance(statement)
+      ? "codex-workspace"
+      : "codex";
 const domain = (statement) =>
   `DataGround local candidate runtime acceptance v${acceptanceVersion(statement)}\n`;
 
@@ -157,11 +168,12 @@ function validateBindings(statement, trustBytes, artifacts, expected) {
   const diagnostic = JSON.parse(artifacts.diagnostic.toString("utf8"));
   if (
     diagnostic.schemaVersion !==
-      `dataground.dev.openshell-runtime-diagnostic/v${workspaceAcceptance(statement) ? 6 : strict ? 5 : 3}` ||
+      `dataground.dev.openshell-runtime-diagnostic/v${ownedWorkspaceAcceptance(statement) ? 7 : workspaceAcceptance(statement) ? 6 : strict ? 5 : 3}` ||
     verifyDiagnostic(diagnostic, {
       sourceCommit: statement.sourceRevision,
       candidateImage: statement.localImageId,
       workspaceSource: workspaceAcceptance(statement),
+      workspaceExport: ownedWorkspaceAcceptance(statement),
       ...(strict ? { supervisorImage: statement.supervisor.localImageId } : {}),
     }).length ||
     diagnostic.run.model !== statement.model ||
@@ -282,6 +294,12 @@ export function verifyAcceptance(envelopeBytes, trustBytes, artifacts, expected,
     deploymentScope: statement.deploymentScope,
     ...(workspaceAcceptance(statement)
       ? { workspaceSourceContract: statement.workspaceSourceContract }
+      : {}),
+    ...(ownedWorkspaceAcceptance(statement)
+      ? {
+          nativeOwnerContract: statement.nativeOwnerContract,
+          workspaceChangesContract: statement.workspaceChangesContract,
+        }
       : {}),
     ...(strictAcceptance(statement)
       ? {

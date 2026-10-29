@@ -12,7 +12,14 @@ const id = (prefix) => `${prefix}_${randomBytes(12).toString("hex")}`;
 // newly generated, and the signer never represents an operational reviewer.
 export function createTestAcceptance(inputFile) {
   const input = JSON.parse(readPrivateSnapshot(inputFile, 64 << 10));
-  assert.equal(input.contract, "dataground.test.local-acceptance-input/v1");
+  assert.ok(
+    [
+      "dataground.test.local-acceptance-input/v1",
+      "dataground.test.local-acceptance-input/v2",
+    ].includes(input.contract),
+  );
+  const owned = input.contract === "dataground.test.local-acceptance-input/v2";
+  const version = owned ? 4 : 3;
   assert.deepEqual(Object.keys(input).sort(), [
     "contract",
     "diagnosticSHA256",
@@ -51,9 +58,11 @@ export function createTestAcceptance(inputFile) {
   // This key exists only inside the test process. No operational reviewer or
   // independently administered trust is implied by this conformance fixture.
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
-  const profile = "openshell-codex-workspace-candidate-development/v1";
+  const profile = owned
+    ? "openshell-codex-workspace-export-candidate-development/v1"
+    : "openshell-codex-workspace-candidate-development/v1";
   const trust = canonicalJSON({
-    contract: "dataground.local-runtime-acceptance-trust/v3",
+    contract: `dataground.local-runtime-acceptance-trust/v${version}`,
     profile,
     scope,
     reviewerId: "ephemeral-conformance-test",
@@ -64,7 +73,7 @@ export function createTestAcceptance(inputFile) {
     notAfter: new Date(expires).toISOString(),
   });
   const statement = {
-    contract: "dataground.local-runtime-acceptance-statement/v3",
+    contract: `dataground.local-runtime-acceptance-statement/v${version}`,
     acceptanceId: id("rtlocal"),
     generation: 1,
     scope,
@@ -88,6 +97,12 @@ export function createTestAcceptance(inputFile) {
     certificationEligible: false,
     deploymentScope: "loopback-development-only",
     workspaceSourceContract: "dataground.workspace-source-materialization/v1",
+    ...(owned
+      ? {
+          nativeOwnerContract: "dataground.native-owner/v1",
+          workspaceChangesContract: "dataground.workspace-changes/v1",
+        }
+      : {}),
     supervisor: {
       publication: input.supervisorPublication,
       localImageId: diagnostic.profile.supervisorImage,
@@ -108,12 +123,12 @@ export function createTestAcceptance(inputFile) {
   assert.deepEqual(
     message,
     Buffer.concat([
-      Buffer.from("DataGround local candidate runtime acceptance v3\n"),
+      Buffer.from(`DataGround local candidate runtime acceptance v${version}\n`),
       canonicalJSON(statement),
     ]),
   );
   const envelope = canonicalJSON({
-    contract: "dataground.local-runtime-acceptance-envelope/v3",
+    contract: `dataground.local-runtime-acceptance-envelope/v${version}`,
     statement,
     signature: {
       keyId: "ephemeral-conformance-key",
@@ -134,6 +149,7 @@ export function createTestAcceptance(inputFile) {
     profile,
     scope,
     expires,
+    version,
   };
 }
 
@@ -163,7 +179,7 @@ if (import.meta.main) {
         Object.entries(f.files).map(([key, [name]]) => [name, f.artifacts[key]]),
       ),
       "fixture.json": canonicalJSON({
-        contract: "dataground.test.local-acceptance-fixture/v1",
+        contract: `dataground.test.local-acceptance-fixture/v${f.version === 4 ? 2 : 1}`,
         ...f.accepted,
         envelopeSHA256: hash(f.envelope),
         trustSHA256: hash(f.trust),

@@ -77,9 +77,40 @@ The Codex image proof uses the `codex-workspace` verifier. Both its signed raw c
 
 The accepted receipt includes `workspaceSourceContract` and the strict image, supervisor, policy, and gateway bindings. It does not authorize a workspace source or select a service plan. The explicit [source worker profile](governed-worker.md#use-an-accepted-source-plan) can consume this acceptance with an independently pinned source plan and grant generation. Source selection, current Cedar authorization, source grants, and lease fencing remain separate requirements. This is a loopback development acceptance boundary; no model-backed v6 acceptance or production release certification is incorporated by this implementation.
 
+## Owned runtime and change-export acceptance
+
+The [version 4 schema](../../deploy/openshell/local-owned-workspace-runtime-acceptance.schema.json)
+defines `openshell-codex-workspace-export-candidate-development/v1`. It requires
+the complete v7 diagnostic, including all owned sessions and final binary change
+export. The runtime image must pass `codex-workspace-export` verification. The
+signed raw configuration and pulled image must bind the source, native-owner and
+change-export helper contracts to the same publication revision. The separate
+strict ARM64 supervisor, policy and gateway requirements remain in effect.
+
+Use the existing `prepare` and `verify` commands with v4 statement, trust and
+envelope contracts. The statement and trust use the profile above. In addition
+to `workspaceSourceContract`, the statement requires
+`nativeOwnerContract: "dataground.native-owner/v1"` and
+`workspaceChangesContract: "dataground.workspace-changes/v1"`. Both fields are
+returned in the accepted receipt. The signing message starts with
+`DataGround local candidate runtime acceptance v4`, followed by a newline and
+the canonical statement. Older signatures, trust documents, diagnostics and
+source-only image metadata cannot authorize this profile.
+
+The operator still owns the independent trust digest, exact resource scope,
+minimum generation and rejection list. Both image publications must have passed
+before preparation. Evidence expiry is checked again after external proof
+verification. Acceptance does not extend the diagnostic's 24-hour validity.
+
+This standalone profile is not selectable by the worker or publication paths.
+It supplies an image and observed-capability binding for the later worker
+composition. Current Cedar authority, source grants, durable cleanup and export
+records, exclusion of other writers, and retention before deletion remain
+separate requirements. No production certification is granted.
+
 ## Live acceptance verifier test
 
-`scripts/local-runtime-acceptance.live.test.mjs` is an opt-in test of the real v3 preparation and verification paths. It reads a fresh model-backed v6 diagnostic, both published image proofs, and a separately acquired Sigstore trusted-root snapshot. It checks the completed GitHub workflow attempts, pulls both exact images, verifies their signatures, signs the prepared bytes with an ephemeral in-memory Ed25519 key, and exercises both the library and the worker-facing verification command. It also requires rejection of changed scope, stale generation, revoked acceptance, wrong pins, expiry, signature tampering, and invalid image signature bundles even when the local test signature is valid.
+`scripts/local-runtime-acceptance.live.test.mjs` is an opt-in test of the real v3 and v4 preparation and verification paths. It reads a fresh model-backed diagnostic for the selected profile, both published image proofs, and a separately acquired Sigstore trusted-root snapshot. It checks the completed GitHub workflow attempts, pulls both exact images, verifies their signatures, signs the prepared bytes with an ephemeral in-memory Ed25519 key, and exercises both the library and the worker-facing verification command. It also requires rejection of changed scope, stale generation, revoked acceptance, wrong pins, expiry, signature tampering, and invalid image signature bundles even when the local test signature is valid.
 
 The test creates a random resource scope and a short-lived test trust profile. It does not write the private key, retain a usable acceptance envelope, configure a worker, acquire provider credentials, or run a model. Temporary public fixture files are removed in `finally`. The test signer does not represent an operational reviewer. A pass proves this verifier composition only; it is not independent operational acceptance, a governed worker invocation, or release acceptance.
 
@@ -119,6 +150,20 @@ node --test scripts/local-runtime-acceptance.live.test.mjs
 
 The diagnostic must have more than five minutes of its 24-hour evidence window left. The test bounds its own acceptance to the earlier of that boundary and 30 minutes from startup. The ordinary repository suite skips this test when the input variable is absent; that skip is not live verification evidence. Invalid or expired supplied inputs fail instead of skipping.
 
+For the v4 verifier test, use `dataground.test.local-acceptance-input/v2` with the
+same input fields, a fresh v7 diagnostic, and the export-capable image publication.
+This explicit input version selects v4 test trust and its signature domain.
+The fixture builder returns `dataground.test.local-acceptance-fixture/v2`; it
+cannot be supplied to the existing source-worker fixture consumer.
+
+The v4 live test passed on 2026-10-29 using the retained v7 diagnostic below,
+both published images, and a separately acquired authenticated Sigstore root
+snapshot with SHA-256
+`65ca537f6ed8a47fd0e560c421baa1f6c1efb8b25fc200d8c5c02c0e92eb2b9c`.
+Real preparation, offline signature verification, command verification and the
+negative cases passed. The test used an ephemeral in-memory key and random
+resource scope. It installed no operational acceptance or worker configuration.
+
 The same fixture builder can prepare public test inputs for the separate [live governed source worker test](governed-source-conformance.md):
 
 ```sh
@@ -157,8 +202,8 @@ private command output and change bytes are not included.
 This is a disposable development test. It does not establish exclusion of
 writers started outside this launcher, durable retention in the worker, or
 permission to delete user workspaces. The existing v1–v3 acceptance contracts
-reject this diagnostic. A separate acceptance contract and worker composition
-are required before these observations can authorize governed execution.
+reject this diagnostic. The separate v4 acceptance above can bind it, but a
+worker composition is still required before it can authorize governed execution.
 
 The [retained v7 diagnostic](../../deploy/openshell/diagnostics/codex-owned-workspace-candidate-arm64-20261029.json)
 passed on 2026-10-29 from clean source

@@ -14,7 +14,7 @@ const inputFile = process.env.DATAGROUND_TEST_LOCAL_ACCEPTANCE_INPUT;
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const id = (prefix) => `${prefix}_${randomBytes(12).toString("hex")}`;
 
-test("published source candidate acceptance with ephemeral test trust", {
+test("published workspace candidate acceptance with ephemeral test trust", {
   skip: !inputFile,
 }, () => {
   const {
@@ -29,10 +29,15 @@ test("published source candidate acceptance with ephemeral test trust", {
     profile,
     scope,
     expires,
+    version,
   } = createTestAcceptance(inputFile);
   assert.equal(accepted.profile, profile);
   assert.equal(accepted.certificationEligible, false);
   assert.equal(accepted.workspaceSourceContract, statement.workspaceSourceContract);
+  if (version === 4) {
+    assert.equal(accepted.nativeOwnerContract, "dataground.native-owner/v1");
+    assert.equal(accepted.workspaceChangesContract, "dataground.workspace-changes/v1");
+  }
   assert.deepEqual(accepted.scope, scope);
 
   for (const key of Object.keys(scope)) {
@@ -87,7 +92,7 @@ test("published source candidate acceptance with ephemeral test trust", {
     resigned.signature.value = sign(
       null,
       Buffer.concat([
-        Buffer.from("DataGround local candidate runtime acceptance v3\n"),
+        Buffer.from(`DataGround local candidate runtime acceptance v${version}\n`),
         canonicalJSON(resigned.statement),
       ]),
       privateKey,

@@ -100,7 +100,7 @@ function inputs() {
   };
   const envelopeFor = (value = statement, key = privateKey) =>
     canonicalJSON({
-      contract: `dataground.local-runtime-acceptance-envelope/v${value.contract.endsWith("/v3") ? 3 : value.contract.endsWith("/v2") ? 2 : 1}`,
+      contract: `dataground.local-runtime-acceptance-envelope/v${value.contract.endsWith("/v4") ? 4 : value.contract.endsWith("/v3") ? 3 : value.contract.endsWith("/v2") ? 2 : 1}`,
       statement: value,
       signature: {
         keyId: trust.keyId,
@@ -108,7 +108,7 @@ function inputs() {
           null,
           Buffer.concat([
             Buffer.from(
-              `DataGround local candidate runtime acceptance v${value.contract.endsWith("/v3") ? 3 : value.contract.endsWith("/v2") ? 2 : 1}\n`,
+              `DataGround local candidate runtime acceptance v${value.contract.endsWith("/v4") ? 4 : value.contract.endsWith("/v3") ? 3 : value.contract.endsWith("/v2") ? 2 : 1}\n`,
             ),
             canonicalJSON(value),
           ]),
@@ -1082,8 +1082,7 @@ test("source preparation checks the pulled helper metadata independently of the 
   );
 });
 
-test("source acceptance cannot authorize the owned-export diagnostic", () => {
-  const f = workspaceInputs();
+function ownedDiagnostic(f) {
   f.diagnostic.schemaVersion = "dataground.dev.openshell-runtime-diagnostic/v7";
   const check = f.diagnostic.checks.find((item) => item.name === "artifact-export");
   f.diagnostic.workspaceExport = {
@@ -1114,8 +1113,234 @@ test("source acceptance cannot authorize the owned-export diagnostic", () => {
   };
   f.artifacts.diagnostic = Buffer.from(JSON.stringify(f.diagnostic));
   f.statement.diagnosticSHA256 = hash(f.artifacts.diagnostic);
+}
+
+test("source acceptance cannot authorize the owned-export diagnostic", () => {
+  const f = workspaceInputs();
+  ownedDiagnostic(f);
   assert.throws(() =>
     prepareAcceptance(canonicalJSON(f.statement), f.trustBytes, f.artifacts, f.expected, f.run),
   );
   assert.throws(() => verifyWorkspaceFixture(f));
+});
+
+function ownedInputs() {
+  const f = workspaceInputs();
+  ownedDiagnostic(f);
+  f.trust.contract = "dataground.local-runtime-acceptance-trust/v4";
+  f.trust.profile = "openshell-codex-workspace-export-candidate-development/v1";
+  f.trustBytes = canonicalJSON(f.trust);
+  f.expected.trustProfileSHA256 = hash(f.trustBytes);
+  Object.assign(f.statement, {
+    contract: "dataground.local-runtime-acceptance-statement/v4",
+    profile: f.trust.profile,
+    trustProfileSHA256: hash(f.trustBytes),
+    nativeOwnerContract: "dataground.native-owner/v1",
+    workspaceChangesContract: "dataground.workspace-changes/v1",
+  });
+  Object.assign(f.f.image.Config.Labels, {
+    "dataground.dev.native-owner-contract": f.statement.nativeOwnerContract,
+    "dataground.dev.workspace-change-contract": f.statement.workspaceChangesContract,
+    "dataground.dev.workspace-export-revision": f.statement.publication.sourceCommit,
+  });
+  bindWorkspaceImage(f);
+  return f;
+}
+
+test("owned acceptance binds the full helper image and v7 diagnostic under a separate signature", () => {
+  const f = ownedInputs();
+  const message = prepareAcceptance(
+    canonicalJSON(f.statement),
+    f.trustBytes,
+    f.artifacts,
+    f.expected,
+    f.run,
+  );
+  assert.equal(
+    message.toString(),
+    `DataGround local candidate runtime acceptance v4\n${canonicalJSON(f.statement)}`,
+  );
+  assert.equal(
+    f.calls.filter(([command, args]) => command === "docker" && args[0] === "pull").length,
+    2,
+  );
+  f.calls.length = 0;
+  const result = verifyWorkspaceFixture(f);
+  assert.equal(result.profile, f.trust.profile);
+  assert.equal(result.nativeOwnerContract, "dataground.native-owner/v1");
+  assert.equal(result.workspaceChangesContract, "dataground.workspace-changes/v1");
+  assert.equal(result.workspaceSourceContract, "dataground.workspace-source-materialization/v1");
+  assert.equal(result.supervisorLocalImageId, f.supervisor.image.Id);
+  assert.equal(result.certificationEligible, false);
+  assert.equal(result.deploymentScope, "loopback-development-only");
+  assert.equal(f.calls.length, 4);
+  assert.equal(
+    f.calls.some(([command]) => command === "docker"),
+    false,
+  );
+});
+
+test("owned acceptance rejects signed helper substitutions and mixed helper revisions", () => {
+  for (const key of [
+    "dataground.dev.native-owner-contract",
+    "dataground.dev.workspace-change-contract",
+    "dataground.dev.workspace-source-contract",
+    "dataground.dev.workspace-export-revision",
+    "dataground.dev.workspace-source-revision",
+  ]) {
+    for (const replacement of [undefined, "substituted"]) {
+      const f = ownedInputs();
+      if (replacement === undefined) delete f.f.image.Config.Labels[key];
+      else f.f.image.Config.Labels[key] = replacement;
+      bindWorkspaceImage(f);
+      assert.throws(() => verifyWorkspaceFixture(f), /configuration.*signed image/i);
+      assert.throws(() =>
+        prepareAcceptance(canonicalJSON(f.statement), f.trustBytes, f.artifacts, f.expected, f.run),
+      );
+    }
+  }
+  const f = ownedInputs();
+  f.f.image.Config = structuredClone(f.f.image.Config);
+  delete f.f.image.Config.Labels["dataground.dev.native-owner-contract"];
+  assert.throws(
+    () =>
+      prepareAcceptance(canonicalJSON(f.statement), f.trustBytes, f.artifacts, f.expected, f.run),
+    /required architecture and isolation metadata/i,
+  );
+});
+
+test("owned acceptance rejects missing cleanup, incomplete export and diagnostic downgrades", () => {
+  for (const mutate of [
+    (f) => {
+      f.diagnostic.schemaVersion = "dataground.dev.openshell-runtime-diagnostic/v6";
+      delete f.diagnostic.workspaceExport;
+    },
+    (f) => {
+      delete f.diagnostic.workspaceExport;
+    },
+    (f) => {
+      delete f.diagnostic.workspaceSource;
+    },
+    (f) => {
+      f.diagnostic.workspaceExport.ownedSessions--;
+    },
+    (f) => {
+      f.diagnostic.workspaceExport.runId = "f".repeat(32);
+    },
+    (f) => {
+      f.diagnostic.workspaceExport.finishedAt = f.diagnostic.run.finishedAt;
+    },
+    (f) => {
+      f.diagnostic.workspaceExport.changes.baseArchiveDigest = `sha256:${"f".repeat(64)}`;
+    },
+    (f) => {
+      f.diagnostic.workspaceExport.checks.pop();
+    },
+    (f) => {
+      f.diagnostic.cleanup.sandbox.status = "retained";
+    },
+    (f) => {
+      delete f.statement.nativeOwnerContract;
+    },
+    (f) => {
+      f.statement.workspaceChangesContract = "dataground.workspace-changes/v2";
+    },
+    (f) => {
+      f.statement.publication.architecture = "amd64";
+    },
+    (f) => {
+      f.statement.certificationEligible = true;
+    },
+  ]) {
+    const f = ownedInputs();
+    mutate(f);
+    f.artifacts.diagnostic = Buffer.from(JSON.stringify(f.diagnostic));
+    f.statement.diagnosticSHA256 = hash(f.artifacts.diagnostic);
+    assert.throws(() => verifyWorkspaceFixture(f));
+    assert.equal(f.calls.length, 0);
+  }
+});
+
+test("owned acceptance cannot reuse older signing trust or signature domains", () => {
+  for (const version of [1, 2, 3]) {
+    const f = ownedInputs();
+    const envelope = JSON.parse(f.envelopeFor());
+    envelope.signature.value = sign(
+      null,
+      Buffer.concat([
+        Buffer.from(`DataGround local candidate runtime acceptance v${version}\n`),
+        canonicalJSON(f.statement),
+      ]),
+      f.privateKey,
+    ).toString("base64");
+    assert.throws(() => verifyWorkspaceFixture(f, canonicalJSON(envelope)), /signature/);
+    f.trust.contract = `dataground.local-runtime-acceptance-trust/v${version}`;
+    f.trustBytes = canonicalJSON(f.trust);
+    f.expected.trustProfileSHA256 = hash(f.trustBytes);
+    f.statement.trustProfileSHA256 = hash(f.trustBytes);
+    assert.throws(() => verifyWorkspaceFixture(f));
+    assert.equal(f.calls.length, 0);
+  }
+});
+
+test("owned acceptance retains scope, revocation, expiry and both publication gates", () => {
+  for (const mutate of [
+    (f) => {
+      f.expected.scope = { ...f.expected.scope, revisionId: "rev_abcdefghij0123456789" };
+    },
+    (f) => {
+      f.expected.minimumGeneration++;
+    },
+    (f) => {
+      f.expected.rejectedAcceptanceIds.add(f.statement.acceptanceId);
+    },
+    (f) => {
+      f.expected.trustProfileSHA256 = "0".repeat(64);
+    },
+    (f) => {
+      f.expected.now = Date.parse(f.statement.expiresAt);
+    },
+    (f) => {
+      f.supervisor.certificate.sourceRepositoryDigest = "0".repeat(40);
+    },
+    (f) => {
+      f.f.certificate.sourceRepositoryDigest = "0".repeat(40);
+    },
+  ]) {
+    const f = ownedInputs();
+    mutate(f);
+    assert.throws(() => verifyWorkspaceFixture(f));
+  }
+  for (const select of [(f) => f.f, (f) => f.supervisor]) {
+    const f = ownedInputs();
+    select(f).jobs.jobs[1].conclusion = "failure";
+    assert.throws(
+      () =>
+        prepareAcceptance(canonicalJSON(f.statement), f.trustBytes, f.artifacts, f.expected, f.run),
+      /publication|jobs|attempt/i,
+    );
+  }
+  for (const prepare of [false, true]) {
+    const f = ownedInputs();
+    const run = (command, args, options) => {
+      const result = f.run(command, args, options);
+      f.expected.now = Date.parse(f.statement.expiresAt);
+      return result;
+    };
+    const envelope = f.envelopeFor();
+    f.expected.envelopeSHA256 = hash(envelope);
+    assert.throws(
+      () =>
+        prepare
+          ? prepareAcceptance(
+              canonicalJSON(f.statement),
+              f.trustBytes,
+              f.artifacts,
+              f.expected,
+              run,
+            )
+          : verifyAcceptance(envelope, f.trustBytes, f.artifacts, f.expected, run),
+      /expired/,
+    );
+  }
 });
