@@ -73,6 +73,7 @@ export function WorkbenchSession({
   const { route, navigate } = useWorkbenchNavigation(isolationDomainId);
   const [sessions, setSessions] = useState<OpenServiceWork[]>([]);
   const [recentKeys, setRecentKeys] = useState<string[]>([]);
+  const lastLocations = useRef(new Map<string, WorkbenchRoute>());
   const retainedSessions = useRef(sessions);
   retainedSessions.current = sessions;
   const nextDraft = useRef(0);
@@ -99,6 +100,9 @@ export function WorkbenchSession({
         [activeSession.key, ...current.filter((key) => key !== activeSession.key)].slice(0, 12),
       );
   }, [activeSession]);
+  useEffect(() => {
+    if (activeSession && route) lastLocations.current.set(activeSession.key, route);
+  }, [activeSession, route]);
   const view = route?.view ?? "services";
   const showHome = !!route && view === "home" && presentation === "workbench";
   const [visitedHome, setVisitedHome] = useState(showHome);
@@ -300,7 +304,11 @@ export function WorkbenchSession({
                 key={session.key}
                 variant="quiet"
                 aria-current={activeSession?.key === session.key ? "page" : undefined}
-                onPress={() => navigate(sessionRoute(session, "workflow"))}
+                onPress={() =>
+                  navigate(
+                    lastLocations.current.get(session.key) ?? sessionRoute(session, "workflow"),
+                  )
+                }
               >
                 {session.service?.name ?? "New service draft"}
               </Button>
@@ -354,7 +362,10 @@ export function WorkbenchSession({
               })}
               onOpenWork={(key) => {
                 const session = sessions.find((item) => item.key === key);
-                if (session) navigate(sessionRoute(session, "workflow"));
+                if (session)
+                  navigate(
+                    lastLocations.current.get(session.key) ?? sessionRoute(session, "workflow"),
+                  );
               }}
               onOpenRun={(run) =>
                 navigate({

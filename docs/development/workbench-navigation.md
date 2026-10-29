@@ -308,3 +308,8 @@ heading and refresh the corresponding authorized request list. The inspection
 stays open and list filters remain selected. A list response from before that
 refresh cannot replace the newer state. Recording a response does not imply
 confirmed delivery to the runtime.
+
+Home recents and open-service controls return to the last selected service view,
+revision or run location in the current connection. They retain only parsed
+resource identities and view names in memory. Connection or scope replacement
+clears these return locations together with the retained work.
