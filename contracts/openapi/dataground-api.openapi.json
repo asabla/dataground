@@ -862,6 +862,80 @@
         }
       }
     },
+    "/v1/isolation-domains/{isolationDomainId}/search": {
+      "get": {
+        "operationId": "searchResources",
+        "summary": "Search resource metadata within an isolation scope",
+        "description": "Requires the separate searchResources permission on the isolation domain. This grant discloses navigation metadata for workspaces, agent services, invocations and artifacts across that scope. Exact resource and content reads remain independently authorized. Matches the literal query against resource IDs, names and workspace or service descriptions; invocation names are current service names. ASCII letters are case-insensitive; other Unicode and wildcard characters are literal. Newest creation first with identifier tie-breaking. The cursor binds scope, normalized query and kind. Each page repeats authorization and reads current metadata, not a frozen snapshot. Inputs, outputs, runtime errors, artifact contents and storage locations are excluded.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "description": "Literal search text; control characters are rejected.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["workspace", "agent-service", "invocation", "artifact"]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded navigation metadata for matching resources.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceSearchPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/v1/isolation-domains/{isolationDomainId}/artifacts": {
       "get": {
         "operationId": "listScopeArtifacts",
@@ -1920,6 +1994,200 @@
       }
     },
     "schemas": {
+      "ResourceSearchResult": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["metadata", "kind", "name"],
+            "properties": {
+              "metadata": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "isolationDomainId", "createdAt"],
+                "properties": {
+                  "id": {
+                    "$ref": "#/components/schemas/WorkspaceId"
+                  },
+                  "isolationDomainId": {
+                    "$ref": "#/components/schemas/IsolationDomainId"
+                  },
+                  "createdAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              },
+              "kind": {
+                "const": "workspace"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 4096
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["metadata", "kind", "name"],
+            "properties": {
+              "metadata": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "isolationDomainId", "createdAt"],
+                "properties": {
+                  "id": {
+                    "$ref": "#/components/schemas/ServiceId"
+                  },
+                  "isolationDomainId": {
+                    "$ref": "#/components/schemas/IsolationDomainId"
+                  },
+                  "createdAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              },
+              "kind": {
+                "const": "agent-service"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 4096
+              },
+              "workspaceId": {
+                "$ref": "#/components/schemas/WorkspaceId"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["metadata", "kind", "name", "serviceId", "state"],
+            "properties": {
+              "metadata": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "isolationDomainId", "createdAt"],
+                "properties": {
+                  "id": {
+                    "$ref": "#/components/schemas/InvocationId"
+                  },
+                  "isolationDomainId": {
+                    "$ref": "#/components/schemas/IsolationDomainId"
+                  },
+                  "createdAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              },
+              "kind": {
+                "const": "invocation"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "workspaceId": {
+                "$ref": "#/components/schemas/WorkspaceId"
+              },
+              "serviceId": {
+                "$ref": "#/components/schemas/ServiceId"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "accepted",
+                  "running",
+                  "waiting",
+                  "cancelling",
+                  "succeeded",
+                  "failed",
+                  "cancelled",
+                  "unknown"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["metadata", "kind", "name", "serviceId", "state", "invocationId"],
+            "properties": {
+              "metadata": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "isolationDomainId", "createdAt"],
+                "properties": {
+                  "id": {
+                    "$ref": "#/components/schemas/ArtifactId"
+                  },
+                  "isolationDomainId": {
+                    "$ref": "#/components/schemas/IsolationDomainId"
+                  },
+                  "createdAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              },
+              "kind": {
+                "const": "artifact"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "workspaceId": {
+                "$ref": "#/components/schemas/WorkspaceId"
+              },
+              "serviceId": {
+                "$ref": "#/components/schemas/ServiceId"
+              },
+              "state": {
+                "type": "string",
+                "enum": ["pending", "available", "failed", "deleted"]
+              },
+              "invocationId": {
+                "$ref": "#/components/schemas/InvocationId"
+              }
+            }
+          }
+        ]
+      },
+      "ResourceSearchPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/ResourceSearchResult"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        }
+      },
       "RuntimeToolOutput": {
         "type": "object",
         "additionalProperties": false,

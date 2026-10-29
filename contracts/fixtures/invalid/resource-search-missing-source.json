@@ -1,0 +1,44 @@
+{
+  "items": [
+    {
+      "metadata": {
+        "id": "wsp_00000000000000000001",
+        "isolationDomainId": "iso_00000000000000000001",
+        "createdAt": "2026-10-29T08:00:00Z"
+      },
+      "kind": "workspace",
+      "name": "Quarterly research"
+    },
+    {
+      "metadata": {
+        "id": "svc_00000000000000000001",
+        "isolationDomainId": "iso_00000000000000000001",
+        "createdAt": "2026-10-29T08:00:00Z"
+      },
+      "kind": "agent-service",
+      "name": "Quarterly research"
+    },
+    {
+      "metadata": {
+        "id": "inv_00000000000000000001",
+        "isolationDomainId": "iso_00000000000000000001",
+        "createdAt": "2026-10-29T08:00:00Z"
+      },
+      "kind": "invocation",
+      "name": "Quarterly research",
+      "serviceId": "svc_00000000000000000001",
+      "state": "failed"
+    },
+    {
+      "metadata": {
+        "id": "art_00000000000000000001",
+        "isolationDomainId": "iso_00000000000000000001",
+        "createdAt": "2026-10-29T08:00:00Z"
+      },
+      "kind": "artifact",
+      "name": "Quarterly research",
+      "serviceId": "svc_00000000000000000001",
+      "state": "failed"
+    }
+  ]
+}

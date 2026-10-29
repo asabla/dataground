@@ -1,6 +1,16 @@
 {
   "fixtures": [
     {
+      "file": "valid/resource-search-page.json",
+      "schema": "ResourceSearchPage",
+      "valid": true
+    },
+    {
+      "file": "invalid/resource-search-missing-source.json",
+      "schema": "ResourceSearchPage",
+      "valid": false
+    },
+    {
       "file": "valid/workspace-agent-service.json",
       "schema": "WorkspaceAgentService",
       "valid": true

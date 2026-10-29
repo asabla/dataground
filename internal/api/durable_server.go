@@ -187,6 +187,7 @@ func newDurableHandler(
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/workspaces/{workspaceId}/agent-services", protected(authz.ListWorkspaceAgentServices, authz.Workspace, "workspaceId", server.listWorkspaceAgentServices))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations", protected(authz.ListScopeInvocations, authz.IsolationDomain, "", server.listScopeInvocations))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/artifacts", protected(authz.ListScopeArtifacts, authz.IsolationDomain, "", server.listScopeArtifacts))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/search", protected(authz.SearchResources, authz.IsolationDomain, "", server.searchResources))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/agent-services", protected(
 		authz.ListAgentServices, authz.IsolationDomain, "", server.listAgentServices,
 	))
