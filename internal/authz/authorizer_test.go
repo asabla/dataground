@@ -29,6 +29,7 @@ func TestDevelopmentCedarAuthorizerBindsPrincipalDomainAndClosedActions(t *testi
 		request(principal, authz.ListWorkspaces, authz.IsolationDomain, testDomain),
 		request(principal, authz.ReadWorkspace, authz.Workspace, "wsp_00000000000000000001"),
 		request(principal, authz.ListInvocationQuestions, authz.Invocation, "inv_00000000000000000001"),
+		request(principal, authz.ListInvocationArtifacts, authz.Invocation, "inv_00000000000000000001"),
 		request(principal, authz.ListInvocationApprovals, authz.Invocation, "inv_00000000000000000001"),
 		request(principal, authz.CreateAgentService, authz.IsolationDomain, testDomain),
 		request(principal, authz.ListAgentServices, authz.IsolationDomain, testDomain),

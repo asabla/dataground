@@ -239,6 +239,15 @@ const validateQuestionPage = ajv.compile({
 const questionPage = await readJson("contracts/fixtures/valid/invocation-question-page.json");
 assert.equal(validateQuestionPage({ items: Array(100).fill(questionPage.items[0]) }), true);
 assert.equal(validateQuestionPage({ items: Array(101).fill(questionPage.items[0]) }), false);
+const validateArtifactPage = ajv.compile({
+  $ref: "urn:dataground:openapi:v1#/components/schemas/InvocationArtifactPage",
+});
+const artifactDescriptor = await readJson("contracts/fixtures/valid/artifact-descriptor.json");
+assert.equal(validateArtifactPage({ items: [] }), true);
+assert.equal(validateArtifactPage({ items: Array(100).fill(artifactDescriptor) }), true);
+assert.equal(validateArtifactPage({ items: Array(101).fill(artifactDescriptor) }), false);
+assert.equal(validateArtifactPage({ items: [artifactDescriptor], nextCursor: "" }), false);
+assert.equal(validateArtifactPage({ items: [artifactDescriptor], content: "private" }), false);
 const validateResourceAuditPage = ajv.compile({
   $ref: "urn:dataground:openapi:v1#/components/schemas/ResourceAuditPage",
 });
