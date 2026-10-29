@@ -84,7 +84,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "A controlled resource grid. Consumers own sorting, pagination, loading, and authority. Row actions are explicit controls. Arrow keys move through cells; Tab reaches row controls. Horizontal overflow retains the full table at narrow widths.",
+          "A controlled resource grid. Consumers own sorting, pagination, loading, and authority. Row actions are explicit controls. Arrow keys move through cells; with a cell focused, End reaches the last cell and its action. Horizontal overflow retains the full table at narrow widths.",
       },
     },
   },
@@ -139,5 +139,16 @@ export const RefreshDisablesStaleActions: Story = {
       }),
     ).toBeDisabled();
     await expect(args.onOpen).not.toHaveBeenCalled();
+  },
+};
+
+export const KeyboardRowAction: Story = {
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("rowheader", { name: "Change review" }));
+    await userEvent.keyboard("{End}");
+    await expect(canvas.getByRole("button", { name: "Open Change review" })).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await expect(args.onOpen).toHaveBeenCalledWith("review");
   },
 };

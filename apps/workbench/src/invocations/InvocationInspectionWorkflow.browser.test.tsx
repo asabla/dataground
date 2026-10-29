@@ -1,6 +1,7 @@
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { userEvent } from "vitest/browser";
 import type { DataGroundClient } from "../contracts/client";
 import type { InvocationQuestionReference } from "../questions";
 import { pendingQuestion, questionReference } from "../questions/fixtures";
@@ -133,10 +134,7 @@ function button(label: string) {
 }
 async function click(label: string) {
   const target = button(label);
-  await act(async () => {
-    target.focus();
-    target.click();
-  });
+  await act(async () => userEvent.click(target));
   return target;
 }
 

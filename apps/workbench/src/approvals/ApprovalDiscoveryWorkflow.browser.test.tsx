@@ -45,7 +45,9 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 function button(text: string) {
-  return Array.from(host.querySelectorAll("button")).find((value) => value.textContent === text);
+  return Array.from(host.querySelectorAll("button")).find(
+    (value) => (value.getAttribute("aria-label") ?? value.textContent) === text,
+  );
 }
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -55,95 +57,113 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-it("discovers paged approvals and reads the selected request without submitting a decision", async () => {
-  const more = deferred<ReturnType<typeof response>>();
-  const reads = vi.fn(
-    async (
-      path: string,
-      options: { params: { query?: { cursor?: string }; path: { approvalId?: string } } },
-    ) => {
-      if (path.endsWith("/{approvalId}")) return response(approval(options.params.path.approvalId));
-      if (options.params.query?.cursor) return more.promise;
-      return response({ items: [approval()], nextCursor: "cursor-1" });
-    },
-  );
-  const post = vi.fn();
-  const client = { GET: reads, POST: post } as unknown as DataGroundClient;
-  function Journey() {
-    const [selected, setSelected] = useState<InvocationApprovalReference>();
-    return (
-      <>
+it.each([false, true])(
+  "discovers paged approvals and reads the selected request without submitting a decision (compact=%s)",
+  async (compact) => {
+    const more = deferred<ReturnType<typeof response>>();
+    const reads = vi.fn(
+      async (
+        path: string,
+        options: { params: { query?: { cursor?: string }; path: { approvalId?: string } } },
+      ) => {
+        if (path.endsWith("/{approvalId}"))
+          return response(approval(options.params.path.approvalId));
+        if (options.params.query?.cursor) return more.promise;
+        return response({ items: [approval()], nextCursor: "cursor-1" });
+      },
+    );
+    const post = vi.fn();
+    const client = { GET: reads, POST: post } as unknown as DataGroundClient;
+    function Journey() {
+      const [selected, setSelected] = useState<InvocationApprovalReference>();
+      return (
+        <>
+          <ApprovalDiscoveryWorkflow
+            compact={compact}
+            client={client}
+            reference={reference}
+            onInspectApproval={setSelected}
+          />
+          {selected && <ApprovalWorkflow client={client} reference={selected} canResolve={false} />}
+        </>
+      );
+    }
+    await act(async () => root.render(<Journey />));
+    const loadMore = button("Load more approvals");
+    await act(async () => {
+      loadMore?.click();
+      loadMore?.click();
+    });
+    expect(reads).toHaveBeenCalledTimes(2);
+    expect(button(`Open approval ${firstID}`)?.disabled).toBe(true);
+    await act(async () => more.resolve(response({ items: [approval(secondID)] })));
+    const open = button(`Open approval ${secondID}`);
+    if (compact) {
+      await act(async () =>
+        userEvent.click(
+          open?.closest('[role="row"]')?.querySelector('[role="rowheader"]') as HTMLElement,
+        ),
+      );
+      await act(async () => userEvent.keyboard("{End}"));
+    } else {
+      await act(async () => open?.focus());
+    }
+    expect(document.activeElement).toBe(open);
+    await act(async () => userEvent.keyboard("{Enter}"));
+    expect(reads).toHaveBeenCalledTimes(3);
+    expect(host.textContent).toContain("Approval");
+    expect(post).not.toHaveBeenCalled();
+    expect(button("Approve request")).toBeUndefined();
+    await act(async () => button("Refresh approvals")?.click());
+    expect(button(`Open approval ${secondID}`)).toBeUndefined();
+  },
+);
+
+it.each([false, true])(
+  "removes prior requests on denial and blocks stale controls (compact=%s)",
+  async (compact) => {
+    let denied = false;
+    const inspected = vi.fn();
+    const client = {
+      GET: async () =>
+        denied
+          ? {
+              error: {
+                error: {
+                  code: "FORBIDDEN",
+                  message: "Access denied.",
+                  retryable: false,
+                  correlationId: "cor_00000000000000000001",
+                },
+              },
+              response: new Response(null, { status: 403 }),
+            }
+          : response({ items: [approval()], nextCursor: "cursor-1" }),
+    } as unknown as DataGroundClient;
+    await act(async () =>
+      root.render(
         <ApprovalDiscoveryWorkflow
+          compact={compact}
           client={client}
           reference={reference}
-          onInspectApproval={setSelected}
-        />
-        {selected && <ApprovalWorkflow client={client} reference={selected} canResolve={false} />}
-      </>
+          onInspectApproval={inspected}
+        />,
+      ),
     );
-  }
-  await act(async () => root.render(<Journey />));
-  const loadMore = button("Load more approvals");
-  await act(async () => {
-    loadMore?.click();
-    loadMore?.click();
-  });
-  expect(reads).toHaveBeenCalledTimes(2);
-  expect(button(`Open approval ${firstID}`)?.disabled).toBe(true);
-  await act(async () => more.resolve(response({ items: [approval(secondID)] })));
-  const open = button(`Open approval ${secondID}`);
-  await act(async () => open?.focus());
-  expect(document.activeElement).toBe(open);
-  await act(async () => userEvent.keyboard("{Enter}"));
-  expect(reads).toHaveBeenCalledTimes(3);
-  expect(host.textContent).toContain("Approval");
-  expect(post).not.toHaveBeenCalled();
-  expect(button("Approve request")).toBeUndefined();
-  await act(async () => button("Refresh approvals")?.click());
-  expect(button(`Open approval ${secondID}`)).toBeUndefined();
-});
-
-it("removes prior requests on denial and blocks stale controls", async () => {
-  let denied = false;
-  const inspected = vi.fn();
-  const client = {
-    GET: async () =>
-      denied
-        ? {
-            error: {
-              error: {
-                code: "FORBIDDEN",
-                message: "Access denied.",
-                retryable: false,
-                correlationId: "cor_00000000000000000001",
-              },
-            },
-            response: new Response(null, { status: 403 }),
-          }
-        : response({ items: [approval()], nextCursor: "cursor-1" }),
-  } as unknown as DataGroundClient;
-  await act(async () =>
-    root.render(
-      <ApprovalDiscoveryWorkflow
-        client={client}
-        reference={reference}
-        onInspectApproval={inspected}
-      />,
-    ),
-  );
-  const old = button(`Open approval ${firstID}`);
-  denied = true;
-  await act(async () => button("Load more approvals")?.click());
-  expect(host.textContent).toContain("Access denied.");
-  expect(button(`Open approval ${firstID}`)).toBeUndefined();
-  await act(async () => old?.click());
-  expect(inspected).not.toHaveBeenCalled();
-  denied = false;
-  await act(async () => button("Refresh approvals")?.click());
-  await act(async () => button("Load more approvals")?.click());
-  expect(host.textContent).toContain("could not interpret");
-  expect(button(`Open approval ${firstID}`)).toBeUndefined();
-});
+    const old = button(`Open approval ${firstID}`);
+    denied = true;
+    await act(async () => button("Load more approvals")?.click());
+    expect(host.textContent).toContain("Access denied.");
+    expect(button(`Open approval ${firstID}`)).toBeUndefined();
+    await act(async () => old?.click());
+    expect(inspected).not.toHaveBeenCalled();
+    denied = false;
+    await act(async () => button("Refresh approvals")?.click());
+    await act(async () => button("Load more approvals")?.click());
+    expect(host.textContent).toContain("could not interpret");
+    expect(button(`Open approval ${firstID}`)).toBeUndefined();
+  },
+);
 
 it("ignores delayed responses after connection or invocation changes", async () => {
   const pending = deferred<ReturnType<typeof response>>();
