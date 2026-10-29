@@ -1,5 +1,5 @@
-import { Button, StatusBadge } from "@dataground/ui";
-import type { ReactNode } from "react";
+import { Button, SelectField, StatusBadge } from "@dataground/ui";
+import { type ReactNode, useState } from "react";
 import type { WorkbenchView } from "./navigation";
 
 export function WorkbenchShell({
@@ -15,8 +15,9 @@ export function WorkbenchShell({
   onNavigate: (view: WorkbenchView) => void;
   children: ReactNode;
 }) {
+  const [theme, setTheme] = useState<"system" | "light" | "night">("system");
   return (
-    <main className="workbench-shell">
+    <main className="workbench-shell" data-theme={theme === "system" ? undefined : theme}>
       <header className="workbench-topbar">
         <div className="workbench-brand">
           <span aria-hidden="true" className="workbench-brand__mark">
@@ -29,6 +30,18 @@ export function WorkbenchShell({
           <code>{isolationDomainId}</code>
         </section>
         <div className="workbench-topbar__actions">
+          <SelectField
+            label="Theme"
+            value={theme}
+            options={[
+              { value: "system", label: "System" },
+              { value: "light", label: "Light" },
+              { value: "night", label: "Dark" },
+            ]}
+            onChange={(value) => {
+              if (value === "system" || value === "light" || value === "night") setTheme(value);
+            }}
+          />
           <StatusBadge tone="active">Local development</StatusBadge>
           <Button onPress={onDisconnect} variant="quiet">
             Disconnect

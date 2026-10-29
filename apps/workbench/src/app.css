@@ -94,6 +94,7 @@ p {
   min-height: 100vh;
   display: grid;
   grid-template-rows: auto 1fr;
+  color: var(--dg-color-text-primary);
   background: var(--dg-color-canvas);
 }
 
@@ -102,7 +103,7 @@ p {
   z-index: 1;
   min-height: 4rem;
   display: grid;
-  grid-template-columns: 12rem minmax(18rem, 1fr) auto;
+  grid-template-columns: 10rem minmax(8rem, 1fr) auto;
   gap: var(--dg-space-5);
   align-items: center;
   padding: var(--dg-space-3) var(--dg-space-5);
@@ -999,4 +1000,25 @@ p {
 }
 .run-inspector > .interaction-inspector__selection summary {
   cursor: pointer;
+}
+
+.workbench-topbar__actions .dg-select-field {
+  display: flex;
+  align-items: center;
+  gap: var(--dg-space-2);
+}
+.workbench-topbar__actions .dg-select-field label {
+  color: var(--dg-color-text-secondary);
+  font-size: var(--dg-font-size-caption);
+}
+@media (max-width: 40rem) {
+  .workbench-topbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .workbench-topbar__actions {
+    flex-wrap: wrap;
+  }
+  .workbench-scope {
+    grid-row: auto;
+  }
 }

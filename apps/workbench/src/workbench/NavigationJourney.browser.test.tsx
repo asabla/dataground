@@ -297,3 +297,27 @@ it("restores a direct versions link without changing it to build", async () => {
   await visit(hash);
   expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Versions");
 });
+
+it("changes theme without replacing an unfinished command form", async () => {
+  const { client } = fixture();
+  await render(client, "workbench");
+  await click("New service");
+  await name("Theme-safe draft");
+  const input = host.querySelector('input[name="service-name"]');
+  const label = [...host.querySelectorAll("label")].find(
+    (element) => element.textContent === "Theme",
+  );
+  const select = document.getElementById(label?.htmlFor ?? "") as HTMLSelectElement;
+  expect(select).not.toBeNull();
+  for (const theme of ["light", "night", "system"]) {
+    await act(async () => {
+      select.value = theme;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(host.querySelector("main")?.getAttribute("data-theme")).toBe(
+      theme === "system" ? null : theme,
+    );
+    expect(host.querySelector('input[name="service-name"]')).toBe(input);
+    expect((input as HTMLInputElement).value).toBe("Theme-safe draft");
+  }
+});
