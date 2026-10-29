@@ -1483,28 +1483,28 @@
   box-shadow: none;
   gap: var(--dg-space-5);
 }
-.dg-command-details {
+.dg-secondary-details {
   color: var(--dg-color-text-secondary);
   font-size: var(--dg-font-size-caption);
 }
-.dg-command-details summary {
+.dg-secondary-details summary {
   width: fit-content;
   cursor: pointer;
 }
-.dg-command-details summary:focus-visible {
+.dg-secondary-details summary:focus-visible {
   outline: var(--dg-border-strong) solid var(--dg-color-focus);
   outline-offset: var(--dg-space-1);
 }
-.dg-command-details dl {
+.dg-secondary-details dl {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
   gap: var(--dg-space-4);
   margin: var(--dg-space-4) 0;
 }
-.dg-command-details dt {
+.dg-secondary-details dt {
   font-weight: var(--dg-font-weight-medium);
 }
-.dg-command-details dd {
+.dg-secondary-details dd {
   margin: var(--dg-space-1) 0 0;
   overflow-wrap: anywhere;
 }
@@ -1542,4 +1542,12 @@
 .dg-command-fields {
   display: grid;
   gap: var(--dg-space-4);
+}
+
+.dg-artifact-card--workbench {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }

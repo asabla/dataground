@@ -1,5 +1,6 @@
-import { Button, StatusBadge, type StatusTone } from "@dataground/ui";
+import { Button, CopyButton, StatusBadge, type StatusTone } from "@dataground/ui";
 import { useId } from "react";
+import { SecondaryDetails } from "./SecondaryDetails";
 
 export interface ArtifactMetadata {
   createdAt: string;
@@ -40,6 +41,7 @@ export interface ArtifactCardError {
 }
 
 export interface ArtifactCardProps {
+  compact?: boolean;
   artifact?: ArtifactResource;
   error?: ArtifactCardError;
   isLoading?: boolean;
@@ -112,6 +114,7 @@ function formatBytes(value: number): string {
 }
 
 export function ArtifactCard({
+  compact = false,
   artifact,
   error,
   isLoading = false,
@@ -136,7 +139,7 @@ export function ArtifactCard({
     <section
       aria-busy={isLoading || undefined}
       aria-labelledby={titleId}
-      className="dg-artifact-card"
+      className={`dg-artifact-card${compact ? " dg-artifact-card--workbench" : ""}`}
     >
       <div className="dg-artifact-card__heading">
         <div>
@@ -148,21 +151,35 @@ export function ArtifactCard({
         <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
       </div>
 
-      <dl className="dg-artifact-card__scope">
-        <div>
-          <dt>Isolation domain</dt>
-          <dd>{displayText(reference.isolationDomainId, 64)}</dd>
-        </div>
-        <div>
-          <dt>Invocation</dt>
-          <dd>{displayText(reference.invocationId, 64)}</dd>
-        </div>
-        <div>
-          <dt>Artifact</dt>
-          <dd>{displayText(reference.artifactId, 64)}</dd>
-        </div>
-      </dl>
-
+      <SecondaryDetails compact={compact}>
+        <dl className="dg-artifact-card__scope">
+          <div>
+            <dt>Isolation domain</dt>
+            <dd>
+              {displayText(reference.isolationDomainId, 64)}{" "}
+              {compact && (
+                <CopyButton label="isolation scope" value={reference.isolationDomainId} />
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Invocation</dt>
+            <dd>
+              {displayText(reference.invocationId, 64)}{" "}
+              {compact && (
+                <CopyButton label="invocation identifier" value={reference.invocationId} />
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Artifact</dt>
+            <dd>
+              {displayText(reference.artifactId, 64)}{" "}
+              {compact && <CopyButton label="artifact identifier" value={reference.artifactId} />}
+            </dd>
+          </div>
+        </dl>
+      </SecondaryDetails>
       {error && (
         <div className="dg-artifact-card__error" role="alert">
           <strong>
@@ -216,45 +233,52 @@ export function ArtifactCard({
               <dt>Marked sensitive</dt>
               <dd>{artifact.sensitive ? "Yes" : "No"}</dd>
             </div>
-            <div>
-              <dt>Generation / version</dt>
-              <dd>
-                {artifact.metadata.generation} / {artifact.metadata.version}
-              </dd>
-            </div>
-            <div className="dg-artifact-card__digest">
-              <dt>Content digest</dt>
-              <dd>{artifact.digest}</dd>
-            </div>
-            <div>
-              <dt>Created by</dt>
-              <dd>{displayText(artifact.metadata.createdBy, 128) || "Not reported"}</dd>
-            </div>
-            <div>
-              <dt>Created</dt>
-              <dd>
-                <time dateTime={artifact.metadata.createdAt}>{artifact.metadata.createdAt}</time>
-              </dd>
-            </div>
-            <div>
-              <dt>Last observed</dt>
-              <dd>
-                <time dateTime={artifact.metadata.updatedAt}>{artifact.metadata.updatedAt}</time>
-              </dd>
-            </div>
-            {artifact.metadata.provenance?.sourceRevision && (
-              <div>
-                <dt>Source revision</dt>
-                <dd>{displayText(artifact.metadata.provenance.sourceRevision, 128)}</dd>
-              </div>
-            )}
-            {artifact.metadata.provenance?.requestCorrelationId && (
-              <div>
-                <dt>Request correlation</dt>
-                <dd>{displayText(artifact.metadata.provenance.requestCorrelationId, 128)}</dd>
-              </div>
-            )}
           </dl>
+          <SecondaryDetails compact={compact} label="Integrity and provenance">
+            <dl className="dg-artifact-card__facts">
+              <div>
+                <dt>Generation / version</dt>
+                <dd>
+                  {artifact.metadata.generation} / {artifact.metadata.version}
+                </dd>
+              </div>
+              <div className="dg-artifact-card__digest">
+                <dt>Content digest</dt>
+                <dd>
+                  {artifact.digest}{" "}
+                  {compact && <CopyButton label="content digest" value={artifact.digest} />}
+                </dd>
+              </div>
+              <div>
+                <dt>Created by</dt>
+                <dd>{displayText(artifact.metadata.createdBy, 128) || "Not reported"}</dd>
+              </div>
+              <div>
+                <dt>Created</dt>
+                <dd>
+                  <time dateTime={artifact.metadata.createdAt}>{artifact.metadata.createdAt}</time>
+                </dd>
+              </div>
+              <div>
+                <dt>Record updated</dt>
+                <dd>
+                  <time dateTime={artifact.metadata.updatedAt}>{artifact.metadata.updatedAt}</time>
+                </dd>
+              </div>
+              {artifact.metadata.provenance?.sourceRevision && (
+                <div>
+                  <dt>Source revision</dt>
+                  <dd>{displayText(artifact.metadata.provenance.sourceRevision, 128)}</dd>
+                </div>
+              )}
+              {artifact.metadata.provenance?.requestCorrelationId && (
+                <div>
+                  <dt>Request correlation</dt>
+                  <dd>{displayText(artifact.metadata.provenance.requestCorrelationId, 128)}</dd>
+                </div>
+              )}
+            </dl>
+          </SecondaryDetails>
 
           {!artifact.sensitive && (
             <p className="dg-artifact-card__boundary">

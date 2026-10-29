@@ -1,6 +1,6 @@
 import { Button, CopyButton, SelectField, StatusBadge, TextField } from "@dataground/ui";
 import { useId } from "react";
-import { CommandDetails } from "./CommandDetails";
+import { SecondaryDetails } from "./SecondaryDetails";
 
 export interface InvocationComposerField {
   description?: string;
@@ -131,7 +131,7 @@ export function InvocationComposer({
         <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
       </div>
 
-      <CommandDetails compact={compact}>
+      <SecondaryDetails compact={compact}>
         <dl className="dg-invocation-composer__scope">
           <div>
             <dt>Isolation domain</dt>
@@ -148,7 +148,7 @@ export function InvocationComposer({
             </dd>
           </div>
         </dl>
-      </CommandDetails>
+      </SecondaryDetails>
 
       {!canInvoke && (
         <p className="dg-invocation-composer__authority">
@@ -188,7 +188,7 @@ export function InvocationComposer({
               ? `Run accepted: ${displayText(accepted.state, 64)}.`
               : "DataGround accepted the invocation."}
           </strong>
-          <CommandDetails compact={compact} label="Receipt details">
+          <SecondaryDetails compact={compact} label="Receipt details">
             <dl>
               <div>
                 <dt>Invocation</dt>
@@ -203,7 +203,7 @@ export function InvocationComposer({
                 <dd>{displayText(accepted.state, 64)}</dd>
               </div>
             </dl>
-          </CommandDetails>
+          </SecondaryDetails>
           {onOpenInvocation && <Button onPress={onOpenInvocation}>Open invocation</Button>}
         </div>
       ) : schema && recoveryPending ? (

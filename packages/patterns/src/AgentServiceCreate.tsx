@@ -1,6 +1,6 @@
 import { Button, CopyButton, StatusBadge, TextField } from "@dataground/ui";
 import { useId } from "react";
-import { CommandDetails } from "./CommandDetails";
+import { SecondaryDetails } from "./SecondaryDetails";
 
 export interface CreatedAgentService {
   createdAt: string;
@@ -104,7 +104,7 @@ export function AgentServiceCreate({
         <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
       </div>
 
-      <CommandDetails compact={compact}>
+      <SecondaryDetails compact={compact}>
         <dl className="dg-agent-service-create__scope">
           <div>
             <dt>Isolation domain</dt>
@@ -114,7 +114,7 @@ export function AgentServiceCreate({
             </dd>
           </div>
         </dl>
-      </CommandDetails>
+      </SecondaryDetails>
 
       {!canCreate && (
         <p className="dg-agent-service-create__authority">
@@ -150,7 +150,7 @@ export function AgentServiceCreate({
               ? `${displayText(created.name, 128)} is ready to configure.`
               : "DataGround created the service."}
           </strong>
-          <CommandDetails compact={compact} label="Receipt details">
+          <SecondaryDetails compact={compact} label="Receipt details">
             <dl>
               <div>
                 <dt>Service</dt>
@@ -173,7 +173,7 @@ export function AgentServiceCreate({
                 <dd>{displayText(created.createdAt, 64)}</dd>
               </div>
             </dl>
-          </CommandDetails>
+          </SecondaryDetails>
           {onOpenService && <Button onPress={onOpenService}>Open service</Button>}
         </div>
       ) : recoveryPending ? (

@@ -1,6 +1,6 @@
 import { Button, CopyButton, StatusBadge, TextField } from "@dataground/ui";
 import { type ReactNode, useId } from "react";
-import { CommandDetails } from "./CommandDetails";
+import { SecondaryDetails } from "./SecondaryDetails";
 
 export interface CreatedServiceRevision {
   createdAt: string;
@@ -124,7 +124,7 @@ export function ServiceRevisionDraft({
         <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
       </div>
 
-      <CommandDetails compact={compact}>
+      <SecondaryDetails compact={compact}>
         <dl className="dg-service-revision-draft__scope">
           <div>
             <dt>Isolation domain</dt>
@@ -141,7 +141,7 @@ export function ServiceRevisionDraft({
             </dd>
           </div>
         </dl>
-      </CommandDetails>
+      </SecondaryDetails>
 
       {!canCreateRevision && (
         <p className="dg-service-revision-draft__authority">
@@ -179,7 +179,7 @@ export function ServiceRevisionDraft({
               ? `Revision ${created.revisionNumber} is saved as a draft.`
               : "DataGround created an unpublished revision draft."}
           </strong>
-          <CommandDetails compact={compact} label="Receipt details">
+          <SecondaryDetails compact={compact} label="Receipt details">
             <dl>
               <div>
                 <dt>Revision</dt>
@@ -210,7 +210,7 @@ export function ServiceRevisionDraft({
                 <dd>{displayText(created.createdAt, 64)}</dd>
               </div>
             </dl>
-          </CommandDetails>
+          </SecondaryDetails>
           <p className="dg-service-revision-draft__boundary">
             This draft is not published, routable, or invocable.
           </p>
