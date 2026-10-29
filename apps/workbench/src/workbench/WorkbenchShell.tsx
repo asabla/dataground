@@ -64,6 +64,16 @@ export function WorkbenchShell({
                 Home
               </Button>
             )}
+            {scopeRuns && (
+              <Button
+                aria-current={view === "workspaces" ? "page" : undefined}
+                className="workbench-nav-button"
+                onPress={() => onNavigate("workspaces")}
+                variant="quiet"
+              >
+                Workspace
+              </Button>
+            )}
             <Button
               aria-current={view === "services" || view === "workflow" ? "page" : undefined}
               className="workbench-nav-button"

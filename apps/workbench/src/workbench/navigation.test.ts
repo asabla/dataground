@@ -9,6 +9,8 @@ it("round-trips scoped directory, create, service and run-list locations", () =>
     { isolationDomainId, view: "services" },
     { isolationDomainId, view: "artifacts" },
     { isolationDomainId, view: "home" },
+    { isolationDomainId, view: "workspaces" },
+    { isolationDomainId, view: "workspaces", workspaceId: "wsp_00000000000000000001" },
     { isolationDomainId, view: "workflow" },
     { isolationDomainId, view: "interactions" },
     { isolationDomainId, serviceId, view: "workflow" },
@@ -154,4 +156,19 @@ it("keeps Home scoped and rejects resource or content context", () => {
     assert.equal(parseRoute(hash, isolationDomainId), undefined);
   assert.throws(() => routeHash({ isolationDomainId, view: "home", serviceId }));
   assert.throws(() => routeHash({ isolationDomainId, view: "home", runTab: "output" }));
+});
+
+it("rejects workspace paths with unrelated resource or content state", () => {
+  const workspaceId = "wsp_00000000000000000001";
+  for (const view of ["services", "home", "workflow", "artifacts", "interactions"] as const)
+    assert.throws(() => routeHash({ isolationDomainId, view, workspaceId }));
+  assert.throws(() => routeHash({ isolationDomainId, view: "workspaces", workspaceId, serviceId }));
+  for (const suffix of ["/extra", "?prompt=private", "/../other"])
+    assert.equal(
+      parseRoute(
+        routeHash({ isolationDomainId, view: "workspaces", workspaceId }) + suffix,
+        isolationDomainId,
+      ),
+      undefined,
+    );
 });

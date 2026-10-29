@@ -100,6 +100,7 @@ interface ServiceWorkflowSessionProps {
   active: boolean;
   view: WorkbenchView;
   onNavigate: (view: WorkbenchView, tab?: ServiceTab) => void;
+  onOpenWorkspace?: () => void;
   onServiceOpened: (service: AgentServiceResource) => void;
 }
 
@@ -116,6 +117,7 @@ export function ServiceWorkflowSession({
   active,
   view,
   onNavigate,
+  onOpenWorkspace,
   onServiceOpened,
 }: ServiceWorkflowSessionProps) {
   const [retainedTab, setRetainedTab] = useState<ServiceTab>("build");
@@ -855,7 +857,8 @@ export function ServiceWorkflowSession({
           withdrawalPanel={withdrawalPanel}
           retirementPanel={retirementPanel}
           selectTab={selectTab}
-          onBack={() => setView("services")}
+          backLabel={onOpenWorkspace ? "Back to workspace" : undefined}
+          onBack={onOpenWorkspace ?? (() => setView("services"))}
           onCreateRevision={startServiceRevision}
           onCloseInvocation={() => {
             setOpenedInvocation(undefined);

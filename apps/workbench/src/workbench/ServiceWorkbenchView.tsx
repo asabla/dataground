@@ -43,6 +43,7 @@ interface ServiceWorkbenchViewProps {
   withdrawalPanel: ReactNode;
   retirementPanel: ReactNode;
   selectTab: (tab: ServiceTab) => void;
+  backLabel?: string;
   onBack: () => void;
   onCreateRevision: () => void;
   onCloseInvocation: () => void;
@@ -79,6 +80,7 @@ export function ServiceWorkbenchView({
   withdrawalPanel,
   retirementPanel,
   selectTab,
+  backLabel = "Back to services",
   onBack,
   onCreateRevision,
   onCloseInvocation,
@@ -95,7 +97,7 @@ export function ServiceWorkbenchView({
           <p>{openedService.description || "No description supplied."}</p>
         </div>
         <Button onPress={() => onBack()} variant="quiet">
-          Back to services
+          {backLabel}
         </Button>
       </header>
       {readStatus}

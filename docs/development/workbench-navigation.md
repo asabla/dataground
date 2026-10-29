@@ -256,3 +256,18 @@ contains audit inspection and, for published revisions, retirement review. The
 menu retains its local theme and visibility boundary, skips disabled items and
 returns focus on dismissal. It invokes the same guarded callbacks; it never
 executes retirement directly. Opening audit moves focus to the inspection region.
+
+Workspace now uses real workspace identities and explicit service relationships.
+Its scope list and exact detail routes are `#/scopes/{scope}/workspaces` and
+`#/scopes/{scope}/workspaces/{workspaceId}`. Lists use bounded API pages; search
+filters only loaded records. Exact workspace and service reads keep independent
+authorization. A service's workspace ID supplies a direct return path without
+inferring ownership or execution access.
+
+Workspace and service creation forms remain in the connected session when hidden
+or when the user navigates elsewhere. Uncertain responses retain the original
+request fields and idempotency key. A late completion does not redirect the user
+from a different area. Identity or scope changes clear these forms. Workspace
+creation and metadata reads work against the reference and durable API profiles;
+this area does not yet contain notebook documents, files, saved queries or a
+resource tree. Those destinations require their own public contracts.

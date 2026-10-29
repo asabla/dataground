@@ -15,6 +15,7 @@ interface ServiceCreationAttempt {
 }
 
 interface ServiceCreateState {
+  client: DataGroundClient;
   created?: AgentServiceResource;
   description: string;
   error?: AgentServiceFailure;
@@ -26,6 +27,7 @@ interface ServiceCreateState {
 }
 
 export interface AgentServiceCreateWorkflowProps {
+  workspaceId?: string;
   compact?: boolean;
   canCreate: boolean;
   client: DataGroundClient;
@@ -71,6 +73,7 @@ function defaultIdempotencyKey(): string {
 }
 
 export function AgentServiceCreateWorkflow({
+  workspaceId,
   compact = false,
   canCreate,
   client,
@@ -82,14 +85,18 @@ export function AgentServiceCreateWorkflow({
   onOpenService,
   onServiceCreated,
 }: AgentServiceCreateWorkflowProps) {
+  const scopeKey = `${isolationDomainId}/${workspaceId ?? "unassigned"}`;
   const [state, setState] = useState<ServiceCreateState>({
     description: initialDescription,
     name: initialName,
-    scopeKey: isolationDomainId,
+    scopeKey,
+    client,
     submitting: false,
     validationErrors: {},
   });
   const requestGeneration = useRef(0);
+  const identity = useRef({ client, scopeKey });
+  identity.current = { client, scopeKey };
   const submissionLock = useRef<object | undefined>(undefined);
 
   useEffect(() => {
@@ -98,16 +105,21 @@ export function AgentServiceCreateWorkflow({
     setState({
       description: initialDescription,
       name: initialName,
-      scopeKey: isolationDomainId,
+      scopeKey,
+      client,
       submitting: false,
       validationErrors: {},
     });
-  }, [initialDescription, initialName, isolationDomainId]);
+    return () => {
+      requestGeneration.current++;
+    };
+  }, [client, initialDescription, initialName, scopeKey]);
 
   const submit = useCallback(async () => {
     if (
       !canCreate ||
-      state.scopeKey !== isolationDomainId ||
+      state.scopeKey !== scopeKey ||
+      state.client !== client ||
       state.submitting ||
       state.created ||
       submissionLock.current
@@ -119,7 +131,9 @@ export function AgentServiceCreateWorkflow({
       const validationErrors = validateAgentServiceCreateRequest(state.name, state.description);
       if (Object.keys(validationErrors).length > 0) {
         setState((current) =>
-          current.scopeKey === isolationDomainId ? { ...current, validationErrors } : current,
+          current.scopeKey === scopeKey && current.client === client
+            ? { ...current, validationErrors }
+            : current,
         );
         return;
       }
@@ -133,7 +147,7 @@ export function AgentServiceCreateWorkflow({
         };
       } catch {
         setState((current) =>
-          current.scopeKey === isolationDomainId
+          current.scopeKey === scopeKey && current.client === client
             ? {
                 ...current,
                 error: {
@@ -153,7 +167,7 @@ export function AgentServiceCreateWorkflow({
     submissionLock.current = lock;
     const generation = requestGeneration.current;
     setState((current) =>
-      current.scopeKey === isolationDomainId
+      current.scopeKey === scopeKey && current.client === client
         ? {
             ...current,
             error: undefined,
@@ -169,11 +183,17 @@ export function AgentServiceCreateWorkflow({
         isolationDomainId,
         attempt.request,
         attempt.idempotencyKey,
+        workspaceId,
       );
-      if (requestGeneration.current !== generation) return;
+      if (
+        requestGeneration.current !== generation ||
+        identity.current.client !== client ||
+        identity.current.scopeKey !== scopeKey
+      )
+        return;
       if (result.ok) {
         setState((current) =>
-          current.scopeKey === isolationDomainId
+          current.scopeKey === scopeKey && current.client === client
             ? {
                 ...current,
                 created: result.service,
@@ -187,7 +207,7 @@ export function AgentServiceCreateWorkflow({
         onServiceCreated?.(result.service);
       } else {
         setState((current) =>
-          current.scopeKey === isolationDomainId
+          current.scopeKey === scopeKey && current.client === client
             ? {
                 ...current,
                 error: result.error,
@@ -200,15 +220,25 @@ export function AgentServiceCreateWorkflow({
     } finally {
       if (submissionLock.current === lock) submissionLock.current = undefined;
     }
-  }, [canCreate, client, createIdempotencyKey, isolationDomainId, onServiceCreated, state]);
+  }, [
+    canCreate,
+    client,
+    createIdempotencyKey,
+    isolationDomainId,
+    onServiceCreated,
+    scopeKey,
+    state,
+    workspaceId,
+  ]);
 
   const visible =
-    state.scopeKey === isolationDomainId
+    state.scopeKey === scopeKey && state.client === client
       ? state
       : {
           description: initialDescription,
           name: initialName,
-          scopeKey: isolationDomainId,
+          scopeKey,
+          client,
           submitting: false,
           validationErrors: {},
         };
@@ -237,7 +267,7 @@ export function AgentServiceCreateWorkflow({
       name={visible.name}
       onDescriptionChange={(description) =>
         setState((current) =>
-          current.scopeKey === isolationDomainId && !current.recoveryAttempt
+          current.scopeKey === scopeKey && current.client === client && !current.recoveryAttempt
             ? {
                 ...current,
                 description,
@@ -249,7 +279,7 @@ export function AgentServiceCreateWorkflow({
       }
       onNameChange={(name) =>
         setState((current) =>
-          current.scopeKey === isolationDomainId && !current.recoveryAttempt
+          current.scopeKey === scopeKey && current.client === client && !current.recoveryAttempt
             ? {
                 ...current,
                 error: undefined,
