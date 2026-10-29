@@ -3,12 +3,10 @@
 }
 
 html {
-  min-width: 20rem;
   background: var(--dg-color-canvas);
 }
 
 body {
-  min-width: 20rem;
   min-height: 100vh;
   margin: 0;
   background: var(--dg-color-canvas);
@@ -378,6 +376,46 @@ p {
   max-width: none;
 }
 
+.interaction-inspector,
+.interaction-inspector__section,
+.interaction-inspector__selection {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--dg-space-4);
+}
+
+.interaction-inspector__section > section,
+.interaction-inspector__selection > section {
+  max-width: none;
+}
+
+.interaction-inspector__navigation {
+  position: sticky;
+  top: var(--dg-space-2);
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dg-space-2);
+  padding: var(--dg-space-2);
+  border: var(--dg-border-default) solid var(--dg-color-border-default);
+  border-radius: var(--dg-radius-panel);
+  background: var(--dg-color-surface-default);
+}
+
+.interaction-inspector__section,
+.interaction-inspector__selection,
+.interaction-inspector button {
+  scroll-margin-top: 10rem;
+}
+
+.interaction-inspector__navigation:focus-visible,
+.interaction-inspector__section:focus-visible,
+.interaction-inspector__selection:focus-visible {
+  outline: var(--dg-border-strong) solid var(--dg-color-focus);
+  outline-offset: var(--dg-space-1);
+}
+
 .revision-history {
   overflow: hidden;
   border: var(--dg-border-default) solid var(--dg-color-border-default);
@@ -628,6 +666,12 @@ p {
 }
 
 @media (max-width: 25rem) {
+  .interaction-inspector__section,
+  .interaction-inspector__selection,
+  .interaction-inspector button {
+    scroll-margin-top: 14rem;
+  }
+
   .workbench-brand strong {
     display: none;
   }
