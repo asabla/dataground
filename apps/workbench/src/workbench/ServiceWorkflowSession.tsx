@@ -33,6 +33,7 @@ import {
 } from "../services";
 import type { ServiceTab, WorkbenchPresentation, WorkbenchView } from "./navigation";
 
+import { RetainedServiceCommands } from "./RetainedServiceCommands";
 import { ServiceWorkbenchView } from "./ServiceWorkbenchView";
 
 type WorkflowStageIndex = 0 | 1 | 2 | 3 | 4 | 5;
@@ -444,6 +445,21 @@ export function ServiceWorkflowSession({
     setRevisionHistory((current) => mergeRevisionHistory(current, [historyFromDraft(revision)]));
   };
 
+  const assignPublishedRevision = (revision: PublishedServiceRevisionResource) => {
+    selectTab("deployments");
+    if (openedService) void openServiceRevision(openedService, revision.metadata.id);
+  };
+
+  const composeAliasInvocation = (alias: ServiceAliasResource) => {
+    selectTab("runs");
+    setObservedAlias(alias);
+    setOpenedAlias(alias);
+    setOpenedQuestion(undefined);
+    setOpenedApproval(undefined);
+    setOpenedArtifact(undefined);
+    setOpenedInvocation(undefined);
+  };
+
   const workflow = (
     <AgentServiceAuthoringWorkflow
       presentation={presentation}
@@ -459,19 +475,8 @@ export function ServiceWorkflowSession({
       client={client}
       focusCurrentStage
       isolationDomainId={isolationDomainId}
-      onAssignAlias={(revision) => {
-        selectTab("deployments");
-        if (openedService) void openServiceRevision(openedService, revision.metadata.id);
-      }}
-      onComposeInvocation={(alias) => {
-        selectTab("runs");
-        setObservedAlias(alias);
-        setOpenedAlias(alias);
-        setOpenedQuestion(undefined);
-        setOpenedApproval(undefined);
-        setOpenedArtifact(undefined);
-        setOpenedInvocation(undefined);
-      }}
+      onAssignAlias={assignPublishedRevision}
+      onComposeInvocation={composeAliasInvocation}
       onCloseQuestion={() => setOpenedQuestion(undefined)}
       onInspectQuestion={(reference) => {
         setOpenedApproval(undefined);
@@ -700,6 +705,38 @@ export function ServiceWorkflowSession({
         ? null
         : workflow;
 
+  const retainedCommands = (
+    kind: "publication" | "route" | "invocation",
+    stage: WorkflowStageIndex,
+  ) =>
+    openedService && (
+      <RetainedServiceCommands
+        kind={kind}
+        client={client}
+        service={openedService}
+        isolationDomainId={isolationDomainId}
+        enabled={currentStage === stage && commandContent !== null}
+        revision={openedRevision}
+        publication={openedPublishedRevision}
+        alias={openedAlias}
+        observedAlias={observedAlias}
+        onAssignAlias={assignPublishedRevision}
+        onComposeInvocation={composeAliasInvocation}
+        onPublished={(revision) => {
+          if (
+            revision.metadata.isolationDomainId !== isolationDomainId ||
+            revision.serviceId !== openedService.metadata.id
+          )
+            return;
+          revisionListGeneration.current++;
+          setRevisionListLoading(false);
+          setRevisionListLoadingMore(false);
+          setRevisionHistory((current) => mergeRevisionHistory(current, [revision]));
+        }}
+        onOpenInvocation={(reference) => onRunNavigate({ invocationId: reference.invocationId })}
+      />
+    );
+
   if (presentation === "workbench" && openedService) {
     return (
       <div ref={pageContent}>
@@ -726,7 +763,9 @@ export function ServiceWorkflowSession({
           aliasReadLoading={aliasReadLoading}
           aliasReadError={aliasReadError}
           readStatus={readStatus}
-          commandContent={currentStage === 1 ? null : commandContent}
+          publicationContent={retainedCommands("publication", 2)}
+          routingContent={retainedCommands("route", 3)}
+          invocationContent={retainedCommands("invocation", 4)}
           draftActive={currentStage === 1 && commandContent !== null}
           draftContent={
             <ServiceRevisionDraftWorkflow

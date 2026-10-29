@@ -145,3 +145,12 @@ exact recovery request. A fresh draft replaces it only after creation was
 confirmed. Hidden drafts are inert; changing connection identity or scope still
 removes the service session. The temporary classic presentation retains its
 existing navigation behavior.
+
+Publication, routing and invocation composition also have fixed view locations.
+Each opened revision or route context retains its existing command controller and
+a snapshot of the exact resource preconditions. Selecting another context or
+waiting for discovery hides that controller instead of replacing it. Returning
+to the same observed context restores the original retry request. Confirmed new
+resource versions create separate command contexts. Entry scope checks and the
+existing server authorization, version and idempotency checks remain required;
+retention does not grant access or change a route's API semantics.
