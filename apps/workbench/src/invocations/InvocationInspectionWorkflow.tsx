@@ -1,5 +1,5 @@
 import { presentTimelineEvent, type TimelineEvent } from "@dataground/patterns";
-import { Button, StatusBadge, Tabs } from "@dataground/ui";
+import { Button, SplitView, StatusBadge, Tabs } from "@dataground/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import {
   ApprovalDiscoveryWorkflow,
@@ -337,14 +337,17 @@ export function InvocationInspectionWorkflow({
         {selectedArtifact &&
           (isArtifactSelectedForInvocation(selectedArtifact, reference) ? (
             <section
-              aria-labelledby={artifactInspectionTitleId}
+              aria-labelledby={presentation === "classic" ? artifactInspectionTitleId : undefined}
+              aria-label={presentation === "workbench" ? "Artifact inspection" : undefined}
               className="product-workflow__inspection"
             >
               <div className="product-workflow__inspection-heading">
-                <div>
-                  <p className="workbench-kicker">Governed output</p>
-                  <h2 id={artifactInspectionTitleId}>Artifact inspection</h2>
-                </div>
+                {presentation === "classic" && (
+                  <div>
+                    <p className="workbench-kicker">Governed output</p>
+                    <h2 id={artifactInspectionTitleId}>Artifact inspection</h2>
+                  </div>
+                )}
                 <Button onPress={() => closeInspection(onCloseArtifact)} variant="quiet">
                   Close artifact
                 </Button>
@@ -445,44 +448,47 @@ export function InvocationInspectionWorkflow({
 
   if (presentation === "workbench")
     return (
-      <div className="run-inspector" data-inspecting={hasSelection || undefined}>
-        <div className="run-inspector__main">
-          <InvocationWorkflow
-            compact
-            client={client}
-            reference={reference}
-            canCancel={canCancelInvocation}
-            disabledReason={cancellationDisabledReason}
-            onInspectArtifact={inspectArtifact}
-            renderDetails={({ result, files }) => (
-              <section ref={navigation} tabIndex={-1} aria-label="Run views">
-                <Tabs
-                  label="Run views"
-                  selectedId={activeTab}
-                  onSelectionChange={(value) => {
-                    if (!isRunTab(value)) return;
-                    setActiveTab(value);
-                    onSelectTab?.(value);
-                  }}
-                  items={[
-                    { id: "activity", label: "Activity", content: activityView },
-                    { id: "requests", label: "Requests", content: requestsView },
-                    {
-                      id: "output",
-                      label: "Output",
-                      content: result ?? (
-                        <p>Output is available after a confirmed successful run.</p>
-                      ),
-                    },
-                    { id: "files", label: "Files", content: files },
-                    { id: "audit", label: "Audit", content: auditView },
-                  ]}
-                />
-              </section>
-            )}
-          />
-        </div>
-        {selection}
+      <div className="run-inspector">
+        <SplitView
+          primaryLabel="Run record"
+          primary={
+            <InvocationWorkflow
+              compact
+              client={client}
+              reference={reference}
+              canCancel={canCancelInvocation}
+              disabledReason={cancellationDisabledReason}
+              onInspectArtifact={inspectArtifact}
+              renderDetails={({ result, files }) => (
+                <section ref={navigation} tabIndex={-1} aria-label="Run views">
+                  <Tabs
+                    label="Run views"
+                    selectedId={activeTab}
+                    onSelectionChange={(value) => {
+                      if (!isRunTab(value)) return;
+                      setActiveTab(value);
+                      onSelectTab?.(value);
+                    }}
+                    items={[
+                      { id: "activity", label: "Activity", content: activityView },
+                      { id: "requests", label: "Requests", content: requestsView },
+                      {
+                        id: "output",
+                        label: "Output",
+                        content: result ?? (
+                          <p>Output is available after a confirmed successful run.</p>
+                        ),
+                      },
+                      { id: "files", label: "Files", content: files },
+                      { id: "audit", label: "Audit", content: auditView },
+                    ]}
+                  />
+                </section>
+              )}
+            />
+          }
+          secondary={selection}
+        />
       </div>
     );
   return (

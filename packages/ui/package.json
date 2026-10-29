@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@dataground/tokens": "workspace:*",
+    "react-aria": "3.50.0",
     "react-aria-components": "1.19.0"
   },
   "peerDependencies": {

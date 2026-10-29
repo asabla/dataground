@@ -308,3 +308,61 @@
 .dg-copy-button [role="alert"] {
   color: var(--dg-color-status-critical);
 }
+
+.dg-split-view,
+.dg-split-view * {
+  box-sizing: border-box;
+}
+.dg-split-view {
+  container-type: inline-size;
+  min-width: 0;
+}
+.dg-split-view__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--dg-space-4);
+}
+.dg-split-view__primary,
+.dg-split-view__secondary {
+  min-width: 0;
+}
+.dg-split-view__handle {
+  display: none;
+  border: 0;
+  margin: 0;
+  width: auto;
+  position: relative;
+  touch-action: none;
+  cursor: col-resize;
+  outline: none;
+}
+.dg-split-view__handle::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 50%;
+  width: var(--dg-border-default);
+  background: var(--dg-color-border-default);
+}
+.dg-split-view__handle:hover::before,
+.dg-split-view__handle:focus-visible::before {
+  width: var(--dg-border-strong);
+  background: var(--dg-color-focus);
+}
+.dg-split-view__handle:focus-visible {
+  outline: var(--dg-border-strong) solid var(--dg-color-focus);
+  outline-offset: calc(-1 * var(--dg-border-strong));
+}
+@container (min-width: 52rem) {
+  .dg-split-view__layout[data-split] {
+    grid-template-columns: minmax(0, var(--dg-split-primary)) var(--dg-space-6) minmax(
+        0,
+        var(--dg-split-secondary)
+      );
+    gap: 0;
+  }
+  .dg-split-view__handle {
+    display: block;
+    min-height: var(--dg-space-8);
+  }
+}

@@ -7,6 +7,7 @@ export {
   type DataTableSort,
 } from "./DataTable";
 export { SelectField, type SelectFieldProps } from "./SelectField";
+export { SplitView, type SplitViewProps } from "./SplitView";
 export { StatusBadge, type StatusBadgeProps, type StatusTone } from "./StatusBadge";
 export { type TabItem, Tabs, type TabsProps } from "./Tabs";
 export { TextField, type TextFieldProps } from "./TextField";
