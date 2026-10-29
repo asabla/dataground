@@ -1010,3 +1010,38 @@ p {
     grid-row: auto;
   }
 }
+
+.workbench-lifecycle {
+  display: grid;
+  gap: var(--dg-space-4);
+  padding: var(--dg-space-5) 0;
+  border-block: var(--dg-border-default) solid var(--dg-color-border-default);
+  max-width: 52rem;
+  overflow-wrap: anywhere;
+}
+.workbench-lifecycle h2,
+.workbench-lifecycle p {
+  margin: 0;
+}
+.workbench-lifecycle > .dg-button {
+  justify-self: start;
+}
+.workbench-resource-details {
+  color: var(--dg-color-text-secondary);
+  font-size: var(--dg-font-size-caption);
+}
+.workbench-resource-details summary {
+  cursor: pointer;
+}
+.workbench-resource-details summary:focus-visible {
+  outline: var(--dg-border-strong) solid var(--dg-color-focus);
+  outline-offset: var(--dg-space-1);
+}
+.workbench-resource-details dl {
+  display: grid;
+  gap: var(--dg-space-3);
+}
+.workbench-resource-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
