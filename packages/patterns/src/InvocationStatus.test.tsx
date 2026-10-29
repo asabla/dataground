@@ -277,3 +277,47 @@ describe("InvocationStatus", () => {
     assert.equal(isInvocationCancellable("future-state"), false);
   });
 });
+
+it("keeps compact failures, uncertainty and recovery outside secondary details", () => {
+  const markup = renderToStaticMarkup(
+    <InvocationStatus
+      compact
+      canCancel
+      invocation={invocation}
+      operation={operation}
+      reference={reference}
+      cancellationRecovery
+      error={{
+        message: "Submission outcome unknown",
+        retryable: true,
+        correlationId: "cor_recovery",
+      }}
+      onConfirmCancellation={() => {}}
+      onDismissCancellation={() => {}}
+      onRequestCancellation={() => {}}
+    />,
+  );
+  const primary = markup.split("<details")[0] ?? "";
+  assert.match(primary, /Submission outcome unknown/u);
+  assert.match(primary, /Retry cancellation/u);
+  assert.match(primary, /Requested outcome:/u);
+  assert.doesNotMatch(primary, new RegExp(invocation.operationId, "u"));
+  assert.match(markup, /Resource and operation details/u);
+});
+it("does not offer compact cancellation during cancellation or unconfirmed state", () => {
+  for (const state of ["cancelling", "unknown", "succeeded", "future-state"]) {
+    const markup = renderToStaticMarkup(
+      <InvocationStatus
+        compact
+        canCancel
+        invocation={{ ...invocation, state }}
+        operation={operation}
+        reference={reference}
+        onConfirmCancellation={() => {}}
+        onDismissCancellation={() => {}}
+        onRequestCancellation={() => {}}
+      />,
+    );
+    assert.doesNotMatch(markup, /Request cancellation/u);
+  }
+});

@@ -1,5 +1,13 @@
-import { Button, StatusBadge, type StatusTone } from "@dataground/ui";
+import { Button, StatusBadge } from "@dataground/ui";
 import { useId } from "react";
+import { InvocationStatusSummary } from "./InvocationStatusSummary";
+import {
+  displayText,
+  formatInteger,
+  operationPresentation,
+  statePresentation,
+  statePresentations,
+} from "./invocationPresentation";
 
 export interface InvocationStatusMetadata {
   createdAt: string;
@@ -63,6 +71,7 @@ export interface InvocationStatusError {
 }
 
 export interface InvocationStatusProps {
+  compact?: boolean;
   canCancel: boolean;
   cancellationConfirmationVisible?: boolean;
   cancellationRecovery?: boolean;
@@ -80,78 +89,15 @@ export interface InvocationStatusProps {
   reference: InvocationStatusReference;
 }
 
-interface StatePresentation {
-  label: string;
-  tone: StatusTone;
-}
-
-const statePresentations: Record<string, StatePresentation> = {
-  accepted: { label: "Invocation accepted", tone: "active" },
-  cancelled: { label: "Invocation cancelled", tone: "warning" },
-  cancelling: { label: "Cancellation in progress", tone: "warning" },
-  failed: { label: "Invocation failed", tone: "critical" },
-  running: { label: "Invocation running", tone: "active" },
-  succeeded: { label: "Invocation succeeded", tone: "success" },
-  unknown: { label: "Invocation state unknown", tone: "neutral" },
-  waiting: { label: "Invocation waiting", tone: "waiting" },
-};
-
 const cancellableStates = new Set(["accepted", "running", "waiting"]);
 const maximumVisibleArtifacts = 64;
-
-function displayText(value: string, maximum = 255): string {
-  const normalized = Array.from(value, (character) => {
-    const codePoint = character.codePointAt(0) ?? 0;
-    return codePoint <= 8 ||
-      codePoint === 11 ||
-      codePoint === 12 ||
-      (codePoint >= 14 && codePoint <= 31) ||
-      (codePoint >= 127 && codePoint <= 159)
-      ? "�"
-      : character;
-  })
-    .join("")
-    .replaceAll(/\s+/gu, " ")
-    .trim();
-  return normalized.length > maximum ? `${normalized.slice(0, maximum)}…` : normalized;
-}
-
-function statePresentation(state: string): StatePresentation {
-  return (
-    statePresentations[state] ?? {
-      label: `Unknown state: ${displayText(state, 64)}`,
-      tone: "neutral",
-    }
-  );
-}
-
-function operationPresentation(operation: InvocationOperationResource): StatePresentation {
-  if (operation.observedState === "failed") {
-    return { label: "Operation failed", tone: "critical" };
-  }
-  if (
-    operation.desiredState === operation.observedState &&
-    (operation.observedState === "succeeded" || operation.observedState === "cancelled")
-  ) {
-    return { label: "Desired state observed", tone: "success" };
-  }
-  if (operation.desiredState === "unknown" || operation.observedState === "unknown") {
-    return { label: "Operation state unknown", tone: "neutral" };
-  }
-  return operation.desiredState === operation.observedState
-    ? { label: "Operation state aligned", tone: "neutral" }
-    : { label: "Reconciliation in progress", tone: "active" };
-}
-
-function formatInteger(value: number): string {
-  return new Intl.NumberFormat("en-US").format(value);
-}
 
 export function isInvocationCancellable(state: string): boolean {
   return cancellableStates.has(state);
 }
 
 export function InvocationStatus({
+  compact = false,
   canCancel,
   cancellationConfirmationVisible = false,
   cancellationRecovery = false,
@@ -193,6 +139,70 @@ export function InvocationStatus({
     onDismissCancellation !== undefined;
   const operationStatus = operation ? operationPresentation(operation) : undefined;
   const visibleArtifactIds = invocation?.artifactIds.slice(0, maximumVisibleArtifacts) ?? [];
+
+  const actions = (
+    <div className="dg-invocation-status__actions">
+      {cancellationActionAvailable && canRecoverCancellation && (
+        <Button isDisabled={isCancelling} onPress={onConfirmCancellation} variant="danger">
+          {isCancelling ? "Retrying cancellation…" : "Retry cancellation"}
+        </Button>
+      )}
+      {cancellationActionAvailable &&
+        !cancellationConfirmationVisible &&
+        !canRecoverCancellation && (
+          <Button onPress={onRequestCancellation} variant="danger">
+            Request cancellation
+          </Button>
+        )}
+      {onRefresh && (
+        <Button isDisabled={isLoading || isCancelling} onPress={onRefresh} variant="secondary">
+          {isLoading ? "Refreshing state…" : "Refresh state"}
+        </Button>
+      )}
+    </div>
+  );
+  const confirmation = (
+    <>
+      {cancellationActionAvailable &&
+        cancellationConfirmationVisible &&
+        !canRecoverCancellation && (
+          <fieldset className="dg-invocation-status__confirmation">
+            <legend id={confirmationId}>Confirm invocation cancellation</legend>
+            <p>
+              Cancellation is durable and cannot be withdrawn. DataGround may still need to
+              reconcile in-flight effects before the invocation becomes cancelled.
+            </p>
+            <div className="dg-invocation-status__confirmation-actions">
+              <Button isDisabled={isCancelling} onPress={onConfirmCancellation} variant="danger">
+                {isCancelling ? "Submitting cancellation…" : "Confirm cancellation"}
+              </Button>
+              <Button isDisabled={isCancelling} onPress={onDismissCancellation} variant="quiet">
+                Keep running
+              </Button>
+            </div>
+          </fieldset>
+        )}
+    </>
+  );
+  if (compact)
+    return (
+      <InvocationStatusSummary
+        titleId={titleId}
+        presentation={presentation}
+        actions={actions}
+        confirmation={confirmation}
+        cancellable={cancellable}
+        canRecoverCancellation={canRecoverCancellation}
+        error={error}
+        invocation={invocation}
+        operation={operation}
+        reference={reference}
+        isLoading={isLoading}
+        isCancelling={isCancelling}
+        canCancel={canCancel}
+        disabledReason={disabledReason}
+      />
+    );
 
   return (
     <section
@@ -451,51 +461,11 @@ export function InvocationStatus({
             </p>
           )}
 
-          {cancellationActionAvailable &&
-            cancellationConfirmationVisible &&
-            !canRecoverCancellation && (
-              <fieldset className="dg-invocation-status__confirmation">
-                <legend id={confirmationId}>Confirm invocation cancellation</legend>
-                <p>
-                  Cancellation is durable and cannot be withdrawn. DataGround may still need to
-                  reconcile in-flight effects before the invocation becomes cancelled.
-                </p>
-                <div className="dg-invocation-status__confirmation-actions">
-                  <Button
-                    isDisabled={isCancelling}
-                    onPress={onConfirmCancellation}
-                    variant="danger"
-                  >
-                    {isCancelling ? "Submitting cancellation…" : "Confirm cancellation"}
-                  </Button>
-                  <Button isDisabled={isCancelling} onPress={onDismissCancellation} variant="quiet">
-                    Keep running
-                  </Button>
-                </div>
-              </fieldset>
-            )}
+          {confirmation}
         </>
       )}
 
-      <div className="dg-invocation-status__actions">
-        {cancellationActionAvailable && canRecoverCancellation && (
-          <Button isDisabled={isCancelling} onPress={onConfirmCancellation} variant="danger">
-            {isCancelling ? "Retrying cancellation…" : "Retry cancellation"}
-          </Button>
-        )}
-        {cancellationActionAvailable &&
-          !cancellationConfirmationVisible &&
-          !canRecoverCancellation && (
-            <Button onPress={onRequestCancellation} variant="danger">
-              Request cancellation
-            </Button>
-          )}
-        {onRefresh && (
-          <Button isDisabled={isLoading || isCancelling} onPress={onRefresh} variant="secondary">
-            {isLoading ? "Refreshing state…" : "Refresh state"}
-          </Button>
-        )}
-      </div>
+      {actions}
     </section>
   );
 }

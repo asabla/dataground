@@ -13,11 +13,18 @@ import { invocationHistoryReducer } from "./history";
 import { InvocationInspectionWorkflow } from "./InvocationInspectionWorkflow";
 
 export interface InvocationHistoryWorkflowProps {
+  presentation?: "classic" | "workbench";
+  onInspectionChange?: (inspecting: boolean) => void;
   client: DataGroundClient;
   target: AgentServiceInvocationTarget;
 }
 
-export function InvocationHistoryWorkflow({ client, target }: InvocationHistoryWorkflowProps) {
+export function InvocationHistoryWorkflow({
+  client,
+  target,
+  presentation = "classic",
+  onInspectionChange,
+}: InvocationHistoryWorkflowProps) {
   const { isolationDomainId, serviceId } = target;
   const scope = `${isolationDomainId}/${serviceId}`;
   const titleId = useId();
@@ -79,12 +86,16 @@ export function InvocationHistoryWorkflow({ client, target }: InvocationHistoryW
       returnFocusId.current = undefined;
     }
   }, [invocation]);
+  useEffect(() => {
+    onInspectionChange?.(invocation !== undefined);
+    return () => onInspectionChange?.(false);
+  }, [invocation, onInspectionChange]);
   if (invocation) {
     return (
       <section aria-labelledby={titleId} className="invocation-history">
         <div className="workbench-page-heading workbench-page-heading--compact">
           <h2 id={titleId} ref={inspectionHeading} tabIndex={-1}>
-            Invocation {invocation.metadata.id}
+            {presentation === "workbench" ? "Run details" : `Invocation ${invocation.metadata.id}`}
           </h2>
           <Button
             variant="quiet"
@@ -100,6 +111,7 @@ export function InvocationHistoryWorkflow({ client, target }: InvocationHistoryW
           </Button>
         </div>
         <InvocationInspectionWorkflow
+          presentation={presentation}
           key={invocation.metadata.id}
           client={client}
           canCancelInvocation

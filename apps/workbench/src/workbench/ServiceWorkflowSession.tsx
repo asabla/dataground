@@ -400,6 +400,7 @@ export function ServiceWorkflowSession({
 
   const workflow = (
     <AgentServiceAuthoringWorkflow
+      presentation={presentation}
       key={draftFormGeneration}
       canAssignAlias
       canCancelInvocation

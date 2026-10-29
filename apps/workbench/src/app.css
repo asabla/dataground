@@ -934,3 +934,36 @@ p {
 .service-workbench .workbench-page-heading h1 {
   overflow-wrap: anywhere;
 }
+
+.run-inspector {
+  display: grid;
+  gap: var(--dg-space-5);
+  min-width: 0;
+}
+.run-inspector__main {
+  min-width: 0;
+}
+.run-inspector[data-inspecting] {
+  grid-template-columns: minmax(20rem, 1fr) minmax(18rem, 0.8fr);
+}
+.run-inspector > .interaction-inspector__selection {
+  position: sticky;
+  top: var(--dg-space-4);
+  align-self: start;
+  max-height: calc(100vh - 4rem);
+  overflow: auto;
+  border-inline-start: var(--dg-border-default) solid var(--dg-color-border-default);
+  border-radius: 0;
+}
+.run-inspector .interaction-inspector__section {
+  scroll-margin: var(--dg-space-4);
+}
+@media (max-width: 72rem) {
+  .run-inspector[data-inspecting] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .run-inspector > .interaction-inspector__selection {
+    position: static;
+    max-height: none;
+  }
+}

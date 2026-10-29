@@ -196,3 +196,26 @@ export const NarrowRightToLeft: Story = {
     ),
   ],
 };
+
+export const CompactRunning: Story = {
+  args: { compact: true },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("heading", { name: "Run outcome" })).toBeVisible();
+    await expect(canvas.getByText(invocation.operationId)).not.toBeVisible();
+    await userEvent.click(canvas.getByRole("button", { name: "Request cancellation" }));
+    await expect(args.onRequestCancellation).toHaveBeenCalledOnce();
+  },
+};
+export const CompactUncertainCancellation: Story = {
+  args: {
+    compact: true,
+    cancellationRecovery: true,
+    error: { message: "Submission outcome unknown", retryable: true, correlationId: "cor_review" },
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: "Retry cancellation" }));
+    await expect(args.onConfirmCancellation).toHaveBeenCalledOnce();
+  },
+};

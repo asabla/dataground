@@ -1410,3 +1410,40 @@
   outline: var(--dg-border-strong) solid var(--dg-color-focus);
   outline-offset: var(--dg-space-1);
 }
+
+.dg-run-status {
+  border-block-end: var(--dg-border-default) solid var(--dg-color-border-subtle);
+  padding-block-end: var(--dg-space-4);
+}
+.dg-run-status__heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--dg-space-3);
+}
+.dg-run-status__heading h2 {
+  margin: 0;
+}
+.dg-run-status__heading .dg-invocation-status__actions {
+  margin-inline-start: auto;
+}
+.dg-run-status__facts,
+.dg-run-status__details dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dg-space-5);
+}
+.dg-run-status dt {
+  color: var(--dg-color-text-secondary);
+}
+.dg-run-status dd {
+  margin: var(--dg-space-1) 0 0;
+  overflow-wrap: anywhere;
+}
+.dg-run-status__details summary {
+  cursor: pointer;
+  color: var(--dg-color-text-secondary);
+}
+.dg-run-status__details dl > div {
+  min-width: 12rem;
+}
