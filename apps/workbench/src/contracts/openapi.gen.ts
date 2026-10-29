@@ -283,6 +283,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/isolation-domains/{isolationDomainId}/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search resource metadata within an isolation scope
+         * @description Requires the separate searchResources permission on the isolation domain. This grant discloses navigation metadata for workspaces, agent services, invocations and artifacts across that scope. Exact resource and content reads remain independently authorized. Matches the literal query against resource IDs, names and workspace or service descriptions; invocation names are current service names. ASCII letters are case-insensitive; other Unicode and wildcard characters are literal. Newest creation first with identifier tie-breaking. The cursor binds scope, normalized query and kind. Each page repeats authorization and reads current metadata, not a frozen snapshot. Inputs, outputs, runtime errors, artifact contents and storage locations are excluded.
+         */
+        get: operations["searchResources"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/isolation-domains/{isolationDomainId}/artifacts": {
         parameters: {
             query?: never;
@@ -623,6 +643,63 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ResourceSearchResult: {
+            metadata: {
+                id: components["schemas"]["WorkspaceId"];
+                isolationDomainId: components["schemas"]["IsolationDomainId"];
+                /** Format: date-time */
+                createdAt: string;
+            };
+            /** @constant */
+            kind: "workspace";
+            name: string;
+            description?: string;
+        } | {
+            metadata: {
+                id: components["schemas"]["ServiceId"];
+                isolationDomainId: components["schemas"]["IsolationDomainId"];
+                /** Format: date-time */
+                createdAt: string;
+            };
+            /** @constant */
+            kind: "agent-service";
+            name: string;
+            description?: string;
+            workspaceId?: components["schemas"]["WorkspaceId"];
+        } | {
+            metadata: {
+                id: components["schemas"]["InvocationId"];
+                isolationDomainId: components["schemas"]["IsolationDomainId"];
+                /** Format: date-time */
+                createdAt: string;
+            };
+            /** @constant */
+            kind: "invocation";
+            name: string;
+            workspaceId?: components["schemas"]["WorkspaceId"];
+            serviceId: components["schemas"]["ServiceId"];
+            /** @enum {string} */
+            state: "accepted" | "running" | "waiting" | "cancelling" | "succeeded" | "failed" | "cancelled" | "unknown";
+        } | {
+            metadata: {
+                id: components["schemas"]["ArtifactId"];
+                isolationDomainId: components["schemas"]["IsolationDomainId"];
+                /** Format: date-time */
+                createdAt: string;
+            };
+            /** @constant */
+            kind: "artifact";
+            name: string;
+            workspaceId?: components["schemas"]["WorkspaceId"];
+            serviceId: components["schemas"]["ServiceId"];
+            /** @enum {string} */
+            state: "pending" | "available" | "failed" | "deleted";
+            invocationId: components["schemas"]["InvocationId"];
+        };
+        ResourceSearchPage: {
+            items: components["schemas"]["ResourceSearchResult"][];
+            nextCursor?: string;
+        };
         /** @description Normalized, untrusted tool result data retained as sensitive JSON. Ingestion enforces a 1 MiB encoded snapshot and nesting depth of 64 for content values. URLs are data only and are not fetched or rendered. */
         RuntimeToolOutput: {
             /** @constant */
@@ -1988,6 +2065,38 @@ export interface operations {
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
             415: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
+    searchResources: {
+        parameters: {
+            query: {
+                /** @description Literal search text; control characters are rejected. */
+                q: string;
+                kind?: "workspace" | "agent-service" | "invocation" | "artifact";
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded navigation metadata for matching resources. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceSearchPage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             503: components["responses"]["Error"];
         };
     };

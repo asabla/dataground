@@ -221,3 +221,29 @@ Reference mode joins process-local records. Durable mode joins artifacts, runs
 and services on both isolation scope and identity. Migration 79 adds discovery
 indexes and the closed audit action; downgrade refuses retained authorization
 evidence. This read model adds no retention or deletion authority.
+
+## Resource search
+
+`GET /v1/isolation-domains/{isolationDomainId}/search?q=research&limit=50`
+searches workspaces, agent services, invocations and artifact names in one scope.
+It requires the separate Cedar `searchResources` action on that isolation domain.
+This grant discloses names, descriptions, current run/artifact states and source
+identifiers across the scope, including sensitive artifact names. Existing list
+grants do not imply it. Exact resource and content reads remain independently
+authorized; search does not grant execution, content, retention or deletion access.
+
+The required `q` contains 1–128 Unicode characters and no control characters.
+Matching is literal, with ASCII case folding. It searches each resource's name
+and ID, plus workspace/service descriptions. A run uses its current service name.
+An optional `kind` selects `workspace`, `agent-service`, `invocation` or `artifact`.
+`limit` is 1–100 (default 50). Filtering occurs before pagination. Results sort by
+creation time and identifier, newest first. Cursors bind the scope, normalized
+query and kind; each page repeats authorization. Metadata is current, not a frozen
+snapshot. Responses use `Cache-Control: no-store` and exclude actor attribution,
+inputs, outputs, runtime errors, contents and private storage bindings.
+
+Reference mode searches its process-local records. Durable mode uses one SQL
+union with scope-bound joins and a bounded output page; it does not issue one
+request per service. Migration 81 adds the closed audit action. Its downgrade
+refuses to remove retained search authorization decisions. Search text is not
+stored in these authorization records.
