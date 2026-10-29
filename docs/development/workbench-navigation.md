@@ -342,3 +342,13 @@ Opening either form resumes unfinished fields and exact-request recovery. A new
 workspace form is cleared only after confirmed creation. Keyboard dismissal
 returns focus to New; selecting creation moves focus to the relevant form.
 Connection and scope replacement clear these creation intents with other drafts.
+
+The persistent Search action opens `#/scopes/{isolationDomainId}/search`. Search
+uses the authorized resource-search endpoint for workspaces, agent services,
+runs and artifact names. Text and resource-kind filters apply before pagination;
+sorting applies to loaded results. Opening a row uses an exact resource URL and
+the normal resource read permissions. Artifact content is not fetched by search.
+The query, selected kind and result pages remain in the connected session across
+navigation and browser back/forward. They are not added to URLs or browser
+storage; refresh and connection/scope replacement start an empty search. Delayed
+responses for an earlier query, kind or identity cannot replace current results.

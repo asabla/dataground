@@ -32,6 +32,14 @@ export function WorkbenchShell({
           <code>{isolationDomainId}</code>
         </section>
         <div className="workbench-topbar__actions">
+          <Button
+            variant="quiet"
+            aria-current={view === "search" ? "page" : undefined}
+            aria-label="Search resources"
+            onPress={() => onNavigate("search")}
+          >
+            Search
+          </Button>
           <ActionMenu
             label="Create resource"
             triggerLabel="New"

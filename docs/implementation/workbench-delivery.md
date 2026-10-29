@@ -1,20 +1,20 @@
 # Workbench delivery
 
-This plan starts with complete user journeys through the existing agent-service
-contracts. It follows ADR-003 and ADR-012. It does not change the initial-release
-scope or establish Databricks compatibility.
+This document records the agent-workbench journeys. The
+[approved redesign delivery](workbench-redesign-delivery.md) tracks the current
+migration and remaining product areas. Both follow ADR-003 and ADR-012. Neither
+changes the initial-release scope or establishes Databricks compatibility.
 
 ## Service discovery
 
-The service directory reads the authenticated isolation-scoped service list. Users
-can search loaded names, descriptions and IDs, sort by name or metadata update,
-refresh the list, and load additional pages. Search and counts explicitly describe
-loaded resources, not a server-wide total. Service metadata is not used to infer
-publication, readiness or active execution. A failed refresh keeps the last list
-visible but disables its open actions until a successful read.
+The service directory reads the authenticated isolation-scoped service list.
+Search matches names, descriptions and IDs before pagination. Sorting applies to
+loaded results, and counts do not imply a server-wide total. Service metadata is
+not used to infer publication, readiness or active execution. Refresh clears old
+rows and invalidates their actions. A failed read does not restore those actions.
 
-Each service offers setup and interaction-history entry points. Setup re-reads
-revision and route state. History reads the selected service's invocation list
+Each service has Overview, Build, Versions, Deployments and Runs views with stable
+URLs. Revision and route reads remain separate from service metadata. Runs reads the selected service's invocation list
 without requiring a current route or publication, so completed work remains
 reachable after route withdrawal. Page changes move keyboard focus to the new
 heading. Search and sort remain in memory across those changes; disconnect clears
@@ -44,14 +44,14 @@ definition, and accepted or completed publication hides the review.
 
 ## Interaction inspection
 
-Interaction inspection provides section navigation for the overview and result,
-activity, questions and approvals, and audit. Opening a question, approval or
-artifact places its inspection before the overview and moves keyboard focus to
-it. Closing the inspection returns focus to its source when that source can still
-receive focus in the same connection and invocation; otherwise it returns to section navigation.
-Section navigation keeps the workflows mounted, so unfinished answers and pending
-request recovery remain available. Resource reads and commands retain their
-existing scope and authorization checks.
+Run inspection presents the outcome or blocker before Activity, Requests, Output,
+Files and Audit tabs. Selecting a question, approval or artifact opens contextual
+inspection and moves focus to it. Closing inspection returns focus to its source
+when that source remains available in the same connection and run; otherwise it
+returns to the current view. Retained views preserve unfinished answers and exact
+request recovery. Content requires an explicit read and is cleared when hidden or
+when its identity changes. Resource reads and commands retain their existing scope
+and authorization checks.
 
 ## Next product journeys
 
@@ -65,8 +65,9 @@ deployment, accessibility and recovery acceptance remain release requirements.
 
 ## Verification boundaries
 
-Directory unit and rendering tests cover loaded-page search, stable sorting,
-untrusted names, empty results and stale-action disabling. Manual journey checks
-use the built-in Browser against the local reference API with disposable data.
+Contract, database, client and journey tests cover search before pagination,
+scope isolation, stable sorting, empty results and stale-action rejection. Manual
+journey checks use the built-in Browser against isolated reference and durable
+development APIs with fictional data.
 The repository CI remains the full automated gate. Neither these checks nor a
 local preview establishes full-journey accessibility or production readiness.

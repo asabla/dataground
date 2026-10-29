@@ -4,6 +4,7 @@ import { ScopeArtifactBrowser } from "../artifacts/ScopeArtifactBrowser";
 import type { DataGroundClient } from "../contracts/client";
 import { useDiscoveryPage } from "../discovery/useDiscoveryPage";
 import { ScopeRunBrowser } from "../invocations/ScopeRunBrowser";
+import { ResourceSearch } from "../search/ResourceSearch";
 import {
   type AgentServiceFailure,
   type AgentServiceResource,
@@ -71,6 +72,7 @@ export function WorkbenchSession({
     route?.view === "services" ||
     route?.view === "artifacts" ||
     route?.view === "home" ||
+    route?.view === "search" ||
     route?.view === "workspaces"
       ? undefined
       : route?.serviceId
@@ -89,6 +91,9 @@ export function WorkbenchSession({
   }, [activeSession, route]);
   const view = route?.view ?? "services";
   const showHome = !!route && view === "home";
+  const showSearch = !!route && view === "search";
+  const [visitedSearch, setVisitedSearch] = useState(showSearch);
+  if (showSearch && !visitedSearch) setVisitedSearch(true);
   const [visitedHome, setVisitedHome] = useState(showHome);
   if (showHome && !visitedHome) setVisitedHome(true);
   const showScopeRuns = !!route && view === "interactions" && !route.serviceId;
@@ -132,6 +137,7 @@ export function WorkbenchSession({
       route.view === "services" ||
       route.view === "artifacts" ||
       route.view === "home" ||
+      route.view === "search" ||
       route.view === "workspaces"
     )
       return;
@@ -173,6 +179,10 @@ export function WorkbenchSession({
 
   useEffect(() => {
     if (resolvingService || serviceReadLoading) return;
+    if (showSearch) {
+      pageContent.current?.querySelector<HTMLElement>('input[name="resource-search"]')?.focus();
+      return;
+    }
     const id = !route
       ? "location-error-title"
       : serviceReadError
@@ -196,6 +206,7 @@ export function WorkbenchSession({
     showScopeRuns,
     showArtifacts,
     showHome,
+    showSearch,
   ]);
 
   const navigateToService = (service: AgentServiceResource, next: WorkbenchView = "workflow") => {
@@ -219,6 +230,7 @@ export function WorkbenchSession({
       ...(next === "workspaces" && lastWorkspaceId ? { workspaceId: lastWorkspaceId } : {}),
       ...(next === "services" ||
       next === "home" ||
+      next === "search" ||
       next === "workspaces" ||
       next === "artifacts" ||
       next === "interactions"
@@ -307,6 +319,45 @@ export function WorkbenchSession({
             <p>{serviceReadError.message}</p>
             <Button onPress={() => route && navigate(route)}>Retry service read</Button>
           </section>
+        )}
+        {visitedSearch && (
+          <div hidden={!showSearch} inert={!showSearch}>
+            <ResourceSearch
+              client={client}
+              isolationDomainId={isolationDomainId}
+              onOpen={(item) => {
+                if (item.kind === "workspace")
+                  navigate({
+                    isolationDomainId,
+                    view: "workspaces",
+                    workspaceId: item.metadata.id,
+                  });
+                else if (item.kind === "agent-service")
+                  navigate({
+                    isolationDomainId,
+                    view: "workflow",
+                    serviceId: item.metadata.id,
+                    serviceTab: "overview",
+                  });
+                else if (item.kind === "invocation")
+                  navigate({
+                    isolationDomainId,
+                    view: "interactions",
+                    serviceId: item.serviceId,
+                    invocationId: item.metadata.id,
+                  });
+                else
+                  navigate({
+                    isolationDomainId,
+                    view: "interactions",
+                    serviceId: item.serviceId,
+                    invocationId: item.invocationId,
+                    runTab: "files",
+                    artifactId: item.metadata.id,
+                  });
+              }}
+            />
+          </div>
         )}
         {visitedHome && (
           <div hidden={!showHome} inert={!showHome}>

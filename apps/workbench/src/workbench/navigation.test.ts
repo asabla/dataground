@@ -9,6 +9,7 @@ it("round-trips scoped directory, create, service and run-list locations", () =>
     { isolationDomainId, view: "services" },
     { isolationDomainId, view: "artifacts" },
     { isolationDomainId, view: "home" },
+    { isolationDomainId, view: "search" },
     { isolationDomainId, view: "workspaces" },
     { isolationDomainId, view: "workspaces", workspaceId: "wsp_00000000000000000001" },
     { isolationDomainId, view: "workflow" },
@@ -32,6 +33,8 @@ it("rejects cross-scope, encoded, unknown and content-bearing locations", () => 
     `${valid}?prompt=secret`,
     `${valid}/extra`,
     "#/catalog",
+    `#/scopes/${isolationDomainId}/search?q=secret`,
+    `#/scopes/${isolationDomainId}/search/extra`,
     "#/scopes/bad/agents",
   ])
     assert.equal(parseRoute(hash, isolationDomainId), undefined);
