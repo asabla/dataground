@@ -124,12 +124,16 @@ it("loads an exact service absent from the directory and keeps its scoped URL", 
   );
   const { client, reads } = fixture();
   await render(client);
-  expect(host.querySelector("#workflow-title")?.textContent).toBe("Direct service");
+  expect(host.querySelector('[data-workbench-heading="workflow"]')?.textContent).toBe(
+    "Direct service",
+  );
   expect(reads.filter((path) => path.endsWith("/{serviceId}"))).toHaveLength(1);
   expect(reads.filter((path) => path.endsWith("/agent-services"))).toHaveLength(1);
   await click("Agent services");
   await visit(routeHash({ isolationDomainId: scope, serviceId, view: "workflow" }));
-  expect(host.querySelector("#workflow-title")?.textContent).toBe("Direct service");
+  expect(host.querySelector('[data-workbench-heading="workflow"]')?.textContent).toBe(
+    "Direct service",
+  );
   expect(reads.filter((path) => path.endsWith("/{serviceId}"))).toHaveLength(1);
 });
 
@@ -159,7 +163,9 @@ it("does not restore a late service read after navigation away", async () => {
   await render(fixture(() => pending).client);
   await click("Agent services");
   await act(async () => finish(ok(service)));
-  expect(host.querySelector("#workflow-title")?.textContent ?? "").not.toBe("Direct service");
+  expect(host.querySelector('[data-workbench-heading="workflow"]')?.textContent ?? "").not.toBe(
+    "Direct service",
+  );
   expect(window.location.hash).toBe(routeHash({ isolationDomainId: scope, view: "services" }));
 });
 
@@ -169,4 +175,66 @@ it("clears drafts when the connection identity changes", async () => {
   await name("Sensitive draft");
   await render(fixture().client);
   expect(host.querySelector<HTMLInputElement>('input[name="service-name"]')?.value).toBe("");
+});
+
+it("retains independent revision drafts and exact retries for two services", async () => {
+  const secondId = "svc_00000000000000000002";
+  const attempts: unknown[] = [];
+  const client = {
+    GET: async (path: string, options: { params: { path: { serviceId?: string } } }) => {
+      if (path.endsWith("/{serviceId}")) {
+        const id = options.params.path.serviceId;
+        return ok({
+          ...service,
+          name: id === serviceId ? "First service" : "Second service",
+          metadata: { ...service.metadata, id },
+        });
+      }
+      if (path.endsWith("/{alias}")) return absent("SERVICE_ALIAS_NOT_FOUND");
+      return ok({ items: [] });
+    },
+    POST: async (_path: string, options: unknown) => {
+      attempts.push(options);
+      throw new Error("Lost response");
+    },
+  } as unknown as DataGroundClient;
+  await render(client);
+  const firstRoute = routeHash({ isolationDomainId: scope, serviceId, view: "workflow" });
+  const secondRoute = routeHash({
+    isolationDomainId: scope,
+    serviceId: secondId,
+    view: "workflow",
+  });
+  const capabilities = () =>
+    [
+      ...host.querySelectorAll<HTMLTextAreaElement>(
+        'textarea[name="revision-required-capabilities"]',
+      ),
+    ].find((input) => !input.closest("[hidden]"));
+  const edit = async (value: string) => {
+    const input = capabilities();
+    expect(input).toBeDefined();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(
+        input,
+        value,
+      );
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
+  await visit(firstRoute);
+  await edit("tool");
+  await visit(secondRoute);
+  await edit("file");
+  await visit(firstRoute);
+  expect(capabilities()?.value).toBe("tool");
+  await click("Create revision draft");
+  await visit(secondRoute);
+  expect(capabilities()?.value).toBe("file");
+  await visit(firstRoute);
+  await click("Retry revision creation");
+  expect(attempts).toHaveLength(2);
+  expect(attempts[1]).toEqual(attempts[0]);
+  const ids = [...host.querySelectorAll("[id]")].map((element) => element.id);
+  expect(new Set(ids).size).toBe(ids.length);
 });

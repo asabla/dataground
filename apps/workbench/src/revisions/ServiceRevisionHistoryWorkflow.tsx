@@ -1,5 +1,5 @@
 import { Button } from "@dataground/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { validResourceAuditReference } from "../audit/client";
 import { ResourceAuditWorkflow } from "../audit/ResourceAuditWorkflow";
 import type { DataGroundClient } from "../contracts/client";
@@ -12,12 +12,15 @@ export function ServiceRevisionHistoryWorkflow({
   client,
   isolationDomainId,
   serviceId,
+  titleId: suppliedTitleId,
   ...history
 }: Omit<ServiceRevisionHistoryPanelProps, "onInspectAudit"> & {
   client: DataGroundClient;
   isolationDomainId: string;
   serviceId: string;
 }) {
+  const generatedTitleId = useId();
+  const titleId = suppliedTitleId ?? generatedTitleId;
   const scope = `${isolationDomainId}/${serviceId}`;
   const [selected, setSelected] = useState<{
     client: DataGroundClient;
@@ -46,6 +49,7 @@ export function ServiceRevisionHistoryWorkflow({
     <>
       <ServiceRevisionHistoryPanel
         {...history}
+        titleId={titleId}
         onInspectAudit={(revision) => {
           const reference = {
             isolationDomainId,
@@ -68,7 +72,7 @@ export function ServiceRevisionHistoryWorkflow({
             variant="quiet"
             onPress={() => {
               setSelected(undefined);
-              document.getElementById("revision-history-title")?.focus();
+              document.getElementById(titleId)?.focus();
             }}
           >
             Close revision audit

@@ -207,7 +207,7 @@ it("allows retired revision audit inspection and closes it when the connection c
   );
   expect(host.textContent).toContain("private-actor");
   await click("Close revision audit");
-  expect(document.activeElement?.id).toBe("revision-history-title");
+  expect(document.activeElement).toBe(host.querySelector(".revision-history h2"));
   await click("Inspect audit for revision 1");
   await click("Show audit");
   await act(async () =>

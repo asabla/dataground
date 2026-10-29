@@ -28,18 +28,26 @@ persisted. Forms, prompts, answers, result contents, directory searches and
 idempotency keys stay out of URLs and browser storage. Refresh does not retain
 unsent form content.
 
-Moving between the directory, service workflow and interactions retains the
-active service's command component and unfinished forms. The command region has
-one stable mount; hidden views are removed from keyboard and accessibility
-navigation. Identity or scope changes unmount the whole session and invalidate
-pending reads. Explicitly starting another revision or selecting another service
-still replaces the active context. Per-resource command sessions, all five
-service tabs, and revision/run/artifact deep links remain subsequent migration
-work. The production screen composition is still in migration.
+Each opened service has a separate in-memory workflow session. The open-work
+navigation returns to that retained context, including unfinished forms and
+exact-request retry state. The creation draft also has a stable session; opening
+its confirmed service transfers the resource identity without replacing that
+session. Selecting another service no longer discards the previous service's
+commands. Only services the user opens acquire sessions; there is no directory
+fan-out to load or monitor every service.
+
+Hidden contexts remain mounted, but are removed from keyboard and accessibility
+navigation. Heading IDs are unique across retained contexts, and audit focus
+returns to the correct resource. Identity or scope changes unmount all sessions
+and invalidate pending reads. Refresh also clears all memory-only sessions.
+Explicitly starting another revision still replaces the revision context within
+that service. Revision-specific command retention, all five service tabs, and
+revision/run/artifact deep links remain subsequent migration work. The production
+screen composition is still in migration.
 
 The navigation parser has closed-path tests. Browser lifecycle tests cover
 retained exact-request retries, direct reads, unavailable services, late reads
-and connection replacement. Manual built-in Browser checks use the actual
+connection replacement, independent service drafts and exact retries across services. Manual built-in Browser checks use the actual
 production React application and an isolated loopback reference API with a
 fictional identity: service creation, draft retention, back navigation, refresh,
 reconnection and exact service loading. This evidence does not establish governed
