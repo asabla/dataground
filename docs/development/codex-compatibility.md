@@ -144,7 +144,7 @@ node scripts/check-workspace-export-candidate.mjs publication \
 
 The `attestation` subcommand takes the same arguments as the source-capable verifier above, including the raw image configuration. Both forms return `candidateProfile: "openshell-codex-workspace-export-candidate/v1"`. Missing helpers, mismatched contract versions or mixed source revisions fail verification. Offline verification binds this metadata through the signed manifest but does not prove workflow completion.
 
-The v3 local runtime acceptance still selects only the source capability. This new publication profile does not activate owned-runtime execution, authorize change export or sandbox deletion, or establish release acceptance. It supplies the image boundary for a later explicit runtime-acceptance contract and worker integration.
+The v3 local runtime acceptance still selects only the source capability. The separate [v4 acceptance](local-runtime-acceptance.md#owned-runtime-and-change-export-acceptance) requires this complete image profile and a v7 diagnostic. Neither publication nor standalone acceptance activates worker execution, authorizes workspace export or deletion, or establishes release acceptance. Worker integration remains separate.
 
 ## Published source-capable ARM64 candidate
 
