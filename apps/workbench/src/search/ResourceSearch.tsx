@@ -23,10 +23,14 @@ export function ResourceSearch({
   client,
   isolationDomainId,
   onOpen,
+  onSave,
+  saveDisabled = false,
 }: {
   client: DataGroundClient;
   isolationDomainId: string;
   onOpen: (item: SearchResult) => void;
+  onSave?: (item: SearchResult) => void;
+  saveDisabled?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
@@ -198,15 +202,29 @@ export function ResourceSearch({
                   id: "actions",
                   title: "Actions",
                   render: (item) => (
-                    <Button
-                      variant="quiet"
-                      aria-label={`Open ${searchKindLabels[item.kind].toLowerCase()} ${item.name}`}
-                      onPress={() => {
-                        if (page.canAct()) onOpen(item);
-                      }}
-                    >
-                      Open
-                    </Button>
+                    <div className="resource-browser__actions">
+                      <Button
+                        variant="quiet"
+                        aria-label={`Open ${searchKindLabels[item.kind].toLowerCase()} ${item.name}`}
+                        onPress={() => {
+                          if (page.canAct()) onOpen(item);
+                        }}
+                      >
+                        Open
+                      </Button>
+                      {onSave && (
+                        <Button
+                          variant="quiet"
+                          isDisabled={saveDisabled}
+                          aria-label={`Save ${searchKindLabels[item.kind].toLowerCase()} ${item.name}`}
+                          onPress={() => {
+                            if (page.canAct()) onSave(item);
+                          }}
+                        >
+                          Save to Home
+                        </Button>
+                      )}
+                    </div>
                   ),
                 },
               ]}

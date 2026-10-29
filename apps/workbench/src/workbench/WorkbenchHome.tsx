@@ -1,5 +1,5 @@
 import { Button, DataTable, SelectField, StatusBadge } from "@dataground/ui";
-import { useCallback, useState } from "react";
+import { type ReactNode, useCallback, useState } from "react";
 import type { DataGroundClient } from "../contracts/client";
 import { useDiscoveryPage } from "../discovery/useDiscoveryPage";
 import { listScopeInvocations, type ScopeInvocationSummary } from "../invocations/client";
@@ -18,6 +18,7 @@ export function WorkbenchHome({
   onOpenRun,
   onCreate,
   onBrowseRuns,
+  savedResources,
 }: {
   client: DataGroundClient;
   isolationDomainId: string;
@@ -26,6 +27,7 @@ export function WorkbenchHome({
   onOpenRun: (run: ScopeInvocationSummary) => void;
   onCreate: () => void;
   onBrowseRuns: () => void;
+  savedResources: ReactNode;
 }) {
   const [state, setState] = useState<"waiting" | "failed" | "unknown">("waiting");
   const read = useCallback(
@@ -51,6 +53,7 @@ export function WorkbenchHome({
           New service
         </Button>
       </div>
+      {savedResources}
       <section className="workbench-home-section" aria-labelledby="home-recent-title">
         <h2 id="home-recent-title">Recent work</h2>
         <p>Opened in this connection, most recent first. Unsaved drafts remain in this session.</p>

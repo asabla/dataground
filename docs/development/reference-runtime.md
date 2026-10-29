@@ -287,5 +287,6 @@ uses migration 82 and commits the preference, safe audit, outbox and idempotency
 receipt in one transaction. Removal retains a false state for reconciliation;
 it does not delete the target or erase prior audit. Downgrade refuses retained
 preferences or authorization evidence. The metadata list uses one scoped SQL
-join with the same navigation projection as search. Home integration is a
-separate workbench change.
+join with the same navigation projection as search. The workbench saves references
+from Search and lists them on Home, with exact-request recovery and independently
+authorized resource navigation.
