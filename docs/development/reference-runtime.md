@@ -170,3 +170,26 @@ to discard retained artifact-list authorization evidence. Explicit deployment
 policies must grant this action only to principals allowed to discover the run's
 artifact metadata. Reference mode lists its process-local descriptors with the
 same pagination contract and retains its restart limitation.
+
+## Cross-service invocation discovery
+
+`GET /v1/isolation-domains/{isolationDomainId}/invocations` lists run summaries
+across the selected isolation scope. It requires the distinct Cedar
+`listScopeInvocations` action on that isolation domain. This grant discloses run
+summary metadata and current service names for all services in that scope; it
+does not grant exact service, invocation, event, artifact or content reads.
+Service-scoped `listInvocations` authority does not imply this broader grant.
+
+The endpoint accepts `limit` (1–100, default 50), a returned `cursor`, and one
+optional `state` from the public invocation states. For example,
+`?state=failed&limit=50` finds failed runs without a request for each service.
+Pages sort by creation time and identifier, newest first. Continuations bind the
+isolation scope and state filter and repeat authorization. Names and states are
+current observations rather than a frozen snapshot; refresh the first page to
+include new or changed runs. Results exclude inputs, results, runtime errors and
+artifact contents and use `Cache-Control: no-store`.
+
+Reference mode reads its process-local records. Durable mode joins services and
+invocations on both scope and resource identity; migration 78 adds bounded-read
+indexes and the closed audit action. Its downgrade refuses retained discovery
+decisions. This endpoint does not add a scheduler or runtime capability.

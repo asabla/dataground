@@ -248,6 +248,23 @@ assert.equal(validateArtifactPage({ items: Array(100).fill(artifactDescriptor) }
 assert.equal(validateArtifactPage({ items: Array(101).fill(artifactDescriptor) }), false);
 assert.equal(validateArtifactPage({ items: [artifactDescriptor], nextCursor: "" }), false);
 assert.equal(validateArtifactPage({ items: [artifactDescriptor], content: "private" }), false);
+const validateScopeRuns = ajv.compile({
+  $ref: "urn:dataground:openapi:v1#/components/schemas/ScopeInvocationPage",
+});
+const scopeRun = {
+  metadata: { ...artifactDescriptor.metadata, id: "inv_00000000000000000001" },
+  serviceId: "svc_00000000000000000001",
+  revisionId: "rev_00000000000000000001",
+  operationId: "op_00000000000000000001",
+  correlationId: "cor_test",
+  alias: "stable",
+  state: "failed",
+  serviceName: "Quarterly analysis",
+};
+assert.equal(validateScopeRuns({ items: [scopeRun] }), true);
+assert.equal(validateScopeRuns({ items: Array(101).fill(scopeRun) }), false);
+assert.equal(validateScopeRuns({ items: [{ ...scopeRun, input: { prompt: "private" } }] }), false);
+assert.equal(validateScopeRuns({ items: [scopeRun], nextCursor: "" }), false);
 const validateResourceAuditPage = ajv.compile({
   $ref: "urn:dataground:openapi:v1#/components/schemas/ResourceAuditPage",
 });
