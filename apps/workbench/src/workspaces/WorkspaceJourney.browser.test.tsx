@@ -216,3 +216,63 @@ it("does not redirect a pending workspace creation over another workspace detail
   );
   expect(window.location.hash).toBe(`#/scopes/${scope}/workspaces/${workspaceId}`);
 });
+
+it("opens creation from the shell and retains exact workspace recovery across resource kinds", async () => {
+  const attempts: unknown[] = [];
+  const client = {
+    GET: async () => ok({ items: [] }),
+    POST: async (_path: string, options: unknown) => {
+      attempts.push(options);
+      throw new Error("lost acknowledgement");
+    },
+  } as unknown as DataGroundClient;
+  await act(async () =>
+    root.render(
+      <DevelopmentWorkbench client={client} isolationDomainId={scope} onDisconnect={() => {}} />,
+    ),
+  );
+  await click("Home");
+  const create = async (kind: "Workspace" | "Ungrouped agent service") => {
+    await click("Create resource");
+    const items = [...host.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    expect(items.map((item) => item.textContent)).toEqual(["Ungrouped agent service", "Workspace"]);
+    const item = items.find((item) => item.textContent === kind);
+    await act(async () => userEvent.click(item as HTMLElement));
+  };
+  await create("Workspace");
+  await expect.poll(() => document.activeElement?.textContent).toBe("New workspace");
+  await field("Workspace name", "Retained shell draft");
+  await click("Create workspace");
+  expect(attempts).toHaveLength(1);
+  await create("Ungrouped agent service");
+  expect(window.location.hash).toContain("/agents/new");
+  await field("Service name", "Independent service draft");
+  await create("Workspace");
+  await expect.poll(() => document.activeElement?.textContent).toBe("New workspace");
+  await click("Retry workspace creation");
+  expect(attempts).toHaveLength(2);
+  expect(attempts[1]).toEqual(attempts[0]);
+  await create("Ungrouped agent service");
+  expect((host.querySelector('input[name="service-name"]') as HTMLInputElement).value).toBe(
+    "Independent service draft",
+  );
+  await click("Create resource");
+  await act(async () => userEvent.keyboard("{Escape}"));
+  await expect.poll(() => document.activeElement).toBe(button("Create resource"));
+  expect(attempts).toHaveLength(2);
+  await act(async () =>
+    root.render(
+      <DevelopmentWorkbench
+        client={{ ...client }}
+        isolationDomainId={scope}
+        onDisconnect={() => {}}
+      />,
+    ),
+  );
+  await create("Workspace");
+  const label = [...host.querySelectorAll("label")].find(
+    (label) => visible(label) && label.textContent === "Workspace name",
+  );
+  expect((document.getElementById(label?.htmlFor ?? "") as HTMLInputElement).value).toBe("");
+  expect(button("Retry workspace creation")).toBeUndefined();
+});

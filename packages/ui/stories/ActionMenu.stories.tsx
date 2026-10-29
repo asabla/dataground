@@ -48,3 +48,27 @@ export const Disabled: Story = {
     await expect(canvas.queryByRole("menu")).not.toBeInTheDocument();
   },
 };
+
+export const Creation: Story = {
+  args: {
+    label: "Create resource",
+    triggerLabel: "New",
+    items: [
+      { id: "service", label: "Agent service" },
+      { id: "workspace", label: "Workspace" },
+    ],
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    const trigger = canvas.getByRole("button", { name: "Create resource" });
+    await expect(trigger).toHaveTextContent("New");
+    trigger.focus();
+    await userEvent.keyboard("{Enter}");
+    const menu = await canvas.findByRole("menu", { name: args.label });
+    await expect(within(menu).getByRole("menuitem", { name: "Agent service" })).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}{Enter}");
+    await expect(args.onAction).toHaveBeenCalledWith("workspace");
+    await expect(canvas.queryByRole("menu")).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
+  },
+};

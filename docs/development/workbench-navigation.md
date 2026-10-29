@@ -334,3 +334,11 @@ meaning. New cursors bind the isolation scope and normalized search, and workspa
 cursors also bind the workspace. Legacy unfiltered service cursors remain valid
 only for unfiltered reads. The existing discovery grants apply; search grants no
 additional permission to read a service, execute it, or inspect its contents.
+
+The persistent New menu opens the existing ungrouped agent-service draft or
+workspace creation form. Its service item is labeled Ungrouped agent service;
+creation inside a workspace remains the explicit New service in workspace action.
+Opening either form resumes unfinished fields and exact-request recovery. A new
+workspace form is cleared only after confirmed creation. Keyboard dismissal
+returns focus to New; selecting creation moves focus to the relevant form.
+Connection and scope replacement clear these creation intents with other drafts.

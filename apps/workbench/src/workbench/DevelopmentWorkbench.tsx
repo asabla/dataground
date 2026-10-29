@@ -57,6 +57,7 @@ export function WorkbenchSession({
   const { route, navigate } = useWorkbenchNavigation(isolationDomainId);
   const [sessions, setSessions] = useState<OpenServiceWork[]>([]);
   const [recentKeys, setRecentKeys] = useState<string[]>([]);
+  const [workspaceCreationRequest, setWorkspaceCreationRequest] = useState(0);
   const lastLocations = useRef(new Map<string, WorkbenchRoute>());
   const retainedSessions = useRef(sessions);
   retainedSessions.current = sessions;
@@ -226,8 +227,13 @@ export function WorkbenchSession({
     });
   };
   useEffect(() => {
-    if (showWorkspaces && !route?.workspaceId)
-      pageContent.current?.querySelector<HTMLElement>("#workspaces-title")?.focus();
+    if (showWorkspaces && !route?.workspaceId) {
+      const draftHeading = pageContent.current?.querySelector<HTMLElement>(
+        '[aria-label="Create workspace"] h2',
+      );
+      if (draftHeading && !draftHeading.closest("[hidden],[inert]")) draftHeading.focus();
+      else pageContent.current?.querySelector<HTMLElement>("#workspaces-title")?.focus();
+    }
   }, [showWorkspaces, route?.workspaceId]);
   const create = () => navigate({ isolationDomainId, view: "workflow" });
   const sessionRoute = (
@@ -249,6 +255,13 @@ export function WorkbenchSession({
       onDisconnect={onDisconnect}
       view={view}
       onNavigate={navigateView}
+      onCreate={(kind) => {
+        if (kind === "service") create();
+        else {
+          setWorkspaceCreationRequest((value) => value + 1);
+          navigate({ isolationDomainId, view: "workspaces" });
+        }
+      }}
     >
       <div className="workbench-main" ref={pageContent}>
         {sessions.length > 0 && (
@@ -379,6 +392,7 @@ export function WorkbenchSession({
         {visitedWorkspaces && (
           <div hidden={!showWorkspaces} inert={!showWorkspaces}>
             <WorkspaceBrowser
+              creationRequest={workspaceCreationRequest}
               client={client}
               isolationDomainId={isolationDomainId}
               workspaceId={lastWorkspaceId}

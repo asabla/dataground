@@ -10,19 +10,26 @@ export interface ActionMenuItem {
 }
 export interface ActionMenuProps {
   label: string;
+  triggerLabel?: string;
   items: readonly ActionMenuItem[];
   isDisabled?: boolean;
   onAction: (id: string) => void;
 }
 
-export function ActionMenu({ label, items, isDisabled = false, onAction }: ActionMenuProps) {
+export function ActionMenu({
+  label,
+  triggerLabel = "More",
+  items,
+  isDisabled = false,
+  onAction,
+}: ActionMenuProps) {
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
   return (
     <div className="dg-action-menu-host" ref={setContainer}>
       <UNSAFE_PortalProvider getContainer={() => container}>
         <MenuTrigger>
           <Button aria-label={label} isDisabled={isDisabled || items.length === 0} variant="quiet">
-            More
+            {triggerLabel}
           </Button>
           <Popover className="dg-action-menu-popover" placement="bottom end" isNonModal>
             <Menu
