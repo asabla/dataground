@@ -171,3 +171,16 @@ export const WorkbenchUncertain: Story = {
     await expect(canvas.getByText(question.id)).not.toBeVisible();
   },
 };
+
+export const WorkbenchRecorded: Story = {
+  args: { ...Recorded.args, compact: true },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Answers recorded")).toBeVisible();
+    await expect(canvas.getByText("usr_00000000000000000001")).not.toBeVisible();
+    await userEvent.click(canvas.getByText("Resource details"));
+    await expect(
+      canvas.getByRole("button", { name: "Copy answering actor identifier" }),
+    ).toBeVisible();
+  },
+};
