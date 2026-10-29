@@ -145,6 +145,14 @@ type ArtifactDescriptor struct {
 	Sensitive    bool             `json:"sensitive"`
 }
 
+// ScopeArtifactSummary adds authorized source navigation to artifact metadata.
+type ScopeArtifactSummary struct {
+	ArtifactDescriptor
+	ServiceID   string `json:"serviceId"`
+	ServiceName string `json:"serviceName"`
+	RevisionID  string `json:"revisionId"`
+}
+
 type APIError struct {
 	Code          string       `json:"code"`
 	Message       string       `json:"message"`
