@@ -100,3 +100,9 @@ references keep their existing independent inspection controls. Opening an
 activity detail does not destroy an unfinished question or approval; closing it
 restores the prior inspection. Connection and invocation changes discard the
 selected activity snapshot.
+
+The shell provides System, Light and Dark appearance choices through the existing
+semantic tokens. Appearance is held in memory for the current connection. Changing
+it does not replace open workflow sessions or clear unfinished forms. Disconnecting
+resets the choice. The header reflows with the rest of the workbench on narrow
+screens.
