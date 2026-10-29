@@ -1,5 +1,6 @@
 import type { DataGroundClient } from "../contracts/client";
 import type { components } from "../contracts/openapi.gen";
+import { compareTimestamps } from "../contracts/timestamps";
 
 type ErrorEnvelope = components["schemas"]["ErrorEnvelope"];
 
@@ -139,14 +140,10 @@ function decodeServicePage(
     const service = decodeService(candidate, isolationDomainId);
     if (!service || serviceIds.has(service.metadata.id)) return undefined;
     const previous = items.at(-1);
-    const previousCreatedAt = previous ? Date.parse(previous.metadata.createdAt) : undefined;
-    const serviceCreatedAt = Date.parse(service.metadata.createdAt);
-    if (
-      previous &&
-      previousCreatedAt !== undefined &&
-      (previousCreatedAt < serviceCreatedAt ||
-        (previousCreatedAt === serviceCreatedAt && previous.metadata.id <= service.metadata.id))
-    ) {
+    const order = previous
+      ? compareTimestamps(previous.metadata.createdAt, service.metadata.createdAt)
+      : 0;
+    if (previous && (order < 0 || (order === 0 && previous.metadata.id <= service.metadata.id))) {
       return undefined;
     }
     serviceIds.add(service.metadata.id);

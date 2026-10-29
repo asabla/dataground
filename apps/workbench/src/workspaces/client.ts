@@ -1,4 +1,5 @@
 import type { DataGroundClient } from "../contracts/client";
+import { compareTimestamps } from "../contracts/timestamps";
 import type { AgentServiceFailure, AgentServiceMetadata } from "../services/client";
 
 export interface WorkspaceResource {
@@ -139,13 +140,14 @@ export async function listWorkspaces(
     for (const raw of value.items) {
       const item = decode(raw, scope),
         previous = items.at(-1);
+      const order =
+        item && previous
+          ? compareTimestamps(previous.metadata.createdAt, item.metadata.createdAt)
+          : 0;
       if (
         !item ||
         items.some((v) => v.metadata.id === item.metadata.id) ||
-        (previous &&
-          (Date.parse(previous.metadata.createdAt) < Date.parse(item.metadata.createdAt) ||
-            (Date.parse(previous.metadata.createdAt) === Date.parse(item.metadata.createdAt) &&
-              previous.metadata.id <= item.metadata.id)))
+        (previous && (order < 0 || (order === 0 && previous.metadata.id <= item.metadata.id)))
       )
         return failure(
           "WORKBENCH_WORKSPACE_SCOPE_MISMATCH",

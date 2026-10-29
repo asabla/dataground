@@ -8,9 +8,9 @@ import {
 } from "@dataground/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DataGroundClient } from "../contracts/client";
+import { compareTimestamps } from "../contracts/timestamps";
 import { useDiscoveryPage } from "../discovery/useDiscoveryPage";
 import {
-  compareSearchCreatedAt,
   type SearchKind,
   type SearchResult,
   searchKindLabels,
@@ -64,7 +64,7 @@ export function ResourceSearch({
       (sort.direction === "descending" ? -1 : 1) *
       (sort.column === "name"
         ? a.name.localeCompare(b.name)
-        : compareSearchCreatedAt(a.metadata.createdAt, b.metadata.createdAt)),
+        : compareTimestamps(a.metadata.createdAt, b.metadata.createdAt)),
   );
   return (
     <section aria-labelledby="resource-search-title">

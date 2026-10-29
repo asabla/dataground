@@ -41,6 +41,12 @@ const props = {
 };
 
 describe("service directory", () => {
+  it("sorts updates within a millisecond before applying the ID tie breaker", () => {
+    const first = service("svc_00000000000000000001", "First", "2026-01-03T00:00:00.000001Z");
+    const second = service("svc_00000000000000000002", "Second", "2026-01-03T00:00:00.000002Z");
+    assert.deepEqual(selectDirectoryServices([first, second], "updated"), [second, first]);
+  });
+
   it("sorts by metadata update or name with stable ID ordering on ties", () => {
     assert.deepEqual(selectDirectoryServices([newer, older], "name"), [older, newer]);
     const tied = {
