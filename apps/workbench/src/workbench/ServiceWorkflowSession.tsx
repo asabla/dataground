@@ -782,7 +782,11 @@ export function ServiceWorkflowSession({
     openedService && (
       <RetainedServiceCommands
         kind={kind}
-        active={active && view === "workflow" && tab === "build"}
+        active={
+          active &&
+          view === "workflow" &&
+          tab === (kind === "publication" ? "build" : kind === "route" ? "deployments" : "runs")
+        }
         client={client}
         service={openedService}
         isolationDomainId={isolationDomainId}

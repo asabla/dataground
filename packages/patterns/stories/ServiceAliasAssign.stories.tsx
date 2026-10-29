@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import { expect, fn, userEvent, within } from "storybook/test";
+import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import { ServiceAliasAssign } from "../src/ServiceAliasAssign";
 import "../src/styles.css";
 
@@ -110,7 +110,7 @@ export const WorkbenchConfirmation: Story = {
   args: { compact: true, confirmationVisible: true },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement);
-    const decision = canvas.getByRole("group", { name: "Confirm service route change" });
+    const decision = await canvas.findByRole("dialog", { name: "Confirm service route change" });
     await expect(decision).toHaveTextContent("iso_00000000000000000001");
     await expect(decision).toHaveTextContent("revision 2");
     await userEvent.click(canvas.getByRole("button", { name: "Confirm route change" }));
@@ -134,6 +134,55 @@ export const WorkbenchCompletionFocus: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(canvas.getByRole("button", { name: "Confirm route change" }));
-    await expect(canvasElement.querySelector(".dg-service-alias-assign__assigned")).toHaveFocus();
+    await waitFor(() =>
+      expect(canvasElement.querySelector(".dg-service-alias-assign__assigned")).toHaveFocus(),
+    );
+  },
+};
+
+export const WorkbenchKeyboard: Story = {
+  render: function Keyboard(args) {
+    const [open, setOpen] = useState(false);
+    return (
+      <ServiceAliasAssign
+        {...args}
+        compact
+        confirmationVisible={open}
+        onRequestConfirmation={() => setOpen(true)}
+        onDismissConfirmation={() => setOpen(false)}
+      />
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const trigger = canvas.getByRole("button", { name: "Review routing" });
+    await userEvent.click(trigger);
+    await canvas.findByRole("dialog", { name: "Confirm service route change" });
+    await waitFor(() =>
+      expect(canvas.getByRole("button", { name: "Keep current route" })).toHaveFocus(),
+    );
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(canvas.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
+  },
+};
+
+export const WorkbenchPending: Story = {
+  args: { compact: true, confirmationVisible: true, isSubmitting: true },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    const dialog = await canvas.findByRole("dialog", { name: "Confirm service route change" });
+    await expect(canvas.getByRole("button", { name: "Keep current route" })).toBeDisabled();
+    await expect(canvas.getByRole("button", { name: "Changing route…" })).toBeDisabled();
+    await userEvent.keyboard("{Escape}");
+    await expect(dialog).toBeVisible();
+    await expect(args.onDismissConfirmation).not.toHaveBeenCalled();
+  },
+};
+
+export const InactiveConfirmation: Story = {
+  args: { compact: true, active: false, confirmationVisible: true },
+  play: async ({ canvasElement }) => {
+    await expect(within(canvasElement).queryByRole("dialog")).not.toBeInTheDocument();
   },
 };

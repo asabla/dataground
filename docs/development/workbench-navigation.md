@@ -277,3 +277,9 @@ when their submit control disappears. Hidden sessions and other focused controls
 are not interrupted. A completed route assignment also refreshes the authorized
 route list, preserves its loaded-name filter and rejects an older page that
 finishes after the refresh. The list still requires its own discovery permission.
+
+Route assignment uses the shared dialog in the Workbench presentation. It names
+its route, target revision and isolation scope. Initial focus selects the action
+that keeps the current route; Escape returns to the review control. A pending
+submission blocks dismissal. Retained inactive route sessions do not open a
+modal, and uncertain submissions keep their original retry command outside it.

@@ -1,4 +1,4 @@
-import { Button, CopyButton, StatusBadge, TextField } from "@dataground/ui";
+import { Button, CopyButton, Dialog, StatusBadge, TextField } from "@dataground/ui";
 import { useId } from "react";
 import { SecondaryDetails } from "./SecondaryDetails";
 import { useCommandResultFocus } from "./useCommandResultFocus";
@@ -21,6 +21,7 @@ export interface ServiceAliasAssignError {
 
 export interface ServiceAliasAssignProps {
   compact?: boolean;
+  active?: boolean;
   aliasName: string;
   aliasValidationError?: string;
   assigned?: AssignedServiceAlias;
@@ -65,6 +66,7 @@ function displayText(value: string, maximum = 255): string {
 
 export function ServiceAliasAssign({
   compact = false,
+  active = true,
   aliasName,
   aliasValidationError,
   assigned,
@@ -298,18 +300,12 @@ export function ServiceAliasAssign({
           <p>No routing command is needed. Existing invocations remain revision-pinned.</p>
           {onComposeInvocation && <Button onPress={onComposeInvocation}>Compose invocation</Button>}
         </div>
-      ) : confirmationVisible && !recoveryPending ? (
+      ) : !compact && confirmationVisible && !recoveryPending ? (
         <fieldset
           aria-describedby={confirmationId}
           className="dg-service-alias-assign__confirmation"
         >
           <legend>Confirm service route change</legend>
-          {compact && (
-            <p>
-              Route <strong>{displayText(aliasName, 63)}</strong> to revision {revisionNumber} in
-              isolation scope <code>{displayText(isolationDomainId, 64)}</code>.
-            </p>
-          )}
           <p id={confirmationId}>
             {moving
               ? "This moves the alias for new invocations using the observed alias version. Existing invocations remain pinned to their selected revision."
@@ -373,6 +369,44 @@ export function ServiceAliasAssign({
             </Button>
           </div>
         </>
+      )}
+      {compact && (
+        <Dialog
+          title="Confirm service route change"
+          isOpen={
+            active &&
+            confirmationVisible &&
+            (!recoveryPending || isSubmitting) &&
+            !assigned &&
+            !alreadyAssigned
+          }
+          isDismissDisabled={isSubmitting}
+          onClose={() => onDismissConfirmation?.()}
+        >
+          <p>
+            Route <strong>{displayText(aliasName, 63)}</strong> to revision {revisionNumber} in
+            isolation scope <code>{displayText(isolationDomainId, 64)}</code>.
+          </p>
+          <p>
+            {moving
+              ? "This moves the alias for new invocations using the observed alias version. Existing invocations remain pinned to their selected revision."
+              : "This creates a routable alias only if it does not already exist. Existing invocations are unaffected."}
+          </p>
+          {isSubmitting && <p role="status">Changing route…</p>}
+          <div className="dg-dialog__actions">
+            <Button
+              autoFocus
+              isDisabled={isSubmitting}
+              onPress={onDismissConfirmation}
+              variant="quiet"
+            >
+              Keep current route
+            </Button>
+            <Button isDisabled={actionDisabled} onPress={onConfirm} variant="primary">
+              {isSubmitting ? "Changing route…" : "Confirm route change"}
+            </Button>
+          </div>
+        </Dialog>
       )}
     </section>
   );
