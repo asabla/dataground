@@ -193,3 +193,47 @@ it("ignores delayed responses after connection or invocation changes", async () 
   expect(button(`Open approval ${firstID}`)).toBeUndefined();
   expect(inspected).not.toHaveBeenCalled();
 });
+
+it("keeps filters and rejects an earlier page after a completed request refresh", async () => {
+  const earlier = deferred<ReturnType<typeof response>>();
+  const request = approval();
+  const get = vi.fn(async () => {
+    if (get.mock.calls.length === 2) return earlier.promise;
+    return response({
+      items: [
+        {
+          ...request,
+          state: get.mock.calls.length > 2 ? "resolved" : "pending",
+          version: get.mock.calls.length > 2 ? 2 : 1,
+          ...(get.mock.calls.length > 2
+            ? { decision: "deny", resolvedBy: "reviewer", resolvedAt: request.updatedAt }
+            : {}),
+        },
+      ],
+    });
+  });
+  const client = { GET: get } as unknown as DataGroundClient;
+  const show = async (refreshGeneration: number) =>
+    act(async () =>
+      root.render(
+        <ApprovalDiscoveryWorkflow
+          compact
+          client={client}
+          reference={reference}
+          refreshGeneration={refreshGeneration}
+          onInspectApproval={vi.fn()}
+        />,
+      ),
+    );
+  await show(0);
+  await act(async () =>
+    userEvent.selectOptions(host.querySelector("select") as HTMLSelectElement, "pending"),
+  );
+  await act(async () => userEvent.click(button("Refresh approvals") as HTMLButtonElement));
+  await show(1);
+  expect(get).toHaveBeenCalledTimes(3);
+  expect(host.querySelector("select")?.value).toBe("pending");
+  expect(host.textContent).toContain("No loaded requests match this state.");
+  await act(async () => earlier.resolve(response({ items: [approval()] })));
+  expect(host.textContent).toContain("No loaded requests match this state.");
+});

@@ -302,3 +302,9 @@ the previous input and uses a new request identifier on submission. Pending and
 uncertain submissions cannot be replaced this way; they retain their exact retry.
 Replacing the connection clears the composer and prevents an earlier response
 from publishing a receipt or refreshing the new connection's run history.
+
+Recorded answers and approval decisions restore lost focus to their request
+heading and refresh the corresponding authorized request list. The inspection
+stays open and list filters remain selected. A list response from before that
+refresh cannot replace the newer state. Recording a response does not imply
+confirmed delivery to the runtime.

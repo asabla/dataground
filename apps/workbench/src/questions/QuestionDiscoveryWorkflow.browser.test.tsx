@@ -258,3 +258,43 @@ it("finds retained questions from service invocation history without event repla
   );
   expect(button(`Open question ${firstID}`)).toBeUndefined();
 });
+
+it("keeps filters and rejects an earlier page after a completed request refresh", async () => {
+  const earlier = deferred<ReturnType<typeof response>>();
+  const get = vi.fn(async () => {
+    if (get.mock.calls.length === 2) return earlier.promise;
+    return response({
+      items: [
+        {
+          ...question(),
+          state: get.mock.calls.length > 2 ? "answered" : "pending",
+          version: get.mock.calls.length > 2 ? 2 : 1,
+        },
+      ],
+    });
+  });
+  const client = { GET: get } as unknown as DataGroundClient;
+  const show = async (refreshGeneration: number) =>
+    act(async () =>
+      root.render(
+        <QuestionDiscoveryWorkflow
+          compact
+          client={client}
+          reference={reference}
+          refreshGeneration={refreshGeneration}
+          onInspectQuestion={vi.fn()}
+        />,
+      ),
+    );
+  await show(0);
+  await act(async () =>
+    userEvent.selectOptions(host.querySelector("select") as HTMLSelectElement, "pending"),
+  );
+  await act(async () => userEvent.click(button("Refresh questions") as HTMLButtonElement));
+  await show(1);
+  expect(get).toHaveBeenCalledTimes(3);
+  expect(host.querySelector("select")?.value).toBe("pending");
+  expect(host.textContent).toContain("No loaded requests match this state.");
+  await act(async () => earlier.resolve(response({ items: [question()] })));
+  expect(host.textContent).toContain("No loaded requests match this state.");
+});

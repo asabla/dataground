@@ -19,6 +19,7 @@ export interface QuestionWorkflowProps {
   client: DataGroundClient;
   reference: InvocationQuestionReference;
   canAnswer: boolean;
+  onAnswered?: () => void;
   createIdempotencyKey?: () => string;
 }
 interface AnswerAttempt {
@@ -64,6 +65,7 @@ function QuestionSession({
   client,
   reference,
   canAnswer,
+  onAnswered,
   createIdempotencyKey = defaultKey,
 }: QuestionWorkflowProps) {
   const [state, setState] = useState<State>({
@@ -194,6 +196,7 @@ function QuestionSession({
           }
         : { ...state, submitting: false, error: result.error },
     );
+    if (result.ok) onAnswered?.();
   }
   if (!state.question)
     return (
