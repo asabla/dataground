@@ -529,6 +529,8 @@ function artifactFixture(read: () => unknown = () => ok(artifact)) {
   const source = runFixture();
   const baseGet = source.client.GET;
   source.client.GET = (async (path: string, options: never) => {
+    // Exact links remain usable when the artifact is not in the loaded list page.
+    if (path.endsWith("/artifacts")) return ok({ items: [] });
     if (path.endsWith("/artifacts/{artifactId}")) {
       source.reads.push(path);
       return read();

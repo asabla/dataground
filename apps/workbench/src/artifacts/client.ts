@@ -176,11 +176,18 @@ function decodeArtifact(
   };
 }
 
-function failure(code: string, message: string, retryable = false): ArtifactResult {
+function failure(
+  code: string,
+  message: string,
+  retryable = false,
+): { ok: false; error: ArtifactFailure } {
   return { error: { code, message, retryable }, ok: false };
 }
 
-function failedResult(error: ErrorEnvelope | undefined, status: number): ArtifactResult {
+function failedResult(
+  error: ErrorEnvelope | undefined,
+  status: number,
+): { ok: false; error: ArtifactFailure } {
   const problem = error?.error;
   if (
     problem &&
@@ -236,6 +243,84 @@ export async function readInvocationArtifact(
     return failure(
       "WORKBENCH_NETWORK_UNAVAILABLE",
       "The Workbench could not reach DataGround to read artifact metadata.",
+      true,
+    );
+  }
+}
+
+export type InvocationArtifactListReference = Pick<
+  InvocationArtifactReference,
+  "isolationDomainId" | "invocationId"
+>;
+export type ArtifactListResult =
+  | { ok: true; page: { items: InvocationArtifact[]; nextCursor?: string } }
+  | { ok: false; error: ArtifactFailure };
+
+export async function listInvocationArtifacts(
+  client: DataGroundClient,
+  reference: InvocationArtifactListReference,
+  cursor?: string,
+): Promise<ArtifactListResult> {
+  const cursorPattern = /^[A-Za-z0-9_-]{1,512}$/u;
+  if (
+    !resourcePatterns.invocationId.test(reference.invocationId) ||
+    !resourcePatterns.isolationDomainId.test(reference.isolationDomainId) ||
+    (cursor !== undefined && !cursorPattern.test(cursor))
+  )
+    return failure(
+      "WORKBENCH_INVALID_REFERENCE",
+      "The artifact list reference or cursor is invalid.",
+    );
+  try {
+    const { data, error, response } = await client.GET(
+      "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts",
+      { params: { path: reference, query: { limit: 50, ...(cursor ? { cursor } : {}) } } },
+    );
+    if (!response.ok || !data) return failedResult(error, response.status);
+    const page: unknown = data;
+    const invalid = () =>
+      failure(
+        "WORKBENCH_ARTIFACT_PAGE_INVALID",
+        "DataGround returned an artifact page outside the requested scope or contract.",
+      );
+    if (
+      !isRecord(page) ||
+      !Array.isArray(page.items) ||
+      page.items.length > 50 ||
+      (page.nextCursor !== undefined &&
+        (typeof page.nextCursor !== "string" ||
+          !cursorPattern.test(page.nextCursor) ||
+          page.nextCursor === cursor ||
+          page.items.length === 0))
+    )
+      return invalid();
+    const items: InvocationArtifact[] = [];
+    const ids = new Set<string>();
+    for (const value of page.items) {
+      if (
+        !isRecord(value) ||
+        !isRecord(value.metadata) ||
+        typeof value.metadata.id !== "string" ||
+        !resourcePatterns.artifactId.test(value.metadata.id) ||
+        ids.has(value.metadata.id)
+      )
+        return invalid();
+      const artifact = decodeArtifact(value, { ...reference, artifactId: value.metadata.id });
+      if (!artifact) return invalid();
+      ids.add(artifact.metadata.id);
+      items.push(artifact);
+    }
+    return {
+      ok: true,
+      page: {
+        items,
+        ...(typeof page.nextCursor === "string" ? { nextCursor: page.nextCursor } : {}),
+      },
+    };
+  } catch {
+    return failure(
+      "WORKBENCH_NETWORK_UNAVAILABLE",
+      "The Workbench could not reach DataGround to list artifacts.",
       true,
     );
   }

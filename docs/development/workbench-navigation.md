@@ -191,3 +191,10 @@ Run inspection uses the shared bounded split view. The separator can be dragged
 or adjusted with the keyboard, and both panes remain available in a stacked
 layout when their container is narrow. Resizing and opening or closing the
 inspector do not remount the run view or clear its unfinished answers.
+
+The Files view loads authorized artifact metadata in pages of 50, with explicit
+load-more and refresh actions. Its compact table compares names, states, formats,
+sizes, sensitivity and creation times. Search, state filters and sorting apply to
+the loaded rows only. Listing does not grant access to exact metadata or content;
+inspection uses the existing independent reads. Invalid or repeated pages and
+failed discovery clear the rows, while identity changes reject late responses.

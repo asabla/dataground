@@ -1,6 +1,6 @@
 import { InvocationStatus, isInvocationCancellable } from "@dataground/patterns";
+import { ArtifactDiscoveryWorkflow } from "../artifacts/ArtifactDiscoveryWorkflow";
 import "@dataground/patterns/styles.css";
-import { Button, DataTable } from "@dataground/ui";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { InvocationArtifactReference } from "../artifacts";
 import type { DataGroundClient } from "../contracts/client";
@@ -339,53 +339,16 @@ export function InvocationWorkflow({
         }}
       />
     ) : null;
-  const files = (
-    <section aria-label="Run artifacts">
-      <h3>Files and artifacts</h3>
-      <p>
-        These references come from the authorized run record. Open metadata before requesting
-        content.
-      </p>
-      {state.loading || state.error ? (
-        <p>Refresh run state to confirm its artifact references.</p>
-      ) : (
-        <DataTable
-          label="Run artifact references"
-          getRowId={(item) => item.id}
-          getRowLabel={(item) => item.id}
-          columns={[
-            {
-              id: "reference",
-              title: "Artifact reference",
-              isRowHeader: true,
-              render: (item) => <code>{item.id}</code>,
-            },
-            {
-              id: "actions",
-              title: "Actions",
-              render: (item) => (
-                <Button
-                  variant="quiet"
-                  onPress={() => onInspectArtifact?.({ ...stableReference, artifactId: item.id })}
-                  isDisabled={!onInspectArtifact}
-                >
-                  Inspect metadata
-                </Button>
-              ),
-            },
-          ]}
-          items={(visibleInvocation?.artifactIds ?? []).slice(0, 64).map((id) => ({ id }))}
-          emptyMessage="No artifact references recorded."
-        />
-      )}
-      {(visibleInvocation?.artifactIds.length ?? 0) > 64 && (
-        <p>
-          Showing the first 64 of {visibleInvocation?.artifactIds.length} references. Use an
-          authorized API client to inspect the remaining metadata.
-        </p>
-      )}
-    </section>
-  );
+  const files =
+    state.loading || state.error ? (
+      <p>Refresh run state before inspecting its artifacts.</p>
+    ) : (
+      <ArtifactDiscoveryWorkflow
+        client={client}
+        reference={stableReference}
+        onInspectArtifact={onInspectArtifact}
+      />
+    );
 
   return (
     <>
