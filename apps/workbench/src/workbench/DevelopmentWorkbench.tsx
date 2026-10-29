@@ -19,6 +19,7 @@ import type {
 } from "./navigation";
 import { ServiceWorkflowSession } from "./ServiceWorkflowSession";
 import { useWorkbenchNavigation } from "./useWorkbenchNavigation";
+import { WorkbenchHome } from "./WorkbenchHome";
 import { WorkbenchShell } from "./WorkbenchShell";
 
 export interface DevelopmentWorkbenchProps {
@@ -70,6 +71,7 @@ export function WorkbenchSession({
   const [serviceSort, setServiceSort] = useState<ServiceSort>("updated");
   const { route, navigate } = useWorkbenchNavigation(isolationDomainId);
   const [sessions, setSessions] = useState<OpenServiceWork[]>([]);
+  const [recentKeys, setRecentKeys] = useState<string[]>([]);
   const retainedSessions = useRef(sessions);
   retainedSessions.current = sessions;
   const nextDraft = useRef(0);
@@ -80,14 +82,23 @@ export function WorkbenchSession({
   const serviceListGeneration = useRef(0);
   const pageContent = useRef<HTMLDivElement>(null);
   const activeSession =
-    route?.view === "services" || route?.view === "artifacts"
+    route?.view === "services" || route?.view === "artifacts" || route?.view === "home"
       ? undefined
       : route?.serviceId
         ? sessions.find((session) => session.service?.metadata.id === route.serviceId)
         : route?.view === "workflow"
           ? sessions.find((session) => !session.service)
           : undefined;
+  useEffect(() => {
+    if (activeSession)
+      setRecentKeys((current) =>
+        [activeSession.key, ...current.filter((key) => key !== activeSession.key)].slice(0, 12),
+      );
+  }, [activeSession]);
   const view = route?.view ?? "services";
+  const showHome = !!route && view === "home" && presentation === "workbench";
+  const [visitedHome, setVisitedHome] = useState(showHome);
+  if (showHome && !visitedHome) setVisitedHome(true);
   const showScopeRuns =
     !!route && view === "interactions" && !route.serviceId && presentation === "workbench";
   const [visitedScopeRuns, setVisitedScopeRuns] = useState(showScopeRuns);
@@ -144,7 +155,8 @@ export function WorkbenchSession({
     const generation = ++serviceReadGeneration.current;
     setServiceReadError(undefined);
     setServiceReadLoading(false);
-    if (!route || route.view === "services" || route.view === "artifacts") return;
+    if (!route || route.view === "services" || route.view === "artifacts" || route.view === "home")
+      return;
     if (!route.serviceId) {
       if (
         route.view === "workflow" &&
@@ -189,11 +201,13 @@ export function WorkbenchSession({
         ? "service-read-title"
         : view === "services"
           ? "services-title"
-          : showScopeRuns
-            ? "scope-runs-title"
-            : showArtifacts
-              ? "scope-artifacts-title"
-              : undefined;
+          : showHome
+            ? "workbench-home-title"
+            : showScopeRuns
+              ? "scope-runs-title"
+              : showArtifacts
+                ? "scope-artifacts-title"
+                : undefined;
     if (id) pageContent.current?.querySelector<HTMLElement>(`#${id}`)?.focus();
   }, [
     route,
@@ -203,6 +217,7 @@ export function WorkbenchSession({
     view,
     showScopeRuns,
     showArtifacts,
+    showHome,
   ]);
 
   const navigateToService = (service: AgentServiceResource, next: WorkbenchView = "workflow") => {
@@ -226,6 +241,7 @@ export function WorkbenchSession({
       isolationDomainId,
       view: next,
       ...(next === "services" ||
+      next === "home" ||
       next === "artifacts" ||
       (next === "interactions" && presentation === "workbench")
         ? {}
@@ -293,6 +309,48 @@ export function WorkbenchSession({
             </h1>
             <p>{serviceReadError.message}</p>
             <Button onPress={() => route && navigate(route)}>Retry service read</Button>
+          </section>
+        )}
+        {visitedHome && presentation === "workbench" && (
+          <div hidden={!showHome} inert={!showHome}>
+            <WorkbenchHome
+              client={client}
+              isolationDomainId={isolationDomainId}
+              recentWork={recentKeys.flatMap((key) => {
+                const session = sessions.find((item) => item.key === key);
+                return session
+                  ? [
+                      {
+                        key,
+                        name: session.service?.name ?? "New service draft",
+                        kind: session.service
+                          ? ("Agent service" as const)
+                          : ("Unsaved service draft" as const),
+                      },
+                    ]
+                  : [];
+              })}
+              onOpenWork={(key) => {
+                const session = sessions.find((item) => item.key === key);
+                if (session) navigate(sessionRoute(session, "workflow"));
+              }}
+              onOpenRun={(run) =>
+                navigate({
+                  isolationDomainId,
+                  serviceId: run.serviceId,
+                  view: "interactions",
+                  invocationId: run.metadata.id,
+                })
+              }
+              onCreate={create}
+              onBrowseRuns={() => navigateView("interactions")}
+            />
+          </div>
+        )}
+        {route?.view === "home" && presentation === "classic" && (
+          <section>
+            <h1>Home</h1>
+            <p>Select the workbench presentation to resume work and inspect attention items.</p>
           </section>
         )}
         {route && view === "services" && (

@@ -759,3 +759,26 @@ it("retains the scope run filter after an independently denied service read", as
     reads.filter((path) => path === "/v1/isolation-domains/{isolationDomainId}/invocations"),
   ).toHaveLength(2);
 });
+
+it("resumes recent work from Home without losing drafts and clears recents on connection change", async () => {
+  const { client } = fixture();
+  await render(client, "workbench");
+  await click("New service");
+  await name("Home-retained draft");
+  const input = host.querySelector('input[name="service-name"]');
+  await click("Home");
+  expect(window.location.hash).toBe(routeHash({ isolationDomainId: scope, view: "home" }));
+  expect(document.activeElement).toBe(host.querySelector("#workbench-home-title"));
+  expect(
+    host.querySelector('[aria-label="Recent work in this connection"]')?.textContent,
+  ).toContain("Unsaved service draft");
+  await click("Resume");
+  expect(host.querySelector('input[name="service-name"]')).toBe(input);
+  expect((input as HTMLInputElement).value).toBe("Home-retained draft");
+  await visit(routeHash({ isolationDomainId: scope, view: "home" }));
+  await render(fixture().client, "workbench");
+  expect(
+    host.querySelector('[aria-label="Recent work in this connection"]')?.textContent,
+  ).toContain("No work opened in this connection yet");
+  expect(host.querySelector('input[name="service-name"]')).toBeNull();
+});
