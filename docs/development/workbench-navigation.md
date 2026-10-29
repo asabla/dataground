@@ -227,3 +227,9 @@ format, size, sensitivity and retention state support comparison. Inspect opens
 the artifact in its exact run Files view, using the normal independent service,
 run and artifact reads. The global list and its filters remain in memory on
 return. Only resource identities enter the URL; content access remains explicit.
+
+Run and artifact metadata browsers share the scoped discovery controller. The
+reader identity includes the connection, scope and server filters. New reads
+invalidate prior row actions immediately; stale responses, repeated pages and
+closed views cannot restore access to those rows. The controller retains no
+credentials or content and does not replace API authorization.

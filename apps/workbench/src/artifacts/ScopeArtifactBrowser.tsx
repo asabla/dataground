@@ -6,26 +6,16 @@ import {
   StatusBadge,
   TextField,
 } from "@dataground/ui";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import type { DataGroundClient } from "../contracts/client";
+import { useDiscoveryPage } from "../discovery/useDiscoveryPage";
 import {
-  type ArtifactFailure,
   listScopeArtifacts,
   type ScopeArtifact,
   type ScopeArtifactState,
   scopeArtifactStates,
 } from "./client";
 
-interface ArtifactPage {
-  client: DataGroundClient;
-  scope: string;
-  filter: string;
-  loading: boolean;
-  items: ScopeArtifact[];
-  cursors: string[];
-  nextCursor?: string;
-  error?: ArtifactFailure;
-}
 export function ScopeArtifactBrowser({
   client,
   isolationDomainId,
@@ -38,95 +28,15 @@ export function ScopeArtifactBrowser({
   const [filter, setFilter] = useState<ScopeArtifactState | "all">("all");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<DataTableSort>({ column: "created", direction: "descending" });
-  const generation = useRef(0);
-  const busy = useRef(false);
-  const identity = useRef({ client, isolationDomainId, filter });
-  identity.current = { client, isolationDomainId, filter };
-  const [page, setPage] = useState<ArtifactPage>({
-    client,
-    scope: isolationDomainId,
-    filter,
-    loading: true,
-    items: [],
-    cursors: [],
-  });
-  const latest = useRef(page);
-  latest.current = page;
-  const load = useCallback(
-    async (cursor?: string) => {
-      if (
-        busy.current ||
-        identity.current.client !== client ||
-        identity.current.isolationDomainId !== isolationDomainId ||
-        identity.current.filter !== filter
-      )
-        return;
-      const request = ++generation.current;
-      busy.current = true;
-      setPage((previous) => ({
-        client,
-        scope: isolationDomainId,
-        filter,
-        loading: true,
-        items: cursor ? previous.items : [],
-        cursors: cursor ? previous.cursors : [],
-      }));
-      const result = await listScopeArtifacts(
-        client,
-        isolationDomainId,
-        filter === "all" ? undefined : filter,
-        cursor,
-      );
-      if (
-        request !== generation.current ||
-        identity.current.client !== client ||
-        identity.current.isolationDomainId !== isolationDomainId ||
-        identity.current.filter !== filter
-      )
-        return;
-      busy.current = false;
-      setPage((previous) => {
-        if (!result.ok)
-          return { ...previous, loading: false, items: [], cursors: [], error: result.error };
-        const { items, nextCursor } = result.page;
-        if (
-          (nextCursor && previous.cursors.includes(nextCursor)) ||
-          items.some((item) => previous.items.some((old) => old.metadata.id === item.metadata.id))
-        )
-          return {
-            ...previous,
-            loading: false,
-            items: [],
-            cursors: [],
-            error: {
-              code: "WORKBENCH_ARTIFACT_DISCOVERY_STALLED",
-              message: "Artifact discovery did not advance. Refresh artifacts to recover.",
-              retryable: false,
-            },
-          };
-        return {
-          ...previous,
-          loading: false,
-          items: [...previous.items, ...items],
-          nextCursor,
-          cursors: nextCursor ? [...previous.cursors, nextCursor] : previous.cursors,
-        };
-      });
-    },
+  const read = useCallback(
+    (cursor?: string) =>
+      listScopeArtifacts(client, isolationDomainId, filter === "all" ? undefined : filter, cursor),
     [client, isolationDomainId, filter],
   );
-  useEffect(() => {
-    busy.current = false;
-    void load();
-    return () => {
-      generation.current++;
-      busy.current = false;
-    };
-  }, [load]);
-  const current =
-    page.client === client && page.scope === isolationDomainId && page.filter === filter;
-  const loading = !current || page.loading;
-  const items = current ? page.items : [];
+  const { items, loading, error, nextCursor, load, canAct } = useDiscoveryPage(
+    read,
+    "Artifact discovery did not advance. Refresh artifacts to recover.",
+  );
   const visible = items
     .filter((item) =>
       `${item.name} ${item.serviceName}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
@@ -139,17 +49,7 @@ export function ScopeArtifactBrowser({
           : Date.parse(a.metadata.createdAt) - Date.parse(b.metadata.createdAt)),
     );
   const open = (item: ScopeArtifact) => {
-    if (
-      latest.current === page &&
-      current &&
-      !loading &&
-      !busy.current &&
-      !page.error &&
-      identity.current.client === client &&
-      identity.current.isolationDomainId === isolationDomainId &&
-      identity.current.filter === filter
-    )
-      onOpen(item);
+    if (canAct()) onOpen(item);
   };
   return (
     <section aria-labelledby="scope-artifacts-title">
@@ -189,12 +89,12 @@ export function ScopeArtifactBrowser({
         </p>
       </div>
       {loading && <p role="status">Loading artifacts…</p>}
-      {current && page.error && (
+      {error && (
         <p role="alert" className="workbench-inline-error">
-          {page.error.message}
+          {error.message}
         </p>
       )}
-      {!loading && !page.error && (
+      {!loading && !error && (
         <DataTable
           label="Artifacts across runs"
           items={visible}
@@ -270,12 +170,12 @@ export function ScopeArtifactBrowser({
           ]}
         />
       )}
-      {current && page.nextCursor && !page.error && (
+      {nextCursor && !error && (
         <Button
           variant="quiet"
           isDisabled={loading}
           onPress={() => {
-            if (latest.current === page) void load(page.nextCursor);
+            if (canAct()) void load(nextCursor);
           }}
         >
           Load more artifacts
