@@ -4,12 +4,7 @@ import { expect, it } from "vitest";
 import { DevelopmentWorkbench } from "../App";
 import type { DataGroundClient } from "../contracts/client";
 
-it.each([
-  ["stable", "classic"],
-  ["canary", "classic"],
-  ["stable", "workbench"],
-  ["canary", "workbench"],
-] as const)("withdraws %s before retirement in %s", async (name, presentation) => {
+it.each(["stable", "canary"])("withdraws %s before retirement", async (name) => {
   window.history.replaceState(null, "", window.location.pathname);
   (
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -138,29 +133,23 @@ it.each([
   try {
     await act(async () =>
       root.render(
-        <DevelopmentWorkbench
-          presentation={presentation}
-          client={client}
-          isolationDomainId={scope}
-          onDisconnect={() => {}}
-        />,
+        <DevelopmentWorkbench client={client} isolationDomainId={scope} onDisconnect={() => {}} />,
       ),
     );
     await click("Open service");
     expect(aliasReads).toBe(1);
     expect(commands).toHaveLength(0);
-    if (presentation === "workbench") await click("Deployments");
+    await click("Deployments");
     await click(`Withdraw ${name} alias`);
     expect(commands).toHaveLength(0);
     await click("Confirm alias withdrawal");
     expect(withdrawn).toBe(true);
     expect(host.textContent).toContain("Alias withdrawn");
     await click("Back to service");
-    if (presentation === "workbench")
-      await expect.poll(() => document.activeElement?.textContent).toBe("Deployments");
+    await expect.poll(() => document.activeElement?.textContent).toBe("Deployments");
     expect(aliasReads).toBe(2);
     expect(host.querySelector(`[aria-label="Withdraw ${name} alias"]`)).toBeNull();
-    if (presentation === "workbench") await click("Versions");
+    await click("Versions");
     await click("More actions for revision 1");
     await click("Retire revision 1");
     await click("Confirm retirement");
@@ -168,8 +157,7 @@ it.each([
     expect(host.textContent).toContain("Revision retired");
     expect(commands).toHaveLength(2);
     await click("Back to revisions");
-    if (presentation === "workbench")
-      await expect.poll(() => document.activeElement?.textContent).toBe("Versions");
+    await expect.poll(() => document.activeElement?.textContent).toBe("Versions");
   } finally {
     await act(async () => root.unmount());
     host.remove();

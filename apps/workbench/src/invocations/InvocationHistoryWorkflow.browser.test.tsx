@@ -94,11 +94,7 @@ afterEach(async () => {
   host.remove();
 });
 async function render(client: DataGroundClient, scope = target) {
-  await act(async () =>
-    root.render(
-      <InvocationHistoryWorkflow presentation="workbench" client={client} target={scope} />,
-    ),
-  );
+  await act(async () => root.render(<InvocationHistoryWorkflow client={client} target={scope} />));
 }
 function visible<T extends Element>(selector: string): T | undefined {
   return [...host.querySelectorAll<T>(selector)].find(
@@ -211,7 +207,6 @@ it("refreshes after acceptance without clearing the loaded-state filter and reje
         <InvocationHistoryWorkflow
           client={client}
           target={target}
-          presentation="workbench"
           refreshGeneration={refreshGeneration}
           location={{}}
         />,
@@ -240,7 +235,6 @@ it("keeps an open run and unfinished answer when another accepted command refres
       <InvocationHistoryWorkflow
         client={source.client}
         target={target}
-        presentation="workbench"
         location={location}
         onNavigate={setLocation}
         refreshGeneration={generation}

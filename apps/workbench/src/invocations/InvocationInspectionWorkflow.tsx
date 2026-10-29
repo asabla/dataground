@@ -26,7 +26,6 @@ const artifactIdPattern = /^art_[0-9a-z]{20,32}$/u;
 
 export interface InvocationInspectionWorkflowProps {
   active?: boolean;
-  presentation?: "classic" | "workbench";
   selectedTab?: RunTab;
   onSelectTab?: (tab: RunTab) => void;
   canCancelInvocation: boolean;
@@ -91,7 +90,6 @@ function focusSection(section: HTMLElement | null) {
 }
 
 export function InvocationInspectionWorkflow({
-  presentation = "classic",
   active = true,
   selectedTab,
   onSelectTab,
@@ -122,14 +120,8 @@ export function InvocationInspectionWorkflow({
   const [approvalRefresh, setApprovalRefresh] = useState(0);
   const activeTab = selectedTab ?? retainedTab;
   const approvalBlockedTitleId = useId();
-  const approvalInspectionTitleId = useId();
   const artifactBlockedTitleId = useId();
-  const artifactInspectionTitleId = useId();
   const navigation = useRef<HTMLElement>(null);
-  const overview = useRef<HTMLElement>(null);
-  const activity = useRef<HTMLElement>(null);
-  const requests = useRef<HTMLElement>(null);
-  const audit = useRef<HTMLElement>(null);
   const inspection = useRef<HTMLElement>(null);
   const origin = useRef<
     { element: HTMLElement; client: DataGroundClient; scope: string } | undefined
@@ -289,7 +281,7 @@ export function InvocationInspectionWorkflow({
                 Close questions
               </Button>
               <QuestionWorkflow
-                compact={presentation === "workbench"}
+                compact
                 client={client}
                 reference={selectedQuestion}
                 canAnswer={canAnswerQuestion}
@@ -307,24 +299,14 @@ export function InvocationInspectionWorkflow({
           ))}
         {selectedApproval &&
           (isApprovalSelectedForInvocation(selectedApproval, reference) ? (
-            <section
-              aria-labelledby={presentation === "classic" ? approvalInspectionTitleId : undefined}
-              aria-label={presentation === "workbench" ? "Approval inspection" : undefined}
-              className="product-workflow__inspection"
-            >
+            <section aria-label="Approval inspection" className="product-workflow__inspection">
               <div className="product-workflow__inspection-heading">
-                {presentation === "classic" && (
-                  <div>
-                    <p className="workbench-kicker">Runtime decision</p>
-                    <h2 id={approvalInspectionTitleId}>Approval request</h2>
-                  </div>
-                )}
                 <Button onPress={() => closeInspection(onCloseApproval)} variant="quiet">
                   Close approval
                 </Button>
               </div>
               <ApprovalWorkflow
-                compact={presentation === "workbench"}
+                compact
                 canResolve={canResolveApproval}
                 client={client}
                 reference={selectedApproval}
@@ -347,27 +329,13 @@ export function InvocationInspectionWorkflow({
           ))}
         {selectedArtifact &&
           (isArtifactSelectedForInvocation(selectedArtifact, reference) ? (
-            <section
-              aria-labelledby={presentation === "classic" ? artifactInspectionTitleId : undefined}
-              aria-label={presentation === "workbench" ? "Artifact inspection" : undefined}
-              className="product-workflow__inspection"
-            >
+            <section aria-label="Artifact inspection" className="product-workflow__inspection">
               <div className="product-workflow__inspection-heading">
-                {presentation === "classic" && (
-                  <div>
-                    <p className="workbench-kicker">Governed output</p>
-                    <h2 id={artifactInspectionTitleId}>Artifact inspection</h2>
-                  </div>
-                )}
                 <Button onPress={() => closeInspection(onCloseArtifact)} variant="quiet">
                   Close artifact
                 </Button>
               </div>
-              <ArtifactWorkflow
-                compact={presentation === "workbench"}
-                client={client}
-                reference={selectedArtifact}
-              />
+              <ArtifactWorkflow compact client={client} reference={selectedArtifact} />
             </section>
           ) : (
             <section
@@ -390,24 +358,19 @@ export function InvocationInspectionWorkflow({
     <section
       aria-label="Interaction activity"
       className="interaction-inspector__section"
-      ref={activity}
       tabIndex={-1}
     >
       <EventTimelineWorkflow
-        compact={presentation === "workbench"}
-        onInspectEvent={
-          presentation === "workbench"
-            ? (event) => {
-                if (
-                  event.isolationDomainId !== reference.isolationDomainId ||
-                  event.invocationId !== reference.invocationId
-                )
-                  return;
-                beginInspection();
-                setActivitySelection({ client, scope, event, artifactKey });
-              }
-            : undefined
-        }
+        compact
+        onInspectEvent={(event) => {
+          if (
+            event.isolationDomainId !== reference.isolationDomainId ||
+            event.invocationId !== reference.invocationId
+          )
+            return;
+          beginInspection();
+          setActivitySelection({ client, scope, event, artifactKey });
+        }}
         client={client}
         onInspectQuestion={inspectQuestion}
         onInspectApproval={inspectApproval}
@@ -420,12 +383,11 @@ export function InvocationInspectionWorkflow({
     <section
       aria-label="Interaction questions and approvals"
       className="interaction-inspector__section"
-      ref={requests}
       tabIndex={-1}
     >
       {inspectQuestion && (
         <QuestionDiscoveryWorkflow
-          compact={presentation === "workbench"}
+          compact
           client={client}
           reference={reference}
           onInspectQuestion={inspectQuestion}
@@ -433,7 +395,7 @@ export function InvocationInspectionWorkflow({
         />
       )}
       <ApprovalDiscoveryWorkflow
-        compact={presentation === "workbench"}
+        compact
         client={client}
         reference={reference}
         onInspectApproval={inspectApproval}
@@ -445,7 +407,6 @@ export function InvocationInspectionWorkflow({
     <section
       aria-label="Interaction audit"
       className="interaction-inspector__section"
-      ref={audit}
       tabIndex={-1}
     >
       <ResourceAuditWorkflow
@@ -459,96 +420,49 @@ export function InvocationInspectionWorkflow({
     </section>
   );
 
-  if (presentation === "workbench")
-    return (
-      <div className="run-inspector">
-        <SplitView
-          primaryLabel="Run record"
-          primary={
-            <InvocationWorkflow
-              compact
-              active={active}
-              client={client}
-              reference={reference}
-              canCancel={canCancelInvocation}
-              disabledReason={cancellationDisabledReason}
-              onInspectArtifact={inspectArtifact}
-              renderDetails={({ result, files }) => (
-                <section ref={navigation} tabIndex={-1} aria-label="Run views">
-                  <Tabs
-                    label="Run views"
-                    selectedId={activeTab}
-                    onSelectionChange={(value) => {
-                      if (!isRunTab(value)) return;
-                      setActiveTab(value);
-                      onSelectTab?.(value);
-                    }}
-                    items={[
-                      { id: "activity", label: "Activity", content: activityView },
-                      { id: "requests", label: "Requests", content: requestsView },
-                      {
-                        id: "output",
-                        label: "Output",
-                        content: result ?? (
-                          <p>Output is available after a confirmed successful run.</p>
-                        ),
-                      },
-                      { id: "files", label: "Files", content: files },
-                      { id: "audit", label: "Audit", content: auditView },
-                    ]}
-                  />
-                </section>
-              )}
-            />
-          }
-          secondary={selection}
-        />
-      </div>
-    );
   return (
-    <div className="interaction-inspector">
-      <nav
-        aria-label="Interaction sections"
-        className="interaction-inspector__navigation"
-        ref={navigation}
-        tabIndex={-1}
-      >
-        <Button variant="quiet" onPress={() => focusSection(overview.current)}>
-          Overview and result
-        </Button>
-        <Button variant="quiet" onPress={() => focusSection(activity.current)}>
-          Activity
-        </Button>
-        <Button variant="quiet" onPress={() => focusSection(requests.current)}>
-          Questions and approvals
-        </Button>
-        <Button variant="quiet" onPress={() => focusSection(audit.current)}>
-          Audit
-        </Button>
-        {hasSelection && (
-          <Button variant="quiet" onPress={() => focusSection(inspection.current)}>
-            Selected item
-          </Button>
-        )}
-      </nav>
-      {selection}
-      <section
-        aria-label="Interaction overview and result"
-        className="interaction-inspector__section"
-        ref={overview}
-        tabIndex={-1}
-      >
-        <InvocationWorkflow
-          canCancel={canCancelInvocation}
-          client={client}
-          disabledReason={cancellationDisabledReason}
-          onInspectArtifact={inspectArtifact}
-          reference={reference}
-        />
-      </section>
-      {activityView}
-      {requestsView}
-      {auditView}
+    <div className="run-inspector">
+      <SplitView
+        primaryLabel="Run record"
+        primary={
+          <InvocationWorkflow
+            compact
+            active={active}
+            client={client}
+            reference={reference}
+            canCancel={canCancelInvocation}
+            disabledReason={cancellationDisabledReason}
+            onInspectArtifact={inspectArtifact}
+            renderDetails={({ result, files }) => (
+              <section ref={navigation} tabIndex={-1} aria-label="Run views">
+                <Tabs
+                  label="Run views"
+                  selectedId={activeTab}
+                  onSelectionChange={(value) => {
+                    if (!isRunTab(value)) return;
+                    setActiveTab(value);
+                    onSelectTab?.(value);
+                  }}
+                  items={[
+                    { id: "activity", label: "Activity", content: activityView },
+                    { id: "requests", label: "Requests", content: requestsView },
+                    {
+                      id: "output",
+                      label: "Output",
+                      content: result ?? (
+                        <p>Output is available after a confirmed successful run.</p>
+                      ),
+                    },
+                    { id: "files", label: "Files", content: files },
+                    { id: "audit", label: "Audit", content: auditView },
+                  ]}
+                />
+              </section>
+            )}
+          />
+        }
+        secondary={selection}
+      />
     </div>
   );
 }

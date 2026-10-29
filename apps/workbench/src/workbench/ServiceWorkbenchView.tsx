@@ -9,7 +9,7 @@ import type {
   ServiceRevisionHistoryResource,
   ServiceRevisionResource,
 } from "../revisions";
-import type { AgentServiceInvocationSelection, AgentServiceResource } from "../services";
+import type { AgentServiceResource } from "../services";
 import { isServiceTab, type ServiceTab, type WorkbenchView } from "./navigation";
 
 interface ServiceWorkbenchViewProps {
@@ -27,7 +27,6 @@ interface ServiceWorkbenchViewProps {
   openedRevision?: ServiceRevisionResource;
   selectedHistory?: ServiceRevisionHistoryResource;
   openedAlias?: ServiceAliasResource;
-  openedInvocation?: AgentServiceInvocationSelection;
   retirementRevision?: ServiceRevisionHistoryResource;
   withdrawalAlias?: ServiceAliasResource;
   revisionListLoading: boolean;
@@ -48,7 +47,6 @@ interface ServiceWorkbenchViewProps {
   backLabel?: string;
   onBack: () => void;
   onCreateRevision: () => void;
-  onCloseInvocation: () => void;
 }
 
 export function ServiceWorkbenchView({
@@ -66,7 +64,6 @@ export function ServiceWorkbenchView({
   openedRevision,
   selectedHistory,
   openedAlias,
-  openedInvocation,
   retirementRevision,
   withdrawalAlias,
   revisionListLoading,
@@ -87,7 +84,6 @@ export function ServiceWorkbenchView({
   backLabel = "Back to services",
   onBack,
   onCreateRevision,
-  onCloseInvocation,
 }: ServiceWorkbenchViewProps) {
   const [historyInspection, setHistoryInspection] = useState(false);
   const surface = useRef<HTMLDivElement>(null);
@@ -278,26 +274,13 @@ export function ServiceWorkbenchView({
             label: "Runs",
             content: (
               <>
-                {openedInvocation && !runLocation?.invocationId && (
-                  <Button
-                    variant="quiet"
-                    onPress={() => {
-                      onCloseInvocation();
-                    }}
-                  >
-                    View invocation history
-                  </Button>
-                )}
                 <div hidden={historyInspection || !!runLocation?.invocationId}>
                   {invocationContent}
                 </div>
-                <div hidden={!!openedInvocation && !runLocation?.invocationId}>
+                <div>
                   <InvocationHistoryWorkflow
-                    active={
-                      active && tab === "runs" && (!openedInvocation || !!runLocation?.invocationId)
-                    }
+                    active={active && tab === "runs"}
                     refreshGeneration={runRefreshGeneration}
-                    presentation="workbench"
                     location={runLocation ?? {}}
                     onNavigate={onRunNavigate}
                     onInspectionChange={setHistoryInspection}

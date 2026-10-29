@@ -44,19 +44,19 @@ Hidden contexts remain mounted, but are removed from keyboard and accessibility
 navigation. Heading IDs are unique across retained contexts, and audit focus
 returns to the correct resource. Identity or scope changes unmount all sessions
 and invalidate pending reads. Refresh also clears all memory-only sessions.
-Explicitly starting another revision still replaces the revision context within
-that service. Revision-specific command retention and revision/artifact deep links remain
-subsequent migration work. The production screen composition is still in migration.
+Revision drafts, publication, routing and invocation commands retain their own
+contexts within the service. Exact revision, run and artifact locations use
+stable resource URLs; unfinished content remains only in the connected session.
 
 The service workbench uses Overview, Build, Versions, Deployments and Runs as
 separate views. Shared React Aria tabs mount panels on first visit and retain them
 thereafter. Inactive panels are inert and hidden. Tab URLs contain only closed
 view names and resource identities. Read failures stay visible outside the tabs.
 
-The connection form temporarily offers Workbench and Classic presentations for
-validation. They use the same command implementations. Selection is fixed for the
-connection; changing a presentation prop resets the session just as an identity
-change does. Do not switch presentation inside an active command session.
+The connection form opens the workbench. The temporary classic selector and its
+stacked authoring and inspection composition have been removed. Resource
+selection checks remain in `services/selection.ts`; the workbench retains the
+existing command controllers and their exact-request recovery.
 
 The navigation parser has closed-path tests. Browser lifecycle tests cover
 retained exact-request retries, direct reads, unavailable services, late reads
@@ -129,9 +129,7 @@ creation, revision definition, publication, routing and invocation composition.
 Runtime/capabilities, input and output fields have distinct sections. IDs and
 receipt bookkeeping use secondary disclosures; errors, uncertain outcomes,
 required capabilities and the next action remain visible. Publication and routing
-confirmations restate their exact revision and isolation scope. The same workflow
-controllers and request objects serve both this presentation and the temporary
-classic cards. Command transitions restore focus when their initiating control is
+confirmations restate their exact revision and isolation scope. The existing workflow controllers and request objects serve these views. Command transitions restore focus when their initiating control is
 removed and no other control has focus.
 
 Secondary service and command identifiers provide explicit copy controls. They
@@ -143,8 +141,7 @@ Revision drafting has a stable slot in Build. Opening a saved version, discoveri
 a route, or returning through New revision keeps the unfinished draft and its
 exact recovery request. A fresh draft replaces it only after creation was
 confirmed. Hidden drafts are inert; changing connection identity or scope still
-removes the service session. The temporary classic presentation retains its
-existing navigation behavior.
+removes the service session.
 
 Publication, routing and invocation composition also have fixed view locations.
 Each opened revision or route context retains its existing command controller and
@@ -159,8 +156,7 @@ Requests uses compact question and approval tables with loaded-page state filter
 received-time sorting and declared expiry. Row actions open the existing focused
 inspection; question content and approval effects keep their separate access and
 confirmation boundaries. Missing expiry in an older approval contract is shown
-as not supplied. Refresh, pagination, denial and stale-control guards are shared
-with the temporary classic lists.
+as not supplied. Refresh, pagination, denial and stale-control guards remain in the existing discovery controllers.
 
 Artifact inspection appends `/artifacts/{artifactId}` to an exact run-view URL.
 The run read verifies the service relationship, and the artifact metadata read
@@ -175,8 +171,8 @@ Artifact inspection leads with the output name, availability, type, size and
 sensitivity. Resource identities and integrity/provenance fields have secondary
 disclosures with explicit copy controls. Errors and sensitive-content notices
 stay visible. The metadata update time is labelled Record updated; it does not
-indicate execution readiness. The compact presentation uses the same content
-authorization and verification controller as the temporary classic card.
+indicate execution readiness. The presentation uses the existing content authorization and verification
+controller.
 
 A selected revision can be restored through
 `#/scopes/{isolationDomainId}/agents/{serviceId}/{serviceTab}/revisions/{revisionId}`.
@@ -203,7 +199,7 @@ Question and approval inspectors share the run surface. Request identities have
 secondary copy controls; deadlines, recorded decisions, required actions and
 uncertain outcomes remain visible. Question blockers precede the answer fields.
 The compact presentation passes through the same command, expiry, authority and
-exact-request retry controllers as the temporary classic presentation.
+exact-request retry controllers.
 
 Withdrawal and retirement keep their explicit confirmation and recovery actions
 in focused lifecycle sections. Service names and revision numbers lead the view;
@@ -239,8 +235,7 @@ The dialog retains the local theme, contains keyboard focus and returns focus on
 close. The non-mutating action receives initial focus. A pending submission blocks
 Escape and dismissal; its existing exact-request recovery remains in the page
 when the outcome is uncertain. Retained publication sessions receive an explicit
-visibility boundary, so a hidden service or tab cannot leave a modal open. The
-classic presentation retains its inline confirmation and shares the same command.
+visibility boundary, so a hidden service or tab cannot leave a modal open.
 
 Home has a stable scope URL and retains up to twelve recently opened service
 sessions in memory. This is connection-local work history, not a workspace,
@@ -319,8 +314,7 @@ scope. Keep running receives initial focus; Escape returns focus to the request
 control. Submission prevents dismissal until its response is known. Hidden service
 or run contexts cannot keep a cancellation modal open. The outcome heading recovers
 lost focus after completion. Malformed responses retain the exact cancellation
-request for recovery; a confirmed denial or conflict remains terminal. The classic
-presentation uses the same command controller and retains its inline confirmation.
+request for recovery; a confirmed denial or conflict remains terminal.
 
 Closing a withdrawal or retirement page returns lost focus to the selected
 resource tab after the page is replaced. This remains available while the

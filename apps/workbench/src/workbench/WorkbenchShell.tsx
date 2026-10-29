@@ -8,14 +8,12 @@ export function WorkbenchShell({
   view,
   onNavigate,
   children,
-  scopeRuns = false,
 }: {
   isolationDomainId: string;
   onDisconnect: () => void;
   view: WorkbenchView;
   onNavigate: (view: WorkbenchView) => void;
   children: ReactNode;
-  scopeRuns?: boolean;
 }) {
   const [theme, setTheme] = useState<"system" | "light" | "night">("system");
   return (
@@ -54,26 +52,22 @@ export function WorkbenchShell({
         <aside className="workbench-sidebar">
           <p className="workbench-sidebar__label">Workbench</p>
           <nav aria-label="Primary navigation">
-            {scopeRuns && (
-              <Button
-                aria-current={view === "home" ? "page" : undefined}
-                className="workbench-nav-button"
-                onPress={() => onNavigate("home")}
-                variant="quiet"
-              >
-                Home
-              </Button>
-            )}
-            {scopeRuns && (
-              <Button
-                aria-current={view === "workspaces" ? "page" : undefined}
-                className="workbench-nav-button"
-                onPress={() => onNavigate("workspaces")}
-                variant="quiet"
-              >
-                Workspace
-              </Button>
-            )}
+            <Button
+              aria-current={view === "home" ? "page" : undefined}
+              className="workbench-nav-button"
+              onPress={() => onNavigate("home")}
+              variant="quiet"
+            >
+              Home
+            </Button>
+            <Button
+              aria-current={view === "workspaces" ? "page" : undefined}
+              className="workbench-nav-button"
+              onPress={() => onNavigate("workspaces")}
+              variant="quiet"
+            >
+              Workspace
+            </Button>
             <Button
               aria-current={view === "services" || view === "workflow" ? "page" : undefined}
               className="workbench-nav-button"
@@ -88,18 +82,16 @@ export function WorkbenchShell({
               onPress={() => onNavigate("interactions")}
               variant="quiet"
             >
-              {scopeRuns ? "Runs" : "Interactions"}
+              Runs
             </Button>
-            {scopeRuns && (
-              <Button
-                aria-current={view === "artifacts" ? "page" : undefined}
-                className="workbench-nav-button"
-                onPress={() => onNavigate("artifacts")}
-                variant="quiet"
-              >
-                Artifacts
-              </Button>
-            )}
+            <Button
+              aria-current={view === "artifacts" ? "page" : undefined}
+              className="workbench-nav-button"
+              onPress={() => onNavigate("artifacts")}
+              variant="quiet"
+            >
+              Artifacts
+            </Button>
           </nav>
         </aside>
         {children}

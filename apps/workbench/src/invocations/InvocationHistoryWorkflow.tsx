@@ -18,7 +18,6 @@ import type { RunLocation, RunTab } from "./navigation";
 export interface InvocationHistoryWorkflowProps {
   active?: boolean;
   refreshGeneration?: number;
-  presentation?: "classic" | "workbench";
   location?: RunLocation;
   onNavigate?: (location: RunLocation) => void;
   onInspectionChange?: (inspecting: boolean) => void;
@@ -41,7 +40,6 @@ function InvocationHistorySession({
   refreshGeneration = 0,
   client,
   target,
-  presentation = "classic",
   location,
   onNavigate,
   onInspectionChange,
@@ -235,7 +233,6 @@ function InvocationHistorySession({
             <RunInspectionSession
               client={client}
               invocation={item}
-              presentation={presentation}
               active={active}
               selectedTab={active && controlled ? (location?.tab ?? "activity") : undefined}
               artifactLocation={
@@ -265,7 +262,6 @@ function InvocationHistorySession({
                 returnFocusId.current = `${titleId}-open-${item.metadata.id}`;
                 setSelected(undefined);
                 if (controlled) onNavigate?.({});
-                if (presentation === "classic") setOpened([]);
               }}
             />
           </div>
@@ -448,7 +444,6 @@ function InvocationHistorySession({
 function RunInspectionSession({
   client,
   invocation,
-  presentation,
   active,
   selectedTab,
   onSelectTab,
@@ -458,7 +453,6 @@ function RunInspectionSession({
 }: {
   client: DataGroundClient;
   invocation: InvocationSummaryResource;
-  presentation: "classic" | "workbench";
   active: boolean;
   selectedTab?: RunTab;
   onSelectTab?: (tab: RunTab) => void;
@@ -519,7 +513,7 @@ function RunInspectionSession({
     <section aria-labelledby={titleId} className="invocation-history">
       <div className="workbench-page-heading workbench-page-heading--compact">
         <h2 id={titleId} ref={heading} tabIndex={-1}>
-          {presentation === "workbench" ? "Run details" : `Invocation ${invocation.metadata.id}`}
+          Run details
         </h2>
         <Button variant="quiet" onPress={onBack}>
           Back to invocation history
@@ -529,7 +523,6 @@ function RunInspectionSession({
         active={active}
         selectedTab={selectedTab}
         onSelectTab={onSelectTab}
-        presentation={presentation}
         client={client}
         canCancelInvocation
         canAnswerQuestion
