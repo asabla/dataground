@@ -296,3 +296,9 @@ zero-version precondition. It does not move the previous alias. A pending or
 uncertain request cannot be replaced by that action; its exact retry remains.
 Connection or revision changes discard the new-route form and invalidate late
 responses from the previous command session.
+
+An accepted run offers **Start another run**. It keeps the selected route, clears
+the previous input and uses a new request identifier on submission. Pending and
+uncertain submissions cannot be replaced this way; they retain their exact retry.
+Replacing the connection clears the composer and prevents an earlier response
+from publishing a receipt or refreshing the new connection's run history.

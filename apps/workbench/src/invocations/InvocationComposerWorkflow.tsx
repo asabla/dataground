@@ -81,7 +81,17 @@ export function invocationTargetKey(target: AgentServiceInvocationTarget): strin
   return `${target.isolationDomainId}:${target.serviceId}`;
 }
 
-export function InvocationComposerWorkflow({
+export function InvocationComposerWorkflow(props: InvocationComposerWorkflowProps) {
+  const scope = invocationTargetKey(props.target);
+  const [identity, setIdentity] = useState({ client: props.client, scope, generation: 0 });
+  if (identity.client !== props.client || identity.scope !== scope) {
+    setIdentity({ client: props.client, scope, generation: identity.generation + 1 });
+    return null;
+  }
+  return <InvocationComposerSession key={identity.generation} {...props} />;
+}
+
+function InvocationComposerSession({
   compact = false,
   canInvoke,
   client,
@@ -104,6 +114,7 @@ export function InvocationComposerWorkflow({
   });
   const requestGeneration = useRef(0);
   const submissionLock = useRef<object | undefined>(undefined);
+  const [focusNewRun, setFocusNewRun] = useState(false);
 
   useEffect(() => {
     requestGeneration.current++;
@@ -115,6 +126,11 @@ export function InvocationComposerWorkflow({
       validationErrors: {},
       values: initialValues(normalized.ok ? normalized.schema : undefined),
     });
+    setFocusNewRun(false);
+    return () => {
+      requestGeneration.current++;
+      submissionLock.current = undefined;
+    };
   }, [initialAlias, normalized, targetKey]);
 
   const submit = useCallback(async () => {
@@ -240,6 +256,7 @@ export function InvocationComposerWorkflow({
   return (
     <InvocationComposer
       compact={compact}
+      autoFocusAlias={compact && focusNewRun}
       accepted={
         visible.accepted
           ? {
@@ -271,6 +288,26 @@ export function InvocationComposerWorkflow({
           : undefined
       }
       onSubmit={submit}
+      onStartAnotherRun={() => {
+        if (
+          !canInvoke ||
+          !normalized.ok ||
+          !state.accepted ||
+          state.submitting ||
+          state.recoveryAttempt ||
+          submissionLock.current
+        )
+          return;
+        requestGeneration.current++;
+        setState({
+          alias: state.alias,
+          submitting: false,
+          targetKey,
+          validationErrors: {},
+          values: initialValues(normalized.schema),
+        });
+        setFocusNewRun(true);
+      }}
       onValueChange={(key, value) =>
         setState((current) =>
           current.targetKey === targetKey && !current.recoveryAttempt

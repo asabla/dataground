@@ -710,19 +710,26 @@ export async function invokeAgentService(
         path: target,
       },
     });
-    if (!data) {
-      return failedResult(
+    if (response.status !== 202 || !data) {
+      const failure = failedResult(
         error,
         response.status,
         "DataGround returned an invocation response the Workbench could not interpret.",
       );
+      return response.ok ||
+        response.status >= 500 ||
+        failure.error.code === "WORKBENCH_INVALID_RESPONSE"
+        ? { ...failure, error: { ...failure.error, retryable: true, outcomeUnknown: true } }
+        : failure;
     }
     const invocation = decodeCreatedInvocation(data, target, alias);
     return invocation
       ? completeSnapshot(client, invocation)
       : failure(
           "WORKBENCH_INVOCATION_SCOPE_MISMATCH",
-          "DataGround returned invocation state outside the requested service scope.",
+          "DataGround returned unconfirmed invocation state. Recover the original request before starting another run.",
+          true,
+          true,
         );
   } catch {
     return failure(
