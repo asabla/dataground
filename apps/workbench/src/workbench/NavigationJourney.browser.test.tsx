@@ -64,15 +64,10 @@ afterEach(async () => {
   host.remove();
   window.history.replaceState(null, "", window.location.pathname);
 });
-async function render(client: DataGroundClient, presentation: "classic" | "workbench" = "classic") {
+async function render(client: DataGroundClient) {
   await act(async () =>
     root.render(
-      <DevelopmentWorkbench
-        presentation={presentation}
-        client={client}
-        isolationDomainId={scope}
-        onDisconnect={() => {}}
-      />,
+      <DevelopmentWorkbench client={client} isolationDomainId={scope} onDisconnect={() => {}} />,
     ),
   );
 }
@@ -263,7 +258,7 @@ it("retains an uncertain revision attempt across the five service views", async 
     attempts.push(options);
     throw new Error("Lost response");
   }) as DataGroundClient["POST"];
-  await render(client, "workbench");
+  await render(client);
   await click("Create revision draft");
   expect(attempts).toHaveLength(1);
   await selectServiceTab("Overview");
@@ -290,7 +285,7 @@ it("restores a direct versions link without changing it to build", async () => {
   });
   window.history.replaceState(null, "", hash);
   const { client } = fixture();
-  await render(client, "workbench");
+  await render(client);
   expect(window.location.hash).toBe(hash);
   expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Versions");
   await selectServiceTab("Overview");
@@ -300,7 +295,7 @@ it("restores a direct versions link without changing it to build", async () => {
 
 it("changes theme without replacing an unfinished command form", async () => {
   const { client } = fixture();
-  await render(client, "workbench");
+  await render(client);
   await click("New service");
   await name("Theme-safe draft");
   const input = host.querySelector('input[name="service-name"]');
@@ -373,7 +368,7 @@ function selectedRunTab() {
 it("opens an exact run outside the list and restores its view through browser navigation", async () => {
   window.history.replaceState(null, "", runRoute("output"));
   const source = runFixture();
-  await render(source.client, "workbench");
+  await render(source.client);
   expect(selectedRunTab()).toBe("Output");
   expect(host.textContent).toContain("Show the completed result using your current access.");
   expect(source.reads.some((path) => path.endsWith("/result"))).toBe(false);
@@ -394,10 +389,7 @@ it("opens an exact run outside the list and restores its view through browser na
 });
 it("does not inspect a direct run belonging to another service", async () => {
   window.history.replaceState(null, "", runRoute("output"));
-  await render(
-    runFixture(() => ok({ ...run, serviceId: "svc_00000000000000000002" })).client,
-    "workbench",
-  );
+  await render(runFixture(() => ok({ ...run, serviceId: "svc_00000000000000000002" })).client);
   expect(host.textContent).toContain("This run does not belong to the selected service.");
   expect(selectedRunTab()).toBeUndefined();
   expect(host.querySelector('[aria-label="Run outcome"]')).toBeNull();
@@ -408,7 +400,7 @@ it("discards a late direct-run read after returning to history", async () => {
     finish = resolve;
   });
   window.history.replaceState(null, "", runRoute("output"));
-  await render(runFixture(() => pending).client, "workbench");
+  await render(runFixture(() => pending).client);
   await click("Back to invocation history");
   await act(async () => finish(ok(run)));
   expect(selectedRunTab()).toBeUndefined();
@@ -417,7 +409,7 @@ it("discards a late direct-run read after returning to history", async () => {
 it("keeps denied run locations out of inspection and permits a new explicit read", async () => {
   let allow = false;
   window.history.replaceState(null, "", runRoute("output"));
-  await render(runFixture(() => (allow ? ok(run) : absent("FORBIDDEN"))).client, "workbench");
+  await render(runFixture(() => (allow ? ok(run) : absent("FORBIDDEN"))).client);
   expect(host.textContent).toContain("Run unavailable");
   expect(selectedRunTab()).toBeUndefined();
   allow = true;
@@ -454,7 +446,7 @@ it("keeps an uncertain draft when opening another version and starting revision 
     "",
     routeHash({ isolationDomainId: scope, serviceId, view: "workflow", serviceTab: "versions" }),
   );
-  await render(client, "workbench");
+  await render(client);
   await click("New revision");
   await click("Create revision draft");
   expect(attempts).toHaveLength(1);
@@ -486,7 +478,7 @@ it("starts a clean draft only after the previous draft was confirmed", async () 
     "",
     routeHash({ isolationDomainId: scope, serviceId, view: "workflow" }),
   );
-  await render(client, "workbench");
+  await render(client);
   await click("Create revision draft");
   await click("Open revision");
   await selectServiceTab("Versions");
@@ -542,7 +534,7 @@ function artifactFixture(read: () => unknown = () => ok(artifact)) {
 it("restores an artifact link in its originating run without reading protected content", async () => {
   const source = artifactFixture();
   window.history.replaceState(null, "", artifactRoute());
-  await render(source.client, "workbench");
+  await render(source.client);
   expect(selectedRunTab()).toBe("Files");
   expect(host.textContent).toContain(artifact.name);
   expect(source.reads.some((path) => path.endsWith("/content"))).toBe(false);
@@ -565,7 +557,7 @@ it("does not restore an artifact from a late read after its location was closed"
       }),
   );
   window.history.replaceState(null, "", artifactRoute());
-  await render(source.client, "workbench");
+  await render(source.client);
   await click("Close artifact");
   await act(async () => finish(ok(artifact)));
   expect(host.textContent).not.toContain(artifact.name);
@@ -584,7 +576,7 @@ it("keeps artifact access failures visible without requesting file content", asy
     response: new Response(null, { status: 403 }),
   }));
   window.history.replaceState(null, "", artifactRoute());
-  await render(source.client, "workbench");
+  await render(source.client);
   expect(host.querySelector('[role="alert"]')).not.toBeNull();
   expect(host.textContent).not.toContain(artifact.name);
   expect(source.reads.some((path) => path.endsWith("/content"))).toBe(false);
@@ -626,7 +618,7 @@ function revisionFixture(
 it("opens an exact revision outside the list and retains it across service views and refresh", async () => {
   const source = revisionFixture();
   window.history.replaceState(null, "", revisionRoute());
-  await render(source.client, "workbench");
+  await render(source.client);
   await selectServiceTab("Overview");
   expect(window.location.hash).toBe(revisionRoute("overview"));
   expect(host.querySelector('[aria-label="Service overview"]')?.textContent).toContain(
@@ -638,7 +630,7 @@ it("opens an exact revision outside the list and retains it across service views
   expect(source.reads.filter((path) => path.endsWith("/{revisionId}"))).toHaveLength(1);
   await act(async () => root.unmount());
   root = createRoot(host);
-  await render(source.client, "workbench");
+  await render(source.client);
   expect(source.reads.filter((path) => path.endsWith("/{revisionId}"))).toHaveLength(2);
   await selectServiceTab("Overview");
   expect(host.querySelector('[aria-label="Service overview"]')?.textContent).toContain(
@@ -655,7 +647,7 @@ it("does not replace a linked revision with a late newest-revision list", async 
       }),
   );
   window.history.replaceState(null, "", revisionRoute("overview"));
-  await render(source.client, "workbench");
+  await render(source.client);
   await act(async () =>
     finish(
       ok({
@@ -681,7 +673,7 @@ it("keeps a denied or mismatched direct revision out of commands", async () => {
   ]) {
     const source = revisionFixture(read);
     window.history.replaceState(null, "", revisionRoute());
-    await render(source.client, "workbench");
+    await render(source.client);
     expect(host.querySelector('[role="alert"]')).not.toBeNull();
     expect(
       [...host.querySelectorAll("form")].filter((form) => !form.closest("[hidden], [inert]")),
@@ -697,7 +689,7 @@ it("does not restore a late revision after starting a new draft", async () => {
       }),
   );
   window.history.replaceState(null, "", revisionRoute("versions"));
-  await render(source.client, "workbench");
+  await render(source.client);
   await click("New revision");
   await act(async () => finish(ok(linkedRevision)));
   expect(window.location.hash).not.toContain("/revisions/");
@@ -734,7 +726,7 @@ it("retains the scope run filter after an independently denied service read", as
     },
   } as unknown as DataGroundClient;
   await visit(routeHash({ isolationDomainId: scope, view: "interactions" }));
-  await render(client, "workbench");
+  await render(client);
   const field = Array.from(host.querySelectorAll("select")).find((element) =>
     element.closest(".dg-select-field")?.textContent?.includes("Run state"),
   );
@@ -762,7 +754,7 @@ it("retains the scope run filter after an independently denied service read", as
 
 it("resumes recent work from Home without losing drafts and clears recents on connection change", async () => {
   const { client } = fixture();
-  await render(client, "workbench");
+  await render(client);
   await click("New service");
   await name("Home-retained draft");
   const input = host.querySelector('input[name="service-name"]');
@@ -776,7 +768,7 @@ it("resumes recent work from Home without losing drafts and clears recents on co
   expect(host.querySelector('input[name="service-name"]')).toBe(input);
   expect((input as HTMLInputElement).value).toBe("Home-retained draft");
   await visit(routeHash({ isolationDomainId: scope, view: "home" }));
-  await render(fixture().client, "workbench");
+  await render(fixture().client);
   expect(
     host.querySelector('[aria-label="Recent work in this connection"]')?.textContent,
   ).toContain("No work opened in this connection yet");
@@ -785,7 +777,7 @@ it("resumes recent work from Home without losing drafts and clears recents on co
 
 it("resumes the last service view and exact run location from open work and Home", async () => {
   const { client } = fixture();
-  await render(client, "workbench");
+  await render(client);
   const versions = routeHash({
     isolationDomainId: scope,
     serviceId,
@@ -808,6 +800,6 @@ it("resumes the last service view and exact run location from open work and Home
   await click("Direct service");
   expect(window.location.hash).toBe(requests);
   await click("Home");
-  await render(fixture().client, "workbench");
+  await render(fixture().client);
   expect(host.querySelector('[aria-label="Open service work"]')).toBeNull();
 });

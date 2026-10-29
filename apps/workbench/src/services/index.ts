@@ -1,14 +1,4 @@
 export {
-  AgentServiceAuthoringWorkflow,
-  type AgentServiceAuthoringWorkflowProps,
-  type AgentServiceInvocationSelection,
-  isAliasSelectedForPublishedRevision,
-  isInvocationSelectedForAlias,
-  isPublishedRevisionSelectedForService,
-  isRevisionSelectedForService,
-  isServiceSelectedForScope,
-} from "./AgentServiceAuthoringWorkflow";
-export {
   AgentServiceCreateWorkflow,
   type AgentServiceCreateWorkflowProps,
   createServiceIdempotencyKey,
@@ -27,3 +17,9 @@ export {
   listAgentServices,
   readAgentService,
 } from "./client";
+export {
+  isAliasSelectedForPublishedRevision,
+  isPublishedRevisionSelectedForService,
+  isRevisionSelectedForService,
+  isServiceSelectedForScope,
+} from "./selection";

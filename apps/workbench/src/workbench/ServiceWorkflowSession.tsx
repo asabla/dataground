@@ -8,12 +8,8 @@ import {
 } from "../aliases";
 import { ServiceAliasWithdrawWorkflow } from "../aliases/ServiceAliasWithdrawWorkflow";
 import { ServiceRouteDiscovery } from "../aliases/ServiceRouteDiscovery";
-import type { InvocationApprovalReference } from "../approvals";
-import type { InvocationArtifactReference } from "../artifacts";
 import type { DataGroundClient } from "../contracts/client";
-import { InvocationHistoryWorkflow } from "../invocations/InvocationHistoryWorkflow";
 import type { RunLocation } from "../invocations/navigation";
-import type { InvocationQuestionReference } from "../questions";
 import {
   listServiceRevisions,
   type PublishedServiceRevisionResource,
@@ -26,17 +22,13 @@ import {
   type ServiceRevisionResource,
 } from "../revisions";
 import { ServiceRevisionRetireWorkflow } from "../revisions/ServiceRevisionRetireWorkflow";
-import {
-  AgentServiceAuthoringWorkflow,
-  type AgentServiceInvocationSelection,
-  type AgentServiceResource,
-} from "../services";
-import type { ServiceTab, WorkbenchPresentation, WorkbenchView } from "./navigation";
+import { AgentServiceCreateWorkflow, type AgentServiceResource } from "../services";
+import type { ServiceTab, WorkbenchView } from "./navigation";
 
 import { RetainedServiceCommands } from "./RetainedServiceCommands";
 import { ServiceWorkbenchView } from "./ServiceWorkbenchView";
 
-type WorkflowStageIndex = 0 | 1 | 2 | 3 | 4 | 5;
+type WorkflowStageIndex = 0 | 1 | 2 | 3 | 4;
 
 const workflowSteps = [
   { label: "Purpose", shortLabel: "Create service" },
@@ -44,7 +36,6 @@ const workflowSteps = [
   { label: "Review", shortLabel: "Publish revision" },
   { label: "Route", shortLabel: "Assign alias" },
   { label: "Run", shortLabel: "Start interaction" },
-  { label: "Observe", shortLabel: "Monitor interaction" },
 ] as const;
 
 function stageIndex(
@@ -52,9 +43,7 @@ function stageIndex(
   revision?: ServiceRevisionResource,
   publication?: PublishedServiceRevisionResource,
   alias?: ServiceAliasResource,
-  invocation?: AgentServiceInvocationSelection,
 ): WorkflowStageIndex {
-  if (invocation) return 5;
   if (alias) return 4;
   if (publication) return 3;
   if (revision) return 2;
@@ -88,7 +77,6 @@ function mergeRevisionHistory(
 }
 
 interface ServiceWorkflowSessionProps {
-  presentation: WorkbenchPresentation;
   selectedTab?: ServiceTab;
   revisionLocation?: { revisionId?: string };
   onRevisionNavigate: (revisionId: string | undefined, tab: ServiceTab) => void;
@@ -107,7 +95,6 @@ interface ServiceWorkflowSessionProps {
 export function ServiceWorkflowSession({
   client,
   isolationDomainId,
-  presentation,
   selectedTab,
   revisionLocation,
   onRevisionNavigate,
@@ -136,10 +123,6 @@ export function ServiceWorkflowSession({
   const [draftCompleted, setDraftCompleted] = useState(false);
   const [observedAlias, setObservedAlias] = useState<ServiceAliasResource>();
   const [openedAlias, setOpenedAlias] = useState<ServiceAliasResource>();
-  const [openedQuestion, setOpenedQuestion] = useState<InvocationQuestionReference>();
-  const [openedApproval, setOpenedApproval] = useState<InvocationApprovalReference>();
-  const [openedArtifact, setOpenedArtifact] = useState<InvocationArtifactReference>();
-  const [openedInvocation, setOpenedInvocation] = useState<AgentServiceInvocationSelection>();
   const [openedPublishedRevision, setOpenedPublishedRevision] =
     useState<PublishedServiceRevisionResource>();
   const [openedRevision, setOpenedRevision] = useState<ServiceRevisionResource>();
@@ -161,30 +144,23 @@ export function ServiceWorkflowSession({
   const [revisionListLoadingMore, setRevisionListLoadingMore] = useState(false);
   const [revisionListNextCursor, setRevisionListNextCursor] = useState<string>();
   const pageContent = useRef<HTMLDivElement>(null);
-  const [workflowVisited, setWorkflowVisited] = useState(view === "workflow");
-  const [historyVisited, setHistoryVisited] = useState(view === "interactions");
-  const setView = onNavigate;
-  useEffect(() => {
-    if (active && view === "workflow") setWorkflowVisited(true);
-    if (active && view === "interactions") setHistoryVisited(true);
-  }, [active, view]);
   const wasActive = useRef(false);
   useEffect(() => {
-    if (active && (presentation === "classic" || !wasActive.current))
+    if (active && !wasActive.current)
       pageContent.current
         ?.querySelector<HTMLElement>(`[data-workbench-heading="${view}"]`)
         ?.focus();
     wasActive.current = active;
-  }, [active, view, presentation]);
+  }, [active, view]);
   const previousTab = useRef(tab);
   useEffect(() => {
-    if (active && presentation === "workbench" && previousTab.current !== tab) {
+    if (active && previousTab.current !== tab) {
       pageContent.current
         ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
         ?.focus();
     }
     previousTab.current = tab;
-  }, [active, presentation, tab]);
+  }, [active, tab]);
   const aliasReadGeneration = useRef(0);
   const revisionListGeneration = useRef(0);
   // List discovery may seed an untouched session, but never override a chosen
@@ -269,10 +245,6 @@ export function ServiceWorkflowSession({
       setAliasReadError(undefined);
       setObservedAlias(undefined);
       setOpenedAlias(undefined);
-      setOpenedQuestion(undefined);
-      setOpenedApproval(undefined);
-      setOpenedArtifact(undefined);
-      setOpenedInvocation(undefined);
       setOpenedPublishedRevision(undefined);
       setOpenedRevision(undefined);
       const exact = await readServiceRevision(client, {
@@ -323,8 +295,7 @@ export function ServiceWorkflowSession({
   );
 
   useEffect(() => {
-    if (presentation !== "workbench" || !openedService || !active || !revisionLocation?.revisionId)
-      return;
+    if (!openedService || !active || !revisionLocation?.revisionId) return;
     void openServiceRevision(openedService, revisionLocation.revisionId);
     const generation = aliasReadGeneration.current;
     return () => {
@@ -333,18 +304,13 @@ export function ServiceWorkflowSession({
         setAliasReadLoading(false);
       }
     };
-  }, [active, openedService, openServiceRevision, presentation, revisionLocation?.revisionId]);
+  }, [active, openedService, openServiceRevision, revisionLocation?.revisionId]);
 
   const selectRevision = (revisionId: string, nextTab: ServiceTab) => {
     selectionGeneration.current++;
-    if (presentation === "workbench") {
-      onRevisionNavigate(revisionId, nextTab);
-      if (revisionLocation?.revisionId === revisionId && openedService)
-        void openServiceRevision(openedService, revisionId);
-    } else if (openedService) {
-      selectTab(nextTab);
+    onRevisionNavigate(revisionId, nextTab);
+    if (revisionLocation?.revisionId === revisionId && openedService)
       void openServiceRevision(openedService, revisionId);
-    }
   };
 
   const loadRevisionPage = useCallback(
@@ -403,27 +369,20 @@ export function ServiceWorkflowSession({
     openedRevision,
     openedPublishedRevision,
     openedAlias,
-    openedInvocation,
   );
   const commandFocusKey = `${currentStage}/${draftFormGeneration}`;
   const previousCommand = useRef(commandFocusKey);
   useEffect(() => {
     const changed = previousCommand.current !== commandFocusKey;
     previousCommand.current = commandFocusKey;
-    if (
-      !changed ||
-      !active ||
-      presentation !== "workbench" ||
-      document.activeElement !== document.body
-    )
-      return;
+    if (!changed || !active || document.activeElement !== document.body) return;
     const heading = Array.from(
       pageContent.current?.querySelectorAll<HTMLElement>("[data-command-heading]") ?? [],
     ).find((element) => !element.closest("[hidden], [inert]"));
     heading?.focus();
     // A command transition can remove its initiating button. Restore focus only
     // when no remaining control has it, including a fresh draft in the same stage.
-  }, [active, presentation, commandFocusKey]);
+  }, [active, commandFocusKey]);
 
   const openService = (service: AgentServiceResource, reset = false) => {
     if (!reset && openedService?.metadata.id === service.metadata.id) {
@@ -435,10 +394,6 @@ export function ServiceWorkflowSession({
     selectionGeneration.current = 0;
     setObservedAlias(undefined);
     setOpenedAlias(undefined);
-    setOpenedQuestion(undefined);
-    setOpenedApproval(undefined);
-    setOpenedArtifact(undefined);
-    setOpenedInvocation(undefined);
     setOpenedPublishedRevision(undefined);
     setOpenedRevision(undefined);
     setOpenedService(service);
@@ -453,7 +408,7 @@ export function ServiceWorkflowSession({
     void loadRevisionPage(service);
     // Closing a lifecycle decision explicitly reconciles the current context.
     // Preserve an exact linked revision; otherwise discover the current route.
-    if (presentation === "workbench" && revisionLocation?.revisionId)
+    if (revisionLocation?.revisionId)
       void openServiceRevision(service, revisionLocation.revisionId);
   };
 
@@ -463,9 +418,8 @@ export function ServiceWorkflowSession({
 
   const startServiceRevision = () => {
     selectionGeneration.current++;
-    if (presentation === "workbench") onRevisionNavigate(undefined, "build");
-    else selectTab("build");
-    if (presentation === "classic" || draftCompleted) {
+    onRevisionNavigate(undefined, "build");
+    if (draftCompleted) {
       setDraftFormGeneration((current) => current + 1);
       setDraftCompleted(false);
     }
@@ -474,10 +428,6 @@ export function ServiceWorkflowSession({
     setAliasReadError(undefined);
     setObservedAlias(undefined);
     setOpenedAlias(undefined);
-    setOpenedQuestion(undefined);
-    setOpenedApproval(undefined);
-    setOpenedArtifact(undefined);
-    setOpenedInvocation(undefined);
     setOpenedPublishedRevision(undefined);
     setOpenedRevision(undefined);
     setRetirementRevision(undefined);
@@ -486,17 +436,12 @@ export function ServiceWorkflowSession({
 
   const openDraftRevision = (revision: ServiceRevisionResource) => {
     selectionGeneration.current++;
-    if (presentation === "workbench") onRevisionNavigate(revision.metadata.id, "build");
-    else selectTab("build");
+    onRevisionNavigate(revision.metadata.id, "build");
     aliasReadGeneration.current++;
     setAliasReadLoading(false);
     setAliasReadError(undefined);
     revisionListGeneration.current++;
     setOpenedAlias(undefined);
-    setOpenedQuestion(undefined);
-    setOpenedApproval(undefined);
-    setOpenedArtifact(undefined);
-    setOpenedInvocation(undefined);
     setOpenedPublishedRevision(undefined);
     setOpenedRevision(revision);
     setRevisionHistory((current) => mergeRevisionHistory(current, [historyFromDraft(revision)]));
@@ -510,86 +455,7 @@ export function ServiceWorkflowSession({
     selectTab("runs");
     setObservedAlias(alias);
     setOpenedAlias(alias);
-    setOpenedQuestion(undefined);
-    setOpenedApproval(undefined);
-    setOpenedArtifact(undefined);
-    setOpenedInvocation(undefined);
   };
-
-  const workflow = (
-    <AgentServiceAuthoringWorkflow
-      presentation={presentation}
-      key={draftFormGeneration}
-      canAssignAlias
-      canCancelInvocation
-      canCreateRevision
-      canCreateService
-      canPublishRevision
-      canAnswerQuestion
-      canResolveApproval
-      canInvokeService
-      client={client}
-      focusCurrentStage
-      isolationDomainId={isolationDomainId}
-      onAssignAlias={assignPublishedRevision}
-      onComposeInvocation={composeAliasInvocation}
-      onCloseQuestion={() => setOpenedQuestion(undefined)}
-      onInspectQuestion={(reference) => {
-        setOpenedApproval(undefined);
-        setOpenedArtifact(undefined);
-        setOpenedQuestion(reference);
-      }}
-      onCloseApproval={() => setOpenedApproval(undefined)}
-      onCloseArtifact={() => setOpenedArtifact(undefined)}
-      onInspectApproval={(reference) => {
-        setOpenedQuestion(undefined);
-        setOpenedArtifact(undefined);
-        setOpenedApproval(reference);
-      }}
-      onInspectArtifact={(reference) => {
-        setOpenedQuestion(undefined);
-        setOpenedApproval(undefined);
-        setOpenedArtifact(reference);
-      }}
-      onOpenInvocation={(selection) => {
-        setOpenedQuestion(undefined);
-        setOpenedApproval(undefined);
-        setOpenedArtifact(undefined);
-        if (presentation === "workbench") {
-          onRunNavigate({ invocationId: selection.reference.invocationId });
-        } else {
-          setOpenedInvocation(selection);
-          setView("interactions");
-        }
-      }}
-      onOpenRevision={openDraftRevision}
-      onOpenService={(service) => {
-        openService(service);
-        onServiceOpened(service);
-      }}
-      onRevisionPublished={(revision) => {
-        if (
-          revision.metadata.isolationDomainId !== isolationDomainId ||
-          revision.serviceId !== openedService?.metadata.id ||
-          revision.metadata.id !== openedRevision?.metadata.id
-        )
-          return;
-        revisionListGeneration.current++;
-        setRevisionListLoading(false);
-        setRevisionListLoadingMore(false);
-        setRevisionHistory((current) => mergeRevisionHistory(current, [revision]));
-      }}
-      observedAlias={observedAlias}
-      selectedAlias={openedAlias}
-      selectedQuestion={openedQuestion}
-      selectedApproval={openedApproval}
-      selectedArtifact={openedArtifact}
-      selectedInvocation={openedInvocation}
-      selectedPublishedRevision={openedPublishedRevision}
-      selectedRevision={openedRevision}
-      selectedService={openedService}
-    />
-  );
 
   const historyPanel = (
     <>
@@ -658,10 +524,6 @@ export function ServiceWorkflowSession({
             revisionListLoading || revisionListError
               ? undefined
               : (alias) => {
-                  setOpenedQuestion(undefined);
-                  setOpenedApproval(undefined);
-                  setOpenedArtifact(undefined);
-                  setOpenedInvocation(undefined);
                   selectTab("runs");
                   void loadObservedAlias(openedService, alias.name, true);
                 }
@@ -677,7 +539,7 @@ export function ServiceWorkflowSession({
       withdrawalAlias.metadata.isolationDomainId === isolationDomainId &&
       withdrawalAlias.serviceId === openedService.metadata.id ? (
         <ServiceAliasWithdrawWorkflow
-          compact={presentation === "workbench"}
+          compact
           serviceName={openedService.name}
           alias={withdrawalAlias}
           canWithdraw
@@ -685,7 +547,6 @@ export function ServiceWorkflowSession({
           onClose={() => {
             openService(openedService, true);
             selectTab("deployments");
-            if (presentation === "classic") document.getElementById(revisionHistoryTitle)?.focus();
           }}
           onWithdrawn={() => {
             aliasReadGeneration.current++;
@@ -705,7 +566,7 @@ export function ServiceWorkflowSession({
         retirementRevision.metadata.isolationDomainId === isolationDomainId &&
         retirementRevision.serviceId === openedService.metadata.id && (
           <ServiceRevisionRetireWorkflow
-            compact={presentation === "workbench"}
+            compact
             serviceName={openedService.name}
             key={`${retirementRevision.metadata.id}/${retirementRevision.metadata.version}`}
             client={client}
@@ -714,8 +575,6 @@ export function ServiceWorkflowSession({
             onClose={() => {
               openService(openedService, true);
               selectTab("versions");
-              if (presentation === "classic")
-                document.getElementById(revisionHistoryTitle)?.focus();
             }}
             onRetired={(revision) =>
               setRevisionHistory((current) => mergeRevisionHistory(current, [revision]))
@@ -764,18 +623,15 @@ export function ServiceWorkflowSession({
       )}
     </>
   );
-  const commandContent =
-    active &&
-    revisionLocation?.revisionId &&
-    revisionLocation.revisionId !== aliasReadTarget.revisionId
-      ? null
-      : openedService && revisionHistory.length === 0 && (revisionListLoading || revisionListError)
-        ? null
-        : retirementRevision ||
-            withdrawalAlias ||
-            (openedService && (aliasReadLoading || aliasReadError))
-          ? null
-          : workflow;
+  const commandsAvailable = !(
+    (active &&
+      revisionLocation?.revisionId &&
+      revisionLocation.revisionId !== aliasReadTarget.revisionId) ||
+    (openedService && revisionHistory.length === 0 && (revisionListLoading || revisionListError)) ||
+    retirementRevision ||
+    withdrawalAlias ||
+    (openedService && (aliasReadLoading || aliasReadError))
+  );
 
   const retainedCommands = (
     kind: "publication" | "route" | "invocation",
@@ -792,7 +648,7 @@ export function ServiceWorkflowSession({
         client={client}
         service={openedService}
         isolationDomainId={isolationDomainId}
-        enabled={currentStage === stage && commandContent !== null}
+        enabled={currentStage === stage && commandsAvailable}
         revision={openedRevision}
         publication={openedPublishedRevision}
         alias={openedAlias}
@@ -825,7 +681,7 @@ export function ServiceWorkflowSession({
       />
     );
 
-  if (presentation === "workbench" && openedService) {
+  if (openedService) {
     return (
       <div ref={pageContent}>
         <ServiceWorkbenchView
@@ -849,7 +705,6 @@ export function ServiceWorkflowSession({
             openedRevision
           }
           openedAlias={openedAlias}
-          openedInvocation={openedInvocation}
           retirementRevision={retirementRevision}
           withdrawalAlias={withdrawalAlias}
           revisionListLoading={revisionListLoading}
@@ -860,7 +715,7 @@ export function ServiceWorkflowSession({
           publicationContent={retainedCommands("publication", 2)}
           routingContent={retainedCommands("route", 3)}
           invocationContent={retainedCommands("invocation", 4)}
-          draftActive={currentStage === 1 && commandContent !== null}
+          draftActive={currentStage === 1 && commandsAvailable}
           draftContent={
             <ServiceRevisionDraftWorkflow
               key={draftFormGeneration}
@@ -879,128 +734,38 @@ export function ServiceWorkflowSession({
           retirementPanel={retirementPanel}
           selectTab={selectTab}
           backLabel={onOpenWorkspace ? "Back to workspace" : undefined}
-          onBack={onOpenWorkspace ?? (() => setView("services"))}
+          onBack={onOpenWorkspace ?? (() => onNavigate("services"))}
           onCreateRevision={startServiceRevision}
-          onCloseInvocation={() => {
-            setOpenedInvocation(undefined);
-            setOpenedQuestion(undefined);
-            setOpenedApproval(undefined);
-            setOpenedArtifact(undefined);
-          }}
         />
       </div>
     );
   }
   return (
     <div ref={pageContent}>
-      {(workflowVisited || view === "workflow") && (
-        <section aria-labelledby={`${headingPrefix}-workflow`} hidden={view !== "workflow"}>
-          <div className="workbench-page-heading workbench-page-heading--compact">
-            <div>
-              <p className="workbench-breadcrumb">
-                Agent services / {openedService?.name ?? "New service"}
-              </p>
-              <h1 id={`${headingPrefix}-workflow`} data-workbench-heading="workflow" tabIndex={-1}>
-                {openedService?.name ?? "Create an agent service"}
-              </h1>
-              <p>{workflowSteps[currentStage].shortLabel} to continue the governed setup.</p>
-            </div>
-            <Button onPress={() => setView("services")} variant="quiet">
-              Back to services
-            </Button>
-          </div>
-
+      <section aria-labelledby={`${headingPrefix}-workflow`}>
+        <header className="workbench-page-heading workbench-page-heading--compact">
           <div>
-            <div className="workbench-stage">
-              {historyPanel}
-              {routesPanel}
-              {withdrawalPanel}
-              {retirementPanel}
-              {readStatus}
-            </div>
+            <p className="workbench-breadcrumb">Agents / New service</p>
+            <h1 id={`${headingPrefix}-workflow`} data-workbench-heading="workflow" tabIndex={-1}>
+              Create an agent service
+            </h1>
+            <p>Give the service a name, then configure its first revision.</p>
           </div>
-        </section>
-      )}
-
-      {(historyVisited || view === "interactions") && (
-        <section aria-labelledby={`${headingPrefix}-interactions`} hidden={view !== "interactions"}>
-          <div className="workbench-page-heading workbench-page-heading--compact">
-            <div>
-              <p className="workbench-breadcrumb">
-                {openedService ? `${openedService.name} / Interactions` : "AI workspace"}
-              </p>
-              <h1
-                id={`${headingPrefix}-interactions`}
-                data-workbench-heading="interactions"
-                tabIndex={-1}
-              >
-                {openedInvocation ? "Interaction details" : "Interactions"}
-              </h1>
-              <p>
-                {openedInvocation
-                  ? "Observe lifecycle state and replay the ordered event record."
-                  : "Open an invocation to inspect its lifecycle, events, approvals, and artifacts."}
-              </p>
-            </div>
-            {openedInvocation && (
-              <Button
-                onPress={() => {
-                  setOpenedInvocation(undefined);
-                  setOpenedQuestion(undefined);
-                  setOpenedApproval(undefined);
-                  setOpenedArtifact(undefined);
-                }}
-                variant="quiet"
-              >
-                View invocation history
-              </Button>
-            )}
-          </div>
-          {openedService && (
-            <div className="workbench-context-actions">
-              <Button onPress={() => openService(openedService)} variant="quiet">
-                Manage service
-              </Button>
-              <Button onPress={() => setView("services")} variant="quiet">
-                Change service
-              </Button>
-            </div>
-          )}
-          {!openedInvocation && openedService ? (
-            <InvocationHistoryWorkflow
-              client={client}
-              target={{ isolationDomainId, serviceId: openedService.metadata.id }}
-            />
-          ) : !openedInvocation && !openedService ? (
-            <section className="workbench-empty" aria-labelledby={`${headingPrefix}-empty`}>
-              <span aria-hidden="true" className="workbench-empty__mark">
-                ↗
-              </span>
-              <h2 id={`${headingPrefix}-empty`}>No interaction is open</h2>
-              <p>Select a service to browse its invocation history or start a new interaction.</p>
-              <Button onPress={() => setView(openedService ? "workflow" : "services")}>
-                {openedService ? "Continue service setup" : "View agent services"}
-              </Button>
-            </section>
-          ) : null}
-        </section>
-      )}
-      {(workflowVisited || view === "workflow" || openedInvocation) && (
-        <div
-          hidden={view !== "workflow" && !(view === "interactions" && openedInvocation)}
-          className="workbench-command-region"
-        >
-          {openedService &&
-          revisionHistory.length === 0 &&
-          (revisionListLoading || revisionListError)
-            ? null
-            : retirementRevision || withdrawalAlias
-              ? null
-              : openedService && (aliasReadLoading || aliasReadError)
-                ? null
-                : workflow}
-        </div>
-      )}
+          <Button onPress={() => onNavigate("services")} variant="quiet">
+            Back to services
+          </Button>
+        </header>
+        <AgentServiceCreateWorkflow
+          compact
+          canCreate={active}
+          client={client}
+          isolationDomainId={isolationDomainId}
+          onOpenService={(service) => {
+            openService(service);
+            onServiceOpened(service);
+          }}
+        />
+      </section>
     </div>
   );
 }

@@ -243,11 +243,19 @@ it("finds retained questions from service invocation history without event repla
   expect(inspect).toBeDefined();
   await act(async () => inspect?.click());
   expect(host.textContent).not.toContain(full.questions[0]?.prompt);
+  const requests = [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+    (tab) => tab.textContent === "Requests",
+  );
+  expect(requests).toBeDefined();
+  await act(async () => requests?.click());
+  expect(button(`Open question ${firstID}`)).toBeDefined();
   await act(async () => button(`Open question ${firstID}`)?.click());
   expect(host.textContent).toContain(full.questions[0]?.prompt);
   expect(post).not.toHaveBeenCalled();
   await act(async () => button("Back to invocation history")?.click());
-  expect(host.textContent).not.toContain(full.questions[0]?.prompt);
+  const visible = host.cloneNode(true) as HTMLElement;
+  for (const element of visible.querySelectorAll("[hidden],[inert]")) element.remove();
+  expect(visible.textContent).not.toContain(full.questions[0]?.prompt);
   await act(async () =>
     root.render(
       <InvocationHistoryWorkflow

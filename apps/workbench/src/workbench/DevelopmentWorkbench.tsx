@@ -13,19 +13,13 @@ import {
 import type { ServiceSort } from "../services/directory";
 import { ServiceDirectory } from "../services/ServiceDirectory";
 import { WorkspaceBrowser } from "../workspaces/WorkspaceBrowser";
-import type {
-  ServiceTab,
-  WorkbenchPresentation,
-  WorkbenchRoute,
-  WorkbenchView,
-} from "./navigation";
+import type { ServiceTab, WorkbenchRoute, WorkbenchView } from "./navigation";
 import { ServiceWorkflowSession } from "./ServiceWorkflowSession";
 import { useWorkbenchNavigation } from "./useWorkbenchNavigation";
 import { WorkbenchHome } from "./WorkbenchHome";
 import { WorkbenchShell } from "./WorkbenchShell";
 
 export interface DevelopmentWorkbenchProps {
-  presentation?: WorkbenchPresentation;
   client: DataGroundClient;
   isolationDomainId: string;
   onDisconnect: () => void;
@@ -35,18 +29,12 @@ export function DevelopmentWorkbench(props: DevelopmentWorkbenchProps) {
   const [connection, setConnection] = useState({
     client: props.client,
     scope: props.isolationDomainId,
-    presentation: props.presentation,
     generation: 0,
   });
-  if (
-    connection.client !== props.client ||
-    connection.scope !== props.isolationDomainId ||
-    connection.presentation !== props.presentation
-  ) {
+  if (connection.client !== props.client || connection.scope !== props.isolationDomainId) {
     setConnection({
       client: props.client,
       scope: props.isolationDomainId,
-      presentation: props.presentation,
       generation: connection.generation + 1,
     });
   }
@@ -62,7 +50,6 @@ export function WorkbenchSession({
   client,
   isolationDomainId,
   onDisconnect,
-  presentation = "workbench",
 }: DevelopmentWorkbenchProps) {
   const [serviceQuery, setServiceQuery] = useState("");
   const [appliedServiceQuery, setAppliedServiceQuery] = useState("");
@@ -100,17 +87,16 @@ export function WorkbenchSession({
     if (activeSession && route) lastLocations.current.set(activeSession.key, route);
   }, [activeSession, route]);
   const view = route?.view ?? "services";
-  const showHome = !!route && view === "home" && presentation === "workbench";
+  const showHome = !!route && view === "home";
   const [visitedHome, setVisitedHome] = useState(showHome);
   if (showHome && !visitedHome) setVisitedHome(true);
-  const showScopeRuns =
-    !!route && view === "interactions" && !route.serviceId && presentation === "workbench";
+  const showScopeRuns = !!route && view === "interactions" && !route.serviceId;
   const [visitedScopeRuns, setVisitedScopeRuns] = useState(showScopeRuns);
   if (showScopeRuns && !visitedScopeRuns) setVisitedScopeRuns(true);
-  const showArtifacts = !!route && view === "artifacts" && presentation === "workbench";
+  const showArtifacts = !!route && view === "artifacts";
   const [visitedArtifacts, setVisitedArtifacts] = useState(showArtifacts);
   if (showArtifacts && !visitedArtifacts) setVisitedArtifacts(true);
-  const showWorkspaces = !!route && view === "workspaces" && presentation === "workbench";
+  const showWorkspaces = !!route && view === "workspaces";
   const [visitedWorkspaces, setVisitedWorkspaces] = useState(showWorkspaces);
   if (showWorkspaces && !visitedWorkspaces) setVisitedWorkspaces(true);
   const [lastWorkspaceId, setLastWorkspaceId] = useState<string | undefined>(route?.workspaceId);
@@ -221,9 +207,7 @@ export function WorkbenchSession({
       isolationDomainId,
       serviceId: service.metadata.id,
       view: next,
-      ...(presentation === "workbench" && next === "workflow"
-        ? { serviceTab: "overview" as const }
-        : {}),
+      ...(next === "workflow" ? { serviceTab: "overview" as const } : {}),
     });
   };
   const navigateView = (next: WorkbenchView) => {
@@ -236,7 +220,7 @@ export function WorkbenchSession({
       next === "home" ||
       next === "workspaces" ||
       next === "artifacts" ||
-      (next === "interactions" && presentation === "workbench")
+      next === "interactions"
         ? {}
         : { serviceId: context?.service?.metadata.id }),
     });
@@ -265,7 +249,6 @@ export function WorkbenchSession({
       onDisconnect={onDisconnect}
       view={view}
       onNavigate={navigateView}
-      scopeRuns={presentation === "workbench"}
     >
       <div className="workbench-main" ref={pageContent}>
         {sessions.length > 0 && (
@@ -312,7 +295,7 @@ export function WorkbenchSession({
             <Button onPress={() => route && navigate(route)}>Retry service read</Button>
           </section>
         )}
-        {visitedHome && presentation === "workbench" && (
+        {visitedHome && (
           <div hidden={!showHome} inert={!showHome}>
             <WorkbenchHome
               client={client}
@@ -350,12 +333,6 @@ export function WorkbenchSession({
               onBrowseRuns={() => navigateView("interactions")}
             />
           </div>
-        )}
-        {route?.view === "home" && presentation === "classic" && (
-          <section>
-            <h1>Home</h1>
-            <p>Select the workbench presentation to resume work and inspect attention items.</p>
-          </section>
         )}
         {route && view === "services" && (
           <section aria-labelledby="services-title">
@@ -399,16 +376,7 @@ export function WorkbenchSession({
             />
           </section>
         )}
-        {route && view === "interactions" && !route.serviceId && presentation === "classic" && (
-          <section aria-labelledby="interactions-title">
-            <h1 id="interactions-title" tabIndex={-1}>
-              Interactions
-            </h1>
-            <p>Select a service to browse its invocation history.</p>
-            <Button onPress={() => navigateView("services")}>View agent services</Button>
-          </section>
-        )}
-        {visitedWorkspaces && presentation === "workbench" && (
+        {visitedWorkspaces && (
           <div hidden={!showWorkspaces} inert={!showWorkspaces}>
             <WorkspaceBrowser
               client={client}
@@ -428,13 +396,7 @@ export function WorkbenchSession({
             />
           </div>
         )}
-        {route?.view === "workspaces" && presentation === "classic" && (
-          <section>
-            <h1>Workspace</h1>
-            <p>Select the workbench presentation to browse workspaces.</p>
-          </section>
-        )}
-        {visitedArtifacts && presentation === "workbench" && (
+        {visitedArtifacts && (
           <div hidden={!showArtifacts} inert={!showArtifacts}>
             <ScopeArtifactBrowser
               client={client}
@@ -452,13 +414,7 @@ export function WorkbenchSession({
             />
           </div>
         )}
-        {route?.view === "artifacts" && presentation === "classic" && (
-          <section>
-            <h1>Artifacts</h1>
-            <p>Select the workbench presentation to browse artifacts across runs.</p>
-          </section>
-        )}
-        {visitedScopeRuns && presentation === "workbench" && (
+        {visitedScopeRuns && (
           <div hidden={!showScopeRuns} inert={!showScopeRuns}>
             <ScopeRunBrowser
               client={client}
@@ -483,7 +439,6 @@ export function WorkbenchSession({
           return (
             <div key={session.key} hidden={!active}>
               <ServiceWorkflowSession
-                presentation={presentation}
                 revisionLocation={active ? { revisionId: route?.revisionId } : undefined}
                 onRevisionNavigate={(revisionId, tab) =>
                   navigate({

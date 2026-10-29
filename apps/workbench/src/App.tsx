@@ -1,9 +1,7 @@
-import { Button, SelectField, StatusBadge, TextField } from "@dataground/ui";
+import { Button, StatusBadge, TextField } from "@dataground/ui";
 import { useState } from "react";
 import { createDataGroundClient, type DataGroundClient } from "./contracts/client";
 import { DevelopmentWorkbench } from "./workbench/DevelopmentWorkbench";
-
-import type { WorkbenchPresentation } from "./workbench/navigation";
 
 export { DevelopmentWorkbench } from "./workbench/DevelopmentWorkbench";
 
@@ -17,7 +15,6 @@ interface DevelopmentScopeErrors {
 }
 
 interface DevelopmentSession {
-  presentation: WorkbenchPresentation;
   client: DataGroundClient;
   isolationDomainId: string;
 }
@@ -45,7 +42,6 @@ export function validateDevelopmentScope(
 }
 
 export function App() {
-  const [presentation, setPresentation] = useState<WorkbenchPresentation>("workbench");
   const [bearerToken, setBearerToken] = useState("");
   const [isolationDomainId, setIsolationDomainId] = useState(DEFAULT_ISOLATION_DOMAIN_ID);
   const [session, setSession] = useState<DevelopmentSession>();
@@ -54,7 +50,6 @@ export function App() {
   if (session) {
     return (
       <DevelopmentWorkbench
-        presentation={session.presentation}
         client={session.client}
         isolationDomainId={session.isolationDomainId}
         onDisconnect={() => {
@@ -93,7 +88,6 @@ export function App() {
             setValidationErrors(errors);
             if (Object.keys(errors).length > 0) return;
             setSession({
-              presentation,
               client: createDataGroundClient("", { bearerToken }),
               isolationDomainId: isolationDomainId.trim(),
             });
@@ -132,18 +126,6 @@ export function App() {
             spellCheck="false"
             type="password"
             value={bearerToken}
-          />
-          <SelectField
-            label="Presentation"
-            value={presentation}
-            options={[
-              { value: "workbench", label: "Workbench" },
-              { value: "classic", label: "Classic (validation)" },
-            ]}
-            onChange={(value) => {
-              if (value === "workbench" || value === "classic") setPresentation(value);
-            }}
-            description="Choose before connecting. Both views use the same commands and access checks."
           />
           <Button type="submit" variant="primary">
             Open development scope

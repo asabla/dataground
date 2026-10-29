@@ -83,6 +83,11 @@ afterEach(async () => {
   host.remove();
   window.history.replaceState(null, "", window.location.pathname);
 });
+function visibleText() {
+  const copy = host.cloneNode(true) as HTMLElement;
+  for (const element of copy.querySelectorAll("[hidden],[inert]")) element.remove();
+  return copy.textContent ?? "";
+}
 async function click(text: string, contains = false) {
   const button = [...host.querySelectorAll<HTMLElement>('button, [role="tab"]')].find(
     (value) =>
@@ -91,18 +96,13 @@ async function click(text: string, contains = false) {
         ? value.textContent?.includes(text)
         : value.getAttribute("aria-label") === text || value.textContent === text),
   );
-  expect(button, host.textContent ?? "").toBeDefined();
+  expect(button, visibleText() ?? "").toBeDefined();
   await act(async () => userEvent.click(button as HTMLElement));
 }
-async function open(client: DataGroundClient, presentation: "classic" | "workbench" = "classic") {
+async function open(client: DataGroundClient) {
   await act(async () =>
     root.render(
-      <DevelopmentWorkbench
-        presentation={presentation}
-        client={client}
-        isolationDomainId={scope}
-        onDisconnect={() => {}}
-      />,
+      <DevelopmentWorkbench client={client} isolationDomainId={scope} onDisconnect={() => {}} />,
     ),
   );
   await click("Open service");
@@ -138,13 +138,19 @@ it("loads the routed older revision outside the history page and switches to a c
     throw new Error("unexpected read");
   });
   await open(client);
-  expect(host.textContent).toContain("Older prompt");
-  expect(host.textContent).not.toContain("Newer prompt");
+  const runsTab = [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+    (tab) => tab.textContent === "Runs",
+  );
+  expect(runsTab).toBeDefined();
+  await act(async () => userEvent.click(runsTab as HTMLElement));
+  expect(visibleText()).toContain("Older prompt");
+  expect(visibleText()).not.toContain("Newer prompt");
   expect(reads).toEqual([older.metadata.id]);
   expect(calls.filter((path) => path.endsWith("/revisions"))).toHaveLength(1);
+  await click("Deployments");
   await click("Use canary route");
-  expect(host.textContent).toContain("Newer prompt");
-  expect(host.textContent).not.toContain("Older prompt");
+  expect(visibleText()).toContain("Newer prompt");
+  expect(visibleText()).not.toContain("Older prompt");
   expect([...host.querySelectorAll("input")].some((input) => input.value === "canary")).toBe(true);
   expect(reads).toEqual([older.metadata.id, newer.metadata.id]);
 });
@@ -160,8 +166,8 @@ it.each(["denied", "retired", "substituted"])(
     });
     await open(client);
     expect(host.querySelector('[role="alert"]')).not.toBeNull();
-    expect(host.textContent).not.toContain("Start invocation");
-    expect(host.textContent).not.toContain("Newer prompt");
+    expect(visibleText()).not.toContain("Start invocation");
+    expect(visibleText()).not.toContain("Newer prompt");
   },
 );
 
@@ -177,12 +183,13 @@ it("ignores a delayed old revision read after selecting a different route", asyn
       : ok(newer);
   });
   await open(client);
-  expect(host.textContent).toContain("Loading stable route");
+  expect(visibleText()).toContain("Loading stable route");
+  await click("Deployments");
   await click("Use canary route");
-  expect(host.textContent).toContain("Newer prompt");
+  expect(visibleText()).toContain("Newer prompt");
   await act(async () => finish?.(ok(older)));
-  expect(host.textContent).toContain("Newer prompt");
-  expect(host.textContent).not.toContain("Older prompt");
+  expect(visibleText()).toContain("Newer prompt");
+  expect(visibleText()).not.toContain("Older prompt");
 });
 
 it("re-reads a selected alias and refuses a route withdrawn since discovery", async () => {
@@ -194,9 +201,10 @@ it("re-reads a selected alias and refuses a route withdrawn since discovery", as
     return ok(older);
   });
   await open(client);
+  await click("Deployments");
   await click("Use canary route");
-  expect(host.textContent).toContain("no longer active");
-  expect(host.textContent).not.toContain("Start invocation");
+  expect(visibleText()).toContain("no longer active");
+  expect(visibleText()).not.toContain("Start invocation");
 });
 
 it("starts a new draft while retaining the existing service and invalidates a delayed route read", async () => {
@@ -209,74 +217,70 @@ it("starts a new draft while retaining the existing service and invalidates a de
         }),
   );
   await open(client);
-  expect(host.textContent).toContain("Loading stable route");
+  expect(visibleText()).toContain("Loading stable route");
+  await click("Versions");
   await click("New revision");
-  expect(host.textContent).toContain("Create revision draft");
+  expect(visibleText()).toContain("Create revision draft");
   await act(async () => finish?.(ok(older)));
-  expect(host.textContent).toContain("Create revision draft");
-  expect(host.textContent).not.toContain("Older prompt");
-  expect(host.textContent).not.toContain("Loading stable route");
+  expect(visibleText()).toContain("Create revision draft");
+  expect(visibleText()).not.toContain("Older prompt");
+  expect(visibleText()).not.toContain("Loading stable route");
 });
 
-it.each(["classic", "workbench"] as const)(
-  "reopens an exact published revision as the target of a version-checked alias move in %s",
-  async (presentation) => {
-    const { client } = fixture((path, options) =>
-      path.endsWith("/aliases/{alias}")
-        ? ok(stable)
-        : ok(options.params.path.revisionId === older.metadata.id ? older : newer),
-    );
-    const commands: unknown[] = [];
-    const movable = {
-      ...client,
-      PUT: async (
-        _path: string,
-        options: {
-          params: { path: { alias: string } };
-          body: { revisionId: string; expectedVersion: number };
-        },
-      ) => {
-        commands.push(options.body);
-        expect(options.params.path.alias).toBe("stable");
-        return ok({
-          ...stable,
-          revisionId: newer.metadata.id,
-          metadata: {
-            ...stable.metadata,
-            version: 3,
-            generation: 3,
-            updatedAt: "2026-09-05T12:02:00Z",
-          },
-        });
+it("reopens an exact published revision as the target of a version-checked alias move", async () => {
+  const { client } = fixture((path, options) =>
+    path.endsWith("/aliases/{alias}")
+      ? ok(stable)
+      : ok(options.params.path.revisionId === older.metadata.id ? older : newer),
+  );
+  const commands: unknown[] = [];
+  const movable = {
+    ...client,
+    PUT: async (
+      _path: string,
+      options: {
+        params: { path: { alias: string } };
+        body: { revisionId: string; expectedVersion: number };
       },
-    } as unknown as DataGroundClient;
-    await open(movable, presentation);
-    if (presentation === "workbench") await click("Versions");
-    await click("Open revision 80");
-    expect(host.textContent).toContain(
-      presentation === "classic" ? "Move service alias" : "Move route",
-    );
-    expect(commands).toHaveLength(0);
-    await click("Review routing");
-    expect(commands).toHaveLength(0);
-    if (presentation === "workbench") {
-      expect(host.querySelector('[role="dialog"]')?.textContent).toContain("revision 80");
-      const reviewLocation = window.location.hash;
-      await act(async () => {
-        window.history.pushState(null, "", `#/scopes/${scope}/agents/${service.metadata.id}/build`);
-        window.dispatchEvent(new PopStateEvent("popstate"));
+    ) => {
+      commands.push(options.body);
+      expect(options.params.path.alias).toBe("stable");
+      return ok({
+        ...stable,
+        revisionId: newer.metadata.id,
+        metadata: {
+          ...stable.metadata,
+          version: 3,
+          generation: 3,
+          updatedAt: "2026-09-05T12:02:00Z",
+        },
       });
-      expect(host.querySelector('[role="dialog"]')).toBeNull();
-      await act(async () => {
-        window.history.pushState(null, "", reviewLocation);
-        window.dispatchEvent(new PopStateEvent("popstate"));
-      });
-      expect(host.querySelector('[role="dialog"]')?.textContent).toContain("revision 80");
-    }
-    await click("Confirm route change");
-    expect(commands).toEqual([{ expectedVersion: 2, revisionId: newer.metadata.id }]);
-  },
-);
+    },
+  } as unknown as DataGroundClient;
+  await open(movable);
+  await click("Versions");
+  await click("Open revision 80");
+  expect(visibleText()).toContain("Move route");
+  expect(commands).toHaveLength(0);
+  await click("Review routing");
+  expect(commands).toHaveLength(0);
+  {
+    expect(host.querySelector('[role="dialog"]')?.textContent).toContain("revision 80");
+    const reviewLocation = window.location.hash;
+    await act(async () => {
+      window.history.pushState(null, "", `#/scopes/${scope}/agents/${service.metadata.id}/build`);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () => {
+      window.history.pushState(null, "", reviewLocation);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(host.querySelector('[role="dialog"]')?.textContent).toContain("revision 80");
+  }
+  await click("Confirm route change");
+  expect(commands).toEqual([{ expectedVersion: 2, revisionId: newer.metadata.id }]);
+});
 
 it("rechecks a draft or retired revision when opening history instead of trusting the old row", async () => {
   let retired = false;
@@ -295,13 +299,17 @@ it("rechecks a draft or retired revision when opening history instead of trustin
     );
   });
   await open(client);
+  await click("Versions");
   await click("Open revision 80");
-  expect(host.textContent).toContain("Review publication");
-  expect(host.textContent).not.toContain("Move service alias");
+  expect(visibleText()).not.toContain("Move route");
+  await click("Build");
+  expect(visibleText()).toContain("Review publication");
+  expect(visibleText()).not.toContain("Move route");
   retired = true;
+  await click("Versions");
   await click("Open revision 80");
-  expect(host.textContent).toContain("This revision has retired");
-  expect(host.textContent).not.toContain("Review publication");
+  expect(visibleText()).toContain("This revision has retired");
+  expect(visibleText()).not.toContain("Review publication");
 });
 
 it.each([200, 202])(
@@ -339,11 +347,18 @@ it.each([200, 202])(
     };
     let resolveHistory: ((value: unknown) => void) | undefined;
     let delayHistory = false;
+    let publicationAccepted = false;
     const commands: string[] = [];
     const { client } = fixture((path, options) =>
       path.endsWith("/aliases/{alias}")
         ? ok(stable)
-        : ok(options.params.path.revisionId === draft.metadata.id ? publication : older),
+        : ok(
+            options.params.path.revisionId === draft.metadata.id
+              ? publicationAccepted
+                ? publication
+                : draft
+              : older,
+          ),
     );
     const authoring = {
       ...client,
@@ -371,6 +386,7 @@ it.each([200, 202])(
           return { data: draft, response: new Response(null, { status: 201 }) };
         }
         if (path.endsWith("/actions/publish")) {
+          publicationAccepted = true;
           expect(options.params.path.revisionId).toBe(draft.metadata.id);
           expect(options.body.expectedVersion).toBe(1);
           return status === 202
@@ -384,23 +400,26 @@ it.each([200, 202])(
       },
     } as unknown as DataGroundClient;
     await open(authoring);
+    await click("Versions");
     await click("New revision");
     expect(commands).toHaveLength(0);
     await click("Create revision draft");
     await click("Open revision");
-    await click("Review publication");
     expect(commands).toHaveLength(1);
     const historyRow = () =>
       [...host.querySelectorAll(".revision-history tbody tr")].find((row) =>
         row.textContent?.includes("Revision 81"),
       );
+    await click("Versions");
     expect(historyRow()?.textContent).toContain("draft");
     delayHistory = true;
     await click("Load more revisions");
+    await click("Build");
+    await click("Review publication");
     await click("Confirm publication");
     if (status === 202) {
       expect(historyRow()?.textContent).toContain("draft");
-      expect(host.textContent).not.toContain("Assign alias");
+      expect(visibleText()).not.toContain("Assign alias");
       await click("Check publication");
     }
     expect(historyRow()?.textContent).toContain("published");
@@ -408,10 +427,10 @@ it.each([200, 202])(
     await act(async () => resolveHistory?.(ok({ items: [draft] })));
     expect(historyRow()?.textContent).toContain("published");
     expect(historyRow()?.textContent).not.toContain("draft");
-    expect(host.textContent).not.toContain("Loading more revisions…");
+    expect(visibleText()).not.toContain("Loading more revisions…");
     await click("Assign alias");
     expect(commands).toHaveLength(2);
-    expect(host.textContent).toContain("Move service alias");
-    expect(host.textContent).not.toContain("Start invocation");
+    expect(visibleText()).toContain("Move route");
+    expect(visibleText()).not.toContain("Start invocation");
   },
 );

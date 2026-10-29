@@ -99,17 +99,10 @@ function fixture(withActivity = false) {
   };
 }
 
-function Journey({
-  client,
-  presentation = "classic",
-}: {
-  client: DataGroundClient;
-  presentation?: "classic" | "workbench";
-}) {
+function Journey({ client }: { client: DataGroundClient }) {
   const [question, setQuestion] = useState<InvocationQuestionReference>();
   return (
     <InvocationInspectionWorkflow
-      presentation={presentation}
       client={client}
       reference={questionReference}
       canCancelInvocation={false}
@@ -127,6 +120,7 @@ function Journey({
 }
 async function render(client: DataGroundClient) {
   await act(async () => root.render(<Journey client={client} />));
+  await selectTab("Requests");
 }
 function button(label: string) {
   const result = [...host.querySelectorAll("button")].find(
@@ -143,7 +137,7 @@ async function click(label: string) {
 
 it("refreshes the question list after acceptance and keeps the selected receipt in context", async () => {
   const source = fixture();
-  await act(async () => root.render(<Journey client={source.client} presentation="workbench" />));
+  await act(async () => root.render(<Journey client={source.client} />));
   const requests = [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find(
     (tab) => tab.textContent === "Requests",
   );
@@ -167,33 +161,23 @@ it("refreshes the question list after acceptance and keeps the selected receipt 
   expect(source.post).toHaveBeenCalledOnce();
 });
 
-it("moves focus between sections without remounting workflows or sending commands", async () => {
+it("loads tab content once and keeps navigation free of commands", async () => {
   const source = fixture();
   await render(source.client);
-  const initialReads = source.get.mock.calls.length;
-  for (const [label, target] of [
-    ["Activity", "Interaction activity"],
-    ["Questions and approvals", "Interaction questions and approvals"],
-    ["Audit", "Interaction audit"],
-    ["Overview and result", "Interaction overview and result"],
-  ]) {
-    await click(label as string);
-    expect(document.activeElement).toBe(host.querySelector(`[aria-label="${target}"]`));
-  }
-  expect(source.get.mock.calls.length).toBe(initialReads);
+  for (const label of ["Activity", "Requests", "Audit", "Output"]) await selectTab(label);
+  const reads = source.get.mock.calls.length;
+  for (const label of ["Activity", "Requests", "Audit", "Output"]) await selectTab(label);
+  expect(source.get.mock.calls.length).toBe(reads);
   expect(source.post).not.toHaveBeenCalled();
 });
 
-it("opens the selected request before the overview and retains edits while navigating", async () => {
+it("keeps the selected request beside the run and retains edits while navigating", async () => {
   const source = fixture();
   await render(source.client);
   const opener = await click(`Open question ${questionReference.questionId}`);
   const selection = host.querySelector('[aria-label="Selected interaction item"]');
-  const overview = host.querySelector('[aria-label="Interaction overview and result"]');
   expect(document.activeElement).toBe(selection);
-  expect(
-    (selection?.compareDocumentPosition(overview as Node) ?? 0) & Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
+  expect(host.querySelector(".run-inspector")?.contains(selection)).toBe(true);
   const freeText = host.querySelector('input[type="checkbox"]') as HTMLInputElement;
   expect(freeText).not.toBeNull();
   await act(async () => freeText.click());
@@ -207,12 +191,11 @@ it("opens the selected request before the overview and retains edits while navig
     answer.dispatchEvent(new Event("input", { bubbles: true }));
   });
   const reads = source.get.mock.calls.length;
-  await click("Activity");
-  await click("Selected item");
+  await selectTab("Activity");
   expect(host.querySelector("textarea")).toBe(answer);
   expect(answer.value).toBe("Keep this unfinished answer");
   expect(source.get.mock.calls.length).toBe(reads);
-  await click("Questions and approvals");
+  await selectTab("Requests");
   await click(`Open question ${questionReference.questionId}`);
   expect(document.activeElement).toBe(selection);
   expect(host.querySelector("textarea")).toBe(answer);
@@ -231,7 +214,7 @@ it("returns focus to section navigation if the request opener disappears", async
   source.removeQuestion();
   await click("Refresh questions");
   await click("Close questions");
-  expect(document.activeElement).toBe(host.querySelector('[aria-label="Interaction sections"]'));
+  expect(document.activeElement).toBe(host.querySelector('[aria-label="Run views"]'));
 });
 
 it("does not restore a focus target retained by another connection", async () => {
@@ -241,7 +224,7 @@ it("does not restore a focus target retained by another connection", async () =>
   const replacement = fixture();
   await render(replacement.client);
   await click("Close questions");
-  expect(document.activeElement).toBe(host.querySelector('[aria-label="Interaction sections"]'));
+  expect(document.activeElement).toBe(host.querySelector('[aria-label="Run views"]'));
 });
 
 it("returns focus to navigation when the retained opener cannot receive focus", async () => {
@@ -250,7 +233,7 @@ it("returns focus to navigation when the retained opener cannot receive focus", 
   const opener = await click(`Open question ${questionReference.questionId}`);
   opener.disabled = true;
   await click("Close questions");
-  expect(document.activeElement).toBe(host.querySelector('[aria-label="Interaction sections"]'));
+  expect(document.activeElement).toBe(host.querySelector('[aria-label="Run views"]'));
 });
 
 async function selectTab(name: string) {
@@ -262,7 +245,7 @@ async function selectTab(name: string) {
 }
 it("keeps selected request edits beside run tabs and falls back from an inert opener", async () => {
   const source = fixture(true);
-  await act(async () => root.render(<Journey client={source.client} presentation="workbench" />));
+  await act(async () => root.render(<Journey client={source.client} />));
   expect(source.get.mock.calls.some(([path]) => path.endsWith("/questions"))).toBe(false);
   await selectTab("Requests");
   await click(`Open question ${questionReference.questionId}`);
@@ -298,12 +281,10 @@ it("keeps selected request edits beside run tabs and falls back from an inert op
 
 it("clears selected activity when the connection changes", async () => {
   const source = fixture(true);
-  await act(async () => root.render(<Journey client={source.client} presentation="workbench" />));
+  await act(async () => root.render(<Journey client={source.client} />));
   await click("Inspect event 1");
   expect(host.querySelector('[aria-label="Activity inspection"]')).not.toBeNull();
   const replacement = fixture();
-  await act(async () =>
-    root.render(<Journey client={replacement.client} presentation="workbench" />),
-  );
+  await act(async () => root.render(<Journey client={replacement.client} />));
   expect(host.querySelector('[aria-label="Activity inspection"]')).toBeNull();
 });

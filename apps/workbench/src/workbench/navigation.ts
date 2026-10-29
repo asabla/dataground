@@ -8,7 +8,6 @@ export type WorkbenchView =
   | "home"
   | "workspaces";
 export type ServiceTab = "overview" | "build" | "versions" | "deployments" | "runs";
-export type WorkbenchPresentation = "workbench" | "classic";
 
 export function isServiceTab(value: string): value is ServiceTab {
   return ["overview", "build", "versions", "deployments", "runs"].includes(value);
