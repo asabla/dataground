@@ -41,9 +41,13 @@ completion and from reference-runtime demonstrations.
 The source-worker conformance record documents development model-backed source
 execution and the authenticated public publication/invocation journey under
 short-lived local trust. It does not establish operational or production
-acceptance. The workspace change exporter remains an internal controller:
-accepted helper images, a complete writer fence, worker teardown integration,
-retention resolution, ordered journals and checkpoints remain. See
+acceptance. The separate owned workspace profile now binds v4 acceptance to the
+published helper images and composes original-owner cleanup and durable final
+change export before invocation completion. Its authenticated public journey
+passed on 30 October 2026 with real local model execution and ephemeral test
+trust. This proves normal completion in that development fixture. A complete
+production writer fence, worker teardown integration, retention resolution,
+ordered journals and checkpoints remain. See
 [governed source conformance](../development/governed-source-conformance.md) and
 [workspace change export](../development/workspace-change-export.md). Broad data,
 notebook and job integration still follows that governed-agent prerequisite.
