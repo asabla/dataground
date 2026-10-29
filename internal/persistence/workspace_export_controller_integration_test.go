@@ -186,6 +186,11 @@ func beginWorkspaceExportController(t *testing.T, ctx context.Context, pool *pgx
 	if _, err := pool.Exec(ctx, `DROP FUNCTION reject_export_completion() CASCADE`); err != nil {
 		t.Fatal(err)
 	}
+	// Preserve a native result before worker replacement. The replacement driver
+	// must complete this pending export without invoking any runtime transport.
+	if _, err := repo.CompleteInvocationRuntimeAttempt(ctx, claim, effect, map[string]any{"status": "succeeded"}); err != nil {
+		t.Fatal("retain native result", err)
+	}
 	// Revoke during a read, between its admission and delivery decisions.
 	source.beforeRead = func() {
 		source.beforeRead = nil
@@ -217,7 +222,8 @@ func beginWorkspaceExportController(t *testing.T, ctx context.Context, pool *pgx
 		if _, err := repo.ReadClaimedWorkspaceSource(ctx, replacement, effect, source, q.Source, 3, &reconcile.SourceCedarEvaluator{}); err == nil {
 			t.Fatal("original runtime read boundary weakened")
 		}
-		completed, err := exporter.Export(ctx, replacement, effect, ref, provider, check)
+		recoverWorkspaceThroughRuntimeDriver(t, ctx, pool, replacement, effect, config, source, objects, provider)
+		completed, err := repo.GetWorkspaceChangeExport(ctx, replacement.IsolationDomainID, replacement.ID)
 		if err != nil || !completed.Ready || completed.Record != pending.Record || objects.writes != 1 || provider.calls != 1 {
 			t.Fatal("replacement did not recover exact object", objects.writes, provider.calls, err)
 		}

@@ -118,35 +118,37 @@ func (CodexInvocationRuntimeAdapterFactory) New(
 }
 
 type InvocationRuntimeDriverConfig struct {
-	WorkspacePreparer  *InvocationWorkspacePreparer
-	LeaseDuration      time.Duration
-	RenewInterval      time.Duration
-	Readiness          func(context.Context) error
-	ApprovalStore      InvocationRuntimeApprovalStore
-	ApprovalAuthorizer InvocationApprovalAuthorizer
-	QuestionStore      InvocationRuntimeQuestionStore
-	QuestionAuthorizer InvocationQuestionAuthorizer
+	WorkspaceCompletion *InvocationWorkspaceCompletion
+	WorkspacePreparer   *InvocationWorkspacePreparer
+	LeaseDuration       time.Duration
+	RenewInterval       time.Duration
+	Readiness           func(context.Context) error
+	ApprovalStore       InvocationRuntimeApprovalStore
+	ApprovalAuthorizer  InvocationApprovalAuthorizer
+	QuestionStore       InvocationRuntimeQuestionStore
+	QuestionAuthorizer  InvocationQuestionAuthorizer
 }
 
 // InvocationRuntimeDriver is the claim-bound bridge from one durable runtime
 // effect to one native agent turn. It is deliberately opt-in and does not
 // change the default worker composition.
 type InvocationRuntimeDriver struct {
-	workspacePreparer  *InvocationWorkspacePreparer
-	store              InvocationRuntimeStore
-	authorizer         InvocationRuntimeAuthorizer
-	requests           InvocationRuntimeRequestBuilder
-	executions         executionByOperationSource
-	provider           invocationRuntimeProvider
-	adapters           InvocationRuntimeAdapterFactory
-	artifacts          InvocationRuntimeArtifactFinalizer
-	leaseDuration      time.Duration
-	renewInterval      time.Duration
-	readiness          func(context.Context) error
-	approvalStore      InvocationRuntimeApprovalStore
-	approvalAuthorizer InvocationApprovalAuthorizer
-	questionStore      InvocationRuntimeQuestionStore
-	questionAuthorizer InvocationQuestionAuthorizer
+	workspaceCompletion *InvocationWorkspaceCompletion
+	workspacePreparer   *InvocationWorkspacePreparer
+	store               InvocationRuntimeStore
+	authorizer          InvocationRuntimeAuthorizer
+	requests            InvocationRuntimeRequestBuilder
+	executions          executionByOperationSource
+	provider            invocationRuntimeProvider
+	adapters            InvocationRuntimeAdapterFactory
+	artifacts           InvocationRuntimeArtifactFinalizer
+	leaseDuration       time.Duration
+	renewInterval       time.Duration
+	readiness           func(context.Context) error
+	approvalStore       InvocationRuntimeApprovalStore
+	approvalAuthorizer  InvocationApprovalAuthorizer
+	questionStore       InvocationRuntimeQuestionStore
+	questionAuthorizer  InvocationQuestionAuthorizer
 }
 
 func NewInvocationRuntimeDriver(
@@ -185,9 +187,16 @@ func NewInvocationRuntimeDriver(
 			return nil, errors.New("workspace preparation requires a configured controller, source transport, and runtime readiness")
 		}
 	}
+	if config.WorkspaceCompletion != nil {
+		_, owned := provider.(ownedInvocationRuntimeProvider)
+		if !owned || config.WorkspacePreparer == nil || !config.WorkspaceCompletion.valid() || config.WorkspaceCompletion.exporter.config != config.WorkspacePreparer.config {
+			return nil, errors.New("workspace completion requires matching preparation, owned runtime and export controllers")
+		}
+	}
 	return &InvocationRuntimeDriver{
-		workspacePreparer: config.WorkspacePreparer,
-		store:             store, authorizer: authorizer, requests: requests, executions: executions,
+		workspaceCompletion: config.WorkspaceCompletion,
+		workspacePreparer:   config.WorkspacePreparer,
+		store:               store, authorizer: authorizer, requests: requests, executions: executions,
 		provider: provider, adapters: adapters, artifacts: artifacts, leaseDuration: config.LeaseDuration,
 		renewInterval: config.RenewInterval, readiness: config.Readiness,
 		approvalStore: config.ApprovalStore, approvalAuthorizer: config.ApprovalAuthorizer,
@@ -239,8 +248,14 @@ func (driver *InvocationRuntimeDriver) ObserveClaimed(
 	}
 	switch attempt.Status {
 	case "succeeded":
+		if err := driver.recoverWorkspace(ctx, claim, effect); err != nil {
+			return nil, false, errors.Join(ErrAmbiguousEffect, err)
+		}
 		return attempt.Result, true, nil
 	case "failed":
+		if err := driver.recoverWorkspace(ctx, claim, effect); err != nil {
+			return nil, false, errors.Join(ErrAmbiguousEffect, err)
+		}
 		failure := dgruntime.ErrTurnFailed
 		switch attempt.Result["code"] {
 		case "RUNTIME_TURN_INTERRUPTED":
@@ -251,6 +266,11 @@ func (driver *InvocationRuntimeDriver) ObserveClaimed(
 		return attempt.Result, false, errors.Join(ErrEffectTerminal, failure)
 	case "output_invalid":
 		err := driver.retainInvalidRuntimeOutput(ctx, claim, effect, 0)
+		if errors.Is(err, ErrEffectTerminal) {
+			if finishErr := driver.recoverWorkspace(ctx, claim, effect); finishErr != nil {
+				return nil, false, errors.Join(ErrAmbiguousEffect, finishErr)
+			}
+		}
 		return nil, false, err
 	case "reserved":
 		return nil, false, errors.Join(
@@ -373,7 +393,7 @@ func (driver *InvocationRuntimeDriver) ApplyClaimed(
 			return nil, err
 		}
 	}
-	session, err := driver.provider.StartRuntime(runCtx, ref)
+	session, completeWorkspace, err := driver.startRuntimeSession(runCtx, effect, target, ref, request)
 	if err != nil {
 		return nil, err
 	}
@@ -404,6 +424,7 @@ func (driver *InvocationRuntimeDriver) ApplyClaimed(
 		request.Artifacts,
 		request.QuestionMode == dgruntime.QuestionInteractive,
 		request.QuestionTimeout,
+		completeWorkspace,
 	)
 }
 
@@ -418,6 +439,7 @@ func (driver *InvocationRuntimeDriver) runTurn(
 	declarations []dgruntime.ArtifactDeclaration,
 	questionsEnabled bool,
 	questionTimeout time.Duration,
+	completeWorkspace invocationWorkspaceFinish,
 ) (result map[string]any, runErr error) {
 	runCtx, cancel := context.WithDeadline(ctx, claim.DeadlineAt)
 	defer cancel()
@@ -546,6 +568,11 @@ func (driver *InvocationRuntimeDriver) runTurn(
 					); err != nil {
 						return nil, errors.Join(ErrAmbiguousEffect, waitErr, err)
 					}
+					if completeWorkspace != nil {
+						if err := completeWorkspace(runCtx, claim); err != nil {
+							return nil, errors.Join(ErrAmbiguousEffect, err)
+						}
+					}
 					return nil, errors.Join(ErrEffectTerminal, waitErr)
 				}
 				return nil, errors.Join(ErrAmbiguousEffect, waitErr)
@@ -553,7 +580,13 @@ func (driver *InvocationRuntimeDriver) runTurn(
 			result, resultErr := output.Result()
 			if resultErr != nil {
 				if output.messageSequence > 0 {
-					return nil, driver.retainInvalidRuntimeOutput(runCtx, claim, effect, output.messageSequence)
+					err := driver.retainInvalidRuntimeOutput(runCtx, claim, effect, output.messageSequence)
+					if errors.Is(err, ErrEffectTerminal) && completeWorkspace != nil {
+						if finishErr := completeWorkspace(runCtx, claim); finishErr != nil {
+							return nil, errors.Join(ErrAmbiguousEffect, finishErr)
+						}
+					}
+					return nil, err
 				}
 				failure := map[string]any{"code": "RUNTIME_OUTPUT_INVALID", "status": "failed"}
 				if _, err := driver.store.FailInvocationRuntimeAttempt(
@@ -563,6 +596,11 @@ func (driver *InvocationRuntimeDriver) runTurn(
 					failure,
 				); err != nil {
 					return nil, errors.Join(ErrAmbiguousEffect, resultErr, err)
+				}
+				if completeWorkspace != nil {
+					if err := completeWorkspace(runCtx, claim); err != nil {
+						return nil, errors.Join(ErrAmbiguousEffect, err)
+					}
 				}
 				return nil, errors.Join(ErrEffectTerminal, resultErr)
 			}
@@ -581,13 +619,15 @@ func (driver *InvocationRuntimeDriver) runTurn(
 			if err := driver.ready(runCtx); err != nil {
 				return nil, errors.Join(ErrAmbiguousEffect, err)
 			}
-			if _, err := driver.store.CompleteInvocationRuntimeAttempt(
-				runCtx,
-				claim,
-				effect,
-				result,
-			); err != nil {
+			if _, err := driver.store.CompleteInvocationRuntimeAttempt(runCtx, claim, effect, result); err != nil {
 				return nil, errors.Join(ErrAmbiguousEffect, err)
+			}
+			if completeWorkspace != nil {
+				// Declared artifacts and the native outcome are retained before
+				// cleanup. Replacement workers finish workspace export only.
+				if err := completeWorkspace(runCtx, claim); err != nil {
+					return nil, errors.Join(ErrAmbiguousEffect, err)
+				}
 			}
 			return result, nil
 		case <-ticker.C:
