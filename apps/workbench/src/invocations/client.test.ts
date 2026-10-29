@@ -189,7 +189,47 @@ describe("invocation status client", () => {
     assert.equal(invalid.ok, false);
     assert.equal(mismatched.ok, false);
     assert.equal(calls, 1);
-    if (!mismatched.ok) assert.equal(mismatched.error.code, "WORKBENCH_INVOCATION_SCOPE_MISMATCH");
+    if (!mismatched.ok) {
+      assert.equal(mismatched.error.code, "WORKBENCH_INVOCATION_SCOPE_MISMATCH");
+      assert.equal(mismatched.error.outcomeUnknown, true);
+      assert.equal(mismatched.error.retryable, true);
+    }
+  });
+
+  it("keeps unconfirmed submission receipts recoverable but preserves explicit denials", async () => {
+    for (const status of [200, 202, 500, 503, 403, 409]) {
+      const explicit = status === 403 || status === 409;
+      const result = await invokeAgentService(
+        {
+          POST: async () => ({
+            ...(status === 200 || status === 500 ? { data: invocation } : {}),
+            ...(explicit
+              ? {
+                  error: {
+                    error: {
+                      code: "REQUEST_DENIED",
+                      message: "Request denied.",
+                      correlationId: "cor_review",
+                      retryable: false,
+                    },
+                  },
+                }
+              : {}),
+            response: new Response(null, { status }),
+          }),
+          GET: async () => assert.fail("Unconfirmed receipts must not enable inspection"),
+        } as unknown as DataGroundClient,
+        { isolationDomainId: reference.isolationDomainId, serviceId: invocation.serviceId },
+        "stable",
+        { prompt: "private input" },
+        "invoke:unconfirmed0001",
+      );
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.equal(result.error.retryable, !explicit);
+        assert.equal(result.error.outcomeUnknown === true, !explicit);
+      }
+    }
   });
 
   it("classifies thrown invocation transport as an uncertain retryable outcome", async () => {

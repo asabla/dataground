@@ -34,6 +34,7 @@ export interface AcceptedInvocation {
 
 export interface InvocationComposerProps {
   compact?: boolean;
+  autoFocusAlias?: boolean;
   accepted?: AcceptedInvocation;
   alias: string;
   canInvoke: boolean;
@@ -42,6 +43,7 @@ export interface InvocationComposerProps {
   isSubmitting?: boolean;
   onAliasChange?: (value: string) => void;
   onOpenInvocation?: () => void;
+  onStartAnotherRun?: () => void;
   onSubmit?: () => void;
   onValueChange?: (key: string, value: string) => void;
   recoveryPending?: boolean;
@@ -71,6 +73,7 @@ function displayText(value: string, maximum = 255): string {
 
 export function InvocationComposer({
   compact = false,
+  autoFocusAlias = false,
   accepted,
   alias,
   canInvoke,
@@ -79,6 +82,7 @@ export function InvocationComposer({
   isSubmitting = false,
   onAliasChange,
   onOpenInvocation,
+  onStartAnotherRun,
   onSubmit,
   onValueChange,
   recoveryPending = false,
@@ -212,6 +216,16 @@ export function InvocationComposer({
             </dl>
           </SecondaryDetails>
           {onOpenInvocation && <Button onPress={onOpenInvocation}>Open invocation</Button>}
+          {compact &&
+            canInvoke &&
+            !unavailable &&
+            !isSubmitting &&
+            !recoveryPending &&
+            onStartAnotherRun && (
+              <Button variant="quiet" onPress={onStartAnotherRun}>
+                Start another run
+              </Button>
+            )}
         </div>
       ) : schema && recoveryPending ? (
         <form
@@ -244,6 +258,7 @@ export function InvocationComposer({
             </p>
           )}
           <TextField
+            autoFocus={autoFocusAlias}
             errorMessage={validationErrors.$alias}
             isDisabled={!canInvoke || isSubmitting || recoveryPending}
             isRequired
