@@ -1,9 +1,16 @@
 export type WorkbenchView = "interactions" | "services" | "workflow";
+export type ServiceTab = "overview" | "build" | "versions" | "deployments" | "runs";
+export type WorkbenchPresentation = "workbench" | "classic";
+
+export function isServiceTab(value: string): value is ServiceTab {
+  return ["overview", "build", "versions", "deployments", "runs"].includes(value);
+}
 
 export interface WorkbenchRoute {
   isolationDomainId: string;
   view: WorkbenchView;
   serviceId?: string;
+  serviceTab?: Exclude<ServiceTab, "build" | "runs">;
 }
 
 const scopePattern = /^iso_[0-9a-z]{20,32}$/u;
@@ -21,7 +28,7 @@ export function routeHash(route: WorkbenchRoute): string {
   const root = `#/scopes/${route.isolationDomainId}/agents`;
   if (route.view === "services") return root;
   if (route.serviceId) {
-    return `${root}/${route.serviceId}/${route.view === "interactions" ? "runs" : "build"}`;
+    return `${root}/${route.serviceId}/${route.view === "interactions" ? "runs" : (route.serviceTab ?? "build")}`;
   }
   return `${root}/${route.view === "workflow" ? "new" : "runs"}`;
 }
@@ -39,8 +46,14 @@ export function parseRoute(hash: string, isolationDomainId: string): WorkbenchRo
     !serviceId ||
     !servicePattern.test(serviceId) ||
     extra !== undefined ||
-    (tab !== "build" && tab !== "runs")
+    !tab ||
+    !isServiceTab(tab)
   )
     return undefined;
-  return { isolationDomainId, serviceId, view: tab === "build" ? "workflow" : "interactions" };
+  return {
+    isolationDomainId,
+    serviceId,
+    view: tab === "runs" ? "interactions" : "workflow",
+    ...(tab === "build" || tab === "runs" ? {} : { serviceTab: tab }),
+  };
 }

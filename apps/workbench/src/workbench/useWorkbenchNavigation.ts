@@ -13,6 +13,7 @@ export function useWorkbenchNavigation(isolationDomainId: string) {
       setRoute((current) =>
         current?.isolationDomainId === next?.isolationDomainId &&
         current?.serviceId === next?.serviceId &&
+        current?.serviceTab === next?.serviceTab &&
         current?.view === next?.view
           ? current
           : next,

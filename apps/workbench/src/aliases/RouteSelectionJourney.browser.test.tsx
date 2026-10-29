@@ -92,7 +92,12 @@ async function click(text: string, contains = false) {
 async function open(client: DataGroundClient) {
   await act(async () =>
     root.render(
-      <DevelopmentWorkbench client={client} isolationDomainId={scope} onDisconnect={() => {}} />,
+      <DevelopmentWorkbench
+        presentation="classic"
+        client={client}
+        isolationDomainId={scope}
+        onDisconnect={() => {}}
+      />,
     ),
   );
   await click("Open service");

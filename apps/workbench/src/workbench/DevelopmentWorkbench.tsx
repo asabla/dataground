@@ -9,12 +9,18 @@ import {
 } from "../services/client";
 import type { ServiceSort } from "../services/directory";
 import { ServiceDirectory } from "../services/ServiceDirectory";
-import type { WorkbenchRoute, WorkbenchView } from "./navigation";
+import type {
+  ServiceTab,
+  WorkbenchPresentation,
+  WorkbenchRoute,
+  WorkbenchView,
+} from "./navigation";
 import { ServiceWorkflowSession } from "./ServiceWorkflowSession";
 import { useWorkbenchNavigation } from "./useWorkbenchNavigation";
 import { WorkbenchShell } from "./WorkbenchShell";
 
 export interface DevelopmentWorkbenchProps {
+  presentation?: WorkbenchPresentation;
   client: DataGroundClient;
   isolationDomainId: string;
   onDisconnect: () => void;
@@ -24,12 +30,18 @@ export function DevelopmentWorkbench(props: DevelopmentWorkbenchProps) {
   const [connection, setConnection] = useState({
     client: props.client,
     scope: props.isolationDomainId,
+    presentation: props.presentation,
     generation: 0,
   });
-  if (connection.client !== props.client || connection.scope !== props.isolationDomainId) {
+  if (
+    connection.client !== props.client ||
+    connection.scope !== props.isolationDomainId ||
+    connection.presentation !== props.presentation
+  ) {
     setConnection({
       client: props.client,
       scope: props.isolationDomainId,
+      presentation: props.presentation,
       generation: connection.generation + 1,
     });
   }
@@ -45,6 +57,7 @@ export function WorkbenchSession({
   client,
   isolationDomainId,
   onDisconnect,
+  presentation = "workbench",
 }: DevelopmentWorkbenchProps) {
   const [scopedServices, setScopedServices] = useState<AgentServiceResource[]>([]);
   const [serviceListError, setServiceListError] = useState<AgentServiceFailure>();
@@ -177,7 +190,14 @@ export function WorkbenchSession({
       sessions.find((session) => session.service?.metadata.id === service.metadata.id)?.key ??
         service.metadata.id,
     );
-    navigate({ isolationDomainId, serviceId: service.metadata.id, view: next });
+    navigate({
+      isolationDomainId,
+      serviceId: service.metadata.id,
+      view: next,
+      ...(presentation === "workbench" && next === "workflow"
+        ? { serviceTab: "overview" as const }
+        : {}),
+    });
   };
   const navigateView = (next: WorkbenchView) => {
     const context = activeSession ?? sessions.find((session) => session.key === lastSessionKey);
@@ -188,10 +208,15 @@ export function WorkbenchSession({
     });
   };
   const create = () => navigate({ isolationDomainId, view: "workflow" });
-  const sessionRoute = (session: OpenServiceWork, next: WorkbenchView): WorkbenchRoute => ({
+  const sessionRoute = (
+    session: OpenServiceWork,
+    next: WorkbenchView,
+    tab?: ServiceTab,
+  ): WorkbenchRoute => ({
     isolationDomainId,
     view: next,
     ...(next === "services" ? {} : { serviceId: session.service?.metadata.id }),
+    ...(next === "workflow" && tab && tab !== "build" && tab !== "runs" ? { serviceTab: tab } : {}),
   });
 
   return (
@@ -294,12 +319,20 @@ export function WorkbenchSession({
           return (
             <div key={session.key} hidden={!active}>
               <ServiceWorkflowSession
+                presentation={presentation}
+                selectedTab={
+                  active
+                    ? view === "interactions"
+                      ? "runs"
+                      : (route?.serviceTab ?? "build")
+                    : undefined
+                }
                 client={client}
                 isolationDomainId={isolationDomainId}
                 initialService={session.service}
                 active={active}
                 view={active ? view : "services"}
-                onNavigate={(next) => navigate(sessionRoute(session, next))}
+                onNavigate={(next, tab) => navigate(sessionRoute(session, next, tab))}
                 onServiceOpened={(service) => {
                   if (service.metadata.isolationDomainId !== isolationDomainId) return;
                   setSessions((current) =>

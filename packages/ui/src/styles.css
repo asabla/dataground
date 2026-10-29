@@ -253,3 +253,43 @@
   color: var(--dg-color-text-secondary);
   text-align: center;
 }
+
+.dg-tabs__list {
+  display: flex;
+  gap: var(--dg-space-5);
+  overflow-x: auto;
+  border-bottom: var(--dg-border-default) solid var(--dg-color-border-default);
+}
+
+.dg-tabs__tab {
+  flex: none;
+  padding: var(--dg-space-3) var(--dg-space-1);
+  border-bottom: var(--dg-border-strong) solid transparent;
+  color: var(--dg-color-text-secondary);
+  cursor: pointer;
+}
+
+.dg-tabs__tab[data-selected] {
+  border-color: var(--dg-color-action-primary);
+  color: var(--dg-color-text-primary);
+  font-weight: var(--dg-font-weight-semibold);
+}
+
+.dg-tabs__tab[data-disabled] {
+  color: var(--dg-color-text-muted);
+  cursor: not-allowed;
+}
+
+.dg-tabs__tab[data-focus-visible],
+.dg-tabs__panel[data-focus-visible] {
+  outline: var(--dg-border-strong) solid var(--dg-color-focus);
+  outline-offset: calc(-1 * var(--dg-border-strong));
+}
+
+.dg-tabs__panel {
+  padding-block: var(--dg-space-5);
+}
+
+.dg-tabs__panel[data-inert] {
+  display: none;
+}
