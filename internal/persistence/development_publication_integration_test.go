@@ -307,6 +307,10 @@ func newDevelopmentPublicationFixtureWithPolicy(t *testing.T, ctx context.Contex
 	return newDevelopmentPublicationFixtureWithSource(t, ctx, repo, store, policies, false)
 }
 func newDevelopmentPublicationFixtureWithSource(t *testing.T, ctx context.Context, repo *persistence.Repository, store *executionpostgres.Store, policies []byte, withSource bool) developmentPublicationFixture {
+	return newDevelopmentPublicationFixtureForProfile(t, ctx, repo, store, policies, withSource, false)
+}
+
+func newDevelopmentPublicationFixtureForProfile(t *testing.T, ctx context.Context, repo *persistence.Repository, store *executionpostgres.Store, policies []byte, withSource, owned bool) developmentPublicationFixture {
 	t.Helper()
 	scope, service, revision := identity.New("iso"), identity.New("svc"), identity.New("rev")
 	idem := func(key string) persistence.Idempotency {
@@ -327,6 +331,9 @@ func newDevelopmentPublicationFixtureWithSource(t *testing.T, ctx context.Contex
 			policies = []byte(`permit(principal,action,resource);`)
 		}
 		policy, err = reconcile.NewInvocationAuthorizationPolicyWithSourceEntities(reconcile.InvocationAuthorizationPolicyScope{IsolationDomainID: scope, ServiceID: service, RevisionID: revision}, "source-publication-policy", reconcile.CanonicalSourceCedarSchema(), policies, persistenceEntityFixture(t))
+		if owned {
+			policy, err = reconcile.NewInvocationAuthorizationPolicyWithWorkspaceExportEntities(reconcile.InvocationAuthorizationPolicyScope{IsolationDomainID: scope, ServiceID: service, RevisionID: revision}, "owned-publication-policy", reconcile.CanonicalWorkspaceExportCedarSchema(), policies, persistenceEntityFixture(t))
+		}
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -360,6 +367,10 @@ func newDevelopmentPublicationFixtureWithSource(t *testing.T, ctx context.Contex
 	if withSource {
 		result.input.Contract = persistence.WorkspaceDevelopmentPublicationContract
 		result.evidence.Profile = persistence.WorkspaceDevelopmentPublicationProfile
+	}
+	if owned {
+		result.input.Contract = persistence.OwnedWorkspacePublicationContract
+		result.evidence.Profile = persistence.OwnedWorkspacePublicationProfile
 	}
 	return result
 }

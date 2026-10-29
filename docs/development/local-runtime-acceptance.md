@@ -104,8 +104,8 @@ verification. Acceptance does not extend the diagnostic's 24-hour validity.
 
 The [owned workspace worker profile](governed-worker.md#owned-workspace-export-profile)
 can explicitly consume this acceptance with exact plan and source-grant pins,
-version 7 Cedar policy, and strict gateway observation. Publication paths still
-reject this profile pending their separate versioned contract. Current authority,
+version 7 Cedar policy, and strict gateway observation. The v3 operator publication contract and version 6 authorized publication operation
+bind this profile separately from source-only publication. Current authority,
 durable cleanup and export records, exclusion of other writers, and retention
 before deletion remain separate requirements. No production certification is granted.
 

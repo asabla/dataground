@@ -21,14 +21,18 @@ import (
 )
 
 func TestAuthorizedPublicationAPIToFencedCompletion(t *testing.T) {
-	t.Run("source-free", func(t *testing.T) { testAuthorizedPublicationAPIToFencedCompletion(t, false) })
-	t.Run("workspace-source", func(t *testing.T) { testAuthorizedPublicationAPIToFencedCompletion(t, true) })
+	t.Run("source-free", func(t *testing.T) { testAuthorizedPublicationAPIToFencedCompletion(t, false, false) })
+	t.Run("workspace-source", func(t *testing.T) { testAuthorizedPublicationAPIToFencedCompletion(t, true, false) })
+	t.Run("owned-workspace", func(t *testing.T) { testAuthorizedPublicationAPIToFencedCompletion(t, true, true) })
 }
 
-func testAuthorizedPublicationAPIToFencedCompletion(t *testing.T, withSource bool) {
+func testAuthorizedPublicationAPIToFencedCompletion(t *testing.T, withSource, owned bool) {
 	expectedStateVersion := 4
 	if withSource {
 		expectedStateVersion = 5
+	}
+	if owned {
+		expectedStateVersion = 6
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -52,7 +56,7 @@ func testAuthorizedPublicationAPIToFencedCompletion(t *testing.T, withSource boo
 		// Only the dedicated test database removes retained evidence, after checking
 		// that the production downgrade and mutation guards reject its removal.
 		if _, err := pool.Exec(context.Background(), `TRUNCATE publication_authorization_decisions,governed_publication_requests;
-   DELETE FROM service_publication_operations WHERE state_machine_version IN (4,5);
+   DELETE FROM service_publication_operations WHERE state_machine_version IN (4,5,6);
    TRUNCATE workspace_change_export_decisions,invocation_workspace_quiescence_completions,invocation_workspace_quiescence_intents,invocation_workspace_change_completions,invocation_workspace_change_exports,invocation_workspace_completions,invocation_workspace_preparations,service_revision_execution_plans,
  workspace_source_grants,workspace_source_use_decisions,workspace_source_completions,workspace_source_installations,workspaces,
  api_authorization_decisions,audit_records,invocation_authorization_entity_activations,invocation_authorization_entity_generations,
@@ -77,7 +81,7 @@ func testAuthorizedPublicationAPIToFencedCompletion(t *testing.T, withSource boo
 			if mode == "effect denied" {
 				policy = `permit(principal,action==DataGround::Action::"publish",resource) when {context.phase=="entry"};`
 			}
-			f := newDevelopmentPublicationFixtureWithSource(t, ctx, repo, store, []byte(policy), withSource)
+			f := newDevelopmentPublicationFixtureForProfile(t, ctx, repo, store, []byte(policy), withSource, owned)
 			scope := f.input.Target.IsolationDomainID
 			if operation, err := repo.FindAuthorizedDevelopmentPublication(ctx, f.input); err != nil || operation != nil {
 				t.Fatal("draft without request was not idle", operation, err)
@@ -230,6 +234,9 @@ func testAuthorizedPublicationAPIToFencedCompletion(t *testing.T, withSource boo
 			if withSource {
 				downgrade = 70
 			}
+			if owned {
+				downgrade = 82
+			}
 			if err := persistence.MigrateDownTo(ctx, db, downgrade); err == nil {
 				t.Fatal("downgrade removed authorized operation")
 			}
@@ -238,6 +245,9 @@ func testAuthorizedPublicationAPIToFencedCompletion(t *testing.T, withSource boo
 			if withSource {
 				legacy := f.input
 				legacy.Contract = persistence.DevelopmentPublicationContract
+				if owned {
+					legacy.Contract = persistence.WorkspaceDevelopmentPublicationContract
+				}
 				if err := repo.RequireAuthorizedDevelopmentPublication(ctx, operationID, legacy); err == nil {
 					t.Fatal("legacy contract matched source request")
 				}

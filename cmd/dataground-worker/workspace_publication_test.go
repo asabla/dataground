@@ -127,3 +127,49 @@ func TestWorkspacePublicationExportsVersionedPublicConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func TestOwnedWorkspacePublicationKeepsProducerConsumerAndLegacyContractsDistinct(t *testing.T) {
+	values := validStrictAcceptanceEnvironment()
+	values["DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE"] = ownedWorkspaceRuntimeProfile
+	var digest string
+	for _, command := range []string{"publish-development", "prepare-publication-configuration", "reconcile-authorized-publication"} {
+		args := publicationArguments()
+		if command != "publish-development" {
+			args = args[:7]
+		}
+		args[0] = command
+		config, err := loadDevelopmentPublication(args, mapEnvironment(values))
+		if err != nil || config.input.Contract != persistence.OwnedWorkspacePublicationContract || config.publicationPolicyContract() != "dataground.invocation-authorization-policy/v7" || config.input.AuthorizedPublicationVersion() != 6 {
+			t.Fatal("owned publication lost its contract", command, err)
+		}
+		if digest != "" && digest != config.input.VerificationDigest {
+			t.Fatal("owned producer and consumer pins differ")
+		}
+		digest = config.input.VerificationDigest
+		var output bytes.Buffer
+		if err := writePublicPublicationConfiguration(&output, config.input); err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]any
+		if json.Unmarshal(output.Bytes(), &fields) != nil || fields["contract"] != "dataground.api-governed-publication/v3" || len(fields) != 9 {
+			t.Fatal("owned configuration is not closed and versioned")
+		}
+		for _, private := range []string{config.acceptance.envelopeFile, config.acceptance.trustFile, config.endpoint} {
+			if strings.Contains(output.String(), private) {
+				t.Fatal("configuration disclosed deployment routing")
+			}
+		}
+	}
+	for _, command := range []string{"queue-development-publication", "reconcile-development-publication"} {
+		args := publicationArguments()
+		args[0] = command
+		if _, err := loadDevelopmentPublication(args, mapEnvironment(values)); err == nil {
+			t.Fatal("owned intent entered an unversioned operator queue")
+		}
+	}
+	values["DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE"] = workspaceLocalRuntimeProfile
+	legacy, err := loadDevelopmentPublication(publicationArguments(), mapEnvironment(values))
+	if err != nil || legacy.input.VerificationDigest == digest {
+		t.Fatal("owned acceptance shares legacy verification identity", err)
+	}
+}

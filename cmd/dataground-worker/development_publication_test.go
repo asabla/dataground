@@ -81,12 +81,16 @@ func (source publicationPolicies) ResolveInvocationAuthorizationPolicy(context.C
 }
 
 func TestDevelopmentPublicationVerifiesActualMaterialAndAcceptance(t *testing.T) {
-	for _, mode := range []string{"valid", "source valid", "source old policy", "source old receipt", "source changed source", "source missing source", "authorized", "authorized older policy", "operator publication policy", "plan scope", "image", "plan digest", "bundle scope", "bundle identity", "bytes", "policy scope", "policy digest", "expired acceptance", "deployment", "verifier", "cancelled"} {
+	for _, mode := range []string{"owned valid", "owned old policy", "owned old receipt", "owned missing owner", "owned missing source", "valid", "source valid", "source old policy", "source old receipt", "source changed source", "source missing source", "authorized", "authorized older policy", "operator publication policy", "plan scope", "image", "plan digest", "bundle scope", "bundle identity", "bytes", "policy scope", "policy digest", "expired acceptance", "deployment", "verifier", "cancelled"} {
 		t.Run(mode, func(t *testing.T) {
 			values := validStrictAcceptanceEnvironment()
-			sourceMode := strings.HasPrefix(mode, "source ")
+			ownedMode := strings.HasPrefix(mode, "owned ")
+			sourceMode := strings.HasPrefix(mode, "source ") || ownedMode
 			if sourceMode {
 				values["DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE"] = workspaceLocalRuntimeProfile
+			}
+			if ownedMode {
+				values["DATAGROUND_DEVELOPMENT_RUNTIME_PROFILE"] = ownedWorkspaceRuntimeProfile
 			}
 			config, err := loadDevelopmentPublication(publicationArguments(), mapEnvironment(values))
 			if err != nil {
@@ -115,6 +119,10 @@ func TestDevelopmentPublicationVerifiesActualMaterialAndAcceptance(t *testing.T)
 				receipt["profile"] = workspaceLocalRuntimeProfile
 				receipt["workspaceSourceContract"] = "dataground.workspace-source-materialization/v1"
 			}
+			if ownedMode {
+				policy.Contract = reconcile.InvocationAuthorizationPolicyWorkspaceExportContract
+				receipt = ownedAcceptanceReceipt(config.acceptance)
+			}
 			deployment := &fakeRuntimeDeployment{}
 			checker := &localRuntimeAcceptanceChecker{config: config.acceptance, run: func(context.Context, string, []string, []string) ([]byte, error) {
 				if mode == "verifier" {
@@ -128,6 +136,14 @@ func TestDevelopmentPublicationVerifiesActualMaterialAndAcceptance(t *testing.T)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			switch mode {
+			case "owned old policy":
+				policy.Contract = reconcile.InvocationAuthorizationPolicySourceContract
+			case "owned old receipt":
+				receipt["profile"] = workspaceLocalRuntimeProfile
+			case "owned missing owner":
+				delete(receipt, "nativeOwnerContract")
+			case "owned missing source":
+				plan.WorkspaceSource = nil
 			case "source old policy":
 				policy.Contract = reconcile.InvocationAuthorizationPolicyApprovalContract
 			case "source old receipt":
@@ -168,7 +184,7 @@ func TestDevelopmentPublicationVerifiesActualMaterialAndAcceptance(t *testing.T)
 				cancel()
 			}
 			proof, err := verifyDevelopmentPublication(ctx, config, publicationPlans{plan: plan}, publicationBundles{bundle}, publicationPolicies{policy}, checker)
-			if mode == "valid" || mode == "authorized" || mode == "source valid" {
+			if mode == "valid" || mode == "authorized" || mode == "source valid" || mode == "owned valid" {
 				if err != nil || proof.Profile != config.acceptance.acceptanceProfile() || proof.ImageReference != config.acceptance.image || !proof.ExpiresAt.After(time.Now()) || deployment.checks.Load() != 1 {
 					t.Fatal("verified publication failed", err)
 				}

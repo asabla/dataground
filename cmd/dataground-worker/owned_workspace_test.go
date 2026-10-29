@@ -124,11 +124,6 @@ func TestOwnedWorkspaceWorkerRequiresExportPolicyAndCapacity(t *testing.T) {
 	if _, err := loadWorkerConfig(mapEnvironment(values)); err == nil {
 		t.Fatal("worker accepted insufficient artifact capacity")
 	}
-	// Publication has a separate versioned contract; worker acceptance cannot
-	// silently expand the existing source-publication command.
-	if _, err := loadDevelopmentPublication(publicationArguments(), mapEnvironment(values)); err == nil {
-		t.Fatal("owned worker profile bypassed publication contract")
-	}
 }
 
 type ownedWorkerProvider struct {

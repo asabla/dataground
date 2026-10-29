@@ -22,6 +22,9 @@ import (
 const WorkspaceDevelopmentPublicationContract = "dataground.development-publication/v2"
 const WorkspaceDevelopmentPublicationProfile = "openshell-codex-workspace-candidate-development/v1"
 
+const OwnedWorkspacePublicationContract = "dataground.development-publication/v3"
+const OwnedWorkspacePublicationProfile = "openshell-codex-workspace-export-candidate-development/v1"
+
 const DevelopmentPublicationContract = "dataground.development-publication/v1"
 const StrictDevelopmentPublicationProfile = "openshell-codex-strict-candidate-development/v1"
 const strictDevelopmentPublicationPolicy = "sha256:a1d56c0470c3264c4c37183352d783ebb67911d92ef2eb6ec5f7c76c61f69f39"
@@ -66,13 +69,16 @@ func (input DevelopmentPublicationInput) Valid() bool {
 // ValidReviewedInputs checks the immutable deployment-owned publication pins.
 // Actor and correlation are supplied separately by the accepted command or claim.
 func (input DevelopmentPublicationInput) ValidReviewedInputs() bool {
-	return (input.Contract == DevelopmentPublicationContract || input.Contract == WorkspaceDevelopmentPublicationContract) && input.Target.Valid() && input.ExpectedVersion > 0 &&
+	return (input.Contract == DevelopmentPublicationContract || input.hasWorkspaceSource()) && input.Target.Valid() && input.ExpectedVersion > 0 &&
 		publicationDigestPattern.MatchString(input.PlanDigest) && publicationDigestPattern.MatchString(input.PolicyDigest) && publicationDigestPattern.MatchString(input.VerificationDigest)
 }
 
 // AuthorizedPublicationVersion selects the lifecycle contract for reviewed inputs.
 // It does not validate those inputs or grant publication authority.
 func (input DevelopmentPublicationInput) AuthorizedPublicationVersion() int {
+	if input.Contract == OwnedWorkspacePublicationContract {
+		return publication.AuthorizedOwnedWorkspaceVersion
+	}
 	if input.Contract == WorkspaceDevelopmentPublicationContract {
 		return publication.AuthorizedWorkspaceDevelopmentVersion
 	}
@@ -80,10 +86,17 @@ func (input DevelopmentPublicationInput) AuthorizedPublicationVersion() int {
 }
 
 func (input DevelopmentPublicationInput) publicationPolicyContract() string {
+	if input.Contract == OwnedWorkspacePublicationContract {
+		return "dataground.invocation-authorization-policy/v7"
+	}
 	if input.Contract == WorkspaceDevelopmentPublicationContract {
 		return "dataground.invocation-authorization-policy/v6"
 	}
 	return "dataground.invocation-authorization-policy/v5"
+}
+
+func (input DevelopmentPublicationInput) hasWorkspaceSource() bool {
+	return input.Contract == WorkspaceDevelopmentPublicationContract || input.Contract == OwnedWorkspacePublicationContract
 }
 
 func (input DevelopmentPublicationInput) matchesQueuedPublicationVersion(version int) bool {
@@ -92,6 +105,8 @@ func (input DevelopmentPublicationInput) matchesQueuedPublicationVersion(version
 		return version == publication.QueuedDevelopmentVersion || version == publication.AuthorizedDevelopmentVersion
 	case WorkspaceDevelopmentPublicationContract:
 		return version == publication.AuthorizedWorkspaceDevelopmentVersion
+	case OwnedWorkspacePublicationContract:
+		return version == publication.AuthorizedOwnedWorkspaceVersion
 	default:
 		return false
 	}
@@ -114,8 +129,8 @@ func (repository *Repository) PublishDevelopmentRevision(ctx context.Context, in
 	idem := Idempotency{IsolationDomainID: target.IsolationDomainID, Method: "POST", Path: "/internal/development-publication/" + target.RevisionID, Key: input.CorrelationID, RequestDigest: sha256.Sum256(encoded)}
 	result, err := repository.execute(ctx, idem, func(tx pgx.Tx, _ time.Time) (int, any, error) {
 		policyContract := "dataground.invocation-authorization-policy/v3"
-		if input.Contract == WorkspaceDevelopmentPublicationContract {
-			policyContract = "dataground.invocation-authorization-policy/v6"
+		if input.hasWorkspaceSource() {
+			policyContract = input.publicationPolicyContract()
 		}
 		verified, err := verifyDevelopmentPublication(ctx, tx, input, verify, policyContract, nil)
 		if err != nil {
@@ -125,6 +140,9 @@ func (repository *Repository) PublishDevelopmentRevision(ctx context.Context, in
 		identityContract := "development-publication:v1"
 		if input.Contract == WorkspaceDevelopmentPublicationContract {
 			identityContract = "development-publication:v2"
+		}
+		if input.Contract == OwnedWorkspacePublicationContract {
+			identityContract = "development-publication:v3"
 		}
 		operationID := identity.Derived("op", target.IsolationDomainID+":"+target.RevisionID+":"+identityContract)
 		receipt := map[string]any{"contract": input.Contract, "isolationDomainId": target.IsolationDomainID, "serviceId": target.ServiceID, "revisionId": target.RevisionID, "operationId": operationID, "state": "published", "certificationEligible": false}
@@ -178,13 +196,13 @@ func verifyDevelopmentPublication(ctx context.Context, tx pgx.Tx, input Developm
 	if err != nil || policy.Contract != policyContract || "sha256:"+hex.EncodeToString(policy.PolicyDigest) != input.PolicyDigest {
 		return verifiedDevelopmentPublication{}, ErrDevelopmentPublicationUnavailable
 	}
-	if input.Contract == WorkspaceDevelopmentPublicationContract {
-		if policyContract != "dataground.invocation-authorization-policy/v6" || verifyPublicationWorkspaceSource(ctx, tx, input) != nil {
+	if input.hasWorkspaceSource() {
+		if policyContract != input.publicationPolicyContract() || verifyPublicationWorkspaceSource(ctx, tx, input) != nil {
 			return verifiedDevelopmentPublication{}, ErrDevelopmentPublicationUnavailable
 		}
 	}
 	planSchema := execution.ExecutionPlanSchemaV1
-	if input.Contract == WorkspaceDevelopmentPublicationContract {
+	if input.hasWorkspaceSource() {
 		planSchema = execution.ExecutionPlanSchemaV2
 	}
 	var planDigest, image, enforcement string
@@ -216,6 +234,9 @@ func verifyDevelopmentPublication(ctx context.Context, tx pgx.Tx, input Developm
 	if input.Contract == WorkspaceDevelopmentPublicationContract {
 		expectedProfile = WorkspaceDevelopmentPublicationProfile
 	}
+	if input.Contract == OwnedWorkspacePublicationContract {
+		expectedProfile = OwnedWorkspacePublicationProfile
+	}
 	evidence, err := verify(ctx)
 	if err != nil || !publicationAcceptancePattern.MatchString(evidence.AcceptanceID) || evidence.Generation == 0 || evidence.Generation > 9007199254740991 || evidence.Profile != expectedProfile || evidence.ImageReference != image {
 		return verifiedDevelopmentPublication{}, ErrDevelopmentPublicationUnavailable
@@ -244,7 +265,7 @@ func recordDevelopmentPublication(ctx context.Context, tx pgx.Tx, input Developm
 		return err
 	}
 	metadataFields := map[string]any{"planDigest": input.PlanDigest, "policyDigest": input.PolicyDigest, "verificationDigest": input.VerificationDigest, "acceptanceId": evidence.AcceptanceID, "acceptanceGeneration": evidence.Generation, "acceptanceExpiresAt": evidence.ExpiresAt.UTC().Format(time.RFC3339Nano), "providerGrantGeneration": grantGeneration}
-	if input.Contract == WorkspaceDevelopmentPublicationContract {
+	if input.hasWorkspaceSource() {
 		metadataFields["publicationContract"] = input.Contract
 	}
 	metadata, err := json.Marshal(metadataFields)

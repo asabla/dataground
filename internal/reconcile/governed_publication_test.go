@@ -63,7 +63,7 @@ func (driver *authorizedPublicationTestDriver) PublishAuthorizedClaimed(ctx cont
 	return driver.verify(ctx, claim)
 }
 func TestAuthorizedPublicationCannotUseOperatorDriver(t *testing.T) {
-	for _, version := range []int{publication.AuthorizedDevelopmentVersion, publication.AuthorizedWorkspaceDevelopmentVersion} {
+	for _, version := range []int{publication.AuthorizedDevelopmentVersion, publication.AuthorizedWorkspaceDevelopmentVersion, publication.AuthorizedOwnedWorkspaceVersion} {
 		t.Run(fmt.Sprint(version), func(t *testing.T) { testAuthorizedPublicationCannotUseOperatorDriver(t, version) })
 	}
 }
