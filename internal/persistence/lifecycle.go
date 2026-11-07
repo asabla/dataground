@@ -732,6 +732,18 @@ func (repository *Repository) RepairOperation(
 	if err := lockRepairRevision(ctx, tx, kind, isolationDomainID, operationID); err != nil {
 		return err
 	}
+	if kind == OperationKindInvocation {
+		var sourceSelected bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM invocation_execution_operations operation
+ JOIN invocations invocation ON invocation.isolation_domain_id=operation.isolation_domain_id AND invocation.id=operation.invocation_id
+ JOIN service_revision_execution_plans plan ON plan.isolation_domain_id=invocation.isolation_domain_id AND plan.revision_id=invocation.revision_id
+ WHERE operation.isolation_domain_id=$1 AND operation.id=$2 AND plan.workspace_source IS NOT NULL)`, isolationDomainID, operationID).Scan(&sourceSelected); err != nil {
+			return err
+		}
+		if sourceSelected {
+			return &DomainError{Code: "WORKSPACE_RETENTION_RECOVERY_REQUIRED", Message: "Source-selected work cannot be requeued for execution by generic repair."}
+		}
+	}
 	query := fmt.Sprintf(`
 		UPDATE %s
 		SET command = 'repair', observed_state = 'queued',

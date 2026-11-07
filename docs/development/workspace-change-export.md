@@ -121,7 +121,31 @@ The ordinary version 2 cancellation driver preserves an existing source-selected
 
 Cancellation export decisions use the append-only `dataground.workspace-cancellation-export-authorization/v1` contract. Source decisions use `dataground.invocation-source-read/v6` and reference the original stop receipt rather than the normal lease-bound cleanup completion. Both retain the original runtime effect identity and current cancellation attribution. Catalog preparation and completion use separate cancellation guards but the same immutable change record and artifact. A replacement first verifies any stored object. It can recover lost object, catalog or final operation acknowledgements without another native turn or duplicate write. A completed export still requires fresh authority and verified bytes before reporting success.
 
-Successful owned cancellation records a stopped, retained workspace and completes the invocation as cancelled. It does not delete the sandbox, restore execution authority, publish a successful native result or invent a missing declared-artifact receipt. Missing stop proof, policy or grant loss, unavailable acceptance, failed audit, or invalid retained bytes leaves retention unresolved. All effects remain bounded by the current cancellation lease and original operation deadline. Expiry still fails the operation without deleting scratch; recovery after that deadline needs a separate authorized mechanism. Other source profiles keep the preservation-only behavior. See [the worker limits](governed-worker.md).
+Successful owned cancellation records a stopped, retained workspace and completes the invocation as cancelled. It does not delete the sandbox, restore execution authority, publish a successful native result or invent a missing declared-artifact receipt. Missing stop proof, policy or grant loss, unavailable acceptance, failed audit, or invalid retained bytes leaves retention unresolved. All effects remain bounded by the current cancellation lease and original operation deadline. Expiry still fails the operation without deleting scratch; the separate operator recovery below can resume only an expired cancellation. Other source profiles keep the preservation-only behavior. See [the worker limits](governed-worker.md).
+
+## Recover an expired owned cancellation
+
+Schema 86 adds an internal database-authorized recovery command for an owned cancellation that failed with `OPERATION_DEADLINE_EXCEEDED`. It requires the exact failed operation generation, original owner-stop binding, unchanged source plan and still-ready execution. It does not recover a failed execution that was never cancelled, manufacture missing shutdown evidence, restore a native turn or authorize deletion. Generic operation repair now rejects source-selected invocations instead of requeueing their execution.
+
+The operator reviews the retained operation and owner-stop evidence, then supplies an absolute deadline at most 15 minutes ahead. The command records the previous generation and deadline, exact request digest, operator, correlation and reason digest in an append-only receipt. It atomically reopens the original cancellation, advances its fencing token, clears its terminal error and completion time, and records its lifecycle event, audit and outbox. The original request actor and native attempt remain unchanged. A stale generation, changed owner binding, different failure, absent execution or failed audit prevents acceptance.
+
+```sh
+go run ./cmd/dataground-repair retain-workspace \
+  --isolation-domain "$retention_domain" \
+  --operation "$retention_operation" \
+  --expected-generation "$retention_generation" \
+  --owner-binding "$retention_owner_binding" \
+  --actor "$retention_operator" \
+  --correlation-id "$retention_request" \
+  --reason-sha256 "$retention_reason_digest" \
+  --deadline-at "$retention_deadline"
+```
+
+`DATAGROUND_DATABASE_URL` selects the operator-owned database. The binding and reason digest use `sha256:` followed by 64 lowercase hexadecimal digits. The deadline is an absolute RFC3339 timestamp. Retain the exact flags for a lost acknowledgement: replay returns the original acceptance without changing the deadline or issuing another recovery. A reused correlation with different input fails. If the new window also expires, a separate reviewed request must pin the new failed generation. Downgrade refuses to discard recovery receipts.
+
+Acceptance is not completed retention. The configured owned worker must acquire a fresh cancellation claim and recheck current cancel, source-read and export permissions, source grants, accepted-image readiness and retained object bytes. Neither the recovery receipt nor an old successful effect can bypass those checks. The operator must still exclude other writers. The worker can finish the original cancellation after verification, while leaving the sandbox for separately authorized teardown.
+
+PostgreSQL tests cover replay across concurrent callers, changed inputs, stale generation and lease, wrong scope and owner binding, expired or excessive deadlines, non-cancellation failure, unavailable scratch, failed audit rollback, immutable receipts and protected downgrade. The composed test resumes an expired cancellation and verifies retained bytes without another native attempt or change capture. It uses trusted stop evidence and in-memory object storage. Live recovery, public administration, non-cancellation deadline recovery and teardown remain separate work.
 
 The PostgreSQL cancellation fixture checks original-stop gating, old-policy denial, distinct cancellation attribution, substituted scope, source revocation during delivery, stale claims, failed audit, lost object acknowledgement, replacement recovery, corrupt retained output, protected downgrade and append-only decisions. It runs the claimed cancellation driver with real Cedar decisions through final reconciliation, including recovery after effect success was recorded before the operation transition. Its shutdown proof and image readiness are trusted fixtures and its object ports are in memory. It does not establish live owned cancellation or production writer exclusion.
 

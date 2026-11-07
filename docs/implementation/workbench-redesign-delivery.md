@@ -49,7 +49,7 @@ trust. This proves normal completion in that development fixture. The owned canc
 path now retains changes under a fresh cancellation claim and original shutdown
 receipt, with PostgreSQL recovery coverage. Its public cancellation journey passed
 on 7 November 2026 with real local model execution, verified retained bytes and
-ephemeral test trust. Recovery after deadline expiry remains outstanding. A complete
+ephemeral test trust. An internal operator can now resume an expired owned cancellation under a new bounded retention window; live recovery evidence and public retention administration remain outstanding. A complete
 production writer fence, worker teardown integration, retention resolution,
 ordered journals and checkpoints remain. See
 [governed source conformance](../development/governed-source-conformance.md) and
