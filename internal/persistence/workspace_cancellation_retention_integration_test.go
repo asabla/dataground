@@ -269,10 +269,18 @@ func testWorkspaceCancellationRetention(t *testing.T, ctx context.Context, pool 
 	if err := persistence.MigrateDownTo(ctx, db, 84); err == nil || !strings.Contains(err.Error(), "cannot remove cancellation retention evidence") {
 		t.Fatal("downgrade discarded recovery purpose", err)
 	}
-	// Restore only this fixture deadline to exercise the final reconciler step.
-	if _, err := pool.Exec(ctx, `UPDATE invocation_execution_operations SET deadline_at=clock_timestamp()+interval '1 minute' WHERE isolation_domain_id=$1 AND id=$2`, scope, claim.ID); err != nil {
-		t.Fatal(err)
+	replacement = testWorkspaceRetentionRecovery(t, ctx, pool, *replacement, stopped)
+	ready = false
+	before = source.reads
+	if _, err := driver.ApplyClaimed(ctx, *replacement, effect); err == nil || source.reads != before {
+		t.Fatal("deadline recovery bypassed current image acceptance")
 	}
+	ready = true
+	objects.data = []byte("corrupt retained changes after recovery")
+	if _, err := driver.ApplyClaimed(ctx, *replacement, effect); err == nil || provider.calls != 1 {
+		t.Fatal("deadline recovery trusted an old success without checking retained bytes")
+	}
+	objects.data = bytes
 	if err := repo.ScheduleRetry(ctx, *replacement, "unknown", "WORKSPACE_RETENTION_REQUIRED", time.Now().Add(-time.Second)); err != nil {
 		t.Fatal(err)
 	}

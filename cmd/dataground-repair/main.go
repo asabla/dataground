@@ -11,6 +11,9 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "retain-workspace" {
+		os.Exit(runRetentionRecovery(os.Args[2:]))
+	}
 	var kind, domainID, operationID, actorID, reason, deduplicationID string
 	var deadline time.Duration
 	flag.StringVar(&kind, "kind", "", "service-publication or invocation-execution")

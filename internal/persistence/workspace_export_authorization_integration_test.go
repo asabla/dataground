@@ -313,7 +313,8 @@ func installWorkspaceExportPolicy(t *testing.T, ctx context.Context, pool *pgxpo
 	t.Helper()
 	constructor, schema, flag := reconcile.NewInvocationAuthorizationPolicyWithWorkspaceExportEntities, reconcile.CanonicalWorkspaceExportCedarSchema(), "-workspace-export-capable"
 	text := `permit(principal in DataGround::Role::"source-reader",action in [DataGround::Action::"read-source",DataGround::Action::"export-changes"],resource);
-permit(principal == DataGround::Actor::"retention-requester",action in [DataGround::Action::"read-source",DataGround::Action::"export-changes",DataGround::Action::"cancel"],resource);`
+permit(principal == DataGround::Actor::"retention-requester",action in [DataGround::Action::"read-source",DataGround::Action::"export-changes",DataGround::Action::"cancel"],resource);
+permit(principal == DataGround::Actor::"recovery-operator",action in [DataGround::Action::"read-source",DataGround::Action::"export-changes",DataGround::Action::"cancel"],resource);`
 	if version == "v6" {
 		constructor, schema, flag = reconcile.NewInvocationAuthorizationPolicyWithSourceEntities, reconcile.CanonicalSourceCedarSchema(), "-source-capable"
 		text = `permit(principal,action,resource);`

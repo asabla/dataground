@@ -13,7 +13,7 @@ PostgreSQL 18 is required for durable integration tests and durable control-plan
 | `cmd/dataground-api` | Go API process entry point |
 | `cmd/dataground-worker` | Replaceable publication and invocation reconciler |
 | `cmd/dataground-migrate` | PostgreSQL schema migration and compatibility check |
-| `cmd/dataground-repair` | Audited failed-operation repair command |
+| `cmd/dataground-repair` | Audited failed-operation repair and explicit [expired cancellation retention recovery](workspace-change-export.md#recover-an-expired-owned-cancellation) |
 | `cmd/dataground-execution-plan-install` | Reviewed immutable revision execution-plan installer |
 | `cmd/dataground-workspace-source-access` | Database-authorized source-read grant activation, revocation, and verification |
 | `cmd/dataground-workspace-source-install` | Database-authorized source catalog installation into loopback development storage |
