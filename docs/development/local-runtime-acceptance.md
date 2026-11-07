@@ -224,3 +224,16 @@ The launcher removed its sandbox, gateway, provider binding, runtime workspace
 and consumed credential bundle. Only the empty policy-workspace lock remained
 before operator scratch cleanup. This evidence does not change the acceptance
 or worker limits above.
+
+The [2026-11-07 v7 diagnostic](../../deploy/openshell/diagnostics/codex-owned-workspace-candidate-arm64-20261107.json)
+passed from clean source `aeea7ab5fcafe1ddbef32b05a17fd203baea63fe` with the same
+published image digests and model. Exact publication signatures, completed jobs,
+local image identities and the closed diagnostic schema were checked again.
+The original record bytes have SHA-256
+`c30f9a76fedbcb273c62da6dce2a691191e69b383e61a197536c74f519acf819`.
+This record supported short-lived v4 test acceptance for the subsequent
+[public cancellation test](governed-source-conformance.md#exercise-owned-workspace-cancellation).
+The diagnostic and that worker test are separate evidence: only the worker test
+checks durable cancellation retention and authenticated artifact reconstruction.
+Both remain development results, without operational signing trust or production
+certification.
