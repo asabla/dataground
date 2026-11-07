@@ -34,7 +34,15 @@ type WorkspaceChangeExportPermit struct {
 // Callers must repeat this check immediately before capture and each retention
 // effect; this method performs no content access and grants no teardown right.
 func (repository *Repository) AuthorizeInvocationWorkspaceChangeExport(ctx context.Context, claim OperationClaim, effect EffectRecord, expected InvocationWorkspaceQuiescence, phase string, changes workspace.ChangeSetReceipt, evaluator WorkspaceChangeExportEvaluator) (WorkspaceChangeExportPermit, error) {
-	if !repository.Configured() || ctx == nil || !validInvocationRuntimeAttempt(claim, effect) || expected.Source.IsolationDomainID != claim.IsolationDomainID || expected.OperationID != claim.ID || expected.InvocationID != claim.ResourceID || expected.EffectID != effect.EffectID || missingWorkspaceExportEvaluator(evaluator) {
+	return repository.authorizeWorkspaceChangeExport(ctx, claim, effect, expected, phase, changes, evaluator, false)
+}
+
+func (repository *Repository) AuthorizeCancellationWorkspaceChangeExport(ctx context.Context, claim OperationClaim, effect EffectRecord, expected InvocationWorkspaceQuiescence, phase string, changes workspace.ChangeSetReceipt, evaluator WorkspaceChangeExportEvaluator) (WorkspaceChangeExportPermit, error) {
+	return repository.authorizeWorkspaceChangeExport(ctx, claim, effect, expected, phase, changes, evaluator, true)
+}
+
+func (repository *Repository) authorizeWorkspaceChangeExport(ctx context.Context, claim OperationClaim, effect EffectRecord, expected InvocationWorkspaceQuiescence, phase string, changes workspace.ChangeSetReceipt, evaluator WorkspaceChangeExportEvaluator, cancellation bool) (WorkspaceChangeExportPermit, error) {
+	if !repository.Configured() || ctx == nil || missingWorkspaceExportEvaluator(evaluator) || (!cancellation && (!validInvocationRuntimeAttempt(claim, effect) || expected.Source.IsolationDomainID != claim.IsolationDomainID || expected.OperationID != claim.ID || expected.InvocationID != claim.ResourceID || expected.EffectID != effect.EffectID)) || (cancellation && !validWorkspaceCancellationClaim(claim, effect, expected)) {
 		return WorkspaceChangeExportPermit{}, ErrWorkspaceExportUnavailable
 	}
 	tx, err := repository.pool.Begin(ctx)
@@ -43,7 +51,13 @@ func (repository *Repository) AuthorizeInvocationWorkspaceChangeExport(ctx conte
 	}
 	defer tx.Rollback(ctx)
 
-	target, expires, err := lockWorkspaceExportTarget(ctx, tx, claim, effect, expected)
+	lock := lockWorkspaceExportTarget
+	table, contract := "workspace_change_export_decisions", authz.WorkspaceChangeExportDecisionContract
+	if cancellation {
+		lock = lockWorkspaceCancellationTarget
+		table, contract = "workspace_cancellation_export_decisions", WorkspaceCancellationExportContract
+	}
+	target, expires, err := lock(ctx, tx, claim, effect, expected)
 	if err != nil {
 		return WorkspaceChangeExportPermit{}, err
 	}
@@ -74,8 +88,8 @@ func (repository *Repository) AuthorizeInvocationWorkspaceChangeExport(ctx conte
 	}
 	id := identity.New("wed")
 	var outcome string
-	err = tx.QueryRow(ctx, `INSERT INTO workspace_change_export_decisions(isolation_domain_id,id,contract,operation_id,request,lease_owner,fencing_token,expires_at,policy_contract,policy_set_id,policy_digest,policy_outcome,outcome)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CASE WHEN $12='allowed' AND $8::timestamptz>clock_timestamp() THEN 'allowed' WHEN $12='unavailable' THEN 'unavailable' ELSE 'denied' END) RETURNING outcome`, claim.IsolationDomainID, id, authz.WorkspaceChangeExportDecisionContract, claim.ID, requestBytes, claim.LeaseOwner, claim.FencingToken, expires, policyContract, policySet, policyDigest, string(policyOutcome)).Scan(&outcome)
+	err = tx.QueryRow(ctx, `INSERT INTO `+table+`(isolation_domain_id,id,contract,operation_id,request,lease_owner,fencing_token,expires_at,policy_contract,policy_set_id,policy_digest,policy_outcome,outcome)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CASE WHEN $12='allowed' AND $8::timestamptz>clock_timestamp() THEN 'allowed' WHEN $12='unavailable' THEN 'unavailable' ELSE 'denied' END) RETURNING outcome`, claim.IsolationDomainID, id, contract, claim.ID, requestBytes, claim.LeaseOwner, claim.FencingToken, expires, policyContract, policySet, policyDigest, string(policyOutcome)).Scan(&outcome)
 	if err != nil || tx.Commit(ctx) != nil {
 		return WorkspaceChangeExportPermit{}, ErrWorkspaceExportUnavailable
 	}

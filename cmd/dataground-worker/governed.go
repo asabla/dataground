@@ -671,6 +671,12 @@ func composeWorkerDriver(
 	if err != nil {
 		return fail(err)
 	}
+	if completion != nil {
+		cancellationDriver, err = reconcile.NewOwnedInvocationCancellationDriver(repository, authorizer, executionStore, provider, completion, readiness.Check)
+		if err != nil {
+			return fail(err)
+		}
+	}
 	routed, err := reconcile.NewGovernedInvocationDriver(
 		reconcile.NewReferenceDriver(pool),
 		admissionDriver,

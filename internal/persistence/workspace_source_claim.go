@@ -60,18 +60,20 @@ func (bound *invocationSourceAuthorizer) sourceUse(ctx context.Context, record w
 }
 
 type invocationSourceAuthorizer struct {
-	repository      *Repository
-	claim           OperationClaim
-	effect          EffectRecord
-	record          workspace.SourceRecord
-	planDigest      string
-	evaluator       SourceReadEvaluator
-	preparation     *InvocationWorkspacePreparation
-	quiescence      *InvocationWorkspaceQuiescence
-	completion      bool
-	deliveryExpires time.Time
-	readExpires     time.Time
-	currentExpires  time.Time
+	repository         *Repository
+	claim              OperationClaim
+	effect             EffectRecord
+	record             workspace.SourceRecord
+	planDigest         string
+	evaluator          SourceReadEvaluator
+	preparation        *InvocationWorkspacePreparation
+	quiescence         *InvocationWorkspaceQuiescence
+	stopped            *InvocationWorkspaceQuiescence
+	cancellationEffect *EffectRecord
+	completion         bool
+	deliveryExpires    time.Time
+	readExpires        time.Time
+	currentExpires     time.Time
 }
 
 func (bound *invocationSourceAuthorizer) AuthorizeWorkspaceSource(ctx context.Context, use workspace.SourceUse, phase string) (workspace.SourcePermit, error) {
@@ -88,6 +90,18 @@ func (bound *invocationSourceAuthorizer) AuthorizeWorkspaceSource(ctx context.Co
 	return permit, err
 }
 func (bound *invocationSourceAuthorizer) lock(ctx context.Context, tx pgx.Tx) (InvocationRuntimeTarget, time.Time, error) {
+	if bound.stopped != nil {
+		if bound.cancellationEffect == nil {
+			return InvocationRuntimeTarget{}, time.Time{}, workspace.ErrSourceUnauthorized
+		}
+		target, expires, err := lockWorkspaceCancellationTarget(ctx, tx, bound.claim, *bound.cancellationEffect, *bound.stopped)
+		if err != nil || bound.effect.EffectID != bound.stopped.EffectID {
+			return InvocationRuntimeTarget{}, time.Time{}, workspace.ErrSourceUnauthorized
+		}
+		bound.record, bound.planDigest = bound.stopped.Source, bound.stopped.PlanDigest
+		return target, expires, nil
+	}
+
 	if bound.quiescence != nil {
 		target, expires, err := lockWorkspaceExportTarget(ctx, tx, bound.claim, bound.effect, *bound.quiescence)
 		if err != nil {
@@ -179,4 +193,25 @@ func (repository *Repository) ReadExportWorkspaceSource(ctx context.Context, cla
 		return nil, time.Time{}, err
 	}
 	return snapshot, bound.deliveryExpires, nil
+}
+
+// ReadCancellationWorkspaceSource uses current source grants and Cedar authority
+// at both read boundaries. It never restores the original execution lease.
+func (repository *Repository) ReadCancellationWorkspaceSource(ctx context.Context, claim OperationClaim, effect EffectRecord, objects workspace.SourceObjectReader, stopped InvocationWorkspaceQuiescence, generation int64, evaluator SourceReadEvaluator) (*workspace.Snapshot, time.Time, error) {
+	if !repository.Configured() || ctx == nil || objects == nil || missingSourceReadEvaluator(evaluator) || !validWorkspaceCancellationClaim(claim, effect, stopped) {
+		return nil, time.Time{}, workspace.ErrSourceUnauthorized
+	}
+	original, err := getEffect(ctx, repository.pool, claim.IsolationDomainID, stopped.EffectID)
+	if err != nil {
+		return nil, time.Time{}, workspace.ErrSourceUnavailable
+	}
+	bound := &invocationSourceAuthorizer{repository: repository, claim: claim, effect: original, evaluator: evaluator, stopped: &stopped, cancellationEffect: &effect}
+	use, expires, err := bound.sourceUse(ctx, stopped.Source, generation)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	readCtx, cancel := context.WithDeadline(ctx, expires)
+	defer cancel()
+	snapshot, err := workspace.ReadSource(readCtx, repository, objects, bound, use)
+	return snapshot, bound.deliveryExpires, err
 }

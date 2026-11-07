@@ -42,11 +42,12 @@ func TestWorkspaceExportAuthorizationRequiresCurrentClaimAndConfirmedCleanup(t *
 		}
 	}()
 	for _, version := range []string{"v7", "v6"} {
-		t.Run(version, func(t *testing.T) { testWorkspaceExportAuthorization(t, ctx, pool, version) })
+		t.Run(version, func(t *testing.T) { testWorkspaceExportAuthorization(t, ctx, pool, version, false) })
+		t.Run(version+" cancellation", func(t *testing.T) { testWorkspaceExportAuthorization(t, ctx, pool, version, true) })
 	}
 }
 
-func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *pgxpool.Pool, version string) {
+func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *pgxpool.Pool, version string, cancellation bool) {
 	repo := persistence.NewRepository(pool)
 	scope, service, revision := identity.New("iso"), identity.New("svc"), identity.New("rev")
 	source, sourceObjects, base := prepareExportSourceFixture(t, ctx, repo, scope)
@@ -120,6 +121,10 @@ func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *p
 	entry, err := repo.BeginInvocationWorkspaceQuiescence(ctx, *claim, effect, ref, "sha256:"+strings.Repeat("c", 64))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if cancellation {
+		testWorkspaceCancellationRetention(t, ctx, pool, *claim, effect, entry.Record, service, revision, sourceObjects, base, version)
+		return
 	}
 	evaluator := &reconcile.WorkspaceExportCedarEvaluator{}
 	authorize := func(c persistence.OperationClaim, e persistence.EffectRecord, q persistence.InvocationWorkspaceQuiescence, phase string, changes workspace.ChangeSetReceipt, eval persistence.WorkspaceChangeExportEvaluator) (persistence.WorkspaceChangeExportPermit, error) {
@@ -307,7 +312,8 @@ func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *p
 func installWorkspaceExportPolicy(t *testing.T, ctx context.Context, pool *pgxpool.Pool, scope, service, revision, version string) persistence.InvocationAuthorizationPolicyRecord {
 	t.Helper()
 	constructor, schema, flag := reconcile.NewInvocationAuthorizationPolicyWithWorkspaceExportEntities, reconcile.CanonicalWorkspaceExportCedarSchema(), "-workspace-export-capable"
-	text := `permit(principal in DataGround::Role::"source-reader",action in [DataGround::Action::"read-source",DataGround::Action::"export-changes"],resource);`
+	text := `permit(principal in DataGround::Role::"source-reader",action in [DataGround::Action::"read-source",DataGround::Action::"export-changes"],resource);
+permit(principal == DataGround::Actor::"retention-requester",action in [DataGround::Action::"read-source",DataGround::Action::"export-changes",DataGround::Action::"cancel"],resource);`
 	if version == "v6" {
 		constructor, schema, flag = reconcile.NewInvocationAuthorizationPolicyWithSourceEntities, reconcile.CanonicalSourceCedarSchema(), "-source-capable"
 		text = `permit(principal,action,resource);`

@@ -32,10 +32,12 @@ type invocationCancellationProvider interface {
 // InvocationCancellationDriver is the consequential-effect bridge from one
 // durable cancellation effect to governed provider termination.
 type InvocationCancellationDriver struct {
-	targets    InvocationCancellationTargetStore
-	authorizer InvocationCancellationAuthorizer
-	executions executionByOperationSource
-	provider   invocationCancellationProvider
+	targets             InvocationCancellationTargetStore
+	authorizer          InvocationCancellationAuthorizer
+	executions          executionByOperationSource
+	provider            invocationCancellationProvider
+	workspaceCompletion *InvocationWorkspaceCompletion
+	readiness           func(context.Context) error
 }
 
 func NewInvocationCancellationDriver(
@@ -109,7 +111,7 @@ func (driver *InvocationCancellationDriver) Apply(
 		return invocationCancellationAbsentObservation(), nil
 	}
 	// A source plan is immutable before invocation admission. The version 2
-	// cancellation path has no cleanup or retention authority, so even a prior
+	// unclaimed cancellation path has no retention authority, so even a prior
 	// termination observation cannot prove a safe source-workspace outcome.
 	if target.WorkspaceSourceSelected {
 		return nil, errors.Join(ErrAmbiguousEffect, ErrInvocationCancellationRetentionRequired)

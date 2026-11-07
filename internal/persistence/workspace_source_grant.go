@@ -135,7 +135,7 @@ func (repository *Repository) authorizeWorkspaceSource(ctx context.Context, use 
 		return workspace.SourcePermit{}, workspace.ErrSourceUnavailable
 	}
 	defer tx.Rollback(ctx)
-	var claimContract, invocationID, effectID, claimOwner, claimToken, cleanupOperation any
+	var claimContract, invocationID, effectID, claimOwner, claimToken, cleanupOperation, stoppedOperation any
 	var claimExpires *time.Time
 	var policyContract, policySetID, policyDigest, policyOutcome, planDigest any
 	cedarOutcome := authz.OutcomeAllowed
@@ -161,7 +161,7 @@ func (repository *Repository) authorizeWorkspaceSource(ctx context.Context, use 
 		if !request.Valid() {
 			return workspace.SourcePermit{}, workspace.ErrSourceInvalid
 		}
-		if bound.quiescence != nil && policy.Contract != "dataground.invocation-authorization-policy/v7" {
+		if (bound.quiescence != nil || bound.stopped != nil) && policy.Contract != "dataground.invocation-authorization-policy/v7" {
 			cedarOutcome = authz.OutcomeDenied
 		} else {
 			cedarOutcome = bound.evaluator.EvaluateSourceRead(ctx, cloneInvocationAuthorizationPolicyRecord(policy), request)
@@ -182,6 +182,10 @@ func (repository *Repository) authorizeWorkspaceSource(ctx context.Context, use 
 		if bound.quiescence != nil {
 			claimContract = "dataground.invocation-source-read/v5"
 			cleanupOperation = bound.quiescence.OperationID
+		}
+		if bound.stopped != nil {
+			claimContract = "dataground.invocation-source-read/v6"
+			stoppedOperation = bound.stopped.OperationID
 		}
 		invocationID, effectID = target.InvocationID, bound.effect.EffectID
 		claimOwner, claimToken, claimExpires = bound.claim.LeaseOwner, bound.claim.FencingToken, &expires
@@ -227,13 +231,13 @@ func (repository *Repository) authorizeWorkspaceSource(ctx context.Context, use 
    archive_digest,storage_profile_digest,requested_generation,observed_generation,
    expires_at,phase,outcome,actor_id,correlation_id,
    claim_contract,invocation_id,effect_id,claim_owner,claim_token,claim_expires_at,
-   policy_contract,policy_set_id,policy_digest,policy_outcome,plan_digest,cleanup_operation_id
+   policy_contract,policy_set_id,policy_digest,policy_outcome,plan_digest,cleanup_operation_id,stopped_operation_id
   ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
     CASE WHEN $14::boolean AND $12::timestamptz>clock_timestamp()
      AND ($17::text IS NULL OR $22::timestamptz>clock_timestamp())
-     THEN 'allowed' ELSE 'denied' END,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
+     THEN 'allowed' ELSE 'denied' END,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
   RETURNING outcome
- `, use.Record.IsolationDomainID, decisionID, use.Contract, use.Record.WorkspaceID, use.Record.ID, use.RevisionID, use.OperationID, use.Record.ArchiveDigest, use.Record.StorageProfileDigest, use.GrantGeneration, observed, expires, phase, allowed, use.ActorID, use.CorrelationID, claimContract, invocationID, effectID, claimOwner, claimToken, claimExpires, policyContract, policySetID, policyDigest, policyOutcome, planDigest, cleanupOperation).Scan(&outcome)
+ `, use.Record.IsolationDomainID, decisionID, use.Contract, use.Record.WorkspaceID, use.Record.ID, use.RevisionID, use.OperationID, use.Record.ArchiveDigest, use.Record.StorageProfileDigest, use.GrantGeneration, observed, expires, phase, allowed, use.ActorID, use.CorrelationID, claimContract, invocationID, effectID, claimOwner, claimToken, claimExpires, policyContract, policySetID, policyDigest, policyOutcome, planDigest, cleanupOperation, stoppedOperation).Scan(&outcome)
 	if err != nil {
 		return workspace.SourcePermit{}, workspace.ErrSourceUnavailable
 	}
