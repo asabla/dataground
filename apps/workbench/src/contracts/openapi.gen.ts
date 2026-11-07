@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/workspace-retention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read invocation workspace retention metadata
+         * @description Requires readWorkspaceRetention on the exact invocation. Reports source-selected workspace receipts without source contents, native identities or storage addresses. Recorded means a durable change completion exists; it does not prove current object availability or grant artifact access, recovery or deletion. Recovery review_required reports expired cancellation, not operator eligibility or permission. requested reports the current explicit operator recovery. Source-free and process-local reference invocations have no retention resource and return 404. Responses use Cache-Control: no-store.
+         */
+        get: operations["readWorkspaceRetention"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/isolation-domains/{isolationDomainId}/saved-resources": {
         parameters: {
             query?: never;
@@ -667,6 +687,19 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        WorkspaceRetention: {
+            /** @constant */
+            schemaVersion: "dataground.invocation-workspace-retention/v1";
+            isolationDomainId: components["schemas"]["IsolationDomainId"];
+            invocationId: components["schemas"]["InvocationId"];
+            /** @enum {unknown} */
+            state: "not_observed" | "stop_unconfirmed" | "export_pending" | "recorded";
+            /** @enum {unknown} */
+            recovery: "none" | "review_required" | "requested";
+            artifactId?: string;
+            /** Format: date-time */
+            recordedAt?: string;
+        } & unknown;
         SetSavedResourceRequest: {
             /** @constant */
             kind: "workspace";
@@ -1623,6 +1656,34 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    readWorkspaceRetention: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                invocationId: components["parameters"]["InvocationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recorded workspace retention state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceRetention"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
     listSavedResources: {
         parameters: {
             query?: {

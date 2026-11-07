@@ -220,6 +220,7 @@ func (server *Server) handler(
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/events", protected(
 		authz.ReadInvocationEvents, authz.Invocation, "invocationId", server.streamInvocationEvents,
 	))
+	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/workspace-retention", protected(authz.ReadWorkspaceRetention, authz.Invocation, "invocationId", server.readWorkspaceRetention))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts", protected(
 		authz.ListInvocationArtifacts, authz.Invocation, "invocationId", server.listInvocationArtifacts,
 	))

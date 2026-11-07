@@ -45,6 +45,7 @@ func TestWorkspaceExportAuthorizationRequiresCurrentClaimAndConfirmedCleanup(t *
 		t.Run(version, func(t *testing.T) { testWorkspaceExportAuthorization(t, ctx, pool, version, false) })
 		t.Run(version+" cancellation", func(t *testing.T) { testWorkspaceExportAuthorization(t, ctx, pool, version, true) })
 	}
+	testWorkspaceRetentionReadRoute(t, ctx, pool)
 }
 
 func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *pgxpool.Pool, version string, cancellation bool) {
@@ -81,6 +82,7 @@ func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *p
 	if _, err := repo.AcceptInvocation(ctx, testIdempotency(scope, "export-invocation"), persistence.AcceptInvocationInput{ID: invocation, ServiceID: service, Alias: "source", Input: map[string]any{"prompt": "database fixture"}, ActorID: "source-requester", CorrelationID: identity.New("cor"), Deadline: time.Now().Add(3 * time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
+	assertWorkspaceRetention(t, ctx, repo, persistence.OperationClaim{IsolationDomainID: scope, ResourceID: invocation}, "not_observed", "none")
 	worker := reconcile.New(repo, reconcile.NewReferenceDriver(pool), "export-setup")
 	for range 2 {
 		if ran, err := worker.RunOne(ctx, persistence.OperationKindInvocation); err != nil || !ran {
@@ -142,6 +144,7 @@ func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *p
 	if _, err := repo.CompleteInvocationWorkspaceQuiescence(ctx, *claim, effect, entry.Record); err != nil {
 		t.Fatal(err)
 	}
+	assertWorkspaceRetention(t, ctx, repo, *claim, "export_pending", "none")
 	permit, err := capture()
 	if version == "v6" {
 		if !errors.Is(err, persistence.ErrWorkspaceExportDenied) {

@@ -22,6 +22,7 @@ func testWorkspaceRetentionRecovery(t *testing.T, ctx context.Context, pool *pgx
 	if err := repo.Fail(ctx, previous, persistence.OperationFailureDeadline); err != nil {
 		t.Fatal(err)
 	}
+	assertWorkspaceRetention(t, ctx, repo, previous, "recorded", "review_required")
 	if err := pool.QueryRow(ctx, `SELECT generation FROM invocation_execution_operations WHERE isolation_domain_id=$1 AND id=$2`, previous.IsolationDomainID, previous.ID).Scan(&input.ExpectedGeneration); err != nil {
 		t.Fatal(err)
 	}
@@ -93,6 +94,7 @@ func testWorkspaceRetentionRecovery(t *testing.T, ctx context.Context, pool *pgx
 			t.Fatal("exact concurrent recovery", err)
 		}
 	}
+	assertWorkspaceRetention(t, ctx, repo, previous, "recorded", "requested")
 	otherRequest := input
 	otherRequest.CorrelationID = identity.New("cor")
 	if err := repo.RecoverWorkspaceRetention(ctx, otherRequest); err == nil {

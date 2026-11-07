@@ -15,6 +15,7 @@ import {
 } from "./client";
 
 import { InvocationResultWorkflow } from "./InvocationResultWorkflow";
+import { WorkspaceRetentionWorkflow } from "./WorkspaceRetentionWorkflow";
 
 interface CancellationAttempt {
   idempotencyKey: string;
@@ -383,6 +384,19 @@ export function InvocationWorkflow({
         operation={visibleOperation}
         reference={reference}
       />
+      {visibleInvocation && !state.loading && !state.error && (
+        <WorkspaceRetentionWorkflow
+          client={client}
+          reference={stableReference}
+          revision={visibleInvocation.metadata.version}
+          active={active}
+          onInspectArtifact={
+            onInspectArtifact
+              ? (artifactId) => onInspectArtifact({ ...stableReference, artifactId })
+              : undefined
+          }
+        />
+      )}
       {renderDetails ? renderDetails({ result, files }) : result}
     </>
   );

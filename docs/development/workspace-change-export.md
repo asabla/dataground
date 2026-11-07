@@ -145,10 +145,27 @@ go run ./cmd/dataground-repair retain-workspace \
 
 Acceptance is not completed retention. The configured owned worker must acquire a fresh cancellation claim and recheck current cancel, source-read and export permissions, source grants, accepted-image readiness and retained object bytes. Neither the recovery receipt nor an old successful effect can bypass those checks. The operator must still exclude other writers. The worker can finish the original cancellation after verification, while leaving the sandbox for separately authorized teardown.
 
-PostgreSQL tests cover replay across concurrent callers, changed inputs, stale generation and lease, wrong scope and owner binding, expired or excessive deadlines, non-cancellation failure, unavailable scratch, failed audit rollback, immutable receipts and protected downgrade. The composed test resumes an expired cancellation and verifies retained bytes without another native attempt or change capture. It uses trusted stop evidence and in-memory object storage. Live recovery, public administration, non-cancellation deadline recovery and teardown remain separate work.
+PostgreSQL tests cover replay across concurrent callers, changed inputs, stale generation and lease, wrong scope and owner binding, expired or excessive deadlines, non-cancellation failure, unavailable scratch, failed audit rollback, immutable receipts and protected downgrade. The composed test resumes an expired cancellation and verifies retained bytes without another native attempt or change capture. It uses trusted stop evidence and in-memory object storage. Live recovery uses the separate evidence below. Public administration, non-cancellation deadline recovery and teardown remain separate work.
 
 The PostgreSQL cancellation fixture checks original-stop gating, old-policy denial, distinct cancellation attribution, substituted scope, source revocation during delivery, stale claims, failed audit, lost object acknowledgement, replacement recovery, corrupt retained output, protected downgrade and append-only decisions. It runs the claimed cancellation driver with real Cedar decisions through final reconciliation, including recovery after effect success was recorded before the operation transition. Its shutdown proof and image readiness are trusted fixtures and its object ports are in memory. It does not establish live owned cancellation or production writer exclusion.
 
 This is a final difference, not an ordered file-write journal. A complete writer fence, accepted image installation, operational worker acceptance, export before teardown, `termination_blocked` recovery, repository/base-revision metadata, ordered journals and checkpoints remain separate work. No production or release acceptance is established here.
 
 The [live expired-cancellation recovery journey](governed-source-conformance.md#exercise-expired-cancellation-recovery) passed on 2026-11-07 UTC. It used the real public deadline, the built operator command with exact replay, current worker checks and authenticated artifact reconstruction. One native attempt and one original owner-stop receipt remained throughout recovery. This is local development evidence with ephemeral test trust, not public recovery administration or production teardown authority.
+
+## Public retention metadata
+
+`GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/workspace-retention` requires `readWorkspaceRetention` on that invocation. The versioned response contains scope, invocation identity, evidence state and recovery state. It never contains native identities, source contents, storage addresses or the original owner binding. Responses are not cacheable. A missing invocation, a source-free revision or process-local reference mode returns `WORKSPACE_RETENTION_NOT_FOUND` after authorization.
+
+| Evidence state | Meaning |
+| --- | --- |
+| `not_observed` | No execution instance is recorded for the source-selected invocation. This does not assert that an external effect never occurred. |
+| `stop_unconfirmed` | An execution instance exists, but neither an owner-stop receipt nor confirmed normal cleanup is recorded. |
+| `export_pending` | Stop evidence exists, but no durable change completion is recorded. |
+| `recorded` | A durable completion identifies the change artifact and its recording time. |
+
+The recovery field is `review_required` when the cancellation failed with `OPERATION_DEADLINE_EXCEEDED`, `requested` while cancellation uses the current explicit operator recovery receipt, and `none` otherwise. `none` does not mean recovery is unnecessary or possible. A recorded artifact and a recovery requirement can coexist when export completed before cancellation became terminal.
+
+This read reports retained metadata, not current object availability or recovery eligibility. Artifact metadata and content still require their own authorization. The internal recovery command and current worker checks remain necessary; this endpoint supplies no recovery or deletion command.
+
+The workbench reads this metadata in the run outcome view, including failed runs. It shows deadline recovery as an operator review requirement and opens recorded changes through the existing artifact inspection flow. Loading, denial and unconfirmed responses remove earlier artifact controls. Navigation and identity changes discard pending reads; returning to a run checks access again. No prompts, answers or artifact bytes are retained by this view.

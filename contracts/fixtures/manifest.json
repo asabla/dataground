@@ -1,6 +1,31 @@
 {
   "fixtures": [
     {
+      "file": "valid/workspace-retention-pending.json",
+      "schema": "WorkspaceRetention",
+      "valid": true
+    },
+    {
+      "file": "valid/workspace-retention-recorded.json",
+      "schema": "WorkspaceRetention",
+      "valid": true
+    },
+    {
+      "file": "invalid/workspace-retention-missing-artifact.json",
+      "schema": "WorkspaceRetention",
+      "valid": false
+    },
+    {
+      "file": "invalid/workspace-retention-premature-artifact.json",
+      "schema": "WorkspaceRetention",
+      "valid": false
+    },
+    {
+      "file": "invalid/workspace-retention-private-routing.json",
+      "schema": "WorkspaceRetention",
+      "valid": false
+    },
+    {
       "file": "valid/resource-search-page.json",
       "schema": "ResourceSearchPage",
       "valid": true
