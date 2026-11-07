@@ -17,10 +17,14 @@ import (
 )
 
 func testDurableWorkspaceQuiescence(t *testing.T, ctx context.Context, pool *pgxpool.Pool, source workspace.SourceRecord, service string, objects workspace.SourceObjects) {
+	testPreparedWorkspaceOwner(t, ctx, pool, source, service, objects, "cleanup", testWorkspaceQuiescence)
+}
+
+func testPreparedWorkspaceOwner(t *testing.T, ctx context.Context, pool *pgxpool.Pool, source workspace.SourceRecord, service string, objects workspace.SourceObjects, name string, verify func(*testing.T, context.Context, *pgxpool.Pool, persistence.OperationClaim, persistence.EffectRecord, execution.ExecutionRef)) {
 	t.Helper()
 	repo := persistence.NewRepository(pool)
 	invocationID := identity.New("inv")
-	if _, err := repo.AcceptInvocation(ctx, testIdempotency(source.IsolationDomainID, "workspace-cleanup-invocation"), persistence.AcceptInvocationInput{ID: invocationID, ServiceID: service, Alias: "source", Input: map[string]any{"prompt": "cleanup source"}, ActorID: "source-requester", CorrelationID: identity.New("cor"), Deadline: time.Now().Add(2 * time.Minute)}); err != nil {
+	if _, err := repo.AcceptInvocation(ctx, testIdempotency(source.IsolationDomainID, "workspace-"+name+"-invocation"), persistence.AcceptInvocationInput{ID: invocationID, ServiceID: service, Alias: "source", Input: map[string]any{"prompt": "cleanup source"}, ActorID: "source-requester", CorrelationID: identity.New("cor"), Deadline: time.Now().Add(2 * time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
 	worker := reconcile.New(repo, reconcile.NewReferenceDriver(pool), "cleanup-setup")
@@ -43,7 +47,7 @@ func testDurableWorkspaceQuiescence(t *testing.T, ctx context.Context, pool *pgx
 		t.Fatal(err)
 	}
 	ref := execution.ExecutionRef{IsolationDomainID: source.IsolationDomainID, ID: identity.New("exe")}
-	if err := executions.SaveExecution(ctx, execution.ExecutionRecord{Execution: execution.Execution{IsolationDomainID: ref.IsolationDomainID, ID: ref.ID, GatewayID: placement.GatewayID, State: "ready"}, OperationID: claim.ID, PlacementID: placement.ID, SandboxName: "cleanup-recovery"}); err != nil {
+	if err := executions.SaveExecution(ctx, execution.ExecutionRecord{Execution: execution.Execution{IsolationDomainID: ref.IsolationDomainID, ID: ref.ID, GatewayID: placement.GatewayID, State: "ready"}, OperationID: claim.ID, PlacementID: placement.ID, SandboxName: "cleanup-" + name}); err != nil {
 		t.Fatal(err)
 	}
 	preparation, err := repo.BeginInvocationWorkspacePreparation(ctx, *claim, effect, ref, 1)
@@ -67,7 +71,7 @@ func testDurableWorkspaceQuiescence(t *testing.T, ctx context.Context, pool *pgx
 	if _, err := repo.BeginInvocationRuntimeAttempt(ctx, *claim, effect); err != nil {
 		t.Fatal(err)
 	}
-	testWorkspaceQuiescence(t, ctx, pool, *claim, effect, preparation.Execution)
+	verify(t, ctx, pool, *claim, effect, preparation.Execution)
 }
 
 // The real source/claim fixture supplies a completed preparation and a reserved

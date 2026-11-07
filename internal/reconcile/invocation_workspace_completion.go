@@ -3,6 +3,7 @@ package reconcile
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/asabla/dataground/internal/execution"
 	"github.com/asabla/dataground/internal/persistence"
@@ -14,11 +15,16 @@ import (
 // The owning deployment must accept the exact helper image and exclude native
 // startup outside this driver. Completion retains data; it never deletes scratch.
 type InvocationWorkspaceCompletion struct {
-	store    InvocationWorkspaceQuiescenceStore
+	store    InvocationWorkspaceCompletionStore
 	exporter *InvocationWorkspaceExporter
 }
 
-func NewInvocationWorkspaceCompletion(store InvocationWorkspaceQuiescenceStore, exporter *InvocationWorkspaceExporter) (*InvocationWorkspaceCompletion, error) {
+type InvocationWorkspaceCompletionStore interface {
+	InvocationWorkspaceQuiescenceStore
+	RecordInvocationWorkspaceOwnerStop(context.Context, persistence.InvocationWorkspaceQuiescence) error
+}
+
+func NewInvocationWorkspaceCompletion(store InvocationWorkspaceCompletionStore, exporter *InvocationWorkspaceExporter) (*InvocationWorkspaceCompletion, error) {
 	value := &InvocationWorkspaceCompletion{store: store, exporter: exporter}
 	if !value.valid() {
 		return nil, persistence.ErrWorkspaceQuiescence
@@ -37,7 +43,7 @@ type ownedInvocationRuntimeProvider interface {
 
 type invocationWorkspaceFinish func(context.Context, persistence.OperationClaim) error
 
-func (driver *InvocationRuntimeDriver) startRuntimeSession(ctx context.Context, effect persistence.EffectRecord, target persistence.InvocationRuntimeTarget, ref execution.ExecutionRef, request dgruntime.StartRequest) (execution.RuntimeSession, invocationWorkspaceFinish, error) {
+func (driver *InvocationRuntimeDriver) startRuntimeSession(ctx context.Context, claim persistence.OperationClaim, effect persistence.EffectRecord, target persistence.InvocationRuntimeTarget, ref execution.ExecutionRef, request dgruntime.StartRequest) (execution.RuntimeSession, invocationWorkspaceFinish, error) {
 	if driver.workspaceCompletion == nil {
 		session, err := driver.provider.StartRuntime(ctx, ref)
 		return session, nil, err
@@ -49,10 +55,56 @@ func (driver *InvocationRuntimeDriver) startRuntimeSession(ctx context.Context, 
 		}
 		return nil, nil, errors.Join(ErrAmbiguousEffect, persistence.ErrWorkspaceQuiescence, err)
 	}
+	binding, err := session.OwnerBinding()
+	if err != nil {
+		_ = session.Close()
+		return nil, nil, errors.Join(ErrAmbiguousEffect, persistence.ErrWorkspaceQuiescence)
+	}
+	entry, err := driver.workspaceCompletion.store.BeginInvocationWorkspaceQuiescence(ctx, claim, effect, ref, binding)
+	configuration := driver.workspaceCompletion.exporter.config
+	matches := func(record persistence.InvocationWorkspaceQuiescence) bool {
+		return record.Source == configuration.Source && record.PlanDigest == configuration.PlanDigest && workspaceQuiescenceMatches(record, claim, effect, ref, binding)
+	}
+	if err != nil || entry.Confirmed || !matches(entry.Record) {
+		_ = session.Close()
+		// A lost intent acknowledgement never permits a turn. Recover only the
+		// stopped original connection when the exact intent can be observed.
+		observation, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if confirmed, proofErr := session.ConfirmedOwnerBinding(); proofErr == nil && confirmed == binding {
+			retained, readErr := driver.workspaceCompletion.store.GetInvocationWorkspaceQuiescence(observation, claim.IsolationDomainID, claim.ID)
+			if readErr == nil && matches(retained.Record) {
+				_ = driver.workspaceCompletion.store.RecordInvocationWorkspaceOwnerStop(observation, retained.Record)
+			}
+		}
+		return nil, nil, errors.Join(ErrAmbiguousEffect, persistence.ErrWorkspaceQuiescence, err)
+	}
+	// Retain the connection before the adapter can start a turn. Close records
+	// only its verified terminal exchange, even when the execution lease is gone.
+	owned := &workspaceOwnerSession{Session: session, store: driver.workspaceCompletion.store, record: entry.Record}
 	finish := func(ctx context.Context, claim persistence.OperationClaim) error {
 		return driver.finishWorkspace(ctx, claim, effect, target, ref, request, session)
 	}
-	return session, finish, nil
+	return owned, finish, nil
+}
+
+type workspaceOwnerSession struct {
+	*nativehost.Session
+	store  InvocationWorkspaceCompletionStore
+	record persistence.InvocationWorkspaceQuiescence
+}
+
+func (session *workspaceOwnerSession) Close() error {
+	if err := session.Session.Close(); err != nil {
+		return errors.Join(persistence.ErrWorkspaceQuiescence, err)
+	}
+	binding, err := session.ConfirmedOwnerBinding()
+	if err != nil || binding != session.record.OwnerBinding {
+		return persistence.ErrWorkspaceQuiescence
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return session.store.RecordInvocationWorkspaceOwnerStop(ctx, session.record)
 }
 
 func (driver *InvocationRuntimeDriver) finishWorkspace(ctx context.Context, claim persistence.OperationClaim, effect persistence.EffectRecord, target persistence.InvocationRuntimeTarget, ref execution.ExecutionRef, request dgruntime.StartRequest, owner *nativehost.Session) error {

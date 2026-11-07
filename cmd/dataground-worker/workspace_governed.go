@@ -83,7 +83,7 @@ func (config workerConfig) workspaceConfiguration(plan execution.ExecutionPlan) 
 }
 
 type workspaceCompletionStore interface {
-	reconcile.InvocationWorkspaceQuiescenceStore
+	reconcile.InvocationWorkspaceCompletionStore
 	reconcile.InvocationWorkspaceExportStore
 }
 type workspaceCompletionObjects interface {

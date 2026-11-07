@@ -45,7 +45,7 @@ func ConfirmInvocationWorkspaceQuiescence(ctx context.Context, store InvocationW
 		return persistence.InvocationWorkspaceQuiescenceEntry{}, err
 	}
 	r := entry.Record
-	if r.SchemaVersion != persistence.WorkspaceQuiescenceContract || r.Source.IsolationDomainID != ref.IsolationDomainID || r.ExecutionID != ref.ID || r.InvocationID != claim.ResourceID || r.OperationID != claim.ID || r.EffectID != effect.EffectID || r.OwnerBinding != binding || r.RuntimeOwner != claim.LeaseOwner || r.RuntimeToken != claim.FencingToken || r.ActorID != claim.ActorID || r.CorrelationID != claim.CorrelationID {
+	if !workspaceQuiescenceMatches(r, claim, effect, ref, binding) {
 		return persistence.InvocationWorkspaceQuiescenceEntry{}, persistence.ErrWorkspaceQuiescence
 	}
 	if entry.Confirmed {
@@ -77,4 +77,8 @@ func ConfirmInvocationWorkspaceQuiescence(ctx context.Context, store InvocationW
 		return persistence.InvocationWorkspaceQuiescenceEntry{}, persistence.ErrWorkspaceQuiescence
 	}
 	return completed, nil
+}
+
+func workspaceQuiescenceMatches(r persistence.InvocationWorkspaceQuiescence, claim persistence.OperationClaim, effect persistence.EffectRecord, ref execution.ExecutionRef, binding string) bool {
+	return r.SchemaVersion == persistence.WorkspaceQuiescenceContract && r.Source.IsolationDomainID == ref.IsolationDomainID && r.ExecutionID == ref.ID && r.InvocationID == claim.ResourceID && r.OperationID == claim.ID && r.EffectID == effect.EffectID && r.OwnerBinding == binding && r.RuntimeOwner == claim.LeaseOwner && r.RuntimeToken == claim.FencingToken && r.ActorID == claim.ActorID && r.CorrelationID == claim.CorrelationID
 }

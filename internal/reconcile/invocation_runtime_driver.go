@@ -286,7 +286,7 @@ func (driver *InvocationRuntimeDriver) ApplyClaimed(
 	ctx context.Context,
 	claim persistence.OperationClaim,
 	effect persistence.EffectRecord,
-) (map[string]any, error) {
+) (result map[string]any, runErr error) {
 	if !invocationRuntimeEffectMatchesClaim(claim, effect) {
 		return nil, errors.Join(ErrEffectInvalid, ErrInvocationRuntimeTargetMismatch)
 	}
@@ -393,9 +393,29 @@ func (driver *InvocationRuntimeDriver) ApplyClaimed(
 			return nil, err
 		}
 	}
-	session, completeWorkspace, err := driver.startRuntimeSession(runCtx, effect, target, ref, request)
+	session, completeWorkspace, err := driver.startRuntimeSession(runCtx, claim, effect, target, ref, request)
 	if err != nil {
 		return nil, err
+	}
+	if driver.workspaceCompletion != nil {
+		defer func() {
+			if err := session.Close(); err != nil {
+				result = nil
+				runErr = errors.Join(runErr, ErrAmbiguousEffect, err)
+			}
+		}()
+		// Owner setup and intent persistence can outlive the prior claim check.
+		// Keep the original connection for cleanup if cancellation won that race.
+		claim, err = driver.store.RenewLease(runCtx, claim, driver.leaseDuration)
+		if err != nil {
+			return nil, errors.Join(ErrAmbiguousEffect, err)
+		}
+		if err := driver.authorizer.AuthorizeInvocationRuntime(runCtx, target, request); err != nil {
+			return nil, errors.Join(ErrAmbiguousEffect, err)
+		}
+		if err := driver.ready(runCtx); err != nil {
+			return nil, errors.Join(ErrAmbiguousEffect, err)
+		}
 	}
 	adapter, err := driver.adapters.New(session)
 	if err != nil {
