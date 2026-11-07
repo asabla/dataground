@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/workspace-retention/recoveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request retention recovery for an expired cancellation
+         * @description Requires requestWorkspaceRetentionRecovery on the invocation and an exact reviewed invocation version. Accepts only a failed, source-selected cancellation with its original confirmed owner-stop receipt and retained execution. The server resolves internal bindings and opens a five-minute retention window. The worker must still check current cancel, source-read, export and accepted-image authority. Does not restart native execution, read content or delete the workspace. Exact principal-bound idempotency replay returns the original acceptance and never extends its deadline. The receipt is historical acceptance, not current state or completed retention. Process-local reference mode returns WORKSPACE_RETENTION_NOT_RECOVERABLE. Responses use Cache-Control: no-store.
+         */
+        post: operations["requestWorkspaceRetentionRecovery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/workspace-retention": {
         parameters: {
             query?: never;
@@ -687,6 +707,21 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        RequestWorkspaceRetentionRecovery: {
+            expectedVersion: number;
+        };
+        WorkspaceRetentionRecoveryReceipt: {
+            /** @constant */
+            schemaVersion: "dataground.workspace-retention-recovery-receipt/v1";
+            isolationDomainId: components["schemas"]["IsolationDomainId"];
+            invocationId: components["schemas"]["InvocationId"];
+            /** @constant */
+            state: "requested";
+            invocationVersion: number;
+            /** Format: date-time */
+            deadlineAt: string;
+            correlationId: string;
+        };
         WorkspaceRetention: {
             /** @constant */
             schemaVersion: "dataground.invocation-workspace-retention/v1";
@@ -694,6 +729,11 @@ export interface components {
             invocationId: components["schemas"]["InvocationId"];
             /** @enum {unknown} */
             state: "not_observed" | "stop_unconfirmed" | "export_pending" | "recorded";
+            /**
+             * @description Current request-action evaluation. Informational only: command authorization and eligibility are checked again on submission.
+             * @enum {string}
+             */
+            recoveryAccess?: "allowed" | "denied" | "unavailable";
             /** @enum {unknown} */
             recovery: "none" | "review_required" | "requested";
             artifactId?: string;
@@ -1656,6 +1696,43 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    requestWorkspaceRetentionRecovery: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque caller key scoped to the isolation domain, HTTP method, and route. Reuse with a different body fails with IDEMPOTENCY_KEY_REUSED. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                isolationDomainId: components["parameters"]["IsolationDomainId"];
+                invocationId: components["parameters"]["InvocationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestWorkspaceRetentionRecovery"];
+            };
+        };
+        responses: {
+            /** @description A bounded retention recovery was accepted. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceRetentionRecoveryReceipt"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            415: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+        };
+    };
     readWorkspaceRetention: {
         parameters: {
             query?: never;

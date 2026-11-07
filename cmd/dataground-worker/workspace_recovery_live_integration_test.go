@@ -18,10 +18,10 @@ import (
 
 // The public API's real operation deadline expires while the worker is parked.
 // No test clock or direct mutation creates the failure or its recovery authority.
-func recoverExpiredLiveWorkspace(t *testing.T, ctx context.Context, repo *persistence.Repository, worker *reconcile.Reconciler, ready func(context.Context) error, public *liveWorkspaceAPI, invocation domain.Invocation) {
+func recoverExpiredLiveWorkspace(t *testing.T, ctx context.Context, repo *persistence.Repository, worker *reconcile.Reconciler, ready func(context.Context) error, public *liveWorkspaceAPI, invocation domain.Invocation, publicRecovery bool) {
 	t.Helper()
 	binary := os.Getenv("DATAGROUND_TEST_REPAIR_BINARY")
-	if binary == "" {
+	if !publicRecovery && binary == "" {
 		t.Fatal("live recovery requires the built operator command")
 	}
 	scope := invocation.Metadata.IsolationDomainID
@@ -55,19 +55,27 @@ func recoverExpiredLiveWorkspace(t *testing.T, ctx context.Context, repo *persis
 	if err != nil || operation.ObservedState != "failed" {
 		t.Fatal("read failed operation", err)
 	}
-	reason := sha256.Sum256([]byte("live expired owned cancellation retention fixture"))
-	args := []string{"retain-workspace", "--isolation-domain", scope, "--operation", invocation.OperationID, "--expected-generation", strconv.Itoa(operation.Metadata.Generation), "--owner-binding", stopped.OwnerBinding, "--actor", "live-source-conformance", "--correlation-id", identity.New("cor"), "--reason-sha256", fmt.Sprintf("sha256:%x", reason), "--deadline-at", time.Now().UTC().Truncate(time.Microsecond).Add(5 * time.Minute).Format(time.RFC3339Nano)}
-	for range 2 {
-		command := exec.CommandContext(ctx, binary, args...)
-		command.Env = []string{"PATH=/usr/bin:/bin", "DATAGROUND_DATABASE_URL=" + os.Getenv("DATAGROUND_TEST_DATABASE_URL")}
-		// The command has a fixed safe receipt; withhold diagnostics on failure.
-		if err := command.Run(); err != nil {
-			t.Fatal("operator recovery or exact replay failed")
+	if publicRecovery {
+		public.recoverRetention(failed)
+	} else {
+		reason := sha256.Sum256([]byte("live expired owned cancellation retention fixture"))
+		args := []string{"retain-workspace", "--isolation-domain", scope, "--operation", invocation.OperationID, "--expected-generation", strconv.Itoa(operation.Metadata.Generation), "--owner-binding", stopped.OwnerBinding, "--actor", "live-source-conformance", "--correlation-id", identity.New("cor"), "--reason-sha256", fmt.Sprintf("sha256:%x", reason), "--deadline-at", time.Now().UTC().Truncate(time.Microsecond).Add(5 * time.Minute).Format(time.RFC3339Nano)}
+		for range 2 {
+			command := exec.CommandContext(ctx, binary, args...)
+			command.Env = []string{"PATH=/usr/bin:/bin", "DATAGROUND_DATABASE_URL=" + os.Getenv("DATAGROUND_TEST_DATABASE_URL")}
+			// The command has a fixed safe receipt; withhold diagnostics on failure.
+			if err := command.Run(); err != nil {
+				t.Fatal("operator recovery or exact replay failed")
+			}
 		}
 	}
 	current := public.invocation(invocation.Metadata.ID)
 	if current.State != "cancelling" || current.Error != nil || current.CompletedAt != nil {
-		t.Fatal("operator command did not reopen the original cancellation")
+		t.Fatal("recovery request did not reopen the original cancellation")
 	}
-	t.Log("Expired cancellation recovered through the operator command and exact replay")
+	if publicRecovery {
+		t.Log("Expired cancellation recovered through the public API and exact replay")
+	} else {
+		t.Log("Expired cancellation recovered through the operator command and exact replay")
+	}
 }

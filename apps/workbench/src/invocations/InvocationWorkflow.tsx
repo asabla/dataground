@@ -384,19 +384,19 @@ export function InvocationWorkflow({
         operation={visibleOperation}
         reference={reference}
       />
-      {visibleInvocation && !state.loading && !state.error && (
-        <WorkspaceRetentionWorkflow
-          client={client}
-          reference={stableReference}
-          revision={visibleInvocation.metadata.version}
-          active={active}
-          onInspectArtifact={
-            onInspectArtifact
-              ? (artifactId) => onInspectArtifact({ ...stableReference, artifactId })
-              : undefined
-          }
-        />
-      )}
+      <WorkspaceRetentionWorkflow
+        client={client}
+        reference={stableReference}
+        revision={visibleInvocation?.metadata.version ?? 0}
+        active={active}
+        confirmed={!!visibleInvocation && !state.loading && !state.error}
+        onRecoveryAccepted={() => void refresh()}
+        onInspectArtifact={
+          onInspectArtifact
+            ? (artifactId) => onInspectArtifact({ ...stableReference, artifactId })
+            : undefined
+        }
+      />
       {renderDetails ? renderDetails({ result, files }) : result}
     </>
   );

@@ -1,7 +1,8 @@
 import { Button, StatusBadge } from "@dataground/ui";
-import { useEffect, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import type { DataGroundClient } from "../contracts/client";
 import type { InvocationReference } from "./client";
+import { useWorkspaceRetentionRecovery } from "./useWorkspaceRetentionRecovery";
 import { type RetentionRead, readWorkspaceRetention } from "./workspaceRetention";
 
 export function WorkspaceRetentionStatus({
@@ -9,24 +10,35 @@ export function WorkspaceRetentionStatus({
   loading,
   onRefresh,
   onInspectArtifact,
+  recovery,
+  readUnavailable = false,
 }: {
+  recovery?: ReactNode;
+  readUnavailable?: boolean;
   result?: RetentionRead;
   loading: boolean;
   onRefresh: () => void;
   onInspectArtifact?: (artifactId: string) => void;
 }) {
   const titleId = useId();
-  if (result?.kind === "missing") return null;
+  if (result?.kind === "missing" && !recovery) return null;
   const value = result?.kind === "available" ? result.value : undefined;
   return (
     <section aria-labelledby={titleId} className="workspace-retention">
       <div className="workbench-page-heading workbench-page-heading--compact">
         <h2 id={titleId}>Workspace changes</h2>
-        <Button variant="quiet" isDisabled={loading} onPress={onRefresh}>
+        <Button variant="quiet" isDisabled={loading || readUnavailable} onPress={onRefresh}>
           Refresh retention status
         </Button>
       </div>
       {loading && <p role="status">Checking workspace retention…</p>}
+      {readUnavailable && <p>Refresh run state to check workspace retention.</p>}
+      {result?.kind === "missing" && (
+        <p>
+          Workspace retention metadata is no longer available. The request receipt below is
+          historical.
+        </p>
+      )}
       {result?.kind === "error" && <p role="alert">{result.message}</p>}
       {value && (
         <>
@@ -48,8 +60,10 @@ export function WorkspaceRetentionStatus({
           </StatusBadge>
           {value.recovery === "review_required" && (
             <p role="alert">
-              Cancellation reached its deadline. An operator must review workspace retention before
-              cleanup.
+              Cancellation reached its deadline.{" "}
+              {value.recoveryAccess === "allowed"
+                ? "Review workspace retention before cleanup."
+                : "An operator must review workspace retention before cleanup."}
             </p>
           )}
           {value.recovery === "requested" && (
@@ -93,6 +107,7 @@ export function WorkspaceRetentionStatus({
           )}
         </>
       )}
+      {recovery}
     </section>
   );
 }
@@ -102,12 +117,16 @@ export function WorkspaceRetentionWorkflow({
   reference,
   revision,
   active,
+  confirmed = true,
   onInspectArtifact,
+  onRecoveryAccepted,
 }: {
+  onRecoveryAccepted?: () => void;
   client: DataGroundClient;
   reference: InvocationReference;
   revision: number;
   active: boolean;
+  confirmed?: boolean;
   onInspectArtifact?: (artifactId: string) => void;
 }) {
   const { isolationDomainId, invocationId } = reference;
@@ -120,7 +139,7 @@ export function WorkspaceRetentionWorkflow({
     result: RetentionRead;
   }>();
   useEffect(() => {
-    if (!active) {
+    if (!active || !confirmed) {
       setState(undefined);
       return;
     }
@@ -137,16 +156,26 @@ export function WorkspaceRetentionWorkflow({
       current = false;
       controller.abort();
     };
-  }, [client, isolationDomainId, invocationId, key, refresh, active]);
-  if (!active) return null;
+  }, [client, isolationDomainId, invocationId, key, refresh, active, confirmed]);
   const result =
-    state?.client === client && state.key === key && state.refresh === refresh
+    confirmed && state?.client === client && state.key === key && state.refresh === refresh
       ? state.result
       : undefined;
+  const recovery = useWorkspaceRetentionRecovery({
+    client,
+    reference,
+    version: revision,
+    active,
+    status: result,
+    onAccepted: onRecoveryAccepted,
+  });
+  if (!active || (!confirmed && !recovery)) return null;
   return (
     <WorkspaceRetentionStatus
+      recovery={recovery}
       result={result}
-      loading={!result}
+      loading={confirmed && !result}
+      readUnavailable={!confirmed}
       onRefresh={() => setRefresh((value) => value + 1)}
       onInspectArtifact={onInspectArtifact}
     />

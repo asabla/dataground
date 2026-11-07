@@ -1,6 +1,31 @@
 {
   "fixtures": [
     {
+      "file": "valid/workspace-retention-recovery-request.json",
+      "schema": "RequestWorkspaceRetentionRecovery",
+      "valid": true
+    },
+    {
+      "file": "valid/workspace-retention-recovery-receipt.json",
+      "schema": "WorkspaceRetentionRecoveryReceipt",
+      "valid": true
+    },
+    {
+      "file": "invalid/workspace-retention-recovery-owner.json",
+      "schema": "RequestWorkspaceRetentionRecovery",
+      "valid": false
+    },
+    {
+      "file": "invalid/workspace-retention-recovery-zero.json",
+      "schema": "RequestWorkspaceRetentionRecovery",
+      "valid": false
+    },
+    {
+      "file": "invalid/workspace-retention-recovery-completed.json",
+      "schema": "WorkspaceRetentionRecoveryReceipt",
+      "valid": false
+    },
+    {
       "file": "valid/workspace-retention-pending.json",
       "schema": "WorkspaceRetention",
       "valid": true

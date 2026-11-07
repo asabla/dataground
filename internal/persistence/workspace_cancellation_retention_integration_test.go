@@ -17,7 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func testWorkspaceCancellationRetention(t *testing.T, ctx context.Context, pool *pgxpool.Pool, original persistence.OperationClaim, runtimeEffect persistence.EffectRecord, stopped persistence.InvocationWorkspaceQuiescence, service, revision string, source *exportSourceObjects, base *workspace.Snapshot, version string) {
+func testWorkspaceCancellationRetention(t *testing.T, ctx context.Context, pool *pgxpool.Pool, original persistence.OperationClaim, runtimeEffect persistence.EffectRecord, stopped persistence.InvocationWorkspaceQuiescence, service, revision string, source *exportSourceObjects, base *workspace.Snapshot, version string, publicRecovery bool) {
 	t.Helper()
 	repo := persistence.NewRepository(pool)
 	scope := original.IsolationDomainID
@@ -264,15 +264,22 @@ func testWorkspaceCancellationRetention(t *testing.T, ctx context.Context, pool 
 	if _, err := retain(*replacement); err == nil || source.reads != before {
 		t.Fatal("expired cancellation acquired retention authority")
 	}
-	db, err := persistence.OpenSQL(ctx, testDatabaseURL(t))
-	if err != nil {
-		t.Fatal(err)
+	if !publicRecovery {
+		db, err := persistence.OpenSQL(ctx, testDatabaseURL(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		if err := persistence.MigrateDownTo(ctx, db, 84); err == nil || !strings.Contains(err.Error(), "cannot remove cancellation retention evidence") {
+			t.Fatal("downgrade discarded recovery purpose", err)
+		}
 	}
-	defer db.Close()
-	if err := persistence.MigrateDownTo(ctx, db, 84); err == nil || !strings.Contains(err.Error(), "cannot remove cancellation retention evidence") {
-		t.Fatal("downgrade discarded recovery purpose", err)
+	var verifyPublicReplay func()
+	if publicRecovery {
+		replacement, verifyPublicReplay = testPublicWorkspaceRetentionRecovery(t, ctx, pool, *replacement)
+	} else {
+		replacement = testWorkspaceRetentionRecovery(t, ctx, pool, *replacement, stopped)
 	}
-	replacement = testWorkspaceRetentionRecovery(t, ctx, pool, *replacement, stopped)
 	ready = false
 	before = source.reads
 	if _, err := driver.ApplyClaimed(ctx, *replacement, effect); err == nil || source.reads != before {
@@ -294,6 +301,9 @@ func testWorkspaceCancellationRetention(t *testing.T, ctx context.Context, pool 
 	invocation, err := repo.GetInvocation(ctx, scope, claim.ResourceID)
 	if err != nil || invocation.State != "cancelled" {
 		t.Fatal("cancellation did not finish", invocation.State, err)
+	}
+	if verifyPublicReplay != nil {
+		verifyPublicReplay()
 	}
 	assertWorkspaceRetention(t, ctx, repo, original, "recorded", "none")
 	instance, err := executionpostgres.New(pool).GetExecutionByOperation(ctx, scope, claim.ID)
