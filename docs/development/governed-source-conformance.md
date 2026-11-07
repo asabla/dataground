@@ -55,3 +55,17 @@ go test ./cmd/dataground-worker \
 The test requires confirmed cleanup by the original native owner and a completed workspace change export before invocation success. It reads the sensitive change artifact through the governed artifact reader and authenticated public endpoint, applies it to the exact source archive, and compares the restored source and output bytes. It also requires exactly one native attempt, cleanup intent and completion, and export intent and completion. Cross-domain access remains denied. These assertions exercise normal completion; replacement-worker recovery, lost acknowledgements and authority loss have separate deterministic and PostgreSQL tests. This test does not establish teardown authority, operational signing trust, retention policy, or production acceptance. The same disposable-resource cleanup requirements apply.
 
 The live owned workspace test passed on 2026-10-30 from commit `2bb4ffb7` with the published ARM64 export-capable Codex image, strict supervisor and model-backed v7 diagnostic recorded in [local runtime acceptance](local-runtime-acceptance.md#owned-runtime-and-workspace-export-diagnostic). It used real PostgreSQL, the pinned S3 candidate, Rosetta, the retained OpenShell gateway and the local `gpt-6-astra` provider. The database retained one published version 6 operation, one successful invocation, one native attempt, one source preparation and completion, one cleanup intent and completion, and one change-export intent and completion. Public event replay matched through sequence 48. The test verified the declared output, restored source and output bytes, sensitive change artifact access and denied cross-domain access. It terminated its sandbox; the caller then removed the exact gateway, compiler process, private credential state, temporary acceptance and disposable backends. This is one development conformance result with ephemeral test trust and development authentication, not operational acceptance or release certification.
+
+## Exercise owned workspace cancellation
+
+`TestGovernedOwnedWorkspaceLivePublicAPICancellation` uses a separate, unused owned-workspace fixture with the same v4 test acceptance and real dependencies. Select it instead of the normal completion case:
+
+```sh
+DATAGROUND_TEST_GOVERNED_OWNED_CANCELLATION_LIVE=true \
+go test ./cmd/dataground-worker \
+  -run '^TestGovernedOwnedWorkspaceLivePublicAPICancellation$' -count=1 -timeout=12m -v
+```
+
+The model copies the random source and emits a fixed command marker, then starts a foreground wait. The test waits for the durable command artifact before it sends public cancellation. It rejects unauthenticated and cross-domain cancellation and checks exact request replay. The invocation must become cancelled with the original owner's stop receipt, one native attempt, independent cancellation export and source decisions, and a retained change artifact. The authenticated artifact read must reconstruct the exact source and copied bytes. The ordinary execution cleanup completion must remain unconfirmed, and the sandbox must remain present until the fixture's separate cleanup.
+
+This test is opt-in and has not yet been recorded as a successful live run. Compilation and ordinary suite skips do not establish native cancellation evidence. It does not test recovery after the original operation deadline or authorize production teardown.

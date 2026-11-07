@@ -380,3 +380,34 @@ func TestHandshakeRejectsAnotherConnectionNonce(t *testing.T) {
 		t.Fatal("foreign connection acknowledgement admitted")
 	}
 }
+
+func TestParentCancellationRetainsOriginalShutdownAcknowledgement(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	owner := newFakeOwner()
+	raw := ownerTransport(owner)
+	defer raw.Close()
+	session, err := NewSession(ctx, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := session.OwnerBinding()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	select {
+	case <-session.qDone:
+	case <-time.After(time.Second):
+		t.Fatal("parent cancellation did not complete the shutdown exchange")
+	}
+	if err := session.Close(); err != nil {
+		t.Fatal("cancelled owner did not close cleanly", err)
+	}
+	if confirmed, err := session.ConfirmedOwnerBinding(); err != nil || confirmed != binding || owner.stopCount.Load() < 1 {
+		t.Fatal("cancelled owner lost its original shutdown proof", err)
+	}
+	if _, err := session.Input().Write([]byte("later native input")); err == nil {
+		t.Fatal("cancelled owner accepted native input")
+	}
+}

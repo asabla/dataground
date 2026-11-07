@@ -37,24 +37,43 @@ func TestGovernedWorkspaceLiveInvocation(t *testing.T) {
 	if os.Getenv("DATAGROUND_TEST_GOVERNED_SOURCE_LIVE") != "true" {
 		t.Skip("explicit live governed source fixture is required")
 	}
-	runGovernedWorkspaceLiveInvocation(t, false, false)
+	runGovernedWorkspaceLiveInvocation(t, liveWorkspaceInternal)
 }
 
 func TestGovernedWorkspaceLivePublicAPIInvocation(t *testing.T) {
 	if os.Getenv("DATAGROUND_TEST_GOVERNED_SOURCE_PUBLIC_LIVE") != "true" {
 		t.Skip("explicit live public source fixture is required")
 	}
-	runGovernedWorkspaceLiveInvocation(t, true, false)
+	runGovernedWorkspaceLiveInvocation(t, liveWorkspacePublic)
 }
 
 func TestGovernedOwnedWorkspaceLivePublicAPIInvocation(t *testing.T) {
 	if os.Getenv("DATAGROUND_TEST_GOVERNED_OWNED_PUBLIC_LIVE") != "true" {
 		t.Skip("explicit live public owned workspace fixture is required")
 	}
-	runGovernedWorkspaceLiveInvocation(t, true, true)
+	runGovernedWorkspaceLiveInvocation(t, liveWorkspaceOwned)
 }
 
-func runGovernedWorkspaceLiveInvocation(t *testing.T, publicJourney, ownedWorkspace bool) {
+func TestGovernedOwnedWorkspaceLivePublicAPICancellation(t *testing.T) {
+	if os.Getenv("DATAGROUND_TEST_GOVERNED_OWNED_CANCELLATION_LIVE") != "true" {
+		t.Skip("explicit live public owned cancellation fixture is required")
+	}
+	runGovernedWorkspaceLiveInvocation(t, liveWorkspaceCancellation)
+}
+
+type liveWorkspaceJourney uint8
+
+const (
+	liveWorkspaceInternal liveWorkspaceJourney = iota
+	liveWorkspacePublic
+	liveWorkspaceOwned
+	liveWorkspaceCancellation
+)
+
+func runGovernedWorkspaceLiveInvocation(t *testing.T, journey liveWorkspaceJourney) {
+	publicJourney := journey != liveWorkspaceInternal
+	ownedWorkspace := journey == liveWorkspaceOwned || journey == liveWorkspaceCancellation
+	cancelOwned := journey == liveWorkspaceCancellation
 	if runtime.GOOS != "linux" || runtime.GOARCH != "arm64" {
 		t.Fatal("live source profile requires Linux ARM64")
 	}
@@ -248,6 +267,9 @@ func runGovernedWorkspaceLiveInvocation(t *testing.T, publicJourney, ownedWorksp
 		}
 	}()
 	input := map[string]any{"prompt": "Copy the exact bytes of source.txt in the current workspace to result.txt using the shell command cp source.txt result.txt. Do not change the source or invent its contents. Then report completion.", "artifacts": []any{map[string]any{"id": "source-copy", "name": "source-copy", "kind": "file", "mediaType": "text/plain", "sandboxPath": "/sandbox/workspace/result.txt"}}}
+	if cancelOwned {
+		input["prompt"] = "Run exactly cp source.txt result.txt && printf 'dataground-cancel-ready\\n' as one shell command in the current workspace. After it returns, run sleep 180 as a separate foreground shell command. Do not start background processes. Do not report completion until the sleep finishes. Do not change source.txt."
+	}
 	var invocation domain.Invocation
 	if public != nil {
 		body := public.call(http.MethodPost, public.servicePath()+"/invocations", map[string]any{"alias": "live-source", "input": input}, "live-source-invoke", true, http.StatusAccepted)
@@ -287,6 +309,9 @@ func runGovernedWorkspaceLiveInvocation(t *testing.T, publicJourney, ownedWorksp
 		}
 	}()
 	worker := reconcile.New(workerReconcileStore(repo, config), driver, "live-source-conformance")
+	if cancelOwned {
+		invocation = cancelLiveOwnedWorkspace(t, ctx, repo, worker, resources.Ready, public, invocation)
+	}
 	for invocation.CompletedAt == nil {
 		if err := resources.Ready(ctx); err != nil {
 			t.Fatal("worker readiness", err)
@@ -312,8 +337,12 @@ func runGovernedWorkspaceLiveInvocation(t *testing.T, publicJourney, ownedWorksp
 			break
 		}
 	}
-	if invocation.State != "succeeded" || invocation.CompletedAt == nil {
-		t.Fatalf("live invocation did not succeed: state=%s", invocation.State)
+	expectedState := "succeeded"
+	if cancelOwned {
+		expectedState = "cancelled"
+	}
+	if invocation.State != expectedState || invocation.CompletedAt == nil {
+		t.Fatalf("live invocation did not reach the expected state: state=%s", invocation.State)
 	}
 	artifacts, err := s3store.NewArtifactStore(objects, config.maximumArtifactBytes)
 	if err != nil {
@@ -330,6 +359,9 @@ func runGovernedWorkspaceLiveInvocation(t *testing.T, publicJourney, ownedWorksp
 			t.Fatal("durable artifact read", err)
 		}
 		if value.Record.Name == "source-copy" {
+			if cancelOwned {
+				t.Fatal("cancelled native turn published its declared success artifact")
+			}
 			found = bytes.Equal(value.Bytes, content)
 			if public != nil {
 				public.verifyArtifact(invocationID, artifactID, content)
@@ -340,15 +372,37 @@ func runGovernedWorkspaceLiveInvocation(t *testing.T, publicJourney, ownedWorksp
 			t.Fatal("cross-domain artifact read was not denied", err)
 		}
 	}
-	if !found {
+	if !found && !cancelOwned {
 		t.Fatal("source bytes did not reach the declared durable artifact")
 	}
 	if ownedWorkspace {
 		verifyLiveWorkspaceChanges(t, ctx, repo, reader, public, invocation, source, planDigest, archive.Bytes(), content)
-		for _, table := range []string{"invocation_runtime_attempts", "invocation_workspace_quiescence_intents", "invocation_workspace_quiescence_completions", "invocation_workspace_change_exports", "invocation_workspace_change_completions"} {
+		tables := []string{"invocation_runtime_attempts", "invocation_workspace_quiescence_intents", "invocation_workspace_change_exports", "invocation_workspace_change_completions"}
+		if cancelOwned {
+			tables = append(tables, "invocation_workspace_owner_stop_receipts")
+		} else {
+			tables = append(tables, "invocation_workspace_quiescence_completions")
+		}
+		for _, table := range tables {
 			var count int
 			if err := pool.QueryRow(ctx, "SELECT count(*) FROM "+table+" WHERE isolation_domain_id=$1 AND operation_id=$2", target.isolationDomainID, invocation.OperationID).Scan(&count); err != nil || count != 1 {
 				t.Fatal("owned workspace requires one native attempt and one retained completion", table, err)
+			}
+		}
+	}
+	if cancelOwned {
+		record, err := store.GetExecutionByOperation(ctx, target.isolationDomainID, invocation.OperationID)
+		if err != nil || record.State != "ready" {
+			t.Fatal("owned cancellation removed its sandbox", err)
+		}
+		for _, table := range []string{"workspace_cancellation_export_decisions", "workspace_source_use_decisions"} {
+			filter := ""
+			if table == "workspace_source_use_decisions" {
+				filter = " AND claim_contract='dataground.invocation-source-read/v6'"
+			}
+			var count int
+			if err := pool.QueryRow(ctx, "SELECT count(*) FROM "+table+" WHERE isolation_domain_id=$1 AND operation_id=$2 AND outcome='allowed'"+filter, target.isolationDomainID, invocation.OperationID).Scan(&count); err != nil || count < 1 {
+				t.Fatal("missing current cancellation retention authority", table, err)
 			}
 		}
 	}
