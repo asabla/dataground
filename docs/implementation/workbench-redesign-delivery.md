@@ -47,8 +47,9 @@ change export before invocation completion. Its authenticated public journey
 passed on 30 October 2026 with real local model execution and ephemeral test
 trust. This proves normal completion in that development fixture. The owned cancellation
 path now retains changes under a fresh cancellation claim and original shutdown
-receipt, with PostgreSQL recovery coverage. Live cancellation evidence and recovery
-after deadline expiry remain outstanding. A complete
+receipt, with PostgreSQL recovery coverage. Its public cancellation journey passed
+on 7 November 2026 with real local model execution, verified retained bytes and
+ephemeral test trust. Recovery after deadline expiry remains outstanding. A complete
 production writer fence, worker teardown integration, retention resolution,
 ordered journals and checkpoints remain. See
 [governed source conformance](../development/governed-source-conformance.md) and
