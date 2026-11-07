@@ -155,6 +155,14 @@ func TestWorkspaceChangeDockerExport(t *testing.T) {
 // Descendant and strict-gateway tests cover the stronger cleanup invariants.
 func verifyCandidateNativeOwner(t *testing.T, ctx context.Context, container string) {
 	t.Helper()
+	for _, mode := range []string{"explicit cleanup", "parent cancellation"} {
+		t.Run(mode, func(t *testing.T) {
+			verifyCandidateNativeOwnerSession(t, ctx, container, mode == "parent cancellation")
+		})
+	}
+}
+func verifyCandidateNativeOwnerSession(t *testing.T, ctx context.Context, container string, cancelParent bool) {
+	t.Helper()
 	proxy := newSSHCommandTestProxy(t, "/usr/local/bin/dataground-native-owner", func(channel ssh.Channel) {
 		command := exec.CommandContext(ctx, "docker", "exec", "--interactive", "--workdir", "/sandbox/workspace", "--env", "CODEX_HOME=/sandbox/.codex", container, "/usr/local/bin/dataground-native-owner")
 		command.Stdin, command.Stdout, command.Stderr = channel, channel, channel.Stderr()
@@ -165,7 +173,9 @@ func verifyCandidateNativeOwner(t *testing.T, ctx context.Context, container str
 		finishSSHTest(channel, status)
 	})
 	provider, ref, _ := sourceTransferProvider(t, proxy)
-	session, err := provider.StartOwnedRuntime(ctx, ref)
+	ownerCtx, cancelOwner := context.WithCancel(ctx)
+	defer cancelOwner()
+	session, err := provider.StartOwnedRuntime(ownerCtx, ref)
 	if err != nil {
 		t.Fatal("candidate owner startup", err)
 	}
@@ -188,7 +198,17 @@ func verifyCandidateNativeOwner(t *testing.T, ctx context.Context, container str
 		t.Fatal("candidate native initialization response invalid")
 	}
 	go func() { _, _ = io.Copy(io.Discard, session.Output()) }()
-	if err := session.Quiesce(ctx); err != nil {
+	if cancelParent {
+		cancelOwner()
+		select {
+		case <-proxy.serverDone:
+		case <-ctx.Done():
+			t.Fatal("cancelled candidate owner retained the SSH connection")
+		}
+		if err := session.Close(); err != nil {
+			t.Fatal("cancelled candidate owner cleanup", err)
+		}
+	} else if err := session.Quiesce(ctx); err != nil {
 		t.Fatal("candidate owner cleanup", err)
 	}
 	binding, err := session.OwnerBinding()

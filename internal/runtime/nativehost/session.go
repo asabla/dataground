@@ -67,13 +67,25 @@ func NewSession(ctx context.Context, raw execution.RuntimeSession) (*Session, er
 		_ = raw.Close()
 		return nil, ErrProtocol
 	}
-	s.stopParent = context.AfterFunc(ctx, s.fail)
 	accepted := false
+	startupDone := make(chan struct{})
+	// Cancellation ends native work through the original control connection.
+	// Keep that connection only for the bounded terminal exchange, so the owner
+	// can supply historical shutdown evidence after execution authority ends.
+	s.stopParent = context.AfterFunc(ctx, func() {
+		<-startupDone
+		if accepted {
+			_ = s.Close()
+		} else {
+			s.fail()
+		}
+	})
 	defer func() {
 		if !accepted {
 			s.stopParent()
 			s.fail()
 		}
+		close(startupDone)
 	}()
 	go s.receive(output)
 	go func() {

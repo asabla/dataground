@@ -23,7 +23,18 @@ func verifyLiveWorkspaceChanges(t *testing.T, ctx context.Context, repo *persist
 		t.Fatal("missing exact retained workspace changes", err)
 	}
 	cleanup, err := repo.GetInvocationWorkspaceQuiescence(ctx, source.IsolationDomainID, invocation.OperationID)
-	if err != nil || !cleanup.Confirmed || cleanup.Record.Source != source || cleanup.Record.InvocationID != entry.Record.InvocationID || cleanup.Record.ExecutionID != entry.Record.ExecutionID || cleanup.Record.EffectID != entry.Record.EffectID || cleanup.Record.PlanDigest != planDigest {
+	if err != nil {
+		t.Fatal("read native owner cleanup", err)
+	}
+	if invocation.State == "cancelled" {
+		stopped, stopErr := repo.GetInvocationWorkspaceOwnerStop(ctx, source.IsolationDomainID, invocation.OperationID)
+		if stopErr != nil || stopped != cleanup.Record || cleanup.Confirmed {
+			t.Fatal("cancellation did not retain the separate original-owner shutdown proof", stopErr)
+		}
+	} else if !cleanup.Confirmed {
+		t.Fatal("normal completion did not confirm cleanup")
+	}
+	if cleanup.Record.Source != source || cleanup.Record.InvocationID != entry.Record.InvocationID || cleanup.Record.ExecutionID != entry.Record.ExecutionID || cleanup.Record.EffectID != entry.Record.EffectID || cleanup.Record.PlanDigest != planDigest {
 		t.Fatal("missing original native owner cleanup confirmation", err)
 	}
 	descriptor := entry.Record.ArtifactRecord()
