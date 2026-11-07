@@ -221,6 +221,36 @@ export const CompactUncertainCancellation: Story = {
   },
 };
 
+export const WorkbenchRetentionBlocked: Story = {
+  args: {
+    compact: true,
+    invocation: { ...invocation, state: "cancelling" },
+    operation: {
+      ...operation,
+      command: "cancel",
+      desiredState: "cancelled",
+      observedState: "cancelling",
+      error: {
+        code: "WORKSPACE_RETENTION_REQUIRED",
+        message: "The operation will be reconciled again.",
+        correlationId: invocation.correlationId,
+        retryable: true,
+      },
+    },
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("alert")).toHaveTextContent(
+      "Cancellation blocked: workspace retention required.",
+    );
+    await expect(canvas.getByText("WORKSPACE_RETENTION_REQUIRED")).not.toBeVisible();
+    await expect(canvas.queryByRole("button", { name: "Request cancellation" })).toBeNull();
+    await expect(canvas.queryByRole("button", { name: "Retry cancellation" })).toBeNull();
+    await userEvent.click(canvas.getByRole("button", { name: "Refresh state" }));
+    await expect(args.onRefresh).toHaveBeenCalledOnce();
+  },
+};
+
 export const WorkbenchCancellation: Story = {
   args: { compact: true },
   render: function Cancellation(args) {

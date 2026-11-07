@@ -321,3 +321,79 @@ it("does not offer compact cancellation during cancellation or unconfirmed state
     assert.doesNotMatch(markup, /Request cancellation/u);
   }
 });
+
+const retentionOperation = {
+  ...operation,
+  command: "cancel",
+  desiredState: "cancelled",
+  observedState: "cancelling",
+  error: {
+    code: "WORKSPACE_RETENTION_REQUIRED",
+    message: "The operation will be reconciled again.",
+    correlationId: invocation.correlationId,
+    retryable: true,
+  },
+};
+
+it("leads with the retention blocker without claiming cancellation or offering another command", () => {
+  const markup = renderToStaticMarkup(
+    <InvocationStatus
+      compact
+      canCancel
+      invocation={{ ...invocation, state: "cancelling" }}
+      operation={retentionOperation}
+      reference={reference}
+      onRefresh={() => {}}
+      onRequestCancellation={() => {}}
+      onConfirmCancellation={() => {}}
+      onDismissCancellation={() => {}}
+    />,
+  );
+  const primary = markup.split("<details")[0] ?? "";
+  assert.match(primary, /Cancellation blocked: workspace retention required/u);
+  assert.match(primary, /Contact an administrator/u);
+  assert.match(primary, /not confirmed as cancelled/u);
+  assert.match(primary, /Refresh state/u);
+  assert.doesNotMatch(
+    primary,
+    /WORKSPACE_RETENTION_REQUIRED|Operation failure|Request cancellation|Retry cancellation/u,
+  );
+  assert.match(markup, /Retention diagnostic/u);
+  assert.match(markup, /WORKSPACE_RETENTION_REQUIRED/u);
+});
+
+it("qualifies retained blocker information while refreshing or after a failed read", () => {
+  for (const state of [
+    { isLoading: true },
+    { error: { message: "Read denied", retryable: false } },
+  ]) {
+    const markup = renderToStaticMarkup(
+      <InvocationStatus
+        compact
+        canCancel={false}
+        invocation={{ ...invocation, state: "cancelling" }}
+        operation={retentionOperation}
+        reference={reference}
+        {...state}
+      />,
+    );
+    assert.match(markup, /The last confirmed state requires/u);
+    assert.doesNotMatch(markup, /This run requires/u);
+  }
+});
+
+it("does not infer a current retention block from a code on another operation state", () => {
+  for (const update of [{ command: "invoke" }, { observedState: "cancelled" }]) {
+    const markup = renderToStaticMarkup(
+      <InvocationStatus
+        compact
+        canCancel={false}
+        invocation={{ ...invocation, state: "cancelling" }}
+        operation={{ ...retentionOperation, ...update }}
+        reference={reference}
+      />,
+    );
+    assert.doesNotMatch(markup, /Cancellation blocked:/u);
+    assert.match(markup, /Operation failure: WORKSPACE_RETENTION_REQUIRED/u);
+  }
+});

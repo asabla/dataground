@@ -33,11 +33,16 @@ export function InvocationStatusSummary({
   canCancel,
   disabledReason,
 }: InvocationStatusSummaryProps) {
+  const retentionBlocked =
+    invocation?.state === "cancelling" &&
+    operation?.command === "cancel" &&
+    operation.observedState === "cancelling" &&
+    operation.error?.code === "WORKSPACE_RETENTION_REQUIRED";
   const outcome = useCommandResultFocus(
     true,
     isLoading || isCancelling
       ? undefined
-      : `${invocation?.state ?? "unavailable"}/${error?.message ?? ""}`,
+      : `${invocation?.state ?? "unavailable"}/${retentionBlocked}/${error?.message ?? ""}`,
   );
   return (
     <section
@@ -59,6 +64,20 @@ export function InvocationStatusSummary({
           {canRecoverCancellation && (
             <p>The cancellation outcome is uncertain. Retrying uses the same request identifier.</p>
           )}
+        </div>
+      )}
+      {retentionBlocked && (
+        <div role="alert" className="dg-invocation-status__domain-error">
+          <strong>Cancellation blocked: workspace retention required.</strong>
+          <p>
+            {error || isLoading ? "The last confirmed state requires" : "This run requires"}{" "}
+            workspace changes to be retained before cancellation can finish. The run is not
+            confirmed as cancelled.
+          </p>
+          <p>
+            Contact an administrator to review workspace retention. Refresh state to check for an
+            update.
+          </p>
         </div>
       )}
       {!invocation && !error && <p role="status">Reading run state…</p>}
@@ -92,7 +111,7 @@ export function InvocationStatusSummary({
               the reported cause.
             </p>
           )}
-          {invocation.state === "cancelling" && (
+          {invocation.state === "cancelling" && !retentionBlocked && (
             <p>
               Cancellation is in progress. Refresh to confirm the outcome before taking another
               action.
@@ -107,7 +126,7 @@ export function InvocationStatusSummary({
               {displayText(invocation.error.message, 512)}
             </div>
           )}
-          {operation?.error && (
+          {operation?.error && !retentionBlocked && (
             <div role="alert" className="dg-invocation-status__domain-error">
               <strong>Operation failure: {displayText(operation.error.code, 64)}. </strong>
               {displayText(operation.error.message, 512)}
@@ -254,6 +273,12 @@ export function InvocationStatusSummary({
             <div>
               <dt>Operation failure correlation</dt>
               <dd>{displayText(operation.error.correlationId, 128)}</dd>
+            </div>
+          )}
+          {retentionBlocked && operation?.error && (
+            <div>
+              <dt>Retention diagnostic</dt>
+              <dd>{displayText(operation.error.code, 64)}</dd>
             </div>
           )}
         </dl>
