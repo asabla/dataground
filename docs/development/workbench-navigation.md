@@ -124,6 +124,15 @@ location. An authorized exact run read is independent of list permission. Back,
 forward and reconnect restore the selected run view. Output links retain explicit
 result disclosure. Newly accepted invocations enter the same run navigation.
 
+When an authorized run and its operation both report cancellation in progress,
+the `WORKSPACE_RETENTION_REQUIRED` diagnostic appears as a workspace-retention
+blocker at the top of the run summary. The view directs the user to administrator
+review and state refresh. It does not offer another cancellation request, claim
+that files are saved, or imply that the runtime has stopped. During refresh or a
+failed read, the retained blocker is labelled as the last confirmed state. The
+internal diagnostic code remains in resource details. This presentation does not
+add retention, recovery or deletion authority.
+
 The workbench command presentation uses the shared page surface for service
 creation, revision definition, publication, routing and invocation composition.
 Runtime/capabilities, input and output fields have distinct sections. IDs and
