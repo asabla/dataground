@@ -237,3 +237,14 @@ The diagnostic and that worker test are separate evidence: only the worker test
 checks durable cancellation retention and authenticated artifact reconstruction.
 Both remain development results, without operational signing trust or production
 certification.
+
+The [recovery diagnostic recorded on 2026-11-07 UTC](../../deploy/openshell/diagnostics/codex-owned-recovery-candidate-arm64-20261107.json)
+passed from clean source `a8a0458f93be83105795c6a1e8438cf31c9b423f` with the same
+published image digests and local model. Publication signatures, completed jobs,
+local image identities and the closed v7 schema were checked again. The original
+record bytes have SHA-256
+`656694eebe486dc8a7f7ed2cb0e81a1a3de931052efe74fd004be9e84a7c7ba5`.
+It supported separate short-lived v4 test acceptance for the successful
+[expired cancellation recovery journey](governed-source-conformance.md#exercise-expired-cancellation-recovery).
+The diagnostic alone does not prove durable recovery. Neither result constitutes
+operational acceptance or release certification.
