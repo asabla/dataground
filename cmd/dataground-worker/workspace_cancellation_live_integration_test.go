@@ -19,14 +19,16 @@ import (
 
 // The marker is a completed command artifact, not model text. Cancellation must
 // reach an active invocation after the copy has completed, before native success.
-func cancelLiveOwnedWorkspace(t *testing.T, ctx context.Context, repo *persistence.Repository, worker *reconcile.Reconciler, ready func(context.Context) error, public *liveWorkspaceAPI, invocation domain.Invocation) domain.Invocation {
+func cancelLiveOwnedWorkspace(t *testing.T, ctx context.Context, repo *persistence.Repository, worker *reconcile.Reconciler, ready func(context.Context) error, public *liveWorkspaceAPI, invocation domain.Invocation, recoverExpired bool) domain.Invocation {
 	t.Helper()
 	if public == nil {
 		t.Fatal("owned cancellation requires the authenticated public fixture")
 	}
 	runCtx, stop := context.WithCancel(ctx)
 	done := make(chan error, 1)
+	parked, resume := make(chan struct{}), make(chan struct{})
 	go func() {
+		awaitRecovery := recoverExpired
 		for {
 			if err := ready(runCtx); err != nil {
 				done <- err
@@ -46,6 +48,16 @@ func cancelLiveOwnedWorkspace(t *testing.T, ctx context.Context, repo *persisten
 			if value.CompletedAt != nil {
 				done <- nil
 				return
+			}
+			if awaitRecovery && value.State == "cancelling" {
+				awaitRecovery = false
+				close(parked)
+				select {
+				case <-resume:
+				case <-runCtx.Done():
+					done <- runCtx.Err()
+					return
+				}
 			}
 			select {
 			case <-runCtx.Done():
@@ -99,6 +111,18 @@ func cancelLiveOwnedWorkspace(t *testing.T, ctx context.Context, repo *persisten
 		t.Fatal("native invocation ended before public cancellation")
 	}
 	public.cancel(invocation.Metadata.ID)
+	if recoverExpired {
+		select {
+		case <-parked:
+		case err := <-done:
+			joined = true
+			t.Fatal("worker ended before retention recovery", err)
+		case <-ctx.Done():
+			t.Fatal("owner stop deadline", ctx.Err())
+		}
+		recoverExpiredLiveWorkspace(t, ctx, repo, worker, ready, public, invocation)
+		close(resume)
+	}
 	select {
 	case err := <-done:
 		joined = true
