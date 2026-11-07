@@ -26,7 +26,7 @@ func TestGovernedInvocationDriverOwnsCompleteVersionTwoLifecycle(t *testing.T) {
 	if driver.fallback != fallback {
 		t.Fatal("governed invocation driver replaced the fallback")
 	}
-	if len(driver.routes) != 2 || len(driver.claimedRoutes) != 1 {
+	if len(driver.routes) != 1 || len(driver.claimedRoutes) != 2 {
 		t.Fatalf(
 			"governed route counts = ordinary %d, claimed %d",
 			len(driver.routes),
@@ -48,7 +48,7 @@ func TestGovernedInvocationDriverOwnsCompleteVersionTwoLifecycle(t *testing.T) {
 	if driver.routes[admissionRoute] != admission {
 		t.Fatal("admission route is not owned by the governed admission driver")
 	}
-	if driver.routes[cancellationRoute] != cancellation {
+	if driver.claimedRoutes[cancellationRoute] != cancellation {
 		t.Fatal("cancellation route is not owned by the governed cancellation driver")
 	}
 	if driver.claimedRoutes[runtimeRoute] != runtime {
@@ -66,6 +66,11 @@ func TestGovernedInvocationDriverOwnsCompleteVersionTwoLifecycle(t *testing.T) {
 	}
 	if fallback.applyCount != 0 {
 		t.Fatal("claimless governed runtime reached the fallback")
+	}
+
+	effect.Phase = "cancel-invocation"
+	if _, err := driver.Apply(context.Background(), effect); !errors.Is(err, ErrEffectClaimRequired) {
+		t.Fatalf("claimless governed cancellation error = %v, want claim required", err)
 	}
 
 	effect.OperationKind = persistence.OperationKindPublication

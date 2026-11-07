@@ -45,7 +45,10 @@ acceptance. The separate owned workspace profile now binds v4 acceptance to the
 published helper images and composes original-owner cleanup and durable final
 change export before invocation completion. Its authenticated public journey
 passed on 30 October 2026 with real local model execution and ephemeral test
-trust. This proves normal completion in that development fixture. A complete
+trust. This proves normal completion in that development fixture. The owned cancellation
+path now retains changes under a fresh cancellation claim and original shutdown
+receipt, with PostgreSQL recovery coverage. Live cancellation evidence and recovery
+after deadline expiry remain outstanding. A complete
 production writer fence, worker teardown integration, retention resolution,
 ordered journals and checkpoints remain. See
 [governed source conformance](../development/governed-source-conformance.md) and

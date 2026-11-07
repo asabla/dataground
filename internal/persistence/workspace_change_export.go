@@ -16,6 +16,10 @@ import (
 // A current replacement lease may recover identical intent without restarting
 // the runtime. A completed exact replay is read-only after lease expiry.
 func (repository *Repository) PrepareWorkspaceChangeExport(ctx context.Context, binding workspace.ChangeExportBinding) (workspace.ChangeExportEntry, error) {
+	return repository.prepareWorkspaceChangeExport(ctx, binding, lockWorkspaceChangeExport)
+}
+
+func (repository *Repository) prepareWorkspaceChangeExport(ctx context.Context, binding workspace.ChangeExportBinding, lock workspaceChangeExportLocker) (workspace.ChangeExportEntry, error) {
 	if !repository.Configured() || ctx == nil || !workspace.ValidChangeExportBinding(binding) {
 		return workspace.ChangeExportEntry{}, workspace.ErrChangeExportConflict
 	}
@@ -34,7 +38,7 @@ func (repository *Repository) PrepareWorkspaceChangeExport(ctx context.Context, 
 	if found && entry.Ready {
 		return entry, nil
 	}
-	encoded, err := lockWorkspaceChangeExport(ctx, tx, binding)
+	encoded, err := lock(ctx, tx, binding)
 	if err != nil {
 		return workspace.ChangeExportEntry{}, err
 	}
@@ -63,6 +67,10 @@ func (repository *Repository) PrepareWorkspaceChangeExport(ctx context.Context, 
 // Completion, the existing governed artifact descriptor, audit and outbox share
 // one transaction. No completion record grants permission to destroy a sandbox.
 func (repository *Repository) CompleteWorkspaceChangeExport(ctx context.Context, binding workspace.ChangeExportBinding) (workspace.ChangeExportEntry, error) {
+	return repository.completeWorkspaceChangeExport(ctx, binding, lockWorkspaceChangeExport)
+}
+
+func (repository *Repository) completeWorkspaceChangeExport(ctx context.Context, binding workspace.ChangeExportBinding, lock workspaceChangeExportLocker) (workspace.ChangeExportEntry, error) {
 	if !repository.Configured() || ctx == nil || !workspace.ValidChangeExportBinding(binding) {
 		return workspace.ChangeExportEntry{}, workspace.ErrChangeExportConflict
 	}
@@ -81,7 +89,7 @@ func (repository *Repository) CompleteWorkspaceChangeExport(ctx context.Context,
 	if entry.Ready {
 		return entry, nil
 	}
-	if _, err := lockWorkspaceChangeExport(ctx, tx, binding); err != nil {
+	if _, err := lock(ctx, tx, binding); err != nil {
 		return workspace.ChangeExportEntry{}, err
 	}
 	// Serialize on the operation, then observe again before any catalog mutation.
@@ -166,3 +174,5 @@ func readWorkspaceChangeExport(ctx context.Context, querier operationQuerier, sc
 }
 
 var _ workspace.ChangeExportCatalog = (*Repository)(nil)
+
+type workspaceChangeExportLocker func(context.Context, pgx.Tx, workspace.ChangeExportBinding) ([]byte, error)

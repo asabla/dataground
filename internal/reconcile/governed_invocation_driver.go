@@ -10,9 +10,9 @@ import (
 var ErrGovernedInvocationDriversIncomplete = errors.New("governed invocation drivers are incomplete")
 
 // NewGovernedInvocationDriver composes the complete version 2 invocation
-// effect lifecycle without changing the default worker. Admission and
-// cancellation remain observable effect-only routes; runtime execution always
-// requires the exact active operation claim.
+// effect lifecycle without changing the default worker. Admission remains an
+// observable effect-only route; cancellation and runtime execution require the
+// exact active operation claim.
 func NewGovernedInvocationDriver(
 	fallback EffectDriver,
 	admission *InvocationAdmissionDriver,
@@ -32,12 +32,13 @@ func NewGovernedInvocationDriver(
 				OperationKind: persistence.OperationKindInvocation,
 				Phase:         "start-invocation",
 			}: admission,
+		},
+		map[EffectRoute]ClaimedEffectDriver{
 			{
 				OperationKind: persistence.OperationKindInvocation,
 				Phase:         "cancel-invocation",
 			}: cancellation,
-		},
-		map[EffectRoute]ClaimedEffectDriver{
+
 			{
 				OperationKind: persistence.OperationKindInvocation,
 				Phase:         "run-invocation",

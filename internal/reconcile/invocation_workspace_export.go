@@ -62,6 +62,11 @@ func (e *InvocationWorkspaceExporter) Export(ctx context.Context, claim persiste
 		return workspace.ChangeExportEntry{}, persistence.ErrWorkspaceQuiescence
 	}
 	guard := &workspaceExportGuard{exporter: e, claim: claim, effect: effect, cleanup: q, check: check}
+	return guard.export(ctx, ref, provider)
+}
+
+func (guard *workspaceExportGuard) export(ctx context.Context, ref execution.ExecutionRef, provider InvocationWorkspaceChangeProvider) (workspace.ChangeExportEntry, error) {
+	e, claim, effect, q := guard.exporter, guard.claim, guard.effect, guard.cleanup
 	existing, err := e.store.GetWorkspaceChangeExport(ctx, claim.IsolationDomainID, claim.ID)
 	found := err == nil
 	if err != nil && !errors.Is(err, workspace.ErrChangeExportMissing) {
@@ -80,7 +85,11 @@ func (e *InvocationWorkspaceExporter) Export(ctx context.Context, claim persiste
 		return workspace.ChangeExportEntry{}, err
 	}
 	defer cancel()
-	base, expires, err := e.store.ReadExportWorkspaceSource(authorized, claim, effect, e.source, q, e.config.GrantGeneration, &SourceCedarEvaluator{})
+	readSource := e.store.ReadExportWorkspaceSource
+	if guard.cancellation != nil {
+		readSource = guard.cancellation.ReadCancellationWorkspaceSource
+	}
+	base, expires, err := readSource(authorized, claim, effect, e.source, q, e.config.GrantGeneration, &SourceCedarEvaluator{})
 	if err != nil {
 		return workspace.ChangeExportEntry{}, err
 	}
@@ -144,13 +153,14 @@ func (e *InvocationWorkspaceExporter) Export(ctx context.Context, claim persiste
 }
 
 type workspaceExportGuard struct {
-	exporter *InvocationWorkspaceExporter
-	claim    persistence.OperationClaim
-	effect   persistence.EffectRecord
-	cleanup  persistence.InvocationWorkspaceQuiescence
-	check    func(context.Context) error
-	blocked  error
-	changes  workspace.ChangeSetReceipt
+	exporter     *InvocationWorkspaceExporter
+	claim        persistence.OperationClaim
+	effect       persistence.EffectRecord
+	cleanup      persistence.InvocationWorkspaceQuiescence
+	check        func(context.Context) error
+	blocked      error
+	changes      workspace.ChangeSetReceipt
+	cancellation InvocationWorkspaceCancellationExportStore
 }
 
 func (g *workspaceExportGuard) record() workspace.ChangeExportRecord {
@@ -186,7 +196,11 @@ func (g *workspaceExportGuard) authorize(ctx context.Context, phase string) (bou
 	c := g.claim
 	scope := g.exporter.config.Scope
 	expected := authz.WorkspaceChangeExportRequest{Source: q.Source, ServiceID: scope.ServiceID, RevisionID: scope.RevisionID, InvocationID: q.InvocationID, OperationID: q.OperationID, EffectID: q.EffectID, ExecutionID: q.ExecutionID, ActorID: c.ActorID, CorrelationID: c.CorrelationID, PlanDigest: q.PlanDigest, OwnerBinding: q.OwnerBinding, RuntimeToken: q.RuntimeToken, FencingToken: c.FencingToken, Phase: phase, Changes: changes}
-	permit, err := g.exporter.store.AuthorizeInvocationWorkspaceChangeExport(ctx, c, g.effect, q, phase, changes, &WorkspaceExportCedarEvaluator{})
+	authorize := g.exporter.store.AuthorizeInvocationWorkspaceChangeExport
+	if g.cancellation != nil {
+		authorize = g.cancellation.AuthorizeCancellationWorkspaceChangeExport
+	}
+	permit, err := authorize(ctx, c, g.effect, q, phase, changes, &WorkspaceExportCedarEvaluator{})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -229,7 +243,13 @@ func (g *workspaceExportGuard) PrepareWorkspaceChangeExport(ctx context.Context,
 		return workspace.ChangeExportEntry{}, err
 	}
 	defer cancel()
-	entry, err := g.exporter.store.PrepareWorkspaceChangeExport(bounded, b)
+	prepare := g.exporter.store.PrepareWorkspaceChangeExport
+	if g.cancellation != nil {
+		prepare = func(ctx context.Context, b workspace.ChangeExportBinding) (workspace.ChangeExportEntry, error) {
+			return g.cancellation.PrepareCancellationWorkspaceChangeExport(ctx, g.claim, g.effect, g.cleanup, b)
+		}
+	}
+	entry, err := prepare(bounded, b)
 	if bounded.Err() != nil {
 		g.blocked = bounded.Err()
 		return workspace.ChangeExportEntry{}, g.blocked
@@ -245,7 +265,13 @@ func (g *workspaceExportGuard) CompleteWorkspaceChangeExport(ctx context.Context
 		return workspace.ChangeExportEntry{}, err
 	}
 	defer cancel()
-	entry, err := g.exporter.store.CompleteWorkspaceChangeExport(bounded, b)
+	complete := g.exporter.store.CompleteWorkspaceChangeExport
+	if g.cancellation != nil {
+		complete = func(ctx context.Context, b workspace.ChangeExportBinding) (workspace.ChangeExportEntry, error) {
+			return g.cancellation.CompleteCancellationWorkspaceChangeExport(ctx, g.claim, g.effect, g.cleanup, b)
+		}
+	}
+	entry, err := complete(bounded, b)
 	if bounded.Err() != nil {
 		g.blocked = bounded.Err()
 		return workspace.ChangeExportEntry{}, g.blocked
