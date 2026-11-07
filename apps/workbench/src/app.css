@@ -1082,3 +1082,19 @@ p {
 .workbench-command-notice p:last-child {
   margin-bottom: 0;
 }
+
+.workspace-retention {
+  margin-bottom: var(--dg-space-5);
+  border-top: var(--dg-border-default) solid var(--dg-color-border-default);
+  padding-top: var(--dg-space-3);
+  overflow-wrap: anywhere;
+}
+
+.workspace-retention .workbench-page-heading {
+  gap: var(--dg-space-3);
+  margin-bottom: var(--dg-space-3);
+}
+
+.workspace-retention h2 {
+  margin: 0;
+}

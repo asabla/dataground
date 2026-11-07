@@ -8,6 +8,48 @@
   },
   "security": [{ "BearerAccessToken": [] }],
   "paths": {
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/workspace-retention": {
+      "get": {
+        "operationId": "readWorkspaceRetention",
+        "summary": "Read invocation workspace retention metadata",
+        "description": "Requires readWorkspaceRetention on the exact invocation. Reports source-selected workspace receipts without source contents, native identities or storage addresses. Recorded means a durable change completion exists; it does not prove current object availability or grant artifact access, recovery or deletion. Recovery review_required reports expired cancellation, not operator eligibility or permission. requested reports the current explicit operator recovery. Source-free and process-local reference invocations have no retention resource and return 404. Responses use Cache-Control: no-store.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "$ref": "#/components/parameters/InvocationId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recorded workspace retention state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceRetention"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/v1/isolation-domains/{isolationDomainId}/saved-resources": {
       "get": {
         "operationId": "listSavedResources",
@@ -2105,6 +2147,62 @@
       }
     },
     "schemas": {
+      "WorkspaceRetention": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schemaVersion", "isolationDomainId", "invocationId", "state", "recovery"],
+        "properties": {
+          "schemaVersion": {
+            "const": "dataground.invocation-workspace-retention/v1"
+          },
+          "isolationDomainId": {
+            "$ref": "#/components/schemas/IsolationDomainId"
+          },
+          "invocationId": {
+            "$ref": "#/components/schemas/InvocationId"
+          },
+          "state": {
+            "enum": ["not_observed", "stop_unconfirmed", "export_pending", "recorded"]
+          },
+          "recovery": {
+            "enum": ["none", "review_required", "requested"]
+          },
+          "artifactId": {
+            "type": "string",
+            "pattern": "^art_[0-9a-z]{20,32}$"
+          },
+          "recordedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "recorded"
+                }
+              }
+            },
+            "then": {
+              "required": ["artifactId", "recordedAt"]
+            },
+            "else": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": ["artifactId"]
+                  },
+                  {
+                    "required": ["recordedAt"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
       "SetSavedResourceRequest": {
         "oneOf": [
           {

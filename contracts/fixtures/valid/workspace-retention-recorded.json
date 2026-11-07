@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "dataground.invocation-workspace-retention/v1",
+  "isolationDomainId": "iso_00000000000000000001",
+  "invocationId": "inv_00000000000000000001",
+  "state": "recorded",
+  "recovery": "none",
+  "artifactId": "art_00000000000000000001",
+  "recordedAt": "2026-11-07T23:00:00Z"
+}

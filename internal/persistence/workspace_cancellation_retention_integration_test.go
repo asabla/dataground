@@ -21,6 +21,7 @@ func testWorkspaceCancellationRetention(t *testing.T, ctx context.Context, pool 
 	t.Helper()
 	repo := persistence.NewRepository(pool)
 	scope := original.IsolationDomainID
+	assertWorkspaceRetention(t, ctx, repo, original, "stop_unconfirmed", "none")
 	if _, err := repo.AcceptCancellation(ctx, testIdempotency(scope, "retention-cancel"), persistence.AcceptCancellationInput{InvocationID: original.ResourceID, ActorID: "retention-requester", CorrelationID: identity.New("cor")}); err != nil {
 		t.Fatal(err)
 	}
@@ -45,6 +46,7 @@ func testWorkspaceCancellationRetention(t *testing.T, ctx context.Context, pool 
 	if err := repo.RecordInvocationWorkspaceOwnerStop(ctx, stopped); err != nil {
 		t.Fatal(err)
 	}
+	assertWorkspaceRetention(t, ctx, repo, original, "export_pending", "none")
 	if _, err := repo.CompleteInvocationWorkspaceQuiescence(ctx, original, runtimeEffect, stopped); err == nil {
 		t.Fatal("restored cancelled execution authority")
 	}
@@ -178,6 +180,7 @@ func testWorkspaceCancellationRetention(t *testing.T, ctx context.Context, pool 
 		t.Fatal("replacement retention", err)
 	}
 
+	assertWorkspaceRetention(t, ctx, repo, original, "recorded", "none")
 	binding := workspace.ChangeExportBinding{Record: entry.Record, ActorID: replacement.ActorID, CorrelationID: replacement.CorrelationID, LeaseOwner: replacement.LeaseOwner, FencingToken: replacement.FencingToken, StateMachineVersion: replacement.StateMachineVersion}
 	wrong := *replacement
 	wrong.ActorID = "other"
@@ -292,6 +295,7 @@ func testWorkspaceCancellationRetention(t *testing.T, ctx context.Context, pool 
 	if err != nil || invocation.State != "cancelled" {
 		t.Fatal("cancellation did not finish", invocation.State, err)
 	}
+	assertWorkspaceRetention(t, ctx, repo, original, "recorded", "none")
 	instance, err := executionpostgres.New(pool).GetExecutionByOperation(ctx, scope, claim.ID)
 	if err != nil || instance.State != "ready" || instance.ID != stopped.ExecutionID || provider.calls != 1 || objects.writes != 1 {
 		t.Fatal("retention deleted or repeated execution", err)
