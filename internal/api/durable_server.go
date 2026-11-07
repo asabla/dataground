@@ -24,6 +24,7 @@ import (
 const durableOperationDeadline = 15 * time.Minute
 
 type DurableServer struct {
+	retentionAuthorizer   authz.Authorizer
 	repository            *persistence.Repository
 	publicationTarget     *persistence.DevelopmentPublicationInput
 	publicationAuthorizer persistence.PublicationAuthorization
@@ -173,7 +174,8 @@ func newDurableHandler(
 		return nil, err
 	}
 	server := &DurableServer{
-		repository: repository, dispatchTarget: dispatchTarget, publicationTarget: publicationTarget, publicationAuthorizer: publicationAuthorizer.AuthorizePublication,
+		retentionAuthorizer: authorizer,
+		repository:          repository, dispatchTarget: dispatchTarget, publicationTarget: publicationTarget, publicationAuthorizer: publicationAuthorizer.AuthorizePublication,
 		approvals: approvalResolver, approvalReader: repository,
 		questions: repository, questionAuthorizer: invocationAuthorizer.AuthorizeInvocationQuestion,
 	}
@@ -254,6 +256,7 @@ func newDurableHandler(
 		authz.ReadInvocationEvents, authz.Invocation, "invocationId", server.streamInvocationEvents,
 	))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/workspace-retention", protected(authz.ReadWorkspaceRetention, authz.Invocation, "invocationId", server.readWorkspaceRetention))
+	mux.Handle("POST /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/workspace-retention/recoveries", protected(authz.RequestWorkspaceRetentionRecovery, authz.Invocation, "invocationId", server.requestWorkspaceRetentionRecovery))
 	mux.Handle("GET /v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/artifacts", protected(
 		authz.ListInvocationArtifacts, authz.Invocation, "invocationId", server.listInvocationArtifacts,
 	))

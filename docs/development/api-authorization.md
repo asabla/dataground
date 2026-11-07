@@ -23,6 +23,7 @@ The request is deliberately closed and non-sensitive. It contains the validated 
 | List invocation summaries | `listInvocations` | `AgentService` from `serviceId` |
 | Read invocation | `readInvocation` | `Invocation` from `invocationId` |
 | Read workspace retention metadata | `readWorkspaceRetention` | `Invocation` from `invocationId` |
+| Request workspace retention recovery | `requestWorkspaceRetentionRecovery` | `Invocation` from `invocationId` |
 | Read operation | `readOperation` | `Operation` from `operationId` |
 | Cancel invocation | `cancelInvocation` | `Invocation` from `invocationId` |
 | Read invocation approval | `readInvocationApproval` | `InvocationApproval` from `approvalId` |
@@ -43,3 +44,5 @@ The internal [authorization audit export](authorization-audit-export.md) command
 [Resource audit reads](resource-audit.md) require their own action grants. Resource read grants do not permit audit disclosure. Durable reads commit an append-only disclosure receipt before returning each page; current authorization is required again for continuation.
 
 Workspace retention metadata requires a separate `readWorkspaceRetention` grant on the exact invocation. It grants no artifact-content access, recovery or teardown authority. The durable response joins existing scoped receipts; process-local reference mode returns `WORKSPACE_RETENTION_NOT_FOUND`. See [workspace retention metadata](workspace-change-export.md#public-retention-metadata).
+
+Retention metadata also evaluates the separate recovery action through the audited authorizer and reports `allowed`, `denied` or `unavailable`. This is a UI permission check, not command acceptance. An unavailable check leaves metadata visible and recovery controls unavailable. The command repeats entry authorization, pins the invocation version and resolves native bindings internally. Subsequent worker effects still require independent cancel, source-read and export authority.

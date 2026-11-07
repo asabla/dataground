@@ -24,12 +24,13 @@ import (
 )
 
 type liveWorkspaceAPI struct {
-	t      *testing.T
-	ctx    context.Context
-	server *httptest.Server
-	client *http.Client
-	token  string
-	target persistence.DevelopmentPublicationInput
+	retentionReplay func()
+	t               *testing.T
+	ctx             context.Context
+	server          *httptest.Server
+	client          *http.Client
+	token           string
+	target          persistence.DevelopmentPublicationInput
 }
 
 func newLiveWorkspaceAPI(t *testing.T, ctx context.Context, repo *persistence.Repository, objects *s3store.Store, target persistence.DevelopmentPublicationInput, actor string) *liveWorkspaceAPI {

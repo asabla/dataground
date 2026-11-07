@@ -8,6 +8,65 @@
   },
   "security": [{ "BearerAccessToken": [] }],
   "paths": {
+    "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/workspace-retention/recoveries": {
+      "post": {
+        "operationId": "requestWorkspaceRetentionRecovery",
+        "summary": "Request retention recovery for an expired cancellation",
+        "description": "Requires requestWorkspaceRetentionRecovery on the invocation and an exact reviewed invocation version. Accepts only a failed, source-selected cancellation with its original confirmed owner-stop receipt and retained execution. The server resolves internal bindings and opens a five-minute retention window. The worker must still check current cancel, source-read, export and accepted-image authority. Does not restart native execution, read content or delete the workspace. Exact principal-bound idempotency replay returns the original acceptance and never extends its deadline. The receipt is historical acceptance, not current state or completed retention. Process-local reference mode returns WORKSPACE_RETENTION_NOT_RECOVERABLE. Responses use Cache-Control: no-store.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IsolationDomainId"
+          },
+          {
+            "$ref": "#/components/parameters/InvocationId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestWorkspaceRetentionRecovery"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "A bounded retention recovery was accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceRetentionRecoveryReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": { "$ref": "#/components/responses/Error" },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/v1/isolation-domains/{isolationDomainId}/invocations/{invocationId}/workspace-retention": {
       "get": {
         "operationId": "readWorkspaceRetention",
@@ -2147,6 +2206,58 @@
       }
     },
     "schemas": {
+      "RequestWorkspaceRetentionRecovery": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedVersion"],
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740990
+          }
+        }
+      },
+      "WorkspaceRetentionRecoveryReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "isolationDomainId",
+          "invocationId",
+          "state",
+          "invocationVersion",
+          "deadlineAt",
+          "correlationId"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "const": "dataground.workspace-retention-recovery-receipt/v1"
+          },
+          "isolationDomainId": {
+            "$ref": "#/components/schemas/IsolationDomainId"
+          },
+          "invocationId": {
+            "$ref": "#/components/schemas/InvocationId"
+          },
+          "state": {
+            "const": "requested"
+          },
+          "invocationVersion": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 9007199254740991
+          },
+          "deadlineAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "correlationId": {
+            "type": "string",
+            "pattern": "^cor_[0-9a-z]{20,32}$"
+          }
+        }
+      },
       "WorkspaceRetention": {
         "type": "object",
         "additionalProperties": false,
@@ -2163,6 +2274,11 @@
           },
           "state": {
             "enum": ["not_observed", "stop_unconfirmed", "export_pending", "recorded"]
+          },
+          "recoveryAccess": {
+            "type": "string",
+            "enum": ["allowed", "denied", "unavailable"],
+            "description": "Current request-action evaluation. Informational only: command authorization and eligibility are checked again on submission."
           },
           "recovery": {
             "enum": ["none", "review_required", "requested"]

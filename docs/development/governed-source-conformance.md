@@ -89,3 +89,15 @@ The live recovery test passed on 2026-11-07 UTC from clean source `a8a0458f93be8
 The database retained one recovery receipt, one native attempt, one cleanup intent, one original owner-stop receipt, one change-export intent and completion, and one cancelled operation. It retained no ordinary cleanup completion. There were ten allowed cancellation-export decisions and two allowed cancellation source-read decisions. Public event replay matched through sequence 28. Authenticated artifact reconstruction, denied cross-domain reads, preserved scratch before separate cleanup, and the absence of a declared native-success artifact passed. The single native attempt confirms that recovery did not start another model turn.
 
 The fixture terminated its sandbox. The caller removed the exact gateway, compiler process, private credential fixtures and temporary acceptance keys after checking their identities. This result proves this bounded local development recovery journey with ephemeral test trust. It does not establish public administration, operational signing trust, retention policy, production teardown authority or release certification.
+
+## Exercise public retention recovery
+
+`TestGovernedOwnedWorkspaceLivePublicRetentionRecovery` uses a separate unused v4 fixture and the same real deadline wait as the operator recovery test. After the original owner stops and the cancellation expires, it reads authorized public retention metadata and requests recovery through the public API with the exact invocation version. It verifies authentication and isolation denial, exact replay before and after completion, changed-body rejection, recorded change metadata, authenticated artifact reconstruction and one native attempt. It does not require the repair binary.
+
+```sh
+DATAGROUND_TEST_GOVERNED_PUBLIC_RETENTION_RECOVERY_LIVE=true \
+  go test ./cmd/dataground-worker \
+  -run '^TestGovernedOwnedWorkspaceLivePublicRetentionRecovery$' -count=1 -timeout=22m -v
+```
+
+Use the existing owned fixture inputs and keep its acceptance and source grants valid through the deadline and recovery window. The public command grants a five-minute retention window; all existing worker effect checks still apply. A skipped test or compile check is not live evidence. The test uses development authentication and ephemeral acceptance, and does not establish production certification or teardown authority.

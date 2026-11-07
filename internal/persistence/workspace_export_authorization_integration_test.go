@@ -42,13 +42,14 @@ func TestWorkspaceExportAuthorizationRequiresCurrentClaimAndConfirmedCleanup(t *
 		}
 	}()
 	for _, version := range []string{"v7", "v6"} {
-		t.Run(version, func(t *testing.T) { testWorkspaceExportAuthorization(t, ctx, pool, version, false) })
-		t.Run(version+" cancellation", func(t *testing.T) { testWorkspaceExportAuthorization(t, ctx, pool, version, true) })
+		t.Run(version, func(t *testing.T) { testWorkspaceExportAuthorization(t, ctx, pool, version, false, false) })
+		t.Run(version+" cancellation", func(t *testing.T) { testWorkspaceExportAuthorization(t, ctx, pool, version, true, false) })
 	}
+	t.Run("public recovery", func(t *testing.T) { testWorkspaceExportAuthorization(t, ctx, pool, "v7", true, true) })
 	testWorkspaceRetentionReadRoute(t, ctx, pool)
 }
 
-func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *pgxpool.Pool, version string, cancellation bool) {
+func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *pgxpool.Pool, version string, cancellation, publicRecovery bool) {
 	repo := persistence.NewRepository(pool)
 	scope, service, revision := identity.New("iso"), identity.New("svc"), identity.New("rev")
 	source, sourceObjects, base := prepareExportSourceFixture(t, ctx, repo, scope)
@@ -125,7 +126,7 @@ func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *p
 		t.Fatal(err)
 	}
 	if cancellation {
-		testWorkspaceCancellationRetention(t, ctx, pool, *claim, effect, entry.Record, service, revision, sourceObjects, base, version)
+		testWorkspaceCancellationRetention(t, ctx, pool, *claim, effect, entry.Record, service, revision, sourceObjects, base, version, publicRecovery)
 		return
 	}
 	evaluator := &reconcile.WorkspaceExportCedarEvaluator{}

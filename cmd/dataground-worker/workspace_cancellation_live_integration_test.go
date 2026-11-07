@@ -19,11 +19,12 @@ import (
 
 // The marker is a completed command artifact, not model text. Cancellation must
 // reach an active invocation after the copy has completed, before native success.
-func cancelLiveOwnedWorkspace(t *testing.T, ctx context.Context, repo *persistence.Repository, worker *reconcile.Reconciler, ready func(context.Context) error, public *liveWorkspaceAPI, invocation domain.Invocation, recoverExpired bool) domain.Invocation {
+func cancelLiveOwnedWorkspace(t *testing.T, ctx context.Context, repo *persistence.Repository, worker *reconcile.Reconciler, ready func(context.Context) error, public *liveWorkspaceAPI, invocation domain.Invocation, journey liveWorkspaceJourney) domain.Invocation {
 	t.Helper()
 	if public == nil {
 		t.Fatal("owned cancellation requires the authenticated public fixture")
 	}
+	recoverExpired := journey == liveWorkspaceRecovery || journey == liveWorkspacePublicRecovery
 	runCtx, stop := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	parked, resume := make(chan struct{}), make(chan struct{})
@@ -120,7 +121,7 @@ func cancelLiveOwnedWorkspace(t *testing.T, ctx context.Context, repo *persisten
 		case <-ctx.Done():
 			t.Fatal("owner stop deadline", ctx.Err())
 		}
-		recoverExpiredLiveWorkspace(t, ctx, repo, worker, ready, public, invocation)
+		recoverExpiredLiveWorkspace(t, ctx, repo, worker, ready, public, invocation, journey == liveWorkspacePublicRecovery)
 		close(resume)
 	}
 	select {

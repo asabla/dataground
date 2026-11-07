@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "dataground.workspace-retention-recovery-receipt/v1",
+  "isolationDomainId": "iso_00000000000000000001",
+  "invocationId": "inv_00000000000000000001",
+  "state": "completed",
+  "invocationVersion": 5,
+  "deadlineAt": "2026-11-07T23:35:00Z",
+  "correlationId": "cor_00000000000000000001"
+}

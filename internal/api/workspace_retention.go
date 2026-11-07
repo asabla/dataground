@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/asabla/dataground/internal/authz"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -35,6 +36,15 @@ func (server *DurableServer) readWorkspaceRetention(response http.ResponseWriter
 	if err != nil {
 		writeJSON(response, http.StatusServiceUnavailable, ErrorEnvelope{Error: safeErrorWithCorrelation(authenticatedCorrelationID(request), "WORKSPACE_RETENTION_READ_UNAVAILABLE", "Workspace retention metadata is temporarily unavailable.", true)})
 		return
+	}
+	value.RecoveryAccess = "unavailable"
+	if principal, ok := authenticatedPrincipal(request); ok && server.retentionAuthorizer != nil {
+		err := server.retentionAuthorizer.Authorize(request.Context(), authz.Request{Principal: principal, Action: authz.RequestWorkspaceRetentionRecovery, ResourceType: authz.Invocation, ResourceID: value.InvocationID, IsolationDomainID: value.IsolationDomainID, CorrelationID: authenticatedCorrelationID(request)})
+		if err == nil {
+			value.RecoveryAccess = "allowed"
+		} else if errors.Is(err, authz.ErrDenied) {
+			value.RecoveryAccess = "denied"
+		}
 	}
 	writeJSON(response, http.StatusOK, value)
 }

@@ -31,6 +31,8 @@ export async function readWorkspaceRetention(
       data.invocationId !== reference.invocationId ||
       !["not_observed", "stop_unconfirmed", "export_pending", "recorded"].includes(data.state) ||
       !["none", "review_required", "requested"].includes(data.recovery) ||
+      (data.recoveryAccess !== undefined &&
+        !["allowed", "denied", "unavailable"].includes(data.recoveryAccess)) ||
       (data.state === "recorded"
         ? typeof data.artifactId !== "string" ||
           !/^art_[0-9a-z]{20,32}$/u.test(data.artifactId) ||
@@ -51,6 +53,7 @@ export async function readWorkspaceRetention(
         invocationId: data.invocationId,
         state: data.state,
         recovery: data.recovery,
+        ...(data.recoveryAccess === undefined ? {} : { recoveryAccess: data.recoveryAccess }),
         ...(data.state === "recorded"
           ? { artifactId: data.artifactId, recordedAt: data.recordedAt }
           : {}),

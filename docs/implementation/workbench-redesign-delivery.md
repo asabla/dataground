@@ -49,7 +49,7 @@ trust. This proves normal completion in that development fixture. The owned canc
 path now retains changes under a fresh cancellation claim and original shutdown
 receipt, with PostgreSQL recovery coverage. Its public cancellation journey passed
 on 7 November 2026 with real local model execution, verified retained bytes and
-ephemeral test trust. An internal operator can now resume an expired owned cancellation under a new bounded retention window. That live journey passed on 7 November 2026 UTC with the actual public deadline, exact operator replay and authenticated artifact reconstruction; public retention administration remains outstanding. A complete
+ephemeral test trust. An internal operator can now resume an expired owned cancellation under a new bounded retention window. That live journey passed on 7 November 2026 UTC with the actual public deadline, exact operator replay and authenticated artifact reconstruction; public retention metadata and run inspection are merged in PR #437. The bounded public recovery command and confirmation are implemented with independent authorization and exact-request retry; live public recovery evidence remains pending. General retention administration remains outstanding. A complete
 production writer fence, worker teardown integration, retention resolution,
 ordered journals and checkpoints remain. See
 [governed source conformance](../development/governed-source-conformance.md) and

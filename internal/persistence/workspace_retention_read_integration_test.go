@@ -68,10 +68,10 @@ func testWorkspaceRetentionReadRoute(t *testing.T, ctx context.Context, pool *pg
 	if err := json.Unmarshal(response.Body.Bytes(), &fields); err != nil {
 		t.Fatal(err)
 	}
-	if len(fields) != 7 || response.Header().Get("Cache-Control") != "no-store" {
+	if len(fields) != 8 || response.Header().Get("Cache-Control") != "no-store" {
 		t.Fatal("retention metadata leaked fields or cacheability")
 	}
-	for _, field := range []string{"schemaVersion", "isolationDomainId", "invocationId", "state", "recovery", "artifactId", "recordedAt"} {
+	for _, field := range []string{"schemaVersion", "isolationDomainId", "invocationId", "state", "recovery", "artifactId", "recordedAt", "recoveryAccess"} {
 		if fields[field] == nil {
 			t.Fatal("missing public field", field)
 		}
