@@ -19,17 +19,24 @@ type completionStoreStub struct {
 	runtime                *runtimeStoreStub
 	failIntent, failCommit bool
 	intents                int
+	stopped                bool
+	failStop               bool
+	loseIntentAck          bool
 }
 
 type completionRuntimeStore struct {
 	*runtimeStoreStub
 	exports             *exportControllerFixture
 	failCompletionLease bool
+	failReservedLease   bool
 }
 
 func (s *completionRuntimeStore) RenewLease(ctx context.Context, claim persistence.OperationClaim, duration time.Duration) (persistence.OperationClaim, error) {
 	if s.failCompletionLease && s.attempt.Status == "succeeded" {
 		return persistence.OperationClaim{}, errors.New("lease unavailable")
+	}
+	if s.failReservedLease && s.attempt.Status == "reserved" {
+		return persistence.OperationClaim{}, persistence.ErrLeaseLost
 	}
 	renewed, err := s.runtimeStoreStub.RenewLease(ctx, claim, duration)
 	s.exports.claim = renewed
@@ -38,7 +45,7 @@ func (s *completionRuntimeStore) RenewLease(ctx context.Context, claim persisten
 
 func (s *completionStoreStub) BeginInvocationWorkspaceQuiescence(_ context.Context, claim persistence.OperationClaim, effect persistence.EffectRecord, ref execution.ExecutionRef, binding string) (persistence.InvocationWorkspaceQuiescenceEntry, error) {
 	s.intents++
-	if s.failIntent || (s.runtime.attempt.Status != "succeeded" && s.runtime.attempt.Status != "failed") {
+	if s.failIntent || (s.runtime.attempt.Status != "reserved" && s.runtime.attempt.Status != "succeeded" && s.runtime.attempt.Status != "failed") {
 		return persistence.InvocationWorkspaceQuiescenceEntry{}, persistence.ErrWorkspaceQuiescence
 	}
 	q := s.cleanup.Record
@@ -48,7 +55,17 @@ func (s *completionStoreStub) BeginInvocationWorkspaceQuiescence(_ context.Conte
 	}
 	s.cleanup.Record = q
 	s.cleanup.ExpiresAt = time.Now().Add(time.Minute)
+	if s.loseIntentAck {
+		return persistence.InvocationWorkspaceQuiescenceEntry{}, persistence.ErrWorkspaceQuiescence
+	}
 	return s.cleanup, nil
+}
+func (s *completionStoreStub) RecordInvocationWorkspaceOwnerStop(_ context.Context, record persistence.InvocationWorkspaceQuiescence) error {
+	if s.failStop || record != s.cleanup.Record {
+		return persistence.ErrWorkspaceQuiescence
+	}
+	s.stopped = true
+	return nil
 }
 func (s *completionStoreStub) CompleteInvocationWorkspaceQuiescence(_ context.Context, _ persistence.OperationClaim, _ persistence.EffectRecord, q persistence.InvocationWorkspaceQuiescence) (persistence.InvocationWorkspaceQuiescenceEntry, error) {
 	if q != s.cleanup.Record {
@@ -141,7 +158,7 @@ func TestOwnedInvocationRetainsOutcomeBeforeCleanupAndExport(t *testing.T) {
 		} else if err != nil {
 			t.Fatal(err)
 		}
-		if f.provider.starts != 1 || f.provider.startCalls != 0 || !f.e.entry.Ready || !f.e.cleanup.Confirmed || f.provider.raw.requests.Load() != 1 {
+		if f.provider.starts != 1 || f.provider.startCalls != 0 || !f.e.entry.Ready || !f.e.cleanup.Confirmed || !f.store.stopped || f.provider.raw.requests.Load() != 1 {
 			t.Fatal("incomplete owned lifecycle")
 		}
 		if f.runtime.beginCalls != 1 || f.adapter.startCalls != 1 {
@@ -162,13 +179,73 @@ func TestOwnedInvocationRetainsOutcomeBeforeCleanupAndExport(t *testing.T) {
 	}
 }
 
+func TestOwnedInvocationRequiresRetainedOwnerBeforeTurn(t *testing.T) {
+	f := newCompletionFixture(t, false)
+	f.store.failIntent = true
+	if _, err := f.driver.ApplyClaimed(context.Background(), f.p.claim, f.p.effect); !errors.Is(err, ErrAmbiguousEffect) {
+		t.Fatal(err)
+	}
+	if f.adapter.startCalls != 0 || f.runtime.attempt.Status != "reserved" || f.store.stopped || f.e.captures != 0 {
+		t.Fatal("unrecorded owner reached a native turn or manufactured a receipt")
+	}
+}
+
+func TestOwnedInvocationRecoversLostIntentAcknowledgementWithoutTurn(t *testing.T) {
+	f := newCompletionFixture(t, false)
+	f.store.loseIntentAck = true
+	_, err := f.driver.ApplyClaimed(context.Background(), f.p.claim, f.p.effect)
+	if !errors.Is(err, ErrAmbiguousEffect) || !f.store.stopped || f.adapter.startCalls != 0 || f.e.cleanup.Confirmed || f.e.captures != 0 {
+		t.Fatalf("lost intent acknowledgement started work or lost observed cleanup: %v", err)
+	}
+}
+
+func TestOwnedInvocationRecordsOriginalStopAfterLeaseLoss(t *testing.T) {
+	f := newCompletionFixture(t, false)
+	f.driver.store.(*completionRuntimeStore).failCompletionLease = true
+	_, err := f.driver.ApplyClaimed(context.Background(), f.p.claim, f.p.effect)
+	if !errors.Is(err, ErrAmbiguousEffect) || !f.store.stopped || f.e.cleanup.Confirmed || f.e.captures != 0 || f.e.entry.Ready {
+		t.Fatalf("stop evidence was lost or treated as export authority: %v", err)
+	}
+	if f.provider.starts != 1 || f.provider.raw.requests.Load() != 1 {
+		t.Fatal("stop observation used another native owner")
+	}
+}
+
+func TestOwnedInvocationCancellationDuringOwnerSetupPreventsTurn(t *testing.T) {
+	f := newCompletionFixture(t, false)
+	f.driver.store.(*completionRuntimeStore).failReservedLease = true
+	_, err := f.driver.ApplyClaimed(context.Background(), f.p.claim, f.p.effect)
+	if !errors.Is(err, persistence.ErrLeaseLost) || f.adapter.startCalls != 0 || !f.store.stopped || f.e.cleanup.Confirmed || f.e.captures != 0 {
+		t.Fatalf("lost startup lease reached native execution or lost stop evidence: %v", err)
+	}
+}
+
+func TestOwnedInvocationStopReceiptFailuresRemainUncertain(t *testing.T) {
+	for _, failure := range []string{"acknowledgement", "receipt", "adapter-start"} {
+		t.Run(failure, func(t *testing.T) {
+			f := newCompletionFixture(t, false)
+			f.driver.store.(*completionRuntimeStore).failCompletionLease = true
+			switch failure {
+			case "acknowledgement":
+				f.provider.acknowledge = false
+			case "receipt":
+				f.store.failStop = true
+			case "adapter-start":
+				f.adapter.err = errors.New("startup failed")
+			}
+			_, err := f.driver.ApplyClaimed(context.Background(), f.p.claim, f.p.effect)
+			if !errors.Is(err, ErrAmbiguousEffect) || f.e.captures != 0 || f.e.cleanup.Confirmed || f.store.stopped != (failure == "adapter-start") {
+				t.Fatalf("unsafe stop receipt outcome: %v", err)
+			}
+		})
+	}
+}
+
 func TestOwnedInvocationRetainsWorkspaceOnUnconfirmedCleanupOrExport(t *testing.T) {
-	for _, failure := range []string{"intent", "acknowledgement", "cleanup-commit", "export-commit", "authority", "ready", "lease"} {
+	for _, failure := range []string{"acknowledgement", "cleanup-commit", "export-commit", "authority", "ready", "lease"} {
 		t.Run(failure, func(t *testing.T) {
 			f := newCompletionFixture(t, false)
 			switch failure {
-			case "intent":
-				f.store.failIntent = true
 			case "acknowledgement":
 				f.provider.acknowledge = false
 			case "cleanup-commit":
@@ -206,7 +283,7 @@ func TestOwnedInvocationRetainsWorkspaceOnUnconfirmedCleanupOrExport(t *testing.
 			claim := f.p.claim
 			claim.LeaseOwner, claim.FencingToken = "replacement", claim.FencingToken+1
 			_, found, err := replacement.ObserveClaimed(context.Background(), claim, f.p.effect)
-			if failure == "intent" || failure == "acknowledgement" || failure == "ready" || failure == "lease" {
+			if failure == "acknowledgement" || failure == "ready" || failure == "lease" {
 				if found || !errors.Is(err, ErrAmbiguousEffect) || f.e.captures != 0 {
 					t.Fatal("unconfirmed owner recovered", err)
 				}
