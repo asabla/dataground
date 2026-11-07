@@ -71,3 +71,15 @@ The model copies the random source and emits a fixed command marker, then starts
 The live cancellation test passed on 2026-11-07 from clean source `aeea7ab5fcafe1ddbef32b05a17fd203baea63fe`, after the [v7 diagnostic](local-runtime-acceptance.md#owned-runtime-and-workspace-export-diagnostic) passed with the same source. It used the published ARM64 export-capable image, strict supervisor, real PostgreSQL, the pinned S3 candidate, Rosetta, OpenShell and the local `gpt-6-astra` provider. The database retained one cancelled operation, one native attempt, one cleanup intent, one separate owner-stop receipt and one change-export intent and completion. It retained no ordinary cleanup completion. Current authority produced ten allowed cancellation-export decisions and two allowed cancellation source-read decisions. Public event replay matched through sequence 26. The test reconstructed the exact source and copied bytes, checked authenticated and cross-domain artifact access, and confirmed the sandbox remained ready before its separate fixture cleanup. It published no declared native-success artifact.
 
 The fixture then terminated its sandbox. The caller removed the exact gateway, compiler process, private credential state and temporary test acceptance. This result uses ephemeral test trust and development authentication; it is not operational acceptance or release certification. It does not test recovery after the original operation deadline or authorize production teardown.
+
+## Exercise expired cancellation recovery
+
+`TestGovernedOwnedWorkspaceLiveCancellationRecovery` uses a separate unused v4 fixture and a built `cmd/dataground-repair` binary at `DATAGROUND_TEST_REPAIR_BINARY`. It creates and cancels the invocation through the authenticated public API, parks the worker after the original owner stops, and waits for the actual public operation deadline. It does not edit the database deadline or substitute a test clock. After the worker records deadline failure, the test invokes `retain-workspace` twice with identical arguments, then resumes the owned worker and checks the same authenticated artifact reconstruction and single-attempt invariants as normal cancellation.
+
+```sh
+DATAGROUND_TEST_GOVERNED_OWNED_RECOVERY_LIVE=true \
+go test ./cmd/dataground-worker \
+  -run '^TestGovernedOwnedWorkspaceLiveCancellationRecovery$' -count=1 -timeout=22m -v
+```
+
+The longer timeout permits the public API's 15-minute deadline to expire. The short-lived test acceptance and source grants must remain valid for the subsequent recovery. This opt-in test has not yet been recorded as a successful live run. Its operator command remains database-authorized; it does not provide public recovery administration or teardown authority.

@@ -61,6 +61,13 @@ func TestGovernedOwnedWorkspaceLivePublicAPICancellation(t *testing.T) {
 	runGovernedWorkspaceLiveInvocation(t, liveWorkspaceCancellation)
 }
 
+func TestGovernedOwnedWorkspaceLiveCancellationRecovery(t *testing.T) {
+	if os.Getenv("DATAGROUND_TEST_GOVERNED_OWNED_RECOVERY_LIVE") != "true" {
+		t.Skip("explicit live owned cancellation recovery fixture is required")
+	}
+	runGovernedWorkspaceLiveInvocation(t, liveWorkspaceRecovery)
+}
+
 type liveWorkspaceJourney uint8
 
 const (
@@ -68,16 +75,24 @@ const (
 	liveWorkspacePublic
 	liveWorkspaceOwned
 	liveWorkspaceCancellation
+	liveWorkspaceRecovery
 )
 
 func runGovernedWorkspaceLiveInvocation(t *testing.T, journey liveWorkspaceJourney) {
 	publicJourney := journey != liveWorkspaceInternal
-	ownedWorkspace := journey == liveWorkspaceOwned || journey == liveWorkspaceCancellation
-	cancelOwned := journey == liveWorkspaceCancellation
+	ownedWorkspace := journey == liveWorkspaceOwned || journey == liveWorkspaceCancellation || journey == liveWorkspaceRecovery
+	cancelOwned := journey == liveWorkspaceCancellation || journey == liveWorkspaceRecovery
 	if runtime.GOOS != "linux" || runtime.GOARCH != "arm64" {
 		t.Fatal("live source profile requires Linux ARM64")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	if journey == liveWorkspaceRecovery && os.Getenv("DATAGROUND_TEST_REPAIR_BINARY") == "" {
+		t.Fatal("live recovery requires the built operator command")
+	}
+	timeout := 10 * time.Minute
+	if journey == liveWorkspaceRecovery {
+		timeout = 20 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	acceptance, err := loadLocalRuntimeAcceptanceConfig(os.LookupEnv)
 	if err != nil || acceptance == nil || !acceptance.workspaceSource || acceptance.strict == nil || acceptance.workspaceExport != ownedWorkspace {
@@ -310,7 +325,7 @@ func runGovernedWorkspaceLiveInvocation(t *testing.T, journey liveWorkspaceJourn
 	}()
 	worker := reconcile.New(workerReconcileStore(repo, config), driver, "live-source-conformance")
 	if cancelOwned {
-		invocation = cancelLiveOwnedWorkspace(t, ctx, repo, worker, resources.Ready, public, invocation)
+		invocation = cancelLiveOwnedWorkspace(t, ctx, repo, worker, resources.Ready, public, invocation, journey == liveWorkspaceRecovery)
 	}
 	for invocation.CompletedAt == nil {
 		if err := resources.Ready(ctx); err != nil {
@@ -391,6 +406,12 @@ func runGovernedWorkspaceLiveInvocation(t *testing.T, journey liveWorkspaceJourn
 		}
 	}
 	if cancelOwned {
+		if journey == liveWorkspaceRecovery {
+			var count int
+			if err := pool.QueryRow(ctx, `SELECT count(*) FROM workspace_retention_recoveries WHERE isolation_domain_id=$1 AND operation_id=$2`, target.isolationDomainID, invocation.OperationID).Scan(&count); err != nil || count != 1 {
+				t.Fatal("recovery did not retain one exact operator receipt", err)
+			}
+		}
 		record, err := store.GetExecutionByOperation(ctx, target.isolationDomainID, invocation.OperationID)
 		if err != nil || record.State != "ready" {
 			t.Fatal("owned cancellation removed its sandbox", err)
