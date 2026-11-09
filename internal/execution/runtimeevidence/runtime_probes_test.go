@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -593,7 +594,7 @@ func (server *codexProbeServer) startWithModel(model, provider string) {
 			panic("local probe did not select the mediated provider")
 		}
 		response["modelProvider"] = provider
-	} else if params["modelProvider"] != nil || params["config"] != nil {
+	} else if params["modelProvider"] != nil || !reflect.DeepEqual(params["config"], map[string]any{"features": map[string]any{"default_mode_request_user_input": false}}) {
 		panic("local provider configuration entered certification mode")
 	}
 	server.respond(thread.ID, response)

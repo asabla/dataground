@@ -37,6 +37,15 @@ func completeQuestionStart(server *scriptServer) {
 	server.requireMethod(server.read(), "initialized")
 	thread := server.read()
 	server.requireMethod(thread, "thread/start")
+	var threadParams struct {
+		Config struct {
+			Features map[string]bool `json:"features"`
+		} `json:"config"`
+	}
+	server.decodeParams(thread, &threadParams)
+	if !threadParams.Config.Features["default_mode_request_user_input"] {
+		server.t.Fatal("question mode did not enable the pinned default-mode tool")
+	}
 	server.respond(thread.ID, map[string]any{"thread": map[string]any{"id": "native-thread"}})
 	turn := server.read()
 	server.requireMethod(turn, "turn/start")

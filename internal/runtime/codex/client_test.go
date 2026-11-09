@@ -36,6 +36,14 @@ func TestClientPerformsHandshakeAndNormalizesTurn(t *testing.T) {
 		server.requireMethod(thread, "thread/start")
 		var threadParams map[string]any
 		server.decodeParams(thread, &threadParams)
+		config, ok := threadParams["config"].(map[string]any)
+		if !ok {
+			t.Fatal("thread omitted its explicit feature configuration")
+		}
+		features, ok := config["features"].(map[string]any)
+		if !ok || features["default_mode_request_user_input"] != false {
+			t.Fatal("question-disabled turn did not override ambient question activation")
+		}
 		if threadParams["ephemeral"] != true || threadParams["approvalsReviewer"] != "user" || threadParams["sandbox"] != "workspace-write" {
 			t.Fatalf("thread policy is not deterministic: %#v", threadParams)
 		}

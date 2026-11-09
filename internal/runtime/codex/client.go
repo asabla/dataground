@@ -221,10 +221,16 @@ func (client *Client) Start(ctx context.Context, request dgruntime.StartRequest)
 		"approvalPolicy":    approvalPolicy(request.ApprovalMode),
 		"sandbox":           request.SandboxMode,
 	}
+	threadConfig := map[string]any{}
 	if client.openShellProvider {
 		threadParams["modelProvider"] = openShellModelProvider
-		threadParams["config"] = openShellProviderConfig()
+		threadConfig = openShellProviderConfig()
 	}
+	// Experimental protocol negotiation alone does not expose request_user_input
+	// in the pinned runtime's default execution mode. Bind its feature switch to
+	// the normalized request, including an explicit denial of ambient opt-ins.
+	threadConfig["features"] = map[string]any{"default_mode_request_user_input": request.QuestionMode == dgruntime.QuestionInteractive}
+	threadParams["config"] = threadConfig
 	if request.WorkingDir != "" {
 		threadParams["cwd"] = request.WorkingDir
 	}
