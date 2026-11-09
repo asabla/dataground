@@ -95,7 +95,7 @@ jobs:
           DATAGROUND_TEST_WORKSPACE_CHANGE_IMAGE: ${{ steps.candidate.outputs.image }}
         run: go test ./internal/execution/openshell -run '^TestWorkspaceChangeDockerExport$' -count=1 -timeout=4m -v
 
-      - name: Verify sequential turns with offline model fixtures
+      - name: Verify sequential turns and questions with offline model fixtures
         env:
           CANDIDATE_IMAGE: ${{ steps.candidate.outputs.image }}
         run: |
@@ -109,7 +109,7 @@ jobs:
               --mount "type=bind,source=$RUNNER_TEMP/codex-session-tests,target=/opt/dataground-session-tests,readonly" \
               --env "DATAGROUND_TEST_CODEX_SESSION_BINARY=$codex_binary" \
               --entrypoint /opt/dataground-session-tests "$CANDIDATE_IMAGE" \
-              -test.run '^TestNativeCodexSequentialSession$' -test.v -test.timeout=90s
+              -test.run '^TestNativeCodex(SequentialSession|Question)$' -test.v -test.timeout=150s
           done
 
       - name: Extract checksum-verified OpenShell CLI

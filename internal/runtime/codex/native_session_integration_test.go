@@ -23,48 +23,9 @@ import (
 // native thread state and DataGround adapter are real. This is compatibility
 // evidence only, not model, credential, sandbox or release certification.
 func TestNativeCodexSequentialSession(t *testing.T) {
-	binary := os.Getenv("DATAGROUND_TEST_CODEX_SESSION_BINARY")
-	if binary == "" {
-		t.Skip("DATAGROUND_TEST_CODEX_SESSION_BINARY selects the pinned native app-server")
-	}
-	if !filepath.IsAbs(binary) {
-		t.Fatal("native binary must be an absolute path")
-	}
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	home := filepath.Join(root, "home")
-	workspace := filepath.Join(root, "workspace")
-	for _, path := range []string{home, workspace} {
-		if err := os.Mkdir(path, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	fixture := filepath.Join(root, "response.sse")
-	environment := []string{"PATH=/usr/bin:/bin", "HOME=" + home, "CODEX_HOME=" + home, "CODEX_RS_SSE_FIXTURE=" + fixture, "NO_COLOR=1"}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	version := exec.CommandContext(ctx, binary, "--version")
-	version.Env, version.Dir = environment, workspace
-	data, err := version.Output()
-	if err != nil || strings.TrimSpace(string(data)) != "codex-cli 0.117.0" {
-		t.Fatal("native binary must match the pinned Codex 0.117.0 version")
-	}
-	command := exec.CommandContext(ctx, binary,
-		"-c", `model_provider="dataground_session_fixture"`,
-		"-c", `model_providers.dataground_session_fixture.name="DataGround offline fixture"`,
-		"-c", `model_providers.dataground_session_fixture.base_url="http://127.0.0.1:1"`,
-		"-c", `model_providers.dataground_session_fixture.wire_api="responses"`,
-		"-c", `model_providers.dataground_session_fixture.requires_openai_auth=false`,
-		"-c", `model_providers.dataground_session_fixture.supports_websockets=false`,
-		"app-server")
-	command.Env, command.Dir, command.WaitDelay = environment, workspace, time.Second
-	native, err := startNativeSessionProcess(command)
-	if err != nil {
-		t.Fatal("start native app-server")
-	}
-	defer native.Close()
+	native, workspace, fixture := newNativeFixtureProcess(t, ctx)
 	session, err := codex.NewSession(native)
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +57,7 @@ func TestNativeCodexSequentialSession(t *testing.T) {
 				t.Fatal("native event sequence is not turn-local and ordered")
 			}
 			encoded, err := json.Marshal(event)
-			if err != nil || bytes.Contains(encoded, []byte("private-native-item")) || bytes.Contains(encoded, []byte(root)) {
+			if err != nil || bytes.Contains(encoded, []byte("private-native-item")) || bytes.Contains(encoded, []byte(filepath.Dir(workspace))) {
 				t.Fatal("native routing state escaped normalization")
 			}
 			switch event.Type {
@@ -128,6 +89,51 @@ func TestNativeCodexSequentialSession(t *testing.T) {
 	if native.input.initializations != 1 || native.input.threads != 1 || native.input.turns != 3 || native.input.scopeChanged {
 		t.Fatal("sequential turns did not use one initialized native thread")
 	}
+}
+
+func newNativeFixtureProcess(t *testing.T, ctx context.Context) (*nativeSessionProcess, string, string) {
+	t.Helper()
+	binary := os.Getenv("DATAGROUND_TEST_CODEX_SESSION_BINARY")
+	if binary == "" {
+		t.Skip("DATAGROUND_TEST_CODEX_SESSION_BINARY selects the pinned native app-server")
+	}
+	if !filepath.IsAbs(binary) {
+		t.Fatal("native binary must be an absolute path")
+	}
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(root, "home")
+	workspace := filepath.Join(root, "workspace")
+	for _, path := range []string{home, workspace} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fixture := filepath.Join(root, "response.sse")
+	environment := []string{"PATH=/usr/bin:/bin", "HOME=" + home, "CODEX_HOME=" + home, "CODEX_RS_SSE_FIXTURE=" + fixture, "NO_COLOR=1"}
+	version := exec.CommandContext(ctx, binary, "--version")
+	version.Env, version.Dir = environment, workspace
+	data, err := version.Output()
+	if err != nil || strings.TrimSpace(string(data)) != "codex-cli 0.117.0" {
+		t.Fatal("native binary must match the pinned Codex 0.117.0 version")
+	}
+	command := exec.CommandContext(ctx, binary,
+		"-c", `model_provider="dataground_session_fixture"`,
+		"-c", `model_providers.dataground_session_fixture.name="DataGround offline fixture"`,
+		"-c", `model_providers.dataground_session_fixture.base_url="http://127.0.0.1:1"`,
+		"-c", `model_providers.dataground_session_fixture.wire_api="responses"`,
+		"-c", `model_providers.dataground_session_fixture.requires_openai_auth=false`,
+		"-c", `model_providers.dataground_session_fixture.supports_websockets=false`,
+		"app-server")
+	command.Env, command.Dir, command.WaitDelay = environment, workspace, time.Second
+	native, err := startNativeSessionProcess(command)
+	if err != nil {
+		t.Fatal("start native app-server")
+	}
+	t.Cleanup(func() { _ = native.Close() })
+	return native, workspace, fixture
 }
 
 func writeSessionFixture(t *testing.T, path string, index int, text string) {
@@ -249,6 +255,7 @@ type nativeSessionInput struct {
 	io.WriteCloser
 	mu                              sync.Mutex
 	initializations, threads, turns int
+	questionAnswers                 int
 	thread                          string
 	scopeChanged                    bool
 }
@@ -256,6 +263,9 @@ type nativeSessionInput struct {
 func (input *nativeSessionInput) Write(data []byte) (int, error) {
 	var frame struct {
 		Method string `json:"method"`
+		Result struct {
+			Answers map[string]json.RawMessage `json:"answers"`
+		} `json:"result"`
 		Params struct {
 			ThreadID string `json:"threadId"`
 		} `json:"params"`
@@ -264,6 +274,9 @@ func (input *nativeSessionInput) Write(data []byte) (int, error) {
 		return 0, errors.New("invalid native input")
 	}
 	input.mu.Lock()
+	if len(frame.Result.Answers) > 0 {
+		input.questionAnswers++
+	}
 	switch frame.Method {
 	case "initialize":
 		input.initializations++
