@@ -174,6 +174,7 @@ function validateBindings(statement, trustBytes, artifacts, expected) {
       candidateImage: statement.localImageId,
       workspaceSource: workspaceAcceptance(statement),
       workspaceExport: ownedWorkspaceAcceptance(statement),
+      questions: false,
       ...(strict ? { supervisorImage: statement.supervisor.localImageId } : {}),
     }).length ||
     diagnostic.run.model !== statement.model ||

@@ -18,6 +18,7 @@ const [
   gatewayTemplate,
   workspaceSchema,
   ownedWorkspaceSchema,
+  questionSchema,
 ] = await Promise.all([
   read("development-profile.json"),
   read("runtime-conformance-evidence.schema.json"),
@@ -29,6 +30,7 @@ const [
   readFile(resolve(root, "deploy/openshell/runtime-conformance/gateway.toml"), "utf8"),
   read("runtime-workspace-diagnostic.schema.json"),
   read("runtime-owned-workspace-diagnostic.schema.json"),
+  read("runtime-question-diagnostic.schema.json"),
 ]);
 const ajv = new Ajv2020({ strict: true, allErrors: true });
 addFormats(ajv);
@@ -38,6 +40,7 @@ const validateRosetta = ajv.compile(rosettaSchema);
 const validateSupervisor = ajv.compile(supervisorSchema);
 const validateWorkspace = ajv.compile(workspaceSchema);
 const validateOwnedWorkspace = ajv.compile(ownedWorkspaceSchema);
+const validateQuestions = ajv.compile(questionSchema);
 const topology = profile.runtime.conformance.topology;
 if (
   createHash("sha256").update(gatewayTemplate).digest("hex") !== topology.gatewayConfigSHA256 ||
@@ -69,7 +72,7 @@ function nanoseconds(value) {
 
 export function verifyDiagnostic(
   value,
-  { sourceCommit, candidateImage, supervisorImage, workspaceSource, workspaceExport },
+  { sourceCommit, candidateImage, supervisorImage, workspaceSource, workspaceExport, questions },
 ) {
   if (
     !/^[a-f0-9]{40}$/.test(sourceCommit ?? "") ||
@@ -77,7 +80,11 @@ export function verifyDiagnostic(
   ) {
     return ["exact source commit and local candidate image are required"];
   }
-  const exported = value?.schemaVersion === "dataground.dev.openshell-runtime-diagnostic/v7";
+  const questioning = value?.schemaVersion === "dataground.dev.openshell-runtime-diagnostic/v8";
+  if (questions !== undefined && questions !== questioning)
+    return ["question diagnostic selection does not match"];
+  const exported =
+    questioning || value?.schemaVersion === "dataground.dev.openshell-runtime-diagnostic/v7";
   if (workspaceExport !== undefined && workspaceExport !== exported)
     return ["workspace export diagnostic selection does not match"];
   const workspace =
@@ -98,15 +105,17 @@ export function verifyDiagnostic(
     supervisor || value?.schemaVersion === "dataground.dev.openshell-runtime-diagnostic/v4";
   if (
     !(
-      exported
-        ? validateOwnedWorkspace
-        : workspace
-          ? validateWorkspace
-          : supervisor
-            ? validateSupervisor
-            : rosetta
-              ? validateRosetta
-              : validate
+      questioning
+        ? validateQuestions
+        : exported
+          ? validateOwnedWorkspace
+          : workspace
+            ? validateWorkspace
+            : supervisor
+              ? validateSupervisor
+              : rosetta
+                ? validateRosetta
+                : validate
     )(value)
   )
     return ["record does not match the closed candidate diagnostic schema"];
@@ -158,6 +167,24 @@ export function verifyDiagnostic(
         "workspace source evidence does not match the run or bounded preparation window",
       );
     }
+  }
+  if (questioning) {
+    const proof = value.questions;
+    const begin = nanoseconds(proof.startedAt),
+      end = nanoseconds(proof.finishedAt);
+    const sourceEnd = nanoseconds(value.workspaceSource.finishedAt);
+    if (
+      proof.runId !== value.run.id ||
+      begin === null ||
+      end === null ||
+      sourceEnd === null ||
+      started === null ||
+      end <= begin ||
+      end - begin > 360000000000n ||
+      begin < sourceEnd ||
+      end > started
+    )
+      failures.push("question evidence does not match the run or bounded preparation window");
   }
   if (exported) {
     const proof = value.workspaceExport;

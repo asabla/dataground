@@ -1212,6 +1212,21 @@ test("owned acceptance rejects signed helper substitutions and mixed helper revi
 test("owned acceptance rejects missing cleanup, incomplete export and diagnostic downgrades", () => {
   for (const mutate of [
     (f) => {
+      f.diagnostic.schemaVersion = "dataground.dev.openshell-runtime-diagnostic/v8";
+      f.diagnostic.workspaceExport.ownedSessions = 14;
+      f.diagnostic.questions = {
+        profile: "openshell-owned-question-diagnostic/v1",
+        runId: f.diagnostic.run.id,
+        startedAt: f.diagnostic.workspaceSource.finishedAt,
+        finishedAt: f.diagnostic.run.startedAt,
+        checks: [
+          "explicit-answer-resumption",
+          "unanswered-expiry",
+          "pending-question-interruption",
+        ],
+      };
+    },
+    (f) => {
       f.diagnostic.schemaVersion = "dataground.dev.openshell-runtime-diagnostic/v6";
       delete f.diagnostic.workspaceExport;
     },

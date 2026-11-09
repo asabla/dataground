@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v8.json",
+  "title": "DataGround local owned runtime question diagnostic",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "certificationEligible",
+    "profile",
+    "run",
+    "checks",
+    "cleanup",
+    "result",
+    "candidateCredentialCheck",
+    "policySource",
+    "supervisorCandidate",
+    "workspaceSource",
+    "workspaceExport",
+    "questions"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "dataground.dev.openshell-runtime-diagnostic/v8"
+    },
+    "certificationEligible": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v7.json#/properties/certificationEligible"
+    },
+    "profile": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v7.json#/properties/profile"
+    },
+    "run": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v7.json#/properties/run"
+    },
+    "checks": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v7.json#/properties/checks"
+    },
+    "cleanup": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v7.json#/properties/cleanup"
+    },
+    "result": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v7.json#/properties/result"
+    },
+    "candidateCredentialCheck": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v7.json#/properties/candidateCredentialCheck"
+    },
+    "policySource": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v7.json#/properties/policySource"
+    },
+    "supervisorCandidate": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v7.json#/properties/supervisorCandidate"
+    },
+    "workspaceSource": {
+      "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v7.json#/properties/workspaceSource"
+    },
+    "workspaceExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "runId",
+        "startedAt",
+        "finishedAt",
+        "ownedSessions",
+        "changes",
+        "checks"
+      ],
+      "properties": {
+        "profile": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v7.json#/properties/workspaceExport/properties/profile"
+        },
+        "runId": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v7.json#/properties/workspaceExport/properties/runId"
+        },
+        "startedAt": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v7.json#/properties/workspaceExport/properties/startedAt"
+        },
+        "finishedAt": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v7.json#/properties/workspaceExport/properties/finishedAt"
+        },
+        "ownedSessions": {
+          "const": 14
+        },
+        "changes": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v7.json#/properties/workspaceExport/properties/changes"
+        },
+        "checks": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-diagnostic-v7.json#/properties/workspaceExport/properties/checks"
+        }
+      }
+    },
+    "questions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "runId",
+        "startedAt",
+        "finishedAt",
+        "checks"
+      ],
+      "properties": {
+        "profile": {
+          "const": "openshell-owned-question-diagnostic/v1"
+        },
+        "runId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "startedAt": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json#/$defs/timestamp"
+        },
+        "finishedAt": {
+          "$ref": "https://dataground.dev/schemas/openshell-runtime-conformance-evidence-v2.json#/$defs/timestamp"
+        },
+        "checks": {
+          "const": [
+            "explicit-answer-resumption",
+            "unanswered-expiry",
+            "pending-question-interruption"
+          ]
+        }
+      }
+    }
+  }
+}
