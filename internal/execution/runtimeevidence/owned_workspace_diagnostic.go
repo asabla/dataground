@@ -18,6 +18,13 @@ const ownedWorkspaceDiagnosticProfile = "openshell-owned-workspace-diagnostic/v1
 const ownedDiagnosticSessionCount = 11 // Source, eight model cases, artifact production, and the detached-writer probe.
 var ownedWorkspaceChecks = [7]string{"owned-model-sessions", "terminal-owner-acknowledgements", "detached-writer-observed", "binary-change-export", "exact-repeated-export", "restored-tree", "cross-domain-denial"}
 
+func ownedSessionCount(questions bool) int {
+	if questions {
+		return ownedDiagnosticSessionCount + 3
+	}
+	return ownedDiagnosticSessionCount
+}
+
 type diagnosticWorkspaceExport struct {
 	Profile       string                     `json:"profile"`
 	RunID         string                     `json:"runId"`
@@ -29,7 +36,11 @@ type diagnosticWorkspaceExport struct {
 }
 
 func validOwnedWorkspaceDiagnostic(value *diagnosticWorkspaceExport, runID string) bool {
-	if value == nil || value.Profile != ownedWorkspaceDiagnosticProfile || value.RunID != runID || !runIDPattern.MatchString(runID) || value.OwnedSessions != ownedDiagnosticSessionCount || value.Checks != ownedWorkspaceChecks {
+	return validOwnedWorkspaceDiagnosticQuestions(value, runID, false)
+}
+
+func validOwnedWorkspaceDiagnosticQuestions(value *diagnosticWorkspaceExport, runID string, questions bool) bool {
+	if value == nil || value.Profile != ownedWorkspaceDiagnosticProfile || value.RunID != runID || !runIDPattern.MatchString(runID) || value.OwnedSessions != ownedSessionCount(questions) || value.Checks != ownedWorkspaceChecks {
 		return false
 	}
 	start, a := time.Parse(time.RFC3339Nano, value.StartedAt)
@@ -54,6 +65,7 @@ type ownedDiagnosticBackend interface {
 // the owner transport; unconfirmed cleanup seals the run. This is test ownership,
 // not a production writer fence or permission to destroy user workspace data.
 type ownedDiagnosticProvider struct {
+	questions                 bool
 	backend                   ownedDiagnosticBackend
 	open                      func(context.Context, execution.ExecutionRef) (ownedDiagnosticSession, error)
 	ref                       execution.ExecutionRef
@@ -70,7 +82,7 @@ func (p *ownedDiagnosticProvider) StartRuntime(ctx context.Context, ref executio
 }
 func (p *ownedDiagnosticProvider) start(ctx context.Context, ref execution.ExecutionRef, exporting bool) (execution.RuntimeSession, error) {
 	p.mu.Lock()
-	if ctx == nil || ctx.Err() != nil || ref != p.ref || p.failed || p.active || p.evidence != nil || p.exporting != exporting || p.starts >= ownedDiagnosticSessionCount {
+	if ctx == nil || ctx.Err() != nil || ref != p.ref || p.failed || p.active || p.evidence != nil || p.exporting != exporting || p.starts >= ownedSessionCount(p.questions) {
 		p.mu.Unlock()
 		return nil, ErrCase
 	}
@@ -121,7 +133,7 @@ func (p *ownedDiagnosticProvider) Observe(ctx context.Context, ref execution.Exe
 }
 func (p *ownedDiagnosticProvider) Terminate(ctx context.Context, ref execution.ExecutionRef) error {
 	p.mu.Lock()
-	ready := !p.failed && !p.active && !p.exporting && p.evidence != nil && p.closed == ownedDiagnosticSessionCount && ref == p.ref
+	ready := !p.failed && !p.active && !p.exporting && p.evidence != nil && p.closed == ownedSessionCount(p.questions) && ref == p.ref
 	p.mu.Unlock()
 	if !ready {
 		return ErrCase
@@ -130,7 +142,7 @@ func (p *ownedDiagnosticProvider) Terminate(ctx context.Context, ref execution.E
 }
 func (p *ownedDiagnosticProvider) Export(ctx context.Context, request execution.ExportRequest) (execution.ExportResult, error) {
 	p.mu.Lock()
-	if ctx == nil || ctx.Err() != nil || request.IsolationDomainID != p.ref.IsolationDomainID || request.ExecutionID != p.ref.ID || request.SandboxPath != runtimeArtifactPath(p.runID) || p.failed || p.active || p.exporting || p.evidence != nil || p.starts != ownedDiagnosticSessionCount-1 || p.closed != p.starts {
+	if ctx == nil || ctx.Err() != nil || request.IsolationDomainID != p.ref.IsolationDomainID || request.ExecutionID != p.ref.ID || request.SandboxPath != runtimeArtifactPath(p.runID) || p.failed || p.active || p.exporting || p.evidence != nil || p.starts != ownedSessionCount(p.questions)-1 || p.closed != p.starts {
 		p.mu.Unlock()
 		return execution.ExportResult{}, ErrCase
 	}
@@ -144,7 +156,7 @@ func (p *ownedDiagnosticProvider) Export(ctx context.Context, request execution.
 	result, err := p.backend.Export(ctx, request)
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if err != nil || ctx.Err() != nil || p.failed || p.active || p.closed != ownedDiagnosticSessionCount {
+	if err != nil || ctx.Err() != nil || p.failed || p.active || p.closed != ownedSessionCount(p.questions) {
 		p.failed = true
 		clear(result.Content)
 		return execution.ExportResult{}, ErrCase
@@ -288,8 +300,8 @@ func (p *ownedDiagnosticProvider) capture(ctx context.Context) (*diagnosticWorks
 	if !bytes.Equal(first.Bytes(), second.Bytes()) || ctx.Err() != nil {
 		return nil, ErrCase
 	}
-	evidence := &diagnosticWorkspaceExport{Profile: ownedWorkspaceDiagnosticProfile, RunID: p.runID, StartedAt: started.Format(time.RFC3339Nano), FinishedAt: time.Now().UTC().Format(time.RFC3339Nano), OwnedSessions: ownedDiagnosticSessionCount, Changes: changes.Receipt(), Checks: ownedWorkspaceChecks}
-	if !validOwnedWorkspaceDiagnostic(evidence, p.runID) {
+	evidence := &diagnosticWorkspaceExport{Profile: ownedWorkspaceDiagnosticProfile, RunID: p.runID, StartedAt: started.Format(time.RFC3339Nano), FinishedAt: time.Now().UTC().Format(time.RFC3339Nano), OwnedSessions: ownedSessionCount(p.questions), Changes: changes.Receipt(), Checks: ownedWorkspaceChecks}
+	if !validOwnedWorkspaceDiagnosticQuestions(evidence, p.runID, p.questions) {
 		return nil, ErrCase
 	}
 	return evidence, nil

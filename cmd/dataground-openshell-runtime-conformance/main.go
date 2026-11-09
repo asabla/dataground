@@ -22,6 +22,8 @@ func main() {
 	var supervisorCandidateImage string
 	var workspaceSource bool
 	var workspaceExport bool
+	var questions bool
+	flag.BoolVar(&questions, "questions", false, "require explicit question answer, expiry and interruption; only with --workspace-export")
 	flag.BoolVar(&workspaceExport, "workspace-export", false, "require owned runtime sessions and final synthetic changes; only with --workspace-source")
 	flag.BoolVar(&workspaceSource, "workspace-source", false, "require source preparation and native read-back in a strict local diagnostic")
 	flag.StringVar(&supervisorCandidateImage, "supervisor-candidate-image", "", "exact experimental supervisor image ID; only with local Rosetta diagnostics")
@@ -77,7 +79,7 @@ func main() {
 		config.CredentialDirectory == "" ||
 		config.Provenance.SourceCommit == "" ||
 		(localDiagnostic && (config.Provenance.WorkflowRunID != 0 || model == "")) ||
-		(!localDiagnostic && (config.Provenance.WorkflowRunID <= 0 || model != "" || candidateImage != "" || policyProfile != "" || supervisorCandidateImage != "" || workspaceSource || workspaceExport)) || (workspaceExport && !workspaceSource) {
+		(!localDiagnostic && (config.Provenance.WorkflowRunID <= 0 || model != "" || candidateImage != "" || policyProfile != "" || supervisorCandidateImage != "" || workspaceSource || workspaceExport || questions)) || (workspaceExport && !workspaceSource) || (questions && !workspaceExport) {
 		fail()
 	}
 
@@ -89,6 +91,7 @@ func main() {
 		result, err = runtimeevidence.LaunchLocalDiagnostic(ctx, runtimeevidence.LocalDiagnosticConfig{
 			WorkspaceSource: workspaceSource,
 			WorkspaceExport: workspaceExport,
+			Questions:       questions,
 			RepositoryRoot:  config.RepositoryRoot, WorkspaceRoot: config.WorkspaceRoot, CredentialDirectory: config.CredentialDirectory,
 			OpenShellBinary: config.OpenShellBinary, DockerBinary: config.DockerBinary, SourceCommit: config.Provenance.SourceCommit, Model: model,
 			CandidateImage:           candidateImage,
