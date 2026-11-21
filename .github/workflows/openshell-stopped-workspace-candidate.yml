@@ -1,0 +1,49 @@
+name: OpenShell stopped workspace candidate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/openshell-stopped-workspace-candidate.yml
+      - deploy/openshell/stopped-workspace/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openshell-stopped-workspace-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker-driver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      OPENSHELL_SOURCE_REVISION: 38c47412dd7e94b8efc44b128940e097590b7582
+      DATAGROUND_STOPPED_WORKSPACE_IMAGE: ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_INCREMENTAL: "0"
+      CARGO_BUILD_JOBS: "4"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
+
+      - name: Apply the candidate to the exact OpenShell source
+        run: |
+          git init "$RUNNER_TEMP/openshell"
+          git -C "$RUNNER_TEMP/openshell" fetch --depth=1 https://github.com/NVIDIA/OpenShell.git "$OPENSHELL_SOURCE_REVISION"
+          git -C "$RUNNER_TEMP/openshell" checkout --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/openshell" rev-parse HEAD)" = "$OPENSHELL_SOURCE_REVISION"
+          git -C "$RUNNER_TEMP/openshell" apply --whitespace=error "$GITHUB_WORKSPACE/deploy/openshell/stopped-workspace/retained-workspace.patch"
+
+      - name: Check the driver and exercise retained Docker reads
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          docker pull "$DATAGROUND_STOPPED_WORKSPACE_IMAGE"
+          export XDG_STATE_HOME="$RUNNER_TEMP/openshell-state"
+          mkdir -m 0700 "$XDG_STATE_HOME"
+          cd "$RUNNER_TEMP/openshell"
+          cargo +1.95.0 test --locked -p openshell-driver-docker --lib
+          cargo +1.95.0 test --locked -p openshell-driver-docker --lib live_retained_workspace_fences_lifecycle_after_lost_read -- --ignored

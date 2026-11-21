@@ -1,0 +1,626 @@
+diff --git a/crates/openshell-driver-docker/src/image_update.rs b/crates/openshell-driver-docker/src/image_update.rs
+index 4c5070f2c9248b6403f914ba5cb23924623b49c4..fc8eeef8bf4106dc26209cf4136e134e0ca92988 100644
+--- a/crates/openshell-driver-docker/src/image_update.rs
++++ b/crates/openshell-driver-docker/src/image_update.rs
+@@ -468,6 +468,7 @@ impl DockerComputeDriver {
+             .gate_for(&p.sandbox_id)
+             .lock_owned()
+             .await;
++        retained_workspace::require_unheld(&self.config, &p.sandbox_id)?;
+         let previous = read(&self.config, &p.sandbox_id)?;
+         let mut intent = match previous {
+             Some(intent) if same_request(&intent, p) => intent,
+diff --git a/crates/openshell-driver-docker/src/lib.rs b/crates/openshell-driver-docker/src/lib.rs
+index 8bb5f9bbeeab4cc16277aff51afc0b4313b202dd..eca6e13616c8c794133adf5ce621bd0ad68402e0 100644
+--- a/crates/openshell-driver-docker/src/lib.rs
++++ b/crates/openshell-driver-docker/src/lib.rs
+@@ -8,6 +8,7 @@
+ mod image_update;
+ mod isolation;
+ pub mod otel_tracing;
++mod retained_workspace;
+ mod workspace;
+
+ use bollard::Docker;
+@@ -2566,6 +2567,7 @@ impl DockerComputeDriver {
+             .gate_for(&resolved_id)
+             .lock_owned()
+             .await;
++        retained_workspace::require_unheld(&self.config, &resolved_id)?;
+         image_update::require_settled(&self.config, &resolved_id)?;
+         self.lifecycle_event_fences
+             .clear_stop(&resolved_id, sandbox_name);
+@@ -3555,6 +3557,8 @@ impl ComputeDriver for DockerComputeDriver {
+             .into_inner()
+             .sandbox
+             .ok_or_else(|| Status::invalid_argument("sandbox is required"))?;
++        let _lifecycle = self.image_update_gates.gate_for(&sandbox.id).lock_owned().await;
++        retained_workspace::require_unheld(&self.config, &sandbox.id)?;
+         self.create_sandbox_inner(&sandbox).await?;
+         span_status.finish(Ok(Response::new(CreateSandboxResponse::default())))
+     }
+@@ -3672,6 +3676,7 @@ impl ComputeDriver for DockerComputeDriver {
+             .lock_owned()
+             .await;
+         let event_sandbox_id = request.sandbox_id.clone();
++        retained_workspace::require_unheld(&self.config, &event_sandbox_id)?;
+         let deleted = self
+             .delete_sandbox_inner(&request.sandbox_id, &request.name)
+             .await?;
+diff --git a/crates/openshell-driver-docker/src/retained_workspace.rs b/crates/openshell-driver-docker/src/retained_workspace.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..2f693e2b4c9e48fa58a5a04b9455cd6523419f98
+--- /dev/null
++++ b/crates/openshell-driver-docker/src/retained_workspace.rs
+@@ -0,0 +1,307 @@
++// SPDX-FileCopyrightText: Copyright (c) 2026 DataGround contributors
++// SPDX-License-Identifier: Apache-2.0
++
++//! Retained read of one stopped, unmounted workspace in the Docker writable layer.
++
++use super::*;
++use bollard::models::{MountPoint, MountPointTypeEnum, RestartPolicyNameEnum};
++use bollard::query_parameters::ContainerArchiveInfoOptionsBuilder;
++use serde::Serialize;
++use std::io::Read as _;
++
++const RECORD_FILE: &str = "workspace-retention.json";
++const MAX_RECORD_BYTES: u64 = 4096;
++const MAX_ARCHIVE_BYTES: usize = 32 << 20;
++const WORKSPACE: &str = "/sandbox/workspace";
++const GO_MODE_DIR: u32 = 1 << 31;
++const GO_MODE_SYMLINK: u32 = 1 << 27;
++
++#[derive(Serialize, PartialEq, Eq)]
++struct Hold {
++    version: u8,
++    generation: String,
++    container: String,
++    started_at: String,
++    finished_at: String,
++}
++
++fn unavailable() -> Status {
++    Status::failed_precondition("stopped Docker workspace could not be confirmed")
++}
++
++fn record_path(config: &DockerDriverRuntimeConfig, id: &str) -> Result<PathBuf, Status> {
++    if id.is_empty()
++        || id.len() > 128
++        || !id
++            .bytes()
++            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
++    {
++        return Err(Status::invalid_argument("invalid Docker sandbox identity"));
++    }
++    Ok(docker_boundary_state_dir_by_id(id, config)?.join(RECORD_FILE))
++}
++
++// Presence, including a malformed record, fences lifecycle mutations.
++pub(super) fn require_unheld(config: &DockerDriverRuntimeConfig, id: &str) -> Result<(), Status> {
++    match std::fs::symlink_metadata(record_path(config, id)?) {
++        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
++        _ => Err(Status::failed_precondition(
++            "Docker workspace is held for retention",
++        )),
++    }
++}
++
++fn publish_hold(path: &Path, hold: &Hold) -> Result<(), Status> {
++    let encoded = serde_json::to_vec(hold).map_err(|_| unavailable())?;
++    if encoded.len() as u64 > MAX_RECORD_BYTES {
++        return Err(unavailable());
++    }
++    match std::fs::symlink_metadata(path) {
++        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
++            image_update::durable_write(path, &encoded)?;
++        }
++        Ok(info) if info.is_file() && info.len() <= MAX_RECORD_BYTES => {
++            let file = std::fs::File::open(path).map_err(|_| unavailable())?;
++            let mut existing = Vec::new();
++            (&file)
++                .take(MAX_RECORD_BYTES + 1)
++                .read_to_end(&mut existing)
++                .map_err(|_| unavailable())?;
++            if existing != encoded {
++                return Err(unavailable());
++            }
++            // A previous caller may have lost its acknowledgement at publication.
++            file.sync_all().map_err(|_| unavailable())?;
++            let parent = path.parent().ok_or_else(unavailable)?;
++            std::fs::File::open(parent)
++                .and_then(|dir| dir.sync_all())
++                .map_err(|_| unavailable())?;
++        }
++        _ => return Err(unavailable()),
++    }
++    Ok(())
++}
++
++impl DockerComputeDriver {
++    /// Acquire the durable retention hold and copy one exact stopped generation.
++    /// The caller supplies the original generation from the trusted lifecycle
++    /// record and is responsible for workspace authorization. The hold survives
++    /// an unsuccessful read, a dropped response and a driver restart.
++    pub async fn retain_stopped_workspace_archive(
++        &self,
++        workspace: &str,
++        sandbox_id: &str,
++        sandbox_name: &str,
++        generation: &str,
++    ) -> Result<Vec<u8>, Status> {
++        if workspace.is_empty() || sandbox_id.is_empty() || sandbox_name.is_empty() {
++            return Err(Status::invalid_argument(
++                "exact Docker workspace and sandbox are required",
++            ));
++        }
++        openshell_core::sandbox_generation::SandboxGenerationId::parse(generation.to_string())
++            .map_err(|_| Status::invalid_argument("exact Docker generation is required"))?;
++        let path = record_path(&self.config, sandbox_id)?;
++        tokio::time::timeout(
++            Duration::from_secs(60),
++            Box::pin(async {
++                let _lifecycle = self
++                    .image_update_gates
++                    .gate_for(sandbox_id)
++                    .lock_owned()
++                    .await;
++                image_update::require_settled(&self.config, sandbox_id)?;
++                if self.config.workspace_storage != workspace::Storage::WritableLayer
++                    || self
++                        .pending_snapshot(sandbox_id, sandbox_name)
++                        .await?
++                        .is_some()
++                {
++                    return Err(unavailable());
++                }
++                let descriptor = read_docker_runtime_descriptor(sandbox_id, &self.config)
++                    .await
++                    .map_err(|_| unavailable())?
++                    .ok_or_else(unavailable)?;
++                let container_id = descriptor
++                    .resource_claims
++                    .get("docker.container_id")
++                    .filter(|id| {
++                        id.len() == 64 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
++                    })
++                    .ok_or_else(unavailable)?;
++                if descriptor.boundary_id != sandbox_id || descriptor.generation != generation {
++                    return Err(unavailable());
++                }
++                let before = self
++                    .observe_retained_workspace(
++                        workspace,
++                        sandbox_id,
++                        sandbox_name,
++                        generation,
++                        container_id,
++                    )
++                    .await?;
++                publish_hold(&path, &before)?;
++                let archive = read_archive(&self.docker, container_id).await?;
++                if self
++                    .observe_retained_workspace(
++                        workspace,
++                        sandbox_id,
++                        sandbox_name,
++                        generation,
++                        container_id,
++                    )
++                    .await?
++                    != before
++                {
++                    return Err(unavailable());
++                }
++                Ok(archive)
++            }),
++        )
++        .await
++        .map_err(|_| Status::deadline_exceeded("stopped Docker workspace read timed out"))?
++    }
++
++    async fn observe_retained_workspace(
++        &self,
++        workspace: &str,
++        sandbox_id: &str,
++        sandbox_name: &str,
++        generation: &str,
++        container_id: &str,
++    ) -> Result<Hold, Status> {
++        let container = self
++            .find_managed_container_summary(sandbox_id, sandbox_name)
++            .await
++            .map_err(|_| unavailable())?
++            .ok_or_else(unavailable)?;
++        if container.id.as_deref() != Some(container_id)
++            || container
++                .labels
++                .as_ref()
++                .and_then(|labels| labels.get(LABEL_SANDBOX_WORKSPACE))
++                .map(String::as_str)
++                != Some(workspace)
++        {
++            return Err(unavailable());
++        }
++        let inspected = self
++            .docker
++            .inspect_container(container_id, None)
++            .await
++            .map_err(|_| unavailable())?;
++        if inspected.id.as_deref() != Some(container_id)
++            || inspected
++                .mounts
++                .as_ref()
++                .is_none_or(|mounts| !driver_owned_mounts(&self.config, sandbox_id, mounts))
++        {
++            return Err(unavailable());
++        }
++        let host = inspected.host_config.as_ref().ok_or_else(unavailable)?;
++        if host.auto_remove != Some(false)
++            || host.tmpfs.as_ref().is_some_and(|mounts| !mounts.is_empty())
++            || host
++                .volumes_from
++                .as_ref()
++                .is_some_and(|mounts| !mounts.is_empty())
++            || !matches!(
++                host.restart_policy.as_ref().and_then(|policy| policy.name),
++                Some(RestartPolicyNameEnum::NO | RestartPolicyNameEnum::EMPTY)
++            )
++        {
++            return Err(unavailable());
++        }
++        let state = inspected.state.as_ref().ok_or_else(unavailable)?;
++        if state.status != Some(ContainerStateStatusEnum::EXITED)
++            || state.running != Some(false)
++            || state.restarting != Some(false)
++            || state.paused != Some(false)
++            || state.pid != Some(0)
++        {
++            return Err(unavailable());
++        }
++        let (Some(started_at), Some(finished_at)) =
++            (state.started_at.as_ref(), state.finished_at.as_ref())
++        else {
++            return Err(unavailable());
++        };
++        if started_at.is_empty() || finished_at.is_empty() {
++            return Err(unavailable());
++        }
++        Ok(Hold {
++            version: 1,
++            generation: generation.into(),
++            container: container_id.into(),
++            started_at: started_at.clone(),
++            finished_at: finished_at.clone(),
++        })
++    }
++}
++
++fn driver_owned_mounts(
++    config: &DockerDriverRuntimeConfig,
++    id: &str,
++    mounts: &[MountPoint],
++) -> bool {
++    mounts.iter().all(|mount| {
++        let name = match mount.destination.as_deref() {
++            Some(BOUNDARY_MOUNT_PATH) => docker_channel_volume_name_by_id(id, config),
++            Some(BOUNDARY_CONTROL_MOUNT_PATH) => docker_control_volume_name_by_id(id, config),
++            _ => return false,
++        };
++        mount.typ == Some(MountPointTypeEnum::VOLUME) && mount.name.as_deref() == Some(&name)
++    })
++}
++
++async fn read_archive(docker: &Docker, container_id: &str) -> Result<Vec<u8>, Status> {
++    // Docker resolves intermediate symlinks when opening the archive path.
++    // Check both directory components while the workload is held stopped.
++    for (path, name) in [("/sandbox", "sandbox"), (WORKSPACE, "workspace")] {
++        let info = docker
++            .get_container_archive_info(
++                container_id,
++                Some(
++                    ContainerArchiveInfoOptionsBuilder::default()
++                        .path(path)
++                        .build(),
++                ),
++            )
++            .await
++            .map_err(|_| unavailable())?;
++        if info.name != name
++            || !info.link_target.is_empty()
++            || info.file_mode & (GO_MODE_DIR | GO_MODE_SYMLINK) != GO_MODE_DIR
++        {
++            return Err(unavailable());
++        }
++    }
++    let options = DownloadFromContainerOptionsBuilder::default()
++        .path(WORKSPACE)
++        .build();
++    let mut stream = docker.download_from_container(container_id, Some(options));
++    let mut archive = Vec::new();
++    while let Some(chunk) = stream.next().await {
++        let chunk = chunk.map_err(|_| unavailable())?;
++        if chunk.len() > MAX_ARCHIVE_BYTES - archive.len() {
++            return Err(Status::resource_exhausted(
++                "stopped Docker workspace archive exceeds the limit",
++            ));
++        }
++        archive.extend_from_slice(&chunk);
++    }
++    if archive.len() < 1024
++        || archive.len() % 512 != 0
++        || archive[archive.len() - 1024..]
++            .iter()
++            .any(|byte| *byte != 0)
++    {
++        return Err(unavailable());
++    }
++    Ok(archive)
++}
++
++#[cfg(test)]
++mod tests;
+diff --git a/crates/openshell-driver-docker/src/retained_workspace/tests.rs b/crates/openshell-driver-docker/src/retained_workspace/tests.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..445f77d2df4b8926974d12bfb914d282a64a07e3
+--- /dev/null
++++ b/crates/openshell-driver-docker/src/retained_workspace/tests.rs
+@@ -0,0 +1,258 @@
++// SPDX-FileCopyrightText: Copyright (c) 2026 DataGround contributors
++// SPDX-License-Identifier: Apache-2.0
++
++use super::*;
++use crate::tests::{runtime_config, test_driver_with_config, test_sandbox, test_workload_identity};
++use openshell_core::SandboxSessionId;
++use openshell_core::proto::compute::v1::{
++    SandboxUpdatePreconditions, UpdateSandboxConfigurationRequest,
++};
++use openshell_sandbox_backend::boundary_protocol::SandboxTransport;
++use std::process::Command;
++
++#[test]
++fn exact_hold_replay_refuses_replacement_and_corruption() {
++    let directory = tempfile::tempdir().unwrap();
++    let path = directory.path().join(RECORD_FILE);
++    let mut hold = Hold {
++        version: 1,
++        generation: "generation-1".into(),
++        container: "container".into(),
++        started_at: "time-1".into(),
++        finished_at: "time-2".into(),
++    };
++    publish_hold(&path, &hold).unwrap();
++    publish_hold(&path, &hold).unwrap();
++    hold.started_at = "time-3".into();
++    assert!(publish_hold(&path, &hold).is_err());
++    std::fs::write(&path, b"partial record").unwrap();
++    assert!(publish_hold(&path, &hold).is_err());
++    assert_eq!(std::fs::read(&path).unwrap(), b"partial record");
++}
++
++#[test]
++fn only_exact_runtime_mounts_are_admitted() {
++    let config = runtime_config();
++    let id = "sandbox-1";
++    let mut mount = MountPoint {
++        typ: Some(MountPointTypeEnum::VOLUME),
++        destination: Some(BOUNDARY_MOUNT_PATH.into()),
++        name: Some(docker_channel_volume_name_by_id(id, &config)),
++        ..Default::default()
++    };
++    assert!(driver_owned_mounts(
++        &config,
++        id,
++        std::slice::from_ref(&mount)
++    ));
++    mount.name = Some("foreign-volume".into());
++    assert!(!driver_owned_mounts(
++        &config,
++        id,
++        std::slice::from_ref(&mount)
++    ));
++    mount.destination = Some("/sandbox".into());
++    assert!(!driver_owned_mounts(&config, id, &[mount]));
++}
++
++struct Fixture {
++    container: String,
++    directory: PathBuf,
++}
++
++impl Drop for Fixture {
++    fn drop(&mut self) {
++        let _ = Command::new("docker")
++            .args(["rm", "--force", &self.container])
++            .output();
++        let _ = std::fs::remove_dir_all(&self.directory);
++    }
++}
++
++fn docker(args: &[&str]) -> String {
++    let output = Command::new("docker").args(args).output().unwrap();
++    assert!(
++        output.status.success(),
++        "Docker {} failed: {}",
++        args[0],
++        String::from_utf8_lossy(&output.stderr)
++    );
++    String::from_utf8(output.stdout).unwrap().trim().to_string()
++}
++
++#[tokio::test]
++#[ignore = "requires an isolated Docker daemon and a digest-pinned fixture image"]
++async fn live_retained_workspace_fences_lifecycle_after_lost_read() {
++    let image = std::env::var("DATAGROUND_STOPPED_WORKSPACE_IMAGE").unwrap();
++    assert!(
++        image.contains("@sha256:"),
++        "fixture image must be digest pinned"
++    );
++    let mut sandbox = test_sandbox();
++    let session_id = SandboxSessionId::new();
++    sandbox.id = session_id.to_string();
++    sandbox.name = format!("retained-workspace-{}", sandbox.id.to_ascii_lowercase());
++    sandbox.workspace = "retention-fixture".into();
++    let mut config = runtime_config();
++    config.sandbox_namespace = sandbox.name.clone();
++    let container = docker(&[
++        "create",
++        "--network",
++        "none",
++        "--restart=no",
++        "--cap-drop",
++        "ALL",
++        "--security-opt",
++        "no-new-privileges",
++        "--pids-limit",
++        "64",
++        "--memory",
++        "256m",
++        "--label",
++        &format!("{LABEL_MANAGED_BY}={LABEL_MANAGED_BY_VALUE}"),
++        "--label",
++        &format!("{LABEL_ISOLATION_BACKEND}={LABEL_ISOLATION_BACKEND_OPEN_SHELL}"),
++        "--label",
++        &format!("{LABEL_ISOLATION_ROLE}={LABEL_ISOLATION_ROLE_SANDBOX}"),
++        "--label",
++        &format!("{LABEL_SANDBOX_ID}={}", sandbox.id),
++        "--label",
++        &format!("{LABEL_SANDBOX_NAME}={}", sandbox.name),
++        "--label",
++        &format!("{LABEL_SANDBOX_WORKSPACE}={}", sandbox.workspace),
++        "--label",
++        &format!("{LABEL_SANDBOX_NAMESPACE}={}", config.sandbox_namespace),
++        "--entrypoint",
++        "/bin/sleep",
++        &image,
++        "infinity",
++    ]);
++    let fixture = Fixture {
++        container,
++        directory: prepare_docker_boundary_state_dir(&sandbox, &config).unwrap(),
++    };
++    docker(&["start", &fixture.container]);
++    docker(&[
++        "exec",
++        &fixture.container,
++        "/bin/sh",
++        "-c",
++        "mkdir -p /sandbox/workspace && printf 'changed\\000\\376' >/sandbox/workspace/file.bin",
++    ]);
++    let generation = "generation-1";
++    let descriptor = SandboxRuntimeDescriptor {
++        boundary_id: sandbox.id.clone(),
++        generation: generation.into(),
++        session_id,
++        workload_identity: test_workload_identity(),
++        transport: SandboxTransport::Unix {
++            socket_path: BOUNDARY_SOCKET_MOUNT_PATH.into(),
++        },
++        tls: SandboxTlsClientConfig {
++            server_name: "fixture".into(),
++            trust_anchor_pem: "fixture".into(),
++        },
++        host_gateway_ip: None,
++        resource_claims: [("docker.container_id".into(), fixture.container.clone())].into(),
++        provisioning_evidence: isolation::provisioning_evidence(&fixture.container, generation)
++            .unwrap(),
++    };
++    image_update::durable_write(
++        &fixture.directory.join(RUNTIME_DESCRIPTOR_FILE),
++        &serde_json::to_vec(&descriptor).unwrap(),
++    )
++    .unwrap();
++    let mut driver = test_driver_with_config(config.clone());
++    driver.docker = Arc::new(Docker::connect_with_local_defaults().unwrap());
++    let read = |driver: &DockerComputeDriver, generation: &'static str| {
++        let driver = driver.clone();
++        let sandbox = sandbox.clone();
++        async move {
++            driver
++                .retain_stopped_workspace_archive(
++                    &sandbox.workspace,
++                    &sandbox.id,
++                    &sandbox.name,
++                    generation,
++                )
++                .await
++        }
++    };
++    assert!(read(&driver, generation).await.is_err());
++    assert!(!fixture.directory.join(RECORD_FILE).exists());
++    docker(&["stop", "--time", "1", &fixture.container]);
++    assert!(read(&driver, "foreign-generation").await.is_err());
++    let initial = read(&driver, generation).await.unwrap();
++    let mut archive = tar::Archive::new(initial.as_slice());
++    let mut entries = archive.entries().unwrap();
++    assert!(
++        entries
++            .next()
++            .unwrap()
++            .unwrap()
++            .header()
++            .entry_type()
++            .is_dir()
++    );
++    let mut member = entries.next().unwrap().unwrap();
++    assert_eq!(
++        member.path().unwrap().as_ref(),
++        Path::new("workspace/file.bin")
++    );
++    let mut content = Vec::new();
++    member.read_to_end(&mut content).unwrap();
++    assert_eq!(content, b"changed\x00\xfe");
++    assert!(entries.next().is_none());
++
++    let mut replacement = test_driver_with_config(config.clone());
++    replacement.docker = driver.docker.clone();
++    drop(driver);
++    let start = replacement
++        .start_sandbox(&sandbox.id, &sandbox.name, "generation-2", &[], None)
++        .await
++        .unwrap_err();
++    assert_eq!(start.message(), "Docker workspace is held for retention");
++    let delete = ComputeDriver::delete_sandbox(
++        &replacement,
++        Request::new(DeleteSandboxRequest {
++            sandbox_id: sandbox.id.clone(),
++            name: sandbox.name.clone(),
++        }),
++    )
++    .await
++    .unwrap_err();
++    assert_eq!(delete.message(), start.message());
++    let create = ComputeDriver::create_sandbox(
++        &replacement,
++        Request::new(CreateSandboxRequest {
++            sandbox: Some(sandbox.clone()),
++            ..Default::default()
++        }),
++    )
++    .await
++    .unwrap_err();
++    assert_eq!(create.message(), start.message());
++    config.workspace_storage = workspace::Storage::Persistent;
++    let update = test_driver_with_config(config)
++        .update_workload_image(&UpdateSandboxConfigurationRequest {
++            preconditions: Some(SandboxUpdatePreconditions {
++                sandbox_id: sandbox.id.clone(),
++                name: sandbox.name.clone(),
++                revision: 1,
++                operation_id: "854cf4f7-46b5-4202-bac1-d6a26b8c0001".into(),
++                expected_image: "original".into(),
++                image: "replacement".into(),
++                ..Default::default()
++            }),
++            ..Default::default()
++        })
++        .await
++        .unwrap_err();
++    assert_eq!(update.message(), start.message());
++    assert_eq!(read(&replacement, generation).await.unwrap(), initial);
++
++    // The daemon owner can bypass the driver. A new boot cannot replay the old hold.
++    docker(&["start", &fixture.container]);
++    docker(&["stop", "--time", "1", &fixture.container]);
++    assert!(read(&replacement, generation).await.is_err());
++}
