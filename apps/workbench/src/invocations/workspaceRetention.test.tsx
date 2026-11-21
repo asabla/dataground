@@ -47,6 +47,8 @@ describe("workspace retention", () => {
       { schemaVersion: "future" },
       { state: "unknown" },
       { recovery: "eligible" },
+      { recoveryBlocker: "unknown" },
+      { recovery: "requested", recoveryBlocker: "owner_stop_unconfirmed" },
       { state: "recorded" },
       { artifactId: "art_00000000000000000001" },
       { state: "recorded", artifactId: "art_00000000000000000001", recordedAt: "invalid" },

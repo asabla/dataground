@@ -33,6 +33,9 @@ export async function readWorkspaceRetention(
       !["none", "review_required", "requested"].includes(data.recovery) ||
       (data.recoveryAccess !== undefined &&
         !["allowed", "denied", "unavailable"].includes(data.recoveryAccess)) ||
+      (data.recoveryBlocker !== undefined &&
+        (data.recovery !== "review_required" ||
+          !["execution_unavailable", "owner_stop_unconfirmed"].includes(data.recoveryBlocker))) ||
       (data.state === "recorded"
         ? typeof data.artifactId !== "string" ||
           !/^art_[0-9a-z]{20,32}$/u.test(data.artifactId) ||
@@ -54,6 +57,7 @@ export async function readWorkspaceRetention(
         state: data.state,
         recovery: data.recovery,
         ...(data.recoveryAccess === undefined ? {} : { recoveryAccess: data.recoveryAccess }),
+        ...(data.recoveryBlocker === undefined ? {} : { recoveryBlocker: data.recoveryBlocker }),
         ...(data.state === "recorded"
           ? { artifactId: data.artifactId, recordedAt: data.recordedAt }
           : {}),

@@ -166,7 +166,7 @@ The [live expired-cancellation recovery journey](governed-source-conformance.md#
 
 The recovery field is `review_required` when the cancellation failed with `OPERATION_DEADLINE_EXCEEDED`, `requested` while cancellation uses the current explicit recovery receipt, and `none` otherwise. `none` does not mean recovery is unnecessary or possible. A recorded artifact and a recovery requirement can coexist when export completed before cancellation became terminal.
 
-This read reports retained metadata, not current object availability or recovery eligibility. Artifact metadata and content still require their own authorization. The internal recovery command and current worker checks remain necessary; this endpoint supplies no recovery or deletion command.
+For an expired cancellation, the optional `recoveryBlocker` reports `execution_unavailable` when the original execution is absent or no longer ready, or `owner_stop_unconfirmed` when its original owner-stop proof is missing. The Workbench explains the reason and withholds new requests while a blocker is present. An uncertain request can still be replayed exactly under current request permission. Command acceptance and artifact access each use their own current checks.
 
 The workbench reads this metadata in the run outcome view, including failed runs. It shows deadline recovery as an operator review requirement and opens recorded changes through the existing artifact inspection flow. Loading, denial and unconfirmed responses remove earlier artifact controls. Navigation and identity changes discard pending reads; returning to a run checks access again. No prompts, answers or artifact bytes are retained by this view.
 

@@ -17,7 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func testWorkspaceCancellationRetention(t *testing.T, ctx context.Context, pool *pgxpool.Pool, original persistence.OperationClaim, runtimeEffect persistence.EffectRecord, stopped persistence.InvocationWorkspaceQuiescence, service, revision string, source *exportSourceObjects, base *workspace.Snapshot, version string, publicRecovery bool) {
+func testWorkspaceCancellationRetention(t *testing.T, ctx context.Context, pool *pgxpool.Pool, original persistence.OperationClaim, runtimeEffect persistence.EffectRecord, stopped persistence.InvocationWorkspaceQuiescence, service, revision string, source *exportSourceObjects, base *workspace.Snapshot, version, scenario string) {
 	t.Helper()
 	repo := persistence.NewRepository(pool)
 	scope := original.IsolationDomainID
@@ -42,6 +42,16 @@ func testWorkspaceCancellationRetention(t *testing.T, ctx context.Context, pool 
 	before := source.reads
 	if _, _, err := repo.ReadCancellationWorkspaceSource(ctx, *claim, effect, source, stopped, 1, &reconcile.SourceCedarEvaluator{}); err == nil || source.reads != before {
 		t.Fatal("unconfirmed stop reached source")
+	}
+	if scenario == "unconfirmed stop" {
+		if err := repo.Fail(ctx, *claim, persistence.OperationFailureDeadline); err != nil {
+			t.Fatal(err)
+		}
+		status, err := repo.ReadWorkspaceRetention(ctx, scope, original.ResourceID)
+		if err != nil || status.State != "stop_unconfirmed" || status.Recovery != "review_required" || status.RecoveryBlocker != "owner_stop_unconfirmed" {
+			t.Fatalf("retention did not identify missing stop evidence: %#v, %v", status, err)
+		}
+		return
 	}
 	if err := repo.RecordInvocationWorkspaceOwnerStop(ctx, stopped); err != nil {
 		t.Fatal(err)
@@ -264,7 +274,7 @@ func testWorkspaceCancellationRetention(t *testing.T, ctx context.Context, pool 
 	if _, err := retain(*replacement); err == nil || source.reads != before {
 		t.Fatal("expired cancellation acquired retention authority")
 	}
-	if !publicRecovery {
+	if scenario != "public recovery" {
 		db, err := persistence.OpenSQL(ctx, testDatabaseURL(t))
 		if err != nil {
 			t.Fatal(err)
@@ -275,7 +285,7 @@ func testWorkspaceCancellationRetention(t *testing.T, ctx context.Context, pool 
 		}
 	}
 	var verifyPublicReplay func()
-	if publicRecovery {
+	if scenario == "public recovery" {
 		replacement, verifyPublicReplay = testPublicWorkspaceRetentionRecovery(t, ctx, pool, *replacement)
 	} else {
 		replacement = testWorkspaceRetentionRecovery(t, ctx, pool, *replacement, stopped)

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "dataground.invocation-workspace-retention/v1",
+  "isolationDomainId": "iso_00000000000000000001",
+  "invocationId": "inv_00000000000000000001",
+  "state": "stop_unconfirmed",
+  "recovery": "none",
+  "recoveryBlocker": "owner_stop_unconfirmed"
+}

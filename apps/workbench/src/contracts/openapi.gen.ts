@@ -33,7 +33,7 @@ export interface paths {
         };
         /**
          * Read invocation workspace retention metadata
-         * @description Requires readWorkspaceRetention on the exact invocation. Reports source-selected workspace receipts without source contents, native identities or storage addresses. Recorded means a durable change completion exists; it does not prove current object availability or grant artifact access, recovery or deletion. Recovery review_required reports expired cancellation, not operator eligibility or permission. requested reports the current explicit operator recovery. Source-free and process-local reference invocations have no retention resource and return 404. Responses use Cache-Control: no-store.
+         * @description Requires readWorkspaceRetention on the exact invocation. Reports source-selected workspace receipts without source contents, native identities or storage addresses. Recorded means a durable change completion exists; it does not prove current object availability or grant artifact access, recovery or deletion. Recovery review_required reports expired cancellation. A recovery blocker identifies missing execution or stop evidence. Recovery permission and current command eligibility are checked separately. requested reports the current explicit operator recovery. Source-free and process-local reference invocations have no retention resource and return 404. Responses use Cache-Control: no-store.
          */
         get: operations["readWorkspaceRetention"];
         put?: never;
@@ -736,10 +736,15 @@ export interface components {
             recoveryAccess?: "allowed" | "denied" | "unavailable";
             /** @enum {unknown} */
             recovery: "none" | "review_required" | "requested";
+            /**
+             * @description Evidence currently missing for a new retention recovery request after an expired cancellation.
+             * @enum {string}
+             */
+            recoveryBlocker?: "execution_unavailable" | "owner_stop_unconfirmed";
             artifactId?: string;
             /** Format: date-time */
             recordedAt?: string;
-        } & unknown;
+        } & (unknown & unknown);
         SetSavedResourceRequest: {
             /** @constant */
             kind: "workspace";

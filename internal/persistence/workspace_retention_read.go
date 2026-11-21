@@ -19,18 +19,23 @@ func (repository *Repository) ReadWorkspaceRetention(ctx context.Context, scope,
       WHEN instance.id IS NULL THEN 'not_observed'
       WHEN stopped.operation_id IS NOT NULL OR cleanup.operation_id IS NOT NULL THEN 'export_pending'
       ELSE 'stop_unconfirmed' END,
- CASE WHEN operation.command='cancel' AND operation.observed_state='failed' AND operation.error->>'code'='OPERATION_DEADLINE_EXCEEDED' THEN 'review_required'
+ CASE WHEN review.required THEN 'review_required'
       WHEN operation.command='cancel' AND operation.observed_state='cancelling' AND EXISTS(
        SELECT 1 FROM workspace_retention_recoveries recovery WHERE recovery.isolation_domain_id=operation.isolation_domain_id AND recovery.operation_id=operation.id AND recovery.correlation_id=operation.effect_correlation_id
       ) THEN 'requested' ELSE 'none' END,
+ CASE WHEN review.required AND (instance.id IS NULL OR instance.observed_state<>'ready') THEN 'execution_unavailable'
+      WHEN review.required AND (stopped.operation_id IS NULL OR intent.operation_id IS NULL) THEN 'owner_stop_unconfirmed'
+      ELSE '' END,
  COALESCE(completion.artifact_id,''),completion.completed_at
  FROM invocations invocation
  JOIN invocation_execution_operations operation ON operation.isolation_domain_id=invocation.isolation_domain_id AND operation.invocation_id=invocation.id
  JOIN service_revision_execution_plans plan ON plan.isolation_domain_id=invocation.isolation_domain_id AND plan.revision_id=invocation.revision_id AND plan.workspace_source IS NOT NULL
+ CROSS JOIN LATERAL (SELECT operation.command='cancel' AND operation.observed_state='failed' AND operation.error->>'code'='OPERATION_DEADLINE_EXCEEDED' AS required) review
  LEFT JOIN execution_instances instance ON instance.isolation_domain_id=operation.isolation_domain_id AND instance.operation_id=operation.id
+ LEFT JOIN invocation_workspace_quiescence_intents intent ON intent.isolation_domain_id=operation.isolation_domain_id AND intent.operation_id=operation.id AND intent.record->>'executionId'=instance.id
  LEFT JOIN invocation_workspace_owner_stop_receipts stopped ON stopped.isolation_domain_id=operation.isolation_domain_id AND stopped.operation_id=operation.id
  LEFT JOIN invocation_workspace_quiescence_completions cleanup ON cleanup.isolation_domain_id=operation.isolation_domain_id AND cleanup.operation_id=operation.id
  LEFT JOIN invocation_workspace_change_completions completion ON completion.isolation_domain_id=operation.isolation_domain_id AND completion.operation_id=operation.id
- WHERE invocation.isolation_domain_id=$1 AND invocation.id=$2`, scope, invocationID).Scan(&value.State, &value.Recovery, &value.ArtifactID, &value.RecordedAt)
+ WHERE invocation.isolation_domain_id=$1 AND invocation.id=$2`, scope, invocationID).Scan(&value.State, &value.Recovery, &value.RecoveryBlocker, &value.ArtifactID, &value.RecordedAt)
 	return value, err
 }

@@ -42,14 +42,15 @@ func TestWorkspaceExportAuthorizationRequiresCurrentClaimAndConfirmedCleanup(t *
 		}
 	}()
 	for _, version := range []string{"v7", "v6"} {
-		t.Run(version, func(t *testing.T) { testWorkspaceExportAuthorization(t, ctx, pool, version, false, false) })
-		t.Run(version+" cancellation", func(t *testing.T) { testWorkspaceExportAuthorization(t, ctx, pool, version, true, false) })
+		t.Run(version, func(t *testing.T) { testWorkspaceExportAuthorization(t, ctx, pool, version, "") })
+		t.Run(version+" cancellation", func(t *testing.T) { testWorkspaceExportAuthorization(t, ctx, pool, version, "cancellation") })
 	}
-	t.Run("public recovery", func(t *testing.T) { testWorkspaceExportAuthorization(t, ctx, pool, "v7", true, true) })
+	t.Run("public recovery", func(t *testing.T) { testWorkspaceExportAuthorization(t, ctx, pool, "v7", "public recovery") })
+	t.Run("unconfirmed stop", func(t *testing.T) { testWorkspaceExportAuthorization(t, ctx, pool, "v7", "unconfirmed stop") })
 	testWorkspaceRetentionReadRoute(t, ctx, pool)
 }
 
-func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *pgxpool.Pool, version string, cancellation, publicRecovery bool) {
+func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *pgxpool.Pool, version, cancellation string) {
 	repo := persistence.NewRepository(pool)
 	scope, service, revision := identity.New("iso"), identity.New("svc"), identity.New("rev")
 	source, sourceObjects, base := prepareExportSourceFixture(t, ctx, repo, scope)
@@ -125,8 +126,8 @@ func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *p
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cancellation {
-		testWorkspaceCancellationRetention(t, ctx, pool, *claim, effect, entry.Record, service, revision, sourceObjects, base, version, publicRecovery)
+	if cancellation != "" {
+		testWorkspaceCancellationRetention(t, ctx, pool, *claim, effect, entry.Record, service, revision, sourceObjects, base, version, cancellation)
 		return
 	}
 	evaluator := &reconcile.WorkspaceExportCedarEvaluator{}

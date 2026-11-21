@@ -31,6 +31,16 @@
       "valid": true
     },
     {
+      "file": "valid/workspace-retention-recovery-blocked.json",
+      "schema": "WorkspaceRetention",
+      "valid": true
+    },
+    {
+      "file": "invalid/workspace-retention-blocker-before-review.json",
+      "schema": "WorkspaceRetention",
+      "valid": false
+    },
+    {
       "file": "valid/workspace-retention-recorded.json",
       "schema": "WorkspaceRetention",
       "valid": true
