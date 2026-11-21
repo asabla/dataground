@@ -65,10 +65,7 @@ it("requires a current permission and a separate confirmation", async () => {
   expect(button("Request retention recovery")).toBeUndefined();
   access = "allowed";
   await act(async () => button("Refresh retention status")?.click());
-  await act(async () => {
-    button("Request retention recovery")?.focus();
-    button("Request retention recovery")?.click();
-  });
+  await act(async () => button("Request retention recovery")?.click());
   expect(host.querySelector('[role="dialog"]')).not.toBeNull();
   expect(post).not.toHaveBeenCalled();
   await act(async () => button("Keep unchanged")?.click());
@@ -79,6 +76,30 @@ it("requires a current permission and a separate confirmation", async () => {
   expect(post).toHaveBeenCalledTimes(1);
   expect(host.textContent).toContain("Recovery request accepted");
   expect(host.querySelector('[role="dialog"]')).toBeNull();
+});
+
+it("withholds a new request while the API reports missing stop or execution evidence", async () => {
+  const post = vi.fn();
+  let recoveryBlocker: string | undefined = "owner_stop_unconfirmed";
+  const client = {
+    GET: async () => response({ ...metadata, recoveryBlocker }),
+    POST: post,
+  } as unknown as DataGroundClient;
+  await act(async () =>
+    root.render(
+      <WorkspaceRetentionWorkflow active client={client} reference={reference} revision={4} />,
+    ),
+  );
+  expect(host.textContent).toContain("until the original runtime stop is confirmed");
+  expect(button("Request retention recovery")).toBeUndefined();
+  recoveryBlocker = "execution_unavailable";
+  await act(async () => button("Refresh retention status")?.click());
+  expect(host.textContent).toContain("the original workspace execution is unavailable");
+  expect(button("Request retention recovery")).toBeUndefined();
+  recoveryBlocker = undefined;
+  await act(async () => button("Refresh retention status")?.click());
+  expect(button("Request retention recovery")).toBeDefined();
+  expect(post).not.toHaveBeenCalled();
 });
 
 it("retains an uncertain exact request across navigation and a changed observed version", async () => {

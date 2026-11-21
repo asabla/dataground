@@ -31,18 +31,22 @@ func testWorkspaceRetentionRecovery(t *testing.T, ctx context.Context, pool *pgx
 	}
 	// Retention recovery preserves the original cancellation intent. It cannot
 	// turn a different failed execution into a cancellation or reuse torn-down scratch.
-	for _, statements := range [][2]string{
-		{`UPDATE invocation_execution_operations SET command='invoke' WHERE isolation_domain_id=$1`, `UPDATE invocation_execution_operations SET command='cancel' WHERE isolation_domain_id=$1`},
-		{`UPDATE execution_instances SET observed_state='terminated',terminated_at=clock_timestamp() WHERE isolation_domain_id=$1`, `UPDATE execution_instances SET observed_state='ready',terminated_at=NULL WHERE isolation_domain_id=$1`},
-		{`UPDATE invocation_execution_operations SET error=jsonb_set(error,'{code}','"OPERATION_EFFECT_DENIED"') WHERE isolation_domain_id=$1`, `UPDATE invocation_execution_operations SET error=jsonb_set(error,'{code}','"OPERATION_DEADLINE_EXCEEDED"') WHERE isolation_domain_id=$1`},
+	for _, state := range []struct{ block, restore, reason string }{
+		{`UPDATE invocation_execution_operations SET command='invoke' WHERE isolation_domain_id=$1`, `UPDATE invocation_execution_operations SET command='cancel' WHERE isolation_domain_id=$1`, ""},
+		{`UPDATE execution_instances SET observed_state='terminated',terminated_at=clock_timestamp() WHERE isolation_domain_id=$1`, `UPDATE execution_instances SET observed_state='ready',terminated_at=NULL WHERE isolation_domain_id=$1`, "execution_unavailable"},
+		{`UPDATE invocation_execution_operations SET error=jsonb_set(error,'{code}','"OPERATION_EFFECT_DENIED"') WHERE isolation_domain_id=$1`, `UPDATE invocation_execution_operations SET error=jsonb_set(error,'{code}','"OPERATION_DEADLINE_EXCEEDED"') WHERE isolation_domain_id=$1`, ""},
 	} {
-		if _, err := pool.Exec(ctx, statements[0], input.IsolationDomainID); err != nil {
+		if _, err := pool.Exec(ctx, state.block, input.IsolationDomainID); err != nil {
 			t.Fatal(err)
+		}
+		status, err := repo.ReadWorkspaceRetention(ctx, input.IsolationDomainID, previous.ResourceID)
+		if err != nil || status.RecoveryBlocker != state.reason {
+			t.Fatalf("unexpected retention recovery blocker: %#v, %v", status, err)
 		}
 		if err := repo.RecoverWorkspaceRetention(ctx, input); err == nil {
 			t.Fatal("ineligible workspace recovered")
 		}
-		if _, err := pool.Exec(ctx, statements[1], input.IsolationDomainID); err != nil {
+		if _, err := pool.Exec(ctx, state.restore, input.IsolationDomainID); err != nil {
 			t.Fatal(err)
 		}
 	}

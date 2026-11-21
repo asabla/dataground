@@ -61,9 +61,16 @@ export function WorkspaceRetentionStatus({
           {value.recovery === "review_required" && (
             <p role="alert">
               Cancellation reached its deadline.{" "}
-              {value.recoveryAccess === "allowed"
-                ? "Review workspace retention before cleanup."
-                : "An operator must review workspace retention before cleanup."}
+              {value.recoveryBlocker
+                ? {
+                    execution_unavailable:
+                      "Recovery is blocked because the original workspace execution is unavailable.",
+                    owner_stop_unconfirmed:
+                      "Recovery is blocked until the original runtime stop is confirmed.",
+                  }[value.recoveryBlocker]
+                : value.recoveryAccess === "allowed"
+                  ? "Review workspace retention before cleanup."
+                  : "An operator must review workspace retention before cleanup."}
             </p>
           )}
           {value.recovery === "requested" && (

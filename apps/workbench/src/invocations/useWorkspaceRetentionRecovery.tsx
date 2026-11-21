@@ -32,6 +32,8 @@ export function useWorkspaceRetentionRecovery({
   identity.current = { client, key };
   const locked = useRef(false);
   const feedback = useRef<HTMLDivElement>(null);
+  const reviewTrigger = useRef<HTMLButtonElement | null>(null);
+  const restoreReviewFocus = useRef(false);
   const [state, setState] = useState<{
     client: DataGroundClient;
     key: string;
@@ -43,6 +45,8 @@ export function useWorkspaceRetentionRecovery({
   useEffect(() => {
     generation.current++;
     locked.current = false;
+    reviewTrigger.current = null;
+    restoreReviewFocus.current = false;
     setState({ client, key, reviewing: false, pending: false });
     return () => {
       generation.current++;
@@ -54,7 +58,11 @@ export function useWorkspaceRetentionRecovery({
   const result = current ? state.result : undefined;
   const pending = current && state.pending;
   const uncertain = result && !result.ok && result.uncertain;
-  const eligible = permitted && value?.recovery === "review_required" && version > 0;
+  const eligible =
+    permitted &&
+    value?.recovery === "review_required" &&
+    value.recoveryBlocker === undefined &&
+    version > 0;
   const canStart =
     current &&
     eligible &&
@@ -64,13 +72,25 @@ export function useWorkspaceRetentionRecovery({
   useEffect(() => {
     if (active && result) feedback.current?.focus();
   }, [active, result]);
-  function review() {
+  useEffect(() => {
+    if (state.reviewing || !restoreReviewFocus.current) return;
+    restoreReviewFocus.current = false;
+    const trigger = reviewTrigger.current;
+    if (!active || !current || !trigger) return;
+    const frame = requestAnimationFrame(() => {
+      const owner = trigger.ownerDocument;
+      if (trigger.isConnected && owner.activeElement === owner.body) trigger.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [active, current, state.reviewing]);
+  function review({ target }: { target: Element }) {
     if (!canStart || locked.current) return;
     try {
       const attempt = {
         expectedVersion: version,
         idempotencyKey: `retention-recovery:${globalThis.crypto.randomUUID().replaceAll("-", "")}`,
       };
+      reviewTrigger.current = target instanceof HTMLButtonElement ? target : null;
       setState({ client, key, reviewing: true, pending: false, attempt });
     } catch {
       setState({
@@ -85,6 +105,11 @@ export function useWorkspaceRetentionRecovery({
         },
       });
     }
+  }
+  function dismissReview() {
+    if (pending) return;
+    restoreReviewFocus.current = true;
+    setState({ client, key, reviewing: false, pending: false });
   }
   async function submit(replay: boolean) {
     if (
@@ -140,12 +165,14 @@ export function useWorkspaceRetentionRecovery({
   return (
     <>
       {canStart && <Button onPress={review}>Request retention recovery</Button>}
-      {value?.recovery === "review_required" && value.recoveryAccess === "unavailable" && (
-        <p>
-          Recovery permission could not be checked. Refresh retention status before requesting
-          recovery.
-        </p>
-      )}
+      {value?.recovery === "review_required" &&
+        value.recoveryBlocker === undefined &&
+        value.recoveryAccess === "unavailable" && (
+          <p>
+            Recovery permission could not be checked. Refresh retention status before requesting
+            recovery.
+          </p>
+        )}
       {result && (
         <div role={result.ok ? "status" : "alert"} ref={feedback} tabIndex={-1}>
           {result.ok ? (
@@ -171,9 +198,7 @@ export function useWorkspaceRetentionRecovery({
         title="Recover workspace changes?"
         isOpen={active && current && state.reviewing}
         isDismissDisabled={pending}
-        onClose={() => {
-          if (!pending) setState({ client, key, reviewing: false, pending: false });
-        }}
+        onClose={dismissReview}
       >
         <p>
           Ask the worker to retain final changes from this stopped workspace and finish
@@ -192,11 +217,7 @@ export function useWorkspaceRetentionRecovery({
             request.
           </p>
         )}
-        <Button
-          variant="quiet"
-          isDisabled={pending}
-          onPress={() => setState({ client, key, reviewing: false, pending: false })}
-        >
+        <Button variant="quiet" isDisabled={pending} onPress={dismissReview}>
           Keep unchanged
         </Button>
         <Button

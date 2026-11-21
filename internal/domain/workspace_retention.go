@@ -11,6 +11,7 @@ type WorkspaceRetention struct {
 	State             string     `json:"state"`
 	Recovery          string     `json:"recovery"`
 	RecoveryAccess    string     `json:"recoveryAccess,omitempty"`
+	RecoveryBlocker   string     `json:"recoveryBlocker,omitempty"`
 	ArtifactID        string     `json:"artifactId,omitempty"`
 	RecordedAt        *time.Time `json:"recordedAt,omitempty"`
 }
