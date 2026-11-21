@@ -78,6 +78,8 @@ Use the Go, Node.js, and pnpm versions pinned by `.go-version`, `.nvmrc`, and `p
 
 Behavior changes require tests at the appropriate contract, integration, security, resilience, or accessibility layer. Do not claim a check passed unless it ran; report checks that could not run and why.
 
+Run `pnpm python:check` for the locked `ty`, Ruff, and standalone Python test checks. Use the uv release pinned by CI and keep Python tooling compatible with Python 3.11.
+
 Before finishing substantive work, review the complete change in five passes: factual and contract accuracy; scope and instruction precedence; security and isolation; failure recovery and operability; then maintainability, documentation, and diff regression. Retain only changes that improve the outcome. Do not put pass scores or procedural notes in repository documentation, commits, or pull request descriptions.
 
 ## Maintaining this file

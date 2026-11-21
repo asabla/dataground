@@ -1,10 +1,11 @@
 """Prepare only the reviewed source patch and release-local lock version alignment."""
+
 import hashlib
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tomllib
+from pathlib import Path
 
 root = Path(sys.argv[1]).resolve(strict=True)
 inputs = Path(__file__).resolve().parent
@@ -15,10 +16,14 @@ dockerfile = (inputs / "Dockerfile").read_text()
 for image in [manifest["rustImage"], manifest["baseImage"]]:
     if "FROM " + image not in dockerfile:
         raise RuntimeError("candidate build image differs from source metadata")
-remote = subprocess.check_output(["git", "remote", "get-url", "origin"], cwd=root, text=True).strip()
+remote = subprocess.check_output(
+    ["git", "remote", "get-url", "origin"], cwd=root, text=True
+).strip()
 if remote != manifest["sourceRepository"]:
     raise RuntimeError("unexpected candidate source repository")
-commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+commit = subprocess.check_output(
+    ["git", "rev-parse", "HEAD"], cwd=root, text=True
+).strip()
 if commit != manifest["sourceCommit"]:
     raise RuntimeError("source commit does not match the candidate")
 if subprocess.check_output(["git", "status", "--porcelain"], cwd=root):
@@ -35,14 +40,30 @@ old_lock = tomllib.loads(original)
 parts = original.split("[[package]]")
 changed = 0
 for index, part in enumerate(parts):
-    if 'source = ' not in part and '\nversion = "0.0.0"\n' in part:
-        parts[index] = part.replace('\nversion = "0.0.0"\n', '\nversion = "' + manifest["sourceVersion"] + '"\n', 1)
+    if "source = " not in part and '\nversion = "0.0.0"\n' in part:
+        parts[index] = part.replace(
+            '\nversion = "0.0.0"\n',
+            '\nversion = "' + manifest["sourceVersion"] + '"\n',
+            1,
+        )
         changed += 1
 updated = "[[package]]".join(parts)
 new_lock = tomllib.loads(updated)
-external = lambda lock: [package for package in lock["package"] if "source" in package]
-if changed != 87 or len(external(old_lock)) != 995 or external(old_lock) != external(new_lock):
-    raise RuntimeError("unexpected release lock alignment or external dependency change")
+
+
+def external_packages(lock):
+    return [package for package in lock["package"] if "source" in package]
+
+
+previous_external = external_packages(old_lock)
+if (
+    changed != 87
+    or len(previous_external) != 995
+    or previous_external != external_packages(new_lock)
+):
+    raise RuntimeError(
+        "unexpected release lock alignment or external dependency change"
+    )
 subprocess.run(["git", "apply", "--check", str(patch)], cwd=root, check=True)
 subprocess.run(["git", "apply", str(patch)], cwd=root, check=True)
 lock_path.write_text(updated)

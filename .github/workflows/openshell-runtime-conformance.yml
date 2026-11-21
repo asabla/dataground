@@ -138,7 +138,7 @@ jobs:
             }
           ' "$record" "$GITHUB_SHA" "$GITHUB_RUN_ID"
           digest=$(sha256sum "$record" | cut --delimiter ' ' --fields 1)
-          printf 'Verified runtime evidence SHA-256: `%s`\n' "$digest" >>"$GITHUB_STEP_SUMMARY"
+          printf "Verified runtime evidence SHA-256: \`%s\`\n" "$digest" >>"$GITHUB_STEP_SUMMARY"
 
       - name: Require complete resource removal
         if: always()
