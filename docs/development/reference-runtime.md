@@ -99,6 +99,23 @@ An unregistered scenario fails validation. Publishing a revision with a runtime 
 `reference/v1`, or with a required capability the reference manifest does not support, fails
 closed.
 
+## Seed a Workbench demo
+
+Start the process-local API with the [loopback development identity](README.md#commands), with
+`DATAGROUND_DATABASE_URL` unset. In a second terminal, set the same
+`DATAGROUND_DEVELOPMENT_ISOLATION_DOMAIN_ID` and `DATAGROUND_DEVELOPMENT_BEARER_TOKEN`, then run
+`pnpm demo:seed`. The command uses `http://127.0.0.1:8082` by default. Set
+`DATAGROUND_DEMO_API_ORIGIN` when reaching the API through a different loopback HTTP origin.
+
+Connect the Workbench to that API and open the **Reference demo** workspace. Its **Order support**
+service has a published revision behind the `stable` route, a draft, and four runs. The runs show
+success, retryable failure, cancellation, and a governed reference artifact descriptor. The
+command prints the created resource IDs. Repeating it with the same identity and running API
+replays the original commands without creating additional rows. Restart the process-local API for
+a fresh demo, or start it with a different development identity to seed another isolation domain.
+The integration test seeds both domains on one API and verifies that a controller cannot inspect
+the other domain and that a read-only observer cannot seed data.
+
 ## Compatibility and recovery boundary
 
 Event reads include the trusted `source` class, `platform` or `runtime`. Durable reads derive it from the retained journal source marker; existing event identities, sequences, types and payloads remain unchanged. The process-local reference emitter reports `platform`, while normalized native events, including mediated approval requests, report `runtime`. Older envelopes can omit the field. The Workbench labels runtime lifecycle events as turn progress: runtime completion does not establish successful output validation, artifact finalization, or terminal invocation state. Platform lifecycle events and the independent invocation read retain those product meanings.
