@@ -10,6 +10,15 @@ The pinned OpenShell [gateway contract](https://github.com/NVIDIA/OpenShell/blob
 
 Newer OpenShell source exposes stop and suspend operations. The Docker driver stops the workload container and preserves its writable layer, and rejects suspend. DataGround reads changes through an SSH helper in a ready sandbox. A stop-based design needs a trusted read-only export of the stopped layer and a way to prevent restart through retention and teardown. [Upstream Docker driver](https://github.com/NVIDIA/OpenShell/blob/38c47412dd7e94b8efc44b128940e097590b7582/crates/openshell-driver-docker/src/lib.rs#L2457) · [Upstream lifecycle RPCs](https://github.com/NVIDIA/OpenShell/blob/38c47412dd7e94b8efc44b128940e097590b7582/proto/openshell.proto#L180)
 
+The Linux stopped-workspace conformance fixture uses a disposable Docker container with no mounts or automatic restart. Its controller holds the only delegated Docker lifecycle authority. It records the exact container ID and start time before stop, rejects start through both the original and replacement controller, and reads a bounded archive of the stopped layer without starting the container. The test loses the stop and archive responses, then verifies that a replacement recovers the same canonical changes. It also checks that a restart by the Docker administrator invalidates the original observation. The OpenShell worker still needs an equivalent provider-side fence and a stopped export operation.
+
+Run the fixture with the repository's pinned base image and a Docker daemon that can create disposable Linux containers. The source-transfer CI job runs the same test.
+
+```sh
+DATAGROUND_TEST_STOPPED_WORKSPACE_IMAGE=ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e \
+  go test ./internal/execution/openshell -run '^TestWorkspaceStoppedDockerExport$' -count=1 -v
+```
+
 Capture requires an image-owned parent and workspace owned by the effective user. Directories and regular files must not be group- or world-writable and must have no special permission bits. Regular files must have one hard link. Symbolic links must resolve within the captured tree without cycles or missing targets. Files, directories and contained links are supported; sockets, FIFOs, devices, `.git` paths, cross-device entries, oversized trees and unsafe paths fail closed. File opens reject a final symbolic link and use nonblocking mode, with identity and metadata checks before and after each read. Root-relative access prevents a path from escaping the workspace. These checks supplement the required caller-owned quiescence fence.
 
 The source limits also apply to the result: 4,096 entries, 24 MiB of regular-file content and a 32 MiB canonical tar archive. Capture preserves file bytes, directory presence, symbolic-link text and executable intent. It normalizes permissions to private source modes and omits timestamps, ownership and extended attributes. It does not follow links to read file content. Errors and receipts contain no paths, source bytes or operating-system diagnostics.
