@@ -21,6 +21,7 @@
     "openshell:supervisor:candidate:attestation:check": "node scripts/check-supervisor-candidate.mjs attestation",
     "contracts:generate": "node scripts/generate-contracts.mjs --write",
     "contracts:generate:check": "node scripts/generate-contracts.mjs",
+    "demo:seed": "go run ./cmd/dataground-demo-seed",
     "dev:api": "go run ./cmd/dataground-api",
     "dev:design-system": "pnpm --filter @dataground/ui storybook",
     "dev:workbench": "pnpm --filter @dataground/workbench dev",
