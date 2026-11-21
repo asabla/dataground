@@ -62,17 +62,19 @@ func TestCompletedImageRejectsMalformedOrChangedNativeOutput(t *testing.T) {
 	}
 }
 func TestCompletedImageBoundsTotalTurnContent(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Leave time for race instrumentation to copy and inspect the full-size frames.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	consumed := make(chan struct{})
 	session := newScriptedSession(t, func(server *scriptServer) {
 		server.completeStart("thread", "turn")
 		content, _ := base64.StdEncoding.DecodeString(runtimetest.ImageData)
 		content = append(content, make([]byte, dgruntime.MaximumImageBytes-len(content))...)
+		encoded := base64.StdEncoding.EncodeToString(content)
 		for i, id := range []string{"one", "two", "three", "four", "five"} {
 			p := nativeImageParams()
 			p["item"].(map[string]any)["id"] = id
-			p["item"].(map[string]any)["result"] = base64.StdEncoding.EncodeToString(content)
+			p["item"].(map[string]any)["result"] = encoded
 			server.notify("item/completed", p)
 			if i < 4 {
 				select {
