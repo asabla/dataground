@@ -1,0 +1,999 @@
+diff --git a/crates/openshell-core/build.rs b/crates/openshell-core/build.rs
+index 2779e78fb9b0e828ecd97746b7b05fa38fd2b209..d4e3fa93231ffbe6389150d55883ef0135902add 100644
+--- a/crates/openshell-core/build.rs
++++ b/crates/openshell-core/build.rs
+@@ -50,6 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+     // the build process environment. With a caller-supplied PROTOC, leave both
+     // to prost.
+     let mut proto_config = tonic_prost_build::Config::new();
++    proto_config.bytes([".openshell.v1.ReadStoppedWorkspaceFrame.data"]);
+     // Keep optional grant evidence off sandbox lifecycle futures' stacks.
+     proto_config.boxed(".openshell.v1.SandboxStatus.last_token_grant_failure");
+     let proto_include = if use_vendored_protoc {
+diff --git a/crates/openshell-core/src/compute.rs b/crates/openshell-core/src/compute.rs
+index 3e2a9118cfc2f2c1ae010e6cfd9576523f6f0899..0dde5a759ae7c9fdce064e1df3ca24ed682c2a94 100644
+--- a/crates/openshell-core/src/compute.rs
++++ b/crates/openshell-core/src/compute.rs
+@@ -5,6 +5,24 @@
+
+ use crate::proto::compute::v1::compute_driver_server;
+
++pub const MAX_STOPPED_WORKSPACE_ARCHIVE_BYTES: usize = 32 << 20;
++
++/// Private retained workspace operations for an opted-in in-process driver.
++#[tonic::async_trait]
++pub trait StoppedWorkspaceReader: Send + Sync {
++    /// Reject a lifecycle transition if the driver has recorded a hold.
++    fn require_workspace_unheld(&self, sandbox_id: &str) -> Result<(), tonic::Status>;
++
++    /// Acquire the hold and return a bounded archive for the exact stopped generation.
++    async fn read_stopped_workspace(
++        &self,
++        workspace: &str,
++        sandbox_id: &str,
++        sandbox_name: &str,
++        generation: &str,
++    ) -> Result<Vec<u8>, tonic::Status>;
++}
++
+ /// Optional in-process configuration updater, registered separately by a driver factory.
+ ///
+ /// Existing drivers need only the generated baseline trait, not this extension.
+diff --git a/crates/openshell-driver-docker/src/retained_workspace.rs b/crates/openshell-driver-docker/src/retained_workspace.rs
+index 2f693e2b4c9e48fa58a5a04b9455cd6523419f98..abeaea91e341a81357963d2f5b255360bae51fc3 100644
+--- a/crates/openshell-driver-docker/src/retained_workspace.rs
++++ b/crates/openshell-driver-docker/src/retained_workspace.rs
+@@ -6,12 +6,12 @@
+ use super::*;
+ use bollard::models::{MountPoint, MountPointTypeEnum, RestartPolicyNameEnum};
+ use bollard::query_parameters::ContainerArchiveInfoOptionsBuilder;
++use openshell_core::compute::{MAX_STOPPED_WORKSPACE_ARCHIVE_BYTES, StoppedWorkspaceReader};
+ use serde::Serialize;
+ use std::io::Read as _;
+
+ const RECORD_FILE: &str = "workspace-retention.json";
+ const MAX_RECORD_BYTES: u64 = 4096;
+-const MAX_ARCHIVE_BYTES: usize = 32 << 20;
+ const WORKSPACE: &str = "/sandbox/workspace";
+ const GO_MODE_DIR: u32 = 1 << 31;
+ const GO_MODE_SYMLINK: u32 = 1 << 27;
+@@ -241,6 +241,25 @@ impl DockerComputeDriver {
+     }
+ }
+
++#[tonic::async_trait]
++impl StoppedWorkspaceReader for ComputeDriverService {
++    fn require_workspace_unheld(&self, sandbox_id: &str) -> Result<(), Status> {
++        require_unheld(&self.driver.config, sandbox_id)
++    }
++
++    async fn read_stopped_workspace(
++        &self,
++        workspace: &str,
++        sandbox_id: &str,
++        sandbox_name: &str,
++        generation: &str,
++    ) -> Result<Vec<u8>, Status> {
++        self.driver
++            .retain_stopped_workspace_archive(workspace, sandbox_id, sandbox_name, generation)
++            .await
++    }
++}
++
+ fn driver_owned_mounts(
+     config: &DockerDriverRuntimeConfig,
+     id: &str,
+@@ -285,7 +304,7 @@ async fn read_archive(docker: &Docker, container_id: &str) -> Result<Vec<u8>, St
+     let mut archive = Vec::new();
+     while let Some(chunk) = stream.next().await {
+         let chunk = chunk.map_err(|_| unavailable())?;
+-        if chunk.len() > MAX_ARCHIVE_BYTES - archive.len() {
++        if chunk.len() > MAX_STOPPED_WORKSPACE_ARCHIVE_BYTES - archive.len() {
+             return Err(Status::resource_exhausted(
+                 "stopped Docker workspace archive exceeds the limit",
+             ));
+diff --git a/crates/openshell-gateway/src/lib.rs b/crates/openshell-gateway/src/lib.rs
+index 2e75ec61f691b310e70aaf91c8681e03f4a768a1..646a4a873883e77fdedbd3243fbd489e6f1f922c 100644
+--- a/crates/openshell-gateway/src/lib.rs
++++ b/crates/openshell-gateway/src/lib.rs
+@@ -431,6 +431,7 @@ impl openshell_server::ComputeDriverFactory for DockerFactory {
+         let driver = std::sync::Arc::new(
+             openshell_driver_docker::ComputeDriverService::new_in_process(driver),
+         );
++        context.register_stopped_workspace_reader(driver.clone())?;
+         let updates: Option<openshell_server::SharedComputeDriverConfigurationUpdates> =
+             if config.persist_workspace {
+                 Some(driver.clone())
+diff --git a/crates/openshell-server/src/auth/audit/catalog.rs b/crates/openshell-server/src/auth/audit/catalog.rs
+index d850a3c2a814eaf6c91b0f98984ae93a61a65ad4..a3693fe5dcf96ffd6167c7a45eec687b670b32f0 100644
+--- a/crates/openshell-server/src/auth/audit/catalog.rs
++++ b/crates/openshell-server/src/auth/audit/catalog.rs
+@@ -23,6 +23,7 @@ const CATALOG: &[(&str, ActivityId)] = &[
+     (openshell!("CreateSandbox"), CREATE),
+     (openshell!("DeleteSandbox"), DELETE),
+     (openshell!("StopSandbox"), UPDATE),
++    ("/openshell.v1.WorkspaceRetention/ReadStoppedWorkspace", UPDATE),
+     (openshell!("StartSandbox"), UPDATE),
+     (openshell!("SuspendSandbox"), UPDATE),
+     (openshell!("ResumeSandbox"), UPDATE),
+diff --git a/crates/openshell-server/src/auth/workspace_authz.rs b/crates/openshell-server/src/auth/workspace_authz.rs
+index 035d8aa3542d1c63b614f73d6cd7214e62d789b7..bece0c035b64a6732a3a56d56d27bcb6b2677dfb 100644
+--- a/crates/openshell-server/src/auth/workspace_authz.rs
++++ b/crates/openshell-server/src/auth/workspace_authz.rs
+@@ -137,13 +137,36 @@ pub async fn authorize_workspace(
+     principal: &Principal,
+     workspace: &str,
+     min_role: MinWorkspaceRole,
++) -> Result<AuthorizedWorkspace, Status> {
++    authorize_workspace_access(store, Some(admin_role), principal, workspace, min_role).await
++}
++
++/// Require a workspace role regardless of gateway-wide user RBAC defaults.
++pub(crate) async fn authorize_workspace_membership(
++    store: &Store,
++    principal: &Principal,
++    workspace: &str,
++    min_role: MinWorkspaceRole,
++) -> Result<AuthorizedWorkspace, Status> {
++    if !matches!(principal, Principal::User(_)) {
++        return Err(Status::permission_denied("workspace membership required"));
++    }
++    authorize_workspace_access(store, None, principal, workspace, min_role).await
++}
++
++async fn authorize_workspace_access(
++    store: &Store,
++    admin_role: Option<&str>,
++    principal: &Principal,
++    workspace: &str,
++    min_role: MinWorkspaceRole,
+ ) -> Result<AuthorizedWorkspace, Status> {
+     crate::grpc::workspace::validate_workspace_name(workspace)?;
+     let workspace = workspace.to_string();
+
+     match principal {
+         Principal::User(user) => {
+-            if is_platform_admin(&user.identity.roles, admin_role) {
++            if admin_role.is_some_and(|role| is_platform_admin(&user.identity.roles, role)) {
+                 return Ok(AuthorizedWorkspace {
+                     workspace,
+                     grant: AuthGrant::PlatformAdmin,
+diff --git a/crates/openshell-server/src/compute/image_update.rs b/crates/openshell-server/src/compute/image_update.rs
+index 4a19ee2a53f6fec0c78155b70301cc783d708f70..99a60a674f8fbb321eaf7581896ab4ec394f7690 100644
+--- a/crates/openshell-server/src/compute/image_update.rs
++++ b/crates/openshell-server/src/compute/image_update.rs
+@@ -54,6 +54,7 @@ impl ComputeRuntime {
+     ) -> Result<Sandbox, Status> {
+         let expected_resource_version = update.expected_resource_version;
+         let lifecycle_guard = self.lifecycle_gates.lock_for(sandbox_id).await;
++        self.require_workspace_unheld(sandbox_id)?;
+         let mut sandbox_guard = self.lock_sandbox_for_lifecycle(&lifecycle_guard).await;
+         let current = self
+             .store
+diff --git a/crates/openshell-server/src/compute/mod.rs b/crates/openshell-server/src/compute/mod.rs
+index 32641d0937a51291b2bea77b246776cac3af3bf5..76b336c7bbc3de2da7eb497ce6bd9f3a4f1aef83 100644
+--- a/crates/openshell-server/src/compute/mod.rs
++++ b/crates/openshell-server/src/compute/mod.rs
+@@ -932,6 +932,7 @@ pub struct ComputeRuntime {
+     driver: TracedDriver,
+     image_update_driver: Option<SharedComputeDriverConfigurationUpdates>,
+     app_endpoint_resolver: Option<SharedComputeDriverAppEndpoints>,
++    stopped_workspace_reader: Option<Arc<dyn openshell_core::compute::StoppedWorkspaceReader>>,
+     driver_info: ComputeDriverInfoSnapshot,
+     telemetry_compute_driver: TelemetryComputeDriver,
+     driver_process: Option<Arc<ManagedDriverProcess>>,
+@@ -1053,6 +1054,7 @@ impl ComputeRuntime {
+             driver: TracedDriver::new(driver, driver_name),
+             image_update_driver: None,
+             app_endpoint_resolver: None,
++            stopped_workspace_reader: None,
+             admission: openshell_core::resource_admission::DriverAdmissionConfig::default(),
+             admission_acknowledgement: capabilities.resource_admission_policy,
+             driver_info,
+@@ -1225,6 +1227,55 @@ impl ComputeRuntime {
+         })
+     }
+
++    pub(crate) fn with_stopped_workspace_reader(
++        mut self,
++        reader: Option<Arc<dyn openshell_core::compute::StoppedWorkspaceReader>>,
++    ) -> Self {
++        self.stopped_workspace_reader = reader;
++        self
++    }
++
++    fn require_workspace_unheld(&self, id: &str) -> Result<(), Status> {
++        if let Some(reader) = &self.stopped_workspace_reader {
++            reader.require_workspace_unheld(id)?;
++        }
++        Ok(())
++    }
++
++    pub(crate) async fn read_stopped_workspace(
++        &self,
++        workspace: &str,
++        sandbox_id: &str,
++        generation: &openshell_core::sandbox_generation::SandboxGenerationId,
++        authorize: impl std::future::Future<Output = Result<(), Status>>,
++    ) -> Result<Vec<u8>, Status> {
++        let _lifecycle = self.lifecycle_gates.lock_for(sandbox_id).await;
++        authorize.await?;
++        let sandbox = self
++            .store
++            .get_message::<Sandbox>(sandbox_id)
++            .await
++            .map_err(|error| crate::grpc::persistence_error_to_status(error, "sandbox lookup"))?
++            .filter(|sandbox| sandbox.object_workspace() == workspace)
++            .ok_or_else(|| Status::not_found("sandbox not found"))?;
++        if sandbox.phase() != SandboxPhase::Stopped as i32
++            || sandbox_runtime_generation(&sandbox).as_ref() != Ok(generation)
++        {
++            return Err(Status::failed_precondition(
++                "exact stopped sandbox generation is required",
++            ));
++        }
++        self.validate_isolation_backend_binding(&sandbox)?;
++        provisioning_operation::ensure_operation_settled(&sandbox)?;
++        self.ensure_no_pending_image_update(&sandbox).await?;
++        let reader = self.stopped_workspace_reader.as_ref().ok_or_else(|| {
++            Status::unimplemented("compute driver does not support stopped workspace retention")
++        })?;
++        reader
++            .read_stopped_workspace(workspace, sandbox_id, sandbox.object_name(), generation.as_str())
++            .await
++    }
++
+     pub(crate) fn with_app_endpoint_resolver(
+         mut self,
+         resolver: Option<SharedComputeDriverAppEndpoints>,
+@@ -2437,6 +2488,7 @@ impl ComputeRuntime {
+
+         let mut attempts = 0;
+         let (previous, starting, launch_authentication) = loop {
++            self.require_workspace_unheld(current.object_id())?;
+             provisioning_operation::ensure_operation_settled(&current)?;
+             self.ensure_no_pending_image_update(&current).await?;
+             let phase = SandboxPhase::try_from(current.phase()).unwrap_or(SandboxPhase::Unknown);
+@@ -3492,6 +3544,7 @@ impl ComputeRuntime {
+             ));
+         }
+
++        self.require_workspace_unheld(current.object_id())?;
+         // `Started` carries both sides of the CAS transition: the durable
+         // `Deleting` row used to fence recovery, and the prior row used only
+         // for exact-version rollback after an ambiguous driver failure.
+@@ -8793,6 +8846,7 @@ pub fn new_test_runtime_with_driver(
+         driver: TracedDriver::new(driver, "test".to_string()),
+         image_update_driver: None,
+         app_endpoint_resolver: None,
++        stopped_workspace_reader: None,
+         admission: openshell_core::resource_admission::DriverAdmissionConfig {
+             allow_driver_config: true,
+             ..Default::default()
+@@ -10092,6 +10146,7 @@ mod tests {
+             driver: TracedDriver::new(driver, "test-driver".to_string()),
+             image_update_driver: None,
+             app_endpoint_resolver: None,
++            stopped_workspace_reader: None,
+             admission: openshell_core::resource_admission::DriverAdmissionConfig {
+                 allow_driver_config: true,
+                 ..Default::default()
+diff --git a/crates/openshell-server/src/grpc/mod.rs b/crates/openshell-server/src/grpc/mod.rs
+index ba6324f3a16f161af1ce882bfeac8622572b4936..8fbe60fbddcfbc1cba02b606ff76849dddbc18b5 100644
+--- a/crates/openshell-server/src/grpc/mod.rs
++++ b/crates/openshell-server/src/grpc/mod.rs
+@@ -19,6 +19,7 @@ pub mod service_advertisement;
+ pub mod service_discovery;
+ mod validation;
+ pub mod workspace;
++pub(crate) mod workspace_retention;
+
+ use openshell_core::extension_protocol::{ExtensionFamily, NegotiatedExtension};
+ use openshell_core::proto::{
+diff --git a/crates/openshell-server/src/grpc/workspace_retention.rs b/crates/openshell-server/src/grpc/workspace_retention.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..8575656a010c8b6a0df819e8fac1fdeb286d9c1e
+--- /dev/null
++++ b/crates/openshell-server/src/grpc/workspace_retention.rs
+@@ -0,0 +1,172 @@
++// SPDX-FileCopyrightText: Copyright (c) 2026 DataGround contributors
++// SPDX-License-Identifier: Apache-2.0
++
++//! Private, authenticated stopped workspace delivery.
++
++#![allow(clippy::result_large_err)]
++
++use std::pin::Pin;
++use std::sync::Arc;
++use std::time::Duration;
++
++use bytes::Bytes;
++use futures::{Stream, stream};
++use openshell_core::compute::MAX_STOPPED_WORKSPACE_ARCHIVE_BYTES;
++use openshell_core::proto::{
++    ReadStoppedWorkspaceFrame, ReadStoppedWorkspaceRequest, StoppedWorkspaceArchiveHeader,
++    read_stopped_workspace_frame::Payload, workspace_retention_server::WorkspaceRetention,
++};
++use openshell_core::sandbox_generation::SandboxGenerationId;
++use openshell_ocsf::ResourceDetails;
++use sha2::{Digest, Sha256};
++use tokio::sync::{Semaphore, SemaphorePermit};
++use tokio::time::Instant;
++use tonic::{Request, Response, Status};
++
++use crate::ServerState;
++use crate::auth::audit;
++use crate::auth::identity::IdentityProvider;
++use crate::auth::principal::Principal;
++use crate::auth::workspace_authz::{
++    MinWorkspaceRole, authorize_workspace_membership, selected_workspace_name,
++};
++
++pub(crate) const PATH_PREFIX: &str = "/openshell.v1.WorkspaceRetention/";
++const CHUNK_BYTES: usize = 64 << 10;
++const READ_TIMEOUT: Duration = Duration::from_secs(60);
++static READS: Semaphore = Semaphore::const_new(4);
++
++#[derive(Clone)]
++pub(crate) struct WorkspaceRetentionService {
++    state: Arc<ServerState>,
++}
++
++impl WorkspaceRetentionService {
++    pub(crate) fn new(state: Arc<ServerState>) -> Self {
++        Self { state }
++    }
++}
++
++#[tonic::async_trait]
++impl WorkspaceRetention for WorkspaceRetentionService {
++    type ReadStoppedWorkspaceStream =
++        Pin<Box<dyn Stream<Item = Result<ReadStoppedWorkspaceFrame, Status>> + Send>>;
++
++    async fn read_stopped_workspace(
++        &self,
++        request: Request<ReadStoppedWorkspaceRequest>,
++    ) -> Result<Response<Self::ReadStoppedWorkspaceStream>, Status> {
++        let principal = super::extract_principal(&request)?;
++        // Local development can assign a synthetic User upstream. A private
++        // archive always requires a verified identity and explicit membership.
++        if !matches!(&principal, Principal::User(user)
++            if user.identity.provider != IdentityProvider::LocalDev)
++        {
++            return Err(Status::permission_denied(
++                "authenticated workspace administrator required",
++            ));
++        }
++        let req = request.into_inner();
++        let workspace = selected_workspace_name(req.workspace_scope.as_ref())?;
++        if req.sandbox_id.is_empty()
++            || req.sandbox_id.len() > 128
++            || !req
++                .sandbox_id
++                .bytes()
++                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
++        {
++            return Err(Status::invalid_argument("exact sandbox ID is required"));
++        }
++        let generation = SandboxGenerationId::parse(req.generation)
++            .map_err(|_| Status::invalid_argument("exact runtime generation is required"))?;
++        let deadline = Instant::now() + READ_TIMEOUT;
++        let (archive, permit) = tokio::time::timeout_at(deadline, async {
++            authorize(&self.state, &principal, workspace).await?;
++            audit::record_target(ResourceDetails::named("workspace", workspace));
++            audit::record_target(ResourceDetails::new("sandbox", &req.sandbox_id));
++            let permit = READS
++                .try_acquire()
++                .map_err(|_| Status::resource_exhausted("stopped workspace reads are busy"))?;
++            let archive = self
++                .state
++                .compute
++                .read_stopped_workspace(
++                    workspace,
++                    &req.sandbox_id,
++                    &generation,
++                    authorize(&self.state, &principal, workspace),
++                )
++                .await?;
++            // Membership may have been revoked while Docker was reading.
++            authorize(&self.state, &principal, workspace).await?;
++            Ok::<_, Status>((archive, permit))
++        })
++        .await
++        .map_err(|_| timed_out())??;
++        if !(1024..=MAX_STOPPED_WORKSPACE_ARCHIVE_BYTES).contains(&archive.len())
++            || archive.len() % 512 != 0
++        {
++            return Err(Status::failed_precondition(
++                "driver returned an invalid stopped workspace archive",
++            ));
++        }
++        Ok(Response::new(archive_stream(archive, permit, deadline)))
++    }
++}
++
++async fn authorize(
++    state: &ServerState,
++    principal: &Principal,
++    workspace: &str,
++) -> Result<(), Status> {
++    authorize_workspace_membership(&state.store, principal, workspace, MinWorkspaceRole::Admin)
++        .await
++        .map(|_| ())
++        .map_err(|error| {
++            if error.code() == tonic::Code::PermissionDenied {
++                Status::not_found("sandbox not found")
++            } else {
++                error
++            }
++        })
++}
++
++fn timed_out() -> Status {
++    Status::deadline_exceeded("stopped workspace read timed out")
++}
++
++fn archive_stream(
++    archive: Vec<u8>,
++    permit: SemaphorePermit<'static>,
++    deadline: Instant,
++) -> <WorkspaceRetentionService as WorkspaceRetention>::ReadStoppedWorkspaceStream {
++    let header = StoppedWorkspaceArchiveHeader {
++        size_bytes: archive.len() as u64,
++        digest: format!("sha256:{:x}", Sha256::digest(&archive)),
++    };
++    let state = (Bytes::from(archive), Some(header), permit);
++    Box::pin(stream::try_unfold(
++        state,
++        move |(mut bytes, header, permit)| async move {
++            if Instant::now() >= deadline {
++                return Err(timed_out());
++            }
++            let payload = if let Some(header) = header {
++                Payload::Header(header)
++            } else if bytes.is_empty() {
++                return Ok(None);
++            } else {
++                Payload::Data(bytes.split_to(CHUNK_BYTES.min(bytes.len())))
++            };
++            Ok(Some((
++                ReadStoppedWorkspaceFrame {
++                    payload: Some(payload),
++                },
++                (bytes, None, permit),
++            )))
++        },
++    ))
++}
++
++#[cfg(test)]
++mod tests;
+diff --git a/crates/openshell-server/src/grpc/workspace_retention/tests.rs b/crates/openshell-server/src/grpc/workspace_retention/tests.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..ee0d6b42b8fafcfe4842824a261115ec011dbb97
+--- /dev/null
++++ b/crates/openshell-server/src/grpc/workspace_retention/tests.rs
+@@ -0,0 +1,290 @@
++// SPDX-FileCopyrightText: Copyright (c) 2026 DataGround contributors
++// SPDX-License-Identifier: Apache-2.0
++
++use super::*;
++use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
++
++use openshell_core::compute::StoppedWorkspaceReader;
++use openshell_core::proto::{
++    Sandbox, SandboxPhase, WorkspaceMember, WorkspaceRole, datamodel::v1::ObjectMeta,
++    workspace_retention_client::WorkspaceRetentionClient, workspace_selector,
++};
++use tokio::net::TcpListener;
++use tokio::sync::Notify;
++use tonic::Code;
++use tonic::transport::Channel;
++
++use crate::auth::audit::ConnectionSource;
++use crate::auth::identity::Identity;
++use crate::auth::sandbox_session::RUNTIME_GENERATION_ANNOTATION;
++use crate::grpc::test_support::test_server_state;
++use crate::multiplex::MultiplexService;
++use crate::persistence::ObjectType;
++
++const ID: &str = "sandbox-retained";
++const GENERATION: &str = "generation-1";
++const SUBJECT: &str = "retention-admin";
++
++#[derive(Default)]
++struct Reader {
++    calls: AtomicUsize,
++    held: AtomicBool,
++    fail_next: AtomicBool,
++    pause: AtomicBool,
++    entered: Notify,
++    proceed: Notify,
++}
++
++#[tonic::async_trait]
++impl StoppedWorkspaceReader for Reader {
++    fn require_workspace_unheld(&self, _sandbox_id: &str) -> Result<(), Status> {
++        if self.held.load(Ordering::SeqCst) {
++            return Err(Status::failed_precondition("workspace held"));
++        }
++        Ok(())
++    }
++
++    async fn read_stopped_workspace(
++        &self,
++        workspace: &str,
++        sandbox_id: &str,
++        sandbox_name: &str,
++        generation: &str,
++    ) -> Result<Vec<u8>, Status> {
++        assert_eq!(
++            (workspace, sandbox_id, sandbox_name, generation),
++            ("default", ID, "retained", GENERATION)
++        );
++        self.calls.fetch_add(1, Ordering::SeqCst);
++        self.held.store(true, Ordering::SeqCst);
++        if self.fail_next.swap(false, Ordering::SeqCst) {
++            return Err(Status::unavailable("archive response lost"));
++        }
++        if self.pause.load(Ordering::SeqCst) {
++            self.entered.notify_one();
++            self.proceed.notified().await;
++        }
++        Ok(archive_bytes())
++    }
++}
++
++fn archive_bytes() -> Vec<u8> {
++    vec![0x5a; CHUNK_BYTES + 512]
++}
++
++async fn fixture(reader: Arc<Reader>) -> Arc<ServerState> {
++    let mut state = test_server_state().await;
++    let mutable = Arc::get_mut(&mut state).unwrap();
++    mutable.config.mtls_auth.enabled = true;
++    mutable.compute = mutable
++        .compute
++        .clone()
++        .with_stopped_workspace_reader(Some(reader));
++    for workspace in ["default", "foreign"] {
++        state
++            .store
++            .put_message(&WorkspaceMember {
++                metadata: Some(ObjectMeta {
++                    id: uuid::Uuid::new_v4().to_string(),
++                    name: SUBJECT.into(),
++                    workspace: workspace.into(),
++                    ..Default::default()
++                }),
++                principal_subject: SUBJECT.into(),
++                role: WorkspaceRole::Admin.into(),
++            })
++            .await
++            .unwrap();
++    }
++    let mut sandbox = Sandbox {
++        metadata: Some(ObjectMeta {
++            id: ID.into(),
++            name: "retained".into(),
++            workspace: "default".into(),
++            annotations: [(RUNTIME_GENERATION_ANNOTATION.into(), GENERATION.into())].into(),
++            ..Default::default()
++        }),
++        ..Default::default()
++    };
++    sandbox.set_phase(SandboxPhase::Stopped.into());
++    state.store.put_message(&sandbox).await.unwrap();
++    state
++}
++
++fn request(workspace: &str, generation: &str) -> ReadStoppedWorkspaceRequest {
++    ReadStoppedWorkspaceRequest {
++        workspace_scope: Some(workspace_selector(workspace)),
++        sandbox_id: ID.into(),
++        generation: generation.into(),
++    }
++}
++
++// Feed the multiplexer the identity produced by a verified TLS handshake. The
++// fixture exercises real gRPC transport, authorization, and persistence.
++async fn client(
++    state: &Arc<ServerState>,
++    subject: Option<&str>,
++) -> WorkspaceRetentionClient<Channel> {
++    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
++    let address = listener.local_addr().unwrap();
++    let multiplexer = MultiplexService::new(state.clone());
++    let identity = subject.map(|subject| Identity {
++        subject: subject.into(),
++        display_name: None,
++        roles: Vec::new(),
++        scopes: Vec::new(),
++        provider: IdentityProvider::Mtls,
++    });
++    tokio::spawn(async move {
++        let (socket, remote) = listener.accept().await.unwrap();
++        multiplexer
++            .serve_with_peer_identity(socket, identity, ConnectionSource::Peer(remote))
++            .await
++            .unwrap();
++    });
++    WorkspaceRetentionClient::connect(format!("http://{address}"))
++        .await
++        .unwrap()
++}
++
++#[tokio::test]
++async fn retains_exact_generation_across_gateway_failures_and_retries() {
++    let reader = Arc::new(Reader::default());
++    let state = fixture(reader.clone()).await;
++    let mut local_dev = Request::new(request("default", GENERATION));
++    local_dev
++        .extensions_mut()
++        .insert(Principal::User(crate::auth::principal::UserPrincipal {
++            identity: Identity {
++                subject: SUBJECT.into(),
++                display_name: None,
++                roles: Vec::new(),
++                scopes: Vec::new(),
++                provider: IdentityProvider::LocalDev,
++            },
++        }));
++    assert_eq!(
++        WorkspaceRetentionService::new(state.clone())
++            .read_stopped_workspace(local_dev)
++            .await
++            .err()
++            .expect("local-dev identity rejected")
++            .code(),
++        Code::PermissionDenied
++    );
++    let mut anonymous = client(&state, None).await;
++    assert_eq!(
++        anonymous
++            .read_stopped_workspace(request("default", GENERATION))
++            .await
++            .unwrap_err()
++            .code(),
++        Code::Unauthenticated
++    );
++    let mut nonmember = client(&state, Some("nonmember")).await;
++    assert_eq!(
++        nonmember
++            .read_stopped_workspace(request("default", GENERATION))
++            .await
++            .unwrap_err()
++            .code(),
++        Code::NotFound
++    );
++    let mut authorized = client(&state, Some(SUBJECT)).await;
++    assert_eq!(
++        authorized
++            .read_stopped_workspace(request("foreign", GENERATION))
++            .await
++            .unwrap_err()
++            .code(),
++        Code::NotFound
++    );
++    assert_eq!(
++        authorized
++            .read_stopped_workspace(request("default", "generation-2"))
++            .await
++            .unwrap_err()
++            .code(),
++        Code::FailedPrecondition
++    );
++    assert_eq!(reader.calls.load(Ordering::SeqCst), 0);
++
++    reader.fail_next.store(true, Ordering::SeqCst);
++    assert_eq!(
++        authorized
++            .read_stopped_workspace(request("default", GENERATION))
++            .await
++            .unwrap_err()
++            .code(),
++        Code::Unavailable
++    );
++    let restart = state
++        .compute
++        .start_sandbox("default", "retained")
++        .await
++        .unwrap_err();
++    assert_eq!(restart.message(), "workspace held");
++    let delete = state
++        .compute
++        .delete_sandbox_by_id(ID, "retained")
++        .await
++        .unwrap_err();
++    assert_eq!(delete.message(), "workspace held");
++
++    let mut interrupted = authorized
++        .read_stopped_workspace(request("default", GENERATION))
++        .await
++        .unwrap()
++        .into_inner();
++    let first = interrupted.message().await.unwrap().unwrap();
++    drop(interrupted);
++    let mut retry = authorized
++        .read_stopped_workspace(request("default", GENERATION))
++        .await
++        .unwrap()
++        .into_inner();
++    assert_eq!(retry.message().await.unwrap(), Some(first.clone()));
++    let Some(Payload::Header(header)) = first.payload else {
++        panic!("expected archive header")
++    };
++    let mut received = Vec::new();
++    while let Some(frame) = retry.message().await.unwrap() {
++        let Some(Payload::Data(chunk)) = frame.payload else {
++            panic!("expected archive data")
++        };
++        assert!(!chunk.is_empty() && chunk.len() <= CHUNK_BYTES);
++        received.extend_from_slice(&chunk);
++    }
++    assert_eq!(received, archive_bytes());
++    assert_eq!(header.size_bytes, received.len() as u64);
++    assert_eq!(
++        header.digest,
++        format!("sha256:{:x}", Sha256::digest(&received))
++    );
++    assert_eq!(reader.calls.load(Ordering::SeqCst), 3);
++    assert!(reader.held.load(Ordering::SeqCst));
++}
++
++#[tokio::test]
++async fn revocation_during_read_withholds_archive_and_keeps_hold() {
++    let reader = Arc::new(Reader::default());
++    reader.pause.store(true, Ordering::SeqCst);
++    let state = fixture(reader.clone()).await;
++    let mut authorized = client(&state, Some(SUBJECT)).await;
++    let attempt = tokio::spawn(async move {
++        authorized
++            .read_stopped_workspace(request("default", GENERATION))
++            .await
++    });
++    tokio::time::timeout(Duration::from_secs(5), reader.entered.notified())
++        .await
++        .unwrap();
++    state
++        .store
++        .delete_by_name(WorkspaceMember::object_type(), "default", SUBJECT)
++        .await
++        .unwrap();
++    reader.proceed.notify_one();
++    assert_eq!(attempt.await.unwrap().unwrap_err().code(), Code::NotFound);
++    assert!(reader.held.load(Ordering::SeqCst));
++}
+diff --git a/crates/openshell-server/src/lib.rs b/crates/openshell-server/src/lib.rs
+index 799c46e3970662671cc688e03a19535f4a046d61..49c35dd586248c4b701c02527f8a533c978e39d2 100644
+--- a/crates/openshell-server/src/lib.rs
++++ b/crates/openshell-server/src/lib.rs
+@@ -2160,6 +2160,7 @@ pub struct ComputeDriverBuildContext<'a> {
+     shutdown_rx: watch::Receiver<bool>,
+     shared_supervision: &'a OnceLock<openshell_supervisor_control::SharedSupervision>,
+     app_endpoint_resolver: &'a OnceLock<SharedComputeDriverAppEndpoints>,
++    stopped_workspace_reader: &'a OnceLock<Arc<dyn openshell_core::compute::StoppedWorkspaceReader>>,
+     /// Recovery deadline from `[openshell.gateway.supervisor_pool]`, when
+     /// configured.
+     supervisor_recovery_timeout_secs: Option<u32>,
+@@ -2169,6 +2170,16 @@ pub struct ComputeDriverBuildContext<'a> {
+ }
+
+ impl ComputeDriverBuildContext<'_> {
++    /// Register the stopped workspace reader for an in-process driver.
++    pub fn register_stopped_workspace_reader(
++        &self,
++        reader: Arc<dyn openshell_core::compute::StoppedWorkspaceReader>,
++    ) -> Result<()> {
++        self.stopped_workspace_reader
++            .set(reader)
++            .map_err(|_| Error::config("stopped workspace reader already registered"))
++    }
++
+     /// Register an optional in-process application endpoint resolver during build.
+     /// Existing factories need not provide this extension.
+     pub fn register_app_endpoints(&self, resolver: SharedComputeDriverAppEndpoints) -> Result<()> {
+@@ -2338,6 +2349,7 @@ async fn build_compute_runtime(
+         ConfiguredComputeDriver::Registered(registration) => {
+             let shared_supervision = OnceLock::new();
+             let app_endpoint_resolver = OnceLock::new();
++            let stopped_workspace_reader = OnceLock::new();
+             let build_context = ComputeDriverBuildContext {
+                 config: ComputeDriverConfigContext {
+                     driver_name: &registration.name,
+@@ -2349,6 +2361,7 @@ async fn build_compute_runtime(
+                 shutdown_rx,
+                 shared_supervision: &shared_supervision,
+                 app_endpoint_resolver: &app_endpoint_resolver,
++                stopped_workspace_reader: &stopped_workspace_reader,
+                 supervisor_recovery_timeout_secs: supervisor_pool
+                     .and_then(|pool| pool.recovery_timeout_secs),
+                 supervisor_pool_limits,
+@@ -2380,6 +2393,7 @@ async fn build_compute_runtime(
+                 })?
+                 .with_supervisor_host(supervisor_host)
+                 .with_image_update_driver(image_updates)
++                .with_stopped_workspace_reader(stopped_workspace_reader.into_inner())
+                 .with_app_endpoint_resolver(app_endpoint_resolver.into_inner()),
+                 ComputeDriverInstance::ManagedRemote(_) if supervisor_host.is_some() => {
+                     return Err(Error::config(
+@@ -3044,6 +3058,7 @@ mod tests {
+                 shutdown_rx: shutdown_rx.clone(),
+                 shared_supervision: &shared,
+                 app_endpoint_resolver: &std::sync::OnceLock::new(),
++                stopped_workspace_reader: &std::sync::OnceLock::new(),
+                 supervisor_recovery_timeout_secs: configured,
+                 supervisor_pool_limits: limits,
+             };
+diff --git a/crates/openshell-server/src/multiplex.rs b/crates/openshell-server/src/multiplex.rs
+index c07fc2b177353a8df35dd72dc155089df513dfd9..a689476b9c1365d389614f5c805865c049fdd19f 100644
+--- a/crates/openshell-server/src/multiplex.rs
++++ b/crates/openshell-server/src/multiplex.rs
+@@ -299,7 +299,8 @@ impl MultiplexService {
+         );
+         // The private host stream carries launch secrets, so it bypasses the
+         // configurable interceptors.
+-        let openshell = SupervisorHostRoute::new(
++        let openshell = PrivateGrpcRoute::new(
++            crate::grpc::supervisor_host::SUPERVISOR_HOST_PATH_PREFIX,
+             SupervisorHostServer::new(crate::grpc::supervisor_host::SupervisorHostService::new(
+                 self.state.clone(),
+             ))
+@@ -313,6 +314,13 @@ impl MultiplexService {
+             ),
+             openshell,
+         );
++        let openshell = PrivateGrpcRoute::new(
++            crate::grpc::workspace_retention::PATH_PREFIX,
++            openshell_core::proto::workspace_retention_server::WorkspaceRetentionServer::new(
++                crate::grpc::workspace_retention::WorkspaceRetentionService::new(self.state.clone()),
++            ).max_decoding_message_size(4096),
++            openshell,
++        );
+         let reflection = self.state.reflection_service.clone();
+         let sandbox_updates = SandboxUpdatesServer::new(OpenShellService::new(self.state.clone()))
+             .max_decoding_message_size(MAX_GRPC_DECODE_SIZE);
+@@ -407,25 +415,25 @@ impl MultiplexService {
+     }
+ }
+
+-/// Routes the private supervisor host service past the gateway interceptors
+-/// and every other gRPC path to the `OpenShell` service.
++/// Routes a private service within the common gateway authentication router.
+ #[derive(Clone)]
+-struct SupervisorHostRoute<N> {
+-    host: SupervisorHostServer<crate::grpc::supervisor_host::SupervisorHostService>,
++struct PrivateGrpcRoute<P, N> {
++    path_prefix: &'static str,
++    private: P,
+     gateway: N,
+ }
+
+-impl<N> SupervisorHostRoute<N> {
+-    fn new(
+-        host: SupervisorHostServer<crate::grpc::supervisor_host::SupervisorHostService>,
+-        gateway: N,
+-    ) -> Self {
+-        Self { host, gateway }
++impl<P, N> PrivateGrpcRoute<P, N> {
++    fn new(path_prefix: &'static str, private: P, gateway: N) -> Self {
++        Self { path_prefix, private, gateway }
+     }
+ }
+
+-impl<N> tower::Service<Request<BoxBody>> for SupervisorHostRoute<N>
++impl<P, N> tower::Service<Request<BoxBody>> for PrivateGrpcRoute<P, N>
+ where
++    P: tower::Service<Request<BoxBody>, Response = Response<tonic::body::Body>, Error = Infallible>
++        + Clone + Send + 'static,
++    P::Future: Send + 'static,
+     N: tower::Service<Request<BoxBody>, Response = Response<tonic::body::Body>, Error = Infallible>
+         + Clone
+         + Send
+@@ -441,16 +449,9 @@ where
+     }
+
+     fn call(&mut self, req: Request<BoxBody>) -> Self::Future {
+-        if req
+-            .uri()
+-            .path()
+-            .starts_with(crate::grpc::supervisor_host::SUPERVISOR_HOST_PATH_PREFIX)
+-        {
+-            let mut host = self.host.clone();
+-            Box::pin(async move {
+-                <SupervisorHostServer<_> as tower::Service<Request<BoxBody>>>::call(&mut host, req)
+-                    .await
+-            })
++        if req.uri().path().starts_with(self.path_prefix) {
++            let mut private = self.private.clone();
++            Box::pin(async move { private.ready().await?.call(req).await })
+         } else {
+             let mut gateway = self.gateway.clone();
+             Box::pin(async move { gateway.ready().await?.call(req).await })
+diff --git a/crates/openshell-server/src/storage_proto.rs b/crates/openshell-server/src/storage_proto.rs
+index 74e6f3acc4fabf54350fbd148f2e0788b5bddb25..070801da6c1b1ece9c1f1f885ac7a415c8ae67a3 100644
+--- a/crates/openshell-server/src/storage_proto.rs
++++ b/crates/openshell-server/src/storage_proto.rs
+@@ -630,6 +630,7 @@ mod tests {
+         let mut isolation_methods = BTreeSet::new();
+         let mut sandbox_protocol_methods = BTreeSet::new();
+         let mut supervisor_host_methods = BTreeSet::new();
++        let mut workspace_retention_methods = BTreeSet::new();
+         for file in &public.file {
+             let package = file.package.as_deref().unwrap_or_default();
+             for service in &file.service {
+@@ -661,6 +662,11 @@ mod tests {
+                         method.name.as_deref().expect("supervisor host method name")
+                     }));
+                 }
++                if package == "openshell.v1" && service_name == "WorkspaceRetention" {
++                    workspace_retention_methods.extend(service.method.iter().map(|method| {
++                        method.name.as_deref().expect("workspace retention method name")
++                    }));
++                }
+                 if !matches!(
+                     (package, service_name),
+                     (
+@@ -726,9 +732,11 @@ mod tests {
+                 + PEER_CONFIG_RPC_SIGNATURES.len()
+                 + isolation_methods.len()
+                 + sandbox_protocol_methods.len()
+-                + supervisor_host_methods.len(),
++                + supervisor_host_methods.len()
++                + workspace_retention_methods.len(),
+             "classify every compiled RPC"
+         );
++        assert_eq!(workspace_retention_methods, BTreeSet::from(["ReadStoppedWorkspace"]));
+         assert_eq!(
+             methods.len(),
+             91 + PROVIDER_READINESS_RPC_SIGNATURES.len()
+diff --git a/proto/workspace_retention.proto b/proto/workspace_retention.proto
+new file mode 100644
+index 0000000000000000000000000000000000000000..2b37b3bbe93517dd1eedf261ff2b513fd1fe3e78
+--- /dev/null
++++ b/proto/workspace_retention.proto
+@@ -0,0 +1,44 @@
++// SPDX-FileCopyrightText: Copyright (c) 2026 DataGround contributors
++// SPDX-License-Identifier: Apache-2.0
++
++syntax = "proto3";
++
++package openshell.v1;
++
++import "datamodel.proto";
++import "options.proto";
++
++// Private gateway contract for the stopped workspace candidate.
++service WorkspaceRetention {
++  // Acquire or recover the durable hold, then stream a stopped Docker archive.
++  rpc ReadStoppedWorkspace(ReadStoppedWorkspaceRequest)
++      returns (stream ReadStoppedWorkspaceFrame) {
++    option (openshell.options.v1.authorization) = {
++      auth_mode: "bearer"
++      scope: "sandbox:write"
++      workspace_role: "admin"
++    };
++  }
++}
++
++message ReadStoppedWorkspaceRequest {
++  openshell.datamodel.v1.WorkspaceSelector workspace_scope = 1;
++  // Stable ID of the original sandbox from the trusted lifecycle record.
++  string sandbox_id = 2;
++  // Exact runtime generation from the same record.
++  string generation = 3;
++}
++
++message ReadStoppedWorkspaceFrame {
++  // A successful stream has one header followed by all contiguous data bytes.
++  oneof payload {
++    StoppedWorkspaceArchiveHeader header = 1;
++    bytes data = 2;
++  }
++}
++
++message StoppedWorkspaceArchiveHeader {
++  uint64 size_bytes = 1;
++  // sha256: followed by 64 lowercase hexadecimal digits.
++  string digest = 2;
++}
