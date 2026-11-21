@@ -326,9 +326,34 @@ func runGovernedWorkspaceLiveInvocation(t *testing.T, journey liveWorkspaceJourn
 			t.Error("read test execution for cleanup", err)
 			return
 		}
-		provider := openshell.New(openshell.Config{Binary: config.openShellBinary, ExpectedVersion: governedOpenShellVersion, StateStore: store}, openshell.ExecRunner{})
-		if err := provider.Terminate(cleanup, execution.ExecutionRef{IsolationDomainID: target.isolationDomainID, ID: record.ID}); err != nil {
-			t.Error("test sandbox cleanup", err)
+		// The disposable fixture owns its gateway. Use that authority for
+		// fixture cleanup outside the worker's source-retention boundary.
+		ref := execution.ExecutionRef{IsolationDomainID: target.isolationDomainID, ID: record.ID}
+		entry, err := store.GetExecution(cleanup, ref)
+		if err != nil || entry.OperationID != invocation.OperationID {
+			t.Error("read test sandbox identity for cleanup", err)
+			return
+		}
+		if entry.Execution.State == "terminated" {
+			return
+		}
+		gateway, err := store.GetGateway(cleanup, ref.IsolationDomainID, entry.Execution.GatewayID)
+		if err != nil || gateway.Endpoint != config.gatewayEndpoint {
+			t.Error("read the exact disposable gateway for cleanup", err)
+			return
+		}
+		runner := openshell.ExecRunner{}
+		result, err := runner.Run(cleanup, config.openShellBinary, "--gateway-endpoint", gateway.Endpoint, "sandbox", "delete", entry.SandboxName)
+		if err == nil && result.ExitCode == 0 {
+			err = store.UpdateExecutionState(cleanup, ref, "terminated")
+			if err != nil {
+				t.Error("record test sandbox cleanup", err)
+			}
+			return
+		}
+		provider := openshell.New(openshell.Config{Binary: config.openShellBinary, ExpectedVersion: governedOpenShellVersion, StateStore: store}, runner)
+		if observed, err := provider.Observe(cleanup, ref); err != nil || observed.State != "terminated" {
+			t.Error("test sandbox cleanup was not confirmed", err)
 		}
 	}()
 	worker := reconcile.New(workerReconcileStore(repo, config), driver, "live-source-conformance")
