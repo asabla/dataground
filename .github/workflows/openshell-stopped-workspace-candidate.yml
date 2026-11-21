@@ -37,6 +37,7 @@ jobs:
           git -C "$RUNNER_TEMP/openshell" checkout --detach FETCH_HEAD
           test "$(git -C "$RUNNER_TEMP/openshell" rev-parse HEAD)" = "$OPENSHELL_SOURCE_REVISION"
           git -C "$RUNNER_TEMP/openshell" apply --whitespace=error "$GITHUB_WORKSPACE/deploy/openshell/stopped-workspace/retained-workspace.patch"
+          git -C "$RUNNER_TEMP/openshell" apply --whitespace=error "$GITHUB_WORKSPACE/deploy/openshell/stopped-workspace/gateway-retention.patch"
 
       - name: Check the driver and exercise retained Docker reads
         run: |
@@ -47,3 +48,23 @@ jobs:
           cd "$RUNNER_TEMP/openshell"
           cargo +1.95.0 test --locked -p openshell-driver-docker --lib
           cargo +1.95.0 test --locked -p openshell-driver-docker --lib live_retained_workspace_fences_lifecycle_after_lost_read -- --ignored
+
+      - name: Verify gateway authorization, delivery, and Docker registration
+        working-directory: ${{ runner.temp }}/openshell
+        env:
+          Z3_NO_PKG_CONFIG: "1"
+          Z3_SYS_Z3_VERSION: "5.1.0"
+          Z3_RELEASE_SHA256: f47be8d27d3230e823bf1eeede2fe0abaca55bb78d0b59974370e6689a92284a
+        run: |
+          z3_asset="z3-${Z3_SYS_Z3_VERSION}-x64-glibc-2.39"
+          z3_zip="$RUNNER_TEMP/$z3_asset.zip"
+          curl --fail --silent --show-error --location --retry 2 --max-time 120 \
+            --output "$z3_zip" "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_SYS_Z3_VERSION}/$z3_asset.zip"
+          printf '%s  %s\n' "$Z3_RELEASE_SHA256" "$z3_zip" | sha256sum --check -
+          unzip -q "$z3_zip" "$z3_asset/bin/libz3.so" -d "$RUNNER_TEMP"
+          export Z3_LIBRARY_PATH_OVERRIDE="$RUNNER_TEMP/$z3_asset/bin"
+          export LD_LIBRARY_PATH="$Z3_LIBRARY_PATH_OVERRIDE${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          cargo +1.95.0 test --locked -p openshell-server --lib workspace_retention
+          cargo +1.95.0 test --locked -p openshell-server --lib catalog_lists_exactly_the_write_scoped_rpcs
+          cargo +1.95.0 test --locked -p openshell-server --lib public_and_durable_schema_inventories_are_complete
+          cargo +1.95.0 check --locked -p openshell-gateway --no-default-features --features compute-driver-docker
