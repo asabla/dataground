@@ -1,7 +1,6 @@
 package openshell
 
 import (
-	"archive/tar"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -281,63 +280,15 @@ func (fixture stoppedDockerWorkspace) export(ctx context.Context, base *workspac
 		if err != nil {
 			return err
 		}
+		defer clear(archive)
 		after, err := fixture.inspect(ctx)
 		if err != nil || !after.stopped() || after != before {
 			return errors.Join(errStoppedWorkspaceMismatch, err)
 		}
-		snapshot, err := inspectDockerWorkspaceArchive(archive)
-		if err != nil {
-			return err
-		}
-		changes, err = workspace.Compare(base, snapshot)
+		changes, err = workspace.CompareStoppedDockerArchive(base, archive, fmt.Sprintf("sha256:%x", sha256.Sum256(archive)))
 		return err
 	})
 	return changes, err
-}
-
-func inspectDockerWorkspaceArchive(archive []byte) (*workspace.Snapshot, error) {
-	raw := bytes.NewReader(archive)
-	reader := tar.NewReader(raw)
-	root, err := reader.Next()
-	if err != nil || strings.TrimSuffix(root.Name, "/") != "workspace" || root.Typeflag != tar.TypeDir || root.Size != 0 {
-		return nil, workspace.ErrSourceInvalid
-	}
-	var result bytes.Buffer
-	writer := tar.NewWriter(&result)
-	for entries := 0; ; entries++ {
-		offset := len(archive) - raw.Len()
-		header, err := reader.Next()
-		if err == io.EOF {
-			end := (offset + 511) / 512 * 512
-			if len(archive)-end < 1024 || len(bytes.Trim(archive[end:], "\x00")) != 0 {
-				return nil, workspace.ErrSourceInvalid
-			}
-			break
-		}
-		if err != nil || entries >= workspace.MaximumEntries {
-			return nil, workspace.ErrSourceInvalid
-		}
-		name, scoped := strings.CutPrefix(header.Name, "workspace/")
-		if !scoped || name == "" {
-			return nil, workspace.ErrSourceInvalid
-		}
-		for key := range header.PAXRecords {
-			if strings.HasPrefix(key, "GNU.sparse") {
-				return nil, workspace.ErrSourceInvalid
-			}
-		}
-		projected := tar.Header{Name: name, Typeflag: header.Typeflag, Linkname: header.Linkname, Mode: header.Mode, Size: header.Size}
-		if err := writer.WriteHeader(&projected); err != nil {
-			return nil, err
-		}
-		if _, err := io.Copy(writer, reader); err != nil {
-			return nil, err
-		}
-	}
-	if err := writer.Close(); err != nil {
-		return nil, err
-	}
-	return workspace.Inspect(result.Bytes(), fmt.Sprintf("sha256:%x", sha256.Sum256(result.Bytes())))
 }
 
 func runStoppedWorkspaceDocker(ctx context.Context, input io.Reader, args ...string) ([]byte, error) {

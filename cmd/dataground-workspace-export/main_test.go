@@ -63,7 +63,7 @@ func TestExportRoundTripPreservesChangedWorkspace(t *testing.T) {
 		}
 		return workspace.Capture(ctx, parent)
 	}
-	if err := run(context.Background(), []string{"--archive-digest", digest}, io.NopCloser(bytes.NewReader(archive)), &output, capture); err != nil {
+	if err := run(context.Background(), []string{"--archive-digest", digest}, io.NopCloser(bytes.NewReader(archive)), &output, capture, nil); err != nil {
 		t.Fatal(err)
 	}
 	result, err := workspace.ApplyChanges(base, output.Bytes(), digestOf(output.Bytes()))
@@ -81,7 +81,7 @@ func TestExportRoundTripPreservesChangedWorkspace(t *testing.T) {
 		}
 	}
 	var repeated bufferCloser
-	if err = run(context.Background(), []string{"--archive-digest", digest}, io.NopCloser(bytes.NewReader(archive)), &repeated, capture); err != nil || !bytes.Equal(output.Bytes(), repeated.Bytes()) {
+	if err = run(context.Background(), []string{"--archive-digest", digest}, io.NopCloser(bytes.NewReader(archive)), &repeated, capture, nil); err != nil || !bytes.Equal(output.Bytes(), repeated.Bytes()) {
 		t.Fatal("repeated export changed", err)
 	}
 }
@@ -97,7 +97,7 @@ func TestExportRejectsInvalidInputBeforeCapture(t *testing.T) {
 	} {
 		var output bufferCloser
 		called := false
-		err := run(context.Background(), args, io.NopCloser(bytes.NewReader(archive)), &output, func(context.Context, string) (*workspace.Snapshot, error) { called = true; return nil, nil })
+		err := run(context.Background(), args, io.NopCloser(bytes.NewReader(archive)), &output, func(context.Context, string) (*workspace.Snapshot, error) { called = true; return nil, nil }, nil)
 		if err == nil || called || output.Len() != 0 {
 			t.Fatal("invalid input reached capture or produced output")
 		}
@@ -107,7 +107,7 @@ func TestExportRejectsInvalidInputBeforeCapture(t *testing.T) {
 		err := run(context.Background(), []string{"--archive-digest", digestOf(data)}, io.NopCloser(bytes.NewReader(data)), &output, func(context.Context, string) (*workspace.Snapshot, error) {
 			t.Error("invalid archive reached capture")
 			return nil, nil
-		})
+		}, nil)
 		if err == nil || output.Len() != 0 {
 			t.Fatal("invalid archive exported")
 		}
@@ -133,7 +133,7 @@ func TestExportCancelsBlockedStreams(t *testing.T) {
 				output = writer
 			}
 			done := make(chan error, 1)
-			go func() { done <- run(ctx, []string{"--archive-digest", digest}, input, output, capture) }()
+			go func() { done <- run(ctx, []string{"--archive-digest", digest}, input, output, capture, nil) }()
 			if blocked == "output" {
 				select {
 				case <-entered:
@@ -166,8 +166,93 @@ func TestExportCaptureFailureProducesNoArtifact(t *testing.T) {
 			t.Fatal("unexpected root destination")
 		}
 		return nil, workspace.ErrCaptureUnavailable
-	})
+	}, nil)
 	if !errors.Is(err, workspace.ErrCaptureUnavailable) || output.Len() != 0 {
 		t.Fatal("capture failure produced artifact", err)
 	}
+}
+
+func TestStoppedDockerExport(t *testing.T) {
+	archive, digest, base := source(t)
+	stoppedArchive := dockerArchive(t,
+		tar.Header{Name: "workspace/", Typeflag: tar.TypeDir, Mode: 0o755},
+		tar.Header{Name: "workspace/empty/", Typeflag: tar.TypeDir, Mode: 0o755},
+	)
+	var output bufferCloser
+	args := []string{"--archive-digest", digest, "--stopped-docker-archive-digest", digestOf(stoppedArchive)}
+	err := run(context.Background(), args, io.NopCloser(bytes.NewReader(archive)), &output, nil, func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(stoppedArchive)), nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := workspace.ApplyChanges(base, output.Bytes(), digestOf(output.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := t.TempDir()
+	if _, err := result.Materialize(context.Background(), parent); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Join(parent, "workspace"))
+	if err != nil || len(entries) != 1 || entries[0].Name() != "empty" || !entries[0].IsDir() {
+		t.Fatal("artifact did not reconstruct the stopped workspace", err)
+	}
+}
+
+func TestStoppedDockerExportRejectsUnverifiedArchives(t *testing.T) {
+	archive, digest, _ := source(t)
+	root := tar.Header{Name: "workspace/", Typeflag: tar.TypeDir, Mode: 0o755}
+	valid := dockerArchive(t, root)
+	for _, test := range []struct {
+		name   string
+		data   []byte
+		digest string
+		extra  []string
+	}{
+		{name: "missing root", data: archive},
+		{name: "outside root", data: dockerArchive(t, root, tar.Header{Name: "outside"})},
+		{name: "parent traversal", data: dockerArchive(t, root, tar.Header{Name: "workspace/../outside"})},
+		{name: "duplicate root", data: dockerArchive(t, root, root)},
+		{name: "hard link", data: dockerArchive(t, root, tar.Header{Name: "workspace/link", Typeflag: tar.TypeLink, Linkname: "workspace/original"})},
+		{name: "escaping symlink", data: dockerArchive(t, root, tar.Header{Name: "workspace/link", Typeflag: tar.TypeSymlink, Linkname: "../outside"})},
+		{name: "incomplete trailer", data: valid[:len(valid)-512]},
+		{name: "data after trailer", data: append(bytes.Clone(valid), valid[:512]...)},
+		{name: "wrong digest", data: valid, digest: digest},
+		{name: "ambiguous destination", data: valid, extra: []string{"--destination", "/sandbox/workspace"}},
+		{name: "duplicate digest", data: valid, extra: []string{"--stopped-docker-archive-digest", digestOf(valid)}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stoppedDigest := test.digest
+			if stoppedDigest == "" {
+				stoppedDigest = digestOf(test.data)
+			}
+			args := append([]string{"--archive-digest", digest, "--stopped-docker-archive-digest", stoppedDigest}, test.extra...)
+			var output bufferCloser
+			err := run(context.Background(), args, io.NopCloser(bytes.NewReader(archive)), &output, nil, func() (io.ReadCloser, error) {
+				if len(test.extra) > 0 {
+					t.Fatal("ambiguous mode reached archive read")
+				}
+				return io.NopCloser(bytes.NewReader(test.data)), nil
+			})
+			if err == nil || output.Len() != 0 {
+				t.Fatal("unverified stopped workspace produced an artifact")
+			}
+		})
+	}
+}
+
+func dockerArchive(t *testing.T, headers ...tar.Header) []byte {
+	t.Helper()
+	var archive bytes.Buffer
+	writer := tar.NewWriter(&archive)
+	for _, header := range headers {
+		if err := writer.WriteHeader(&header); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return archive.Bytes()
 }
