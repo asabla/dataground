@@ -56,6 +56,18 @@ type changeDocument struct {
 func (*ChangeSet) MarshalJSON() ([]byte, error)      { return nil, ErrChangesInvalid }
 func (changes *ChangeSet) Receipt() ChangeSetReceipt { return changes.receipt }
 
+// CompareStoppedDockerArchive verifies the digest and tree of a Docker archive
+// rooted at workspace and returns canonical changes against the verified base.
+// The caller must authorize the read and retain the writer fence throughout it.
+func CompareStoppedDockerArchive(base *Snapshot, archive []byte, expectedDigest string) (*ChangeSet, error) {
+	result, err := inspectArchive(archive, expectedDigest, "workspace")
+	if err != nil {
+		return nil, err
+	}
+	defer result.discard()
+	return Compare(base, result)
+}
+
 // Compare binds an exact verified base archive to a deterministic final tree.
 // Applying the artifact creates a new snapshot; it never edits a live workspace.
 func Compare(base, result *Snapshot) (*ChangeSet, error) {

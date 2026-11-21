@@ -22,7 +22,7 @@ func main() {
 	defer stop()
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	if run(ctx, os.Args[1:], os.Stdin, os.Stdout, workspace.Capture) != nil {
+	if run(ctx, os.Args[1:], os.Stdin, os.Stdout, workspace.Capture, openStoppedArchive) != nil {
 		fmt.Fprintln(os.Stderr, "WORKSPACE_CHANGE_EXPORT_FAILED")
 		os.Exit(1)
 	}
@@ -30,16 +30,29 @@ func main() {
 
 type capturer func(context.Context, string) (*workspace.Snapshot, error)
 
+func openStoppedArchive() (io.ReadCloser, error) {
+	file := os.NewFile(3, "stopped-workspace-archive")
+	if file == nil {
+		return nil, workspace.ErrSourceInvalid
+	}
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > workspace.MaximumArchiveBytes {
+		_ = file.Close()
+		return nil, workspace.ErrSourceInvalid
+	}
+	return file, nil
+}
+
 // The caller must hold the workload quiescence fence. This command supplies no
 // authorization or teardown permission. Its output contains private file data.
 // Stream Close methods must unblock concurrent I/O when the context ends.
-func run(ctx context.Context, args []string, input io.ReadCloser, output io.WriteCloser, capture capturer) error {
+func run(ctx context.Context, args []string, input io.ReadCloser, output io.WriteCloser, capture capturer, openArchive func() (io.ReadCloser, error)) error {
 	flags := flag.NewFlagSet("workspace-export", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	digest, destination := "", "/sandbox/workspace"
+	digest, stoppedDigest, destination := "", "", "/sandbox/workspace"
 	seen := map[string]bool{}
-	for name, target := range map[string]*string{"archive-digest": &digest, "destination": &destination} {
-		flags.Func(name, "exact source digest or image-owned workspace", func(value string) error {
+	for name, target := range map[string]*string{"archive-digest": &digest, "destination": &destination, "stopped-docker-archive-digest": &stoppedDigest} {
+		flags.Func(name, "", func(value string) error {
 			if seen[name] {
 				return workspace.ErrChangesInvalid
 			}
@@ -51,8 +64,7 @@ func run(ctx context.Context, args []string, input io.ReadCloser, output io.Writ
 	if flags.Parse(args) != nil || flags.NArg() != 0 || (destination != "/sandbox/workspace" && destination != "/workspace") {
 		return workspace.ErrChangesInvalid
 	}
-	decoded, err := hex.DecodeString(strings.TrimPrefix(digest, "sha256:"))
-	if err != nil || len(decoded) != 32 || len(digest) != 71 || !strings.HasPrefix(digest, "sha256:") || strings.ToLower(digest) != digest {
+	if !validArchiveDigest(digest) || (seen["stopped-docker-archive-digest"] && (seen["destination"] || !validArchiveDigest(stoppedDigest) || openArchive == nil)) {
 		return workspace.ErrChangesInvalid
 	}
 	stopIO := context.AfterFunc(ctx, func() { _ = input.Close(); _ = output.Close() })
@@ -69,11 +81,16 @@ func run(ctx context.Context, args []string, input io.ReadCloser, output io.Writ
 	if err != nil {
 		return err
 	}
-	result, err := capture(ctx, filepath.Dir(destination))
-	if err != nil {
-		return err
+	var changes *workspace.ChangeSet
+	if stoppedDigest != "" {
+		changes, err = compareStoppedArchive(ctx, base, stoppedDigest, openArchive)
+	} else {
+		result, captureErr := capture(ctx, filepath.Dir(destination))
+		if captureErr != nil {
+			return captureErr
+		}
+		changes, err = workspace.Compare(base, result)
 	}
-	changes, err := workspace.Compare(base, result)
 	if err != nil {
 		return err
 	}
@@ -82,4 +99,35 @@ func run(ctx context.Context, args []string, input io.ReadCloser, output io.Writ
 		return ctx.Err()
 	}
 	return err
+}
+
+func validArchiveDigest(digest string) bool {
+	encoded, prefixed := strings.CutPrefix(digest, "sha256:")
+	if !prefixed || len(encoded) != 64 || strings.ToLower(encoded) != encoded {
+		return false
+	}
+	_, err := hex.DecodeString(encoded)
+	return err == nil
+}
+
+func compareStoppedArchive(ctx context.Context, base *workspace.Snapshot, digest string, openArchive func() (io.ReadCloser, error)) (*workspace.ChangeSet, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	input, err := openArchive()
+	if err != nil {
+		return nil, err
+	}
+	defer input.Close()
+	stopIO := context.AfterFunc(ctx, func() { _ = input.Close() })
+	defer stopIO()
+	archive, err := io.ReadAll(io.LimitReader(input, workspace.MaximumArchiveBytes+1))
+	defer clear(archive)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if err != nil {
+		return nil, workspace.ErrSourceInvalid
+	}
+	return workspace.CompareStoppedDockerArchive(base, archive, digest)
 }

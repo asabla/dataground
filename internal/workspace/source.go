@@ -59,6 +59,10 @@ func (snapshot *Snapshot) Receipt() Receipt    { return snapshot.receipt }
 // Ownership, timestamps, extended attributes and archive permissions are not
 // installed; materialized files are private and preserve only executable intent.
 func Inspect(archive []byte, expectedDigest string) (*Snapshot, error) {
+	return inspectArchive(archive, expectedDigest, "")
+}
+
+func inspectArchive(archive []byte, expectedDigest, root string) (*Snapshot, error) {
 	if len(archive) > MaximumArchiveBytes || len(archive) < 1024 || len(archive)%512 != 0 {
 		return nil, ErrSourceInvalid
 	}
@@ -77,6 +81,12 @@ func Inspect(archive []byte, expectedDigest string) (*Snapshot, error) {
 	snapshot := &Snapshot{entries: make(map[string]sourceEntry), receipt: Receipt{SchemaVersion: "dataground.workspace-source-materialization/v1", ArchiveDigest: digest}}
 	reader := bytes.NewReader(owned)
 	stream := tar.NewReader(reader)
+	if root != "" {
+		header, err := stream.Next()
+		if err != nil || header.Typeflag != tar.TypeDir || strings.TrimSuffix(header.Name, "/") != root || header.Size != 0 || !validSourceHeader(header) {
+			return nil, ErrSourceInvalid
+		}
+	}
 	headers := 0
 	for {
 		offset := len(owned) - reader.Len()
@@ -93,6 +103,9 @@ func Inspect(archive []byte, expectedDigest string) (*Snapshot, error) {
 			return nil, ErrSourceInvalid
 		}
 		if header.Typeflag == tar.TypeXGlobalHeader {
+			if root != "" {
+				return nil, ErrSourceInvalid
+			}
 			for key, value := range header.PAXRecords {
 				if key != "comment" || len(value) > 1024 {
 					return nil, ErrSourceInvalid
@@ -104,16 +117,18 @@ func Inspect(archive []byte, expectedDigest string) (*Snapshot, error) {
 		if header.Typeflag == tar.TypeDir {
 			name = strings.TrimSuffix(name, "/")
 		}
-		if !validSourcePath(name) || header.Mode < 0 || header.Mode & ^int64(0777) != 0 {
+		if root != "" {
+			var scoped bool
+			name, scoped = strings.CutPrefix(name, root+"/")
+			if !scoped {
+				return nil, ErrSourceInvalid
+			}
+		}
+		if !validSourcePath(name) || !validSourceHeader(header) {
 			return nil, ErrSourceInvalid
 		}
 		if _, exists := snapshot.entries[name]; exists {
 			return nil, ErrSourceInvalid
-		}
-		for key := range header.PAXRecords {
-			if strings.HasPrefix(key, "GNU.sparse") {
-				return nil, ErrSourceInvalid
-			}
 		}
 		entry := sourceEntry{name: name, kind: header.Typeflag}
 		switch header.Typeflag {
@@ -175,6 +190,18 @@ func Inspect(archive []byte, expectedDigest string) (*Snapshot, error) {
 	snapshot.archive = owned
 	retained = true
 	return snapshot, nil
+}
+
+func validSourceHeader(header *tar.Header) bool {
+	if header.Mode < 0 || header.Mode & ^int64(0777) != 0 {
+		return false
+	}
+	for key := range header.PAXRecords {
+		if strings.HasPrefix(key, "GNU.sparse") {
+			return false
+		}
+	}
+	return true
 }
 
 func validSourcePath(name string) bool {
