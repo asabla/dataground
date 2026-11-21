@@ -169,7 +169,7 @@ func TestInvocationRuntimeDriverRejectsTypedNilArtifactFinalizer(t *testing.T) {
 		&runtimeProviderStub{},
 		&runtimeAdapterFactoryStub{},
 		finalizer,
-		InvocationRuntimeDriverConfig{LeaseDuration: claim.LeaseExpiresAt.Sub(time.Now()), RenewInterval: time.Second},
+		InvocationRuntimeDriverConfig{LeaseDuration: time.Until(claim.LeaseExpiresAt), RenewInterval: time.Second},
 	)
 	if driver != nil || err == nil {
 		t.Fatalf("typed nil artifact finalizer = (%#v, %v)", driver, err)

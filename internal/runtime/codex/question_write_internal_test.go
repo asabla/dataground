@@ -28,7 +28,7 @@ func TestQuestionWriteRechecksItsDeliveryContextAfterTheGuard(t *testing.T) {
 	}
 	// Join the writer even if the outer call observed cancellation first.
 	client.writeMu.Lock()
-	client.writeMu.Unlock()
+	defer client.writeMu.Unlock()
 	wire.mu.Lock()
 	defer wire.mu.Unlock()
 	if wire.writes != 0 {
