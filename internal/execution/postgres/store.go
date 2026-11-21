@@ -377,13 +377,24 @@ func getExecution(
 ) (execution.ExecutionRecord, bool, error) {
 	var record execution.ExecutionRecord
 	err := querier.QueryRow(ctx, `
-		SELECT isolation_domain_id, id, gateway_id, observed_state,
-		       placement_id, operation_id, sandbox_name
-		FROM execution_instances
-		WHERE isolation_domain_id = $1 AND id = $2
+		SELECT instance.isolation_domain_id, instance.id, instance.gateway_id, instance.observed_state,
+		       instance.placement_id, instance.operation_id, instance.sandbox_name,
+		       EXISTS (
+		           SELECT 1
+		           FROM invocation_execution_operations operation
+		           JOIN invocations invocation
+		             ON invocation.isolation_domain_id = operation.isolation_domain_id AND invocation.id = operation.invocation_id
+		           JOIN service_revision_execution_plans plan
+		             ON plan.isolation_domain_id = invocation.isolation_domain_id AND plan.revision_id = invocation.revision_id
+		           WHERE operation.isolation_domain_id = instance.isolation_domain_id
+		             AND operation.id = instance.operation_id AND plan.workspace_source IS NOT NULL
+		       )
+		FROM execution_instances instance
+		WHERE instance.isolation_domain_id = $1 AND instance.id = $2
 	`, ref.IsolationDomainID, ref.ID).Scan(
 		&record.Execution.IsolationDomainID, &record.Execution.ID, &record.Execution.GatewayID,
 		&record.Execution.State, &record.PlacementID, &record.OperationID, &record.SandboxName,
+		&record.WorkspaceSourceSelected,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return execution.ExecutionRecord{}, false, nil

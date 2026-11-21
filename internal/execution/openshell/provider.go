@@ -583,6 +583,10 @@ func (provider *Provider) Terminate(ctx context.Context, ref execution.Execution
 	if err != nil {
 		return err
 	}
+	// A generic delete cannot establish a writer fence or verify retained bytes.
+	if entry.WorkspaceSourceSelected {
+		return execution.ErrWorkspaceRetentionRequired
+	}
 	if entry.Execution.State == "terminated" {
 		return nil
 	}

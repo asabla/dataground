@@ -14,6 +14,7 @@ import (
 
 	"github.com/asabla/dataground/internal/authz"
 	"github.com/asabla/dataground/internal/execution"
+	"github.com/asabla/dataground/internal/execution/openshell"
 	executionpostgres "github.com/asabla/dataground/internal/execution/postgres"
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/persistence"
@@ -111,6 +112,23 @@ func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *p
 	if err := store.SaveExecution(ctx, execution.ExecutionRecord{Execution: execution.Execution{IsolationDomainID: scope, ID: ref.ID, GatewayID: gateway.ID, State: "ready"}, OperationID: claim.ID, PlacementID: placement.ID, SandboxName: "export-fixture"}); err != nil {
 		t.Fatal(err)
 	}
+	assertTeardownBlocked := func() {
+		t.Helper()
+		runner := &executionRunner{}
+		replacementStore := executionpostgres.New(pool)
+		provider := openshell.New(openshell.Config{StateStore: replacementStore}, runner)
+		if err := provider.Terminate(ctx, ref); !errors.Is(err, execution.ErrWorkspaceRetentionRequired) {
+			t.Fatalf("generic teardown accepted a source-selected execution: %v", err)
+		}
+		if len(runner.calls) != 0 {
+			t.Fatal("protected teardown reached OpenShell")
+		}
+		record, err := replacementStore.GetExecution(ctx, ref)
+		if err != nil || record.Execution.State != "ready" {
+			t.Fatalf("blocked teardown changed execution state: %#v, %v", record.Execution, err)
+		}
+	}
+	assertTeardownBlocked()
 	preparation, err := repo.BeginInvocationWorkspacePreparation(ctx, *claim, effect, ref, 1)
 	if err != nil {
 		t.Fatal(err)
@@ -259,6 +277,7 @@ func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *p
 		t.Fatal("replacement lost original owner", err)
 	}
 	recoverController(*claim)
+	assertTeardownBlocked()
 	// Expiry during evaluation must commit a denial, even when Cedar allowed it.
 	if _, err := pool.Exec(ctx, `UPDATE invocation_execution_operations SET lease_expires_at=clock_timestamp()+interval '100 milliseconds' WHERE isolation_domain_id=$1 AND id=$2`, scope, claim.ID); err != nil {
 		t.Fatal(err)

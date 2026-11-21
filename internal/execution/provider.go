@@ -19,11 +19,12 @@ const (
 )
 
 var (
-	ErrNoGateway        = errors.New("no eligible execution gateway")
-	ErrPlacementMissing = errors.New("execution placement not found")
-	ErrExecutionMissing = errors.New("execution not found")
-	ErrStateConflict    = errors.New("execution state conflicts with persisted state")
-	ErrPolicyInvalid    = errors.New("execution enforcement policy is invalid")
+	ErrNoGateway                  = errors.New("no eligible execution gateway")
+	ErrPlacementMissing           = errors.New("execution placement not found")
+	ErrExecutionMissing           = errors.New("execution not found")
+	ErrStateConflict              = errors.New("execution state conflicts with persisted state")
+	ErrPolicyInvalid              = errors.New("execution enforcement policy is invalid")
+	ErrWorkspaceRetentionRequired = errors.New("workspace retention is required before execution teardown")
 )
 
 func ValidGatewayState(state GatewayState) bool {
@@ -137,6 +138,8 @@ type ExecutionRecord struct {
 	PlacementID string
 	OperationID string
 	SandboxName string `json:"-"`
+	// WorkspaceSourceSelected comes from the durable invocation's exact revision plan.
+	WorkspaceSourceSelected bool `json:"-"`
 }
 
 // StateStore persists provider-private routing state. Implementations must
