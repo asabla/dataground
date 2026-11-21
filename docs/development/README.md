@@ -67,13 +67,15 @@ Install exactly the locked JavaScript dependency graph:
 pnpm install --frozen-lockfile
 ```
 
-Run the complete local and CI baseline:
+Install uv 0.13.9 and run the complete local and CI baseline:
 
 ```shell
 pnpm verify
 ```
 
-The verification command runs Biome formatting and lint checks, `gofmt`, `go vet`, OpenAPI and JSON Schema fixture and compatibility checks, generated contract and token drift checks, TypeScript type checking, Go and Node tests, Playwright-backed Storybook interaction and accessibility tests, Workbench React lifecycle tests in Chromium, the Storybook production build, and production builds for the API and workbench.
+The verification command runs Biome formatting and lint checks, `gofmt`, `go vet`, `ty`, Ruff, OpenAPI and JSON Schema fixture and compatibility checks, generated contract and token drift checks, TypeScript type checking, Python, Go and Node tests, Playwright-backed Storybook interaction and accessibility tests, Workbench React lifecycle tests in Chromium, the Storybook production build, and production builds for the API and workbench.
+
+Run `pnpm python:check` for the Python checks alone. uv installs the locked development tools, and both `ty` and Ruff check against Python 3.11. Apply Python formatting with `uv run --locked ruff format`. CI also checks GitHub Actions workflows with actionlint.
 
 The Go test wrapper resolves the operating system's temporary directory to its canonical path before running `go test ./...`. On macOS it uses the short canonical `/private/tmp` root, avoiding both the `/var` symlink alias and Darwin's Unix-socket path limit for security-sensitive fixtures; runtime path validation remains unchanged and fail closed.
 

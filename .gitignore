@@ -6,6 +6,8 @@ coverage/
 dist/
 node_modules/
 storybook-static/
+.venv/
+__pycache__/
 
 /dataground-api
 *.test

@@ -60,6 +60,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Set up Python tooling
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          version: "0.13.9"
+          python-version: "3.11"
+
+      - name: Check GitHub Actions workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
       - name: Install design-system browser
         run: pnpm --filter @dataground/ui exec playwright install --with-deps chromium
 
@@ -123,7 +132,7 @@ jobs:
           ROSETTA_ADDR=127.0.0.1:18089 "$RUNNER_TEMP/rosetta-server" > "$RUNNER_TEMP/rosetta.log" 2>&1 &
           rosetta_pid=$!
           trap 'kill "$rosetta_pid" 2>/dev/null || true; wait "$rosetta_pid" 2>/dev/null || true' EXIT
-          for attempt in $(seq 1 50); do
+          for _attempt in $(seq 1 50); do
             if curl --silent --fail --max-time 1 --output /dev/null "$DATAGROUND_ROSETTA_CONFORMANCE_ENDPOINT/v1/capabilities"; then
               break
             fi
@@ -148,7 +157,7 @@ jobs:
           rosetta_pid=$!
           trap 'kill "$rosetta_pid" 2>/dev/null || true; wait "$rosetta_pid" 2>/dev/null || true' EXIT
           printf '%s' 'dataground-installation-ready' > "$RUNNER_TEMP/installation-ready"
-          for attempt in {1..60}; do
+          for _attempt in {1..60}; do
             if docker compose --project-name dataground-rosetta-installation \
                 -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
                 pg_isready --username dataground --dbname dataground_conformance >/dev/null \
@@ -273,7 +282,7 @@ jobs:
           readiness_expected="$RUNNER_TEMP/s3-readiness-expected"
           readiness_observed="$RUNNER_TEMP/s3-readiness-observed"
           printf '%s' 'dataground-s3-ready' >"$readiness_expected"
-          for attempt in {1..30}; do
+          for _attempt in {1..30}; do
             if docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
                 pg_isready --username dataground --dbname dataground_conformance >/dev/null \
               && curl --fail --max-time 2 --silent --request PUT \
@@ -360,7 +369,7 @@ jobs:
           readiness_expected="$RUNNER_TEMP/s3-readiness-expected"
           readiness_observed="$RUNNER_TEMP/s3-readiness-observed"
           printf '%s' 'dataground-s3-ready' >"$readiness_expected"
-          for attempt in {1..30}; do
+          for _attempt in {1..30}; do
             if docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
                 pg_isready --username dataground --dbname dataground_conformance >/dev/null \
               && curl --fail --max-time 2 --silent --request PUT \
@@ -514,7 +523,7 @@ jobs:
 
       - name: Wait for primary and physical standby
         run: |
-          for attempt in {1..30}; do
+          for _attempt in {1..30}; do
             primary_ready=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
               psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
               --command 'SELECT NOT pg_is_in_recovery()' 2>/dev/null || true)
@@ -563,7 +572,7 @@ jobs:
             >"$RUNNER_TEMP/postgres-route-manager.stdout" \
             2>"$RUNNER_TEMP/postgres-route-manager.stderr" &
           printf '%s\n' "$!" >"$RUNNER_TEMP/postgres-route-manager.pid"
-          for attempt in {1..30}; do
+          for _attempt in {1..30}; do
             state_status=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
             manager_state=$(cat "$RUNNER_TEMP/postgres-route-manager.stdout")
             if [ "$state_status" = "primary $(cat "$RUNNER_TEMP/postgres-primary-generation")" ] \
@@ -604,7 +613,7 @@ jobs:
             echo "could not establish the primary WAL boundary"
             exit 1
           fi
-          for attempt in {1..30}; do
+          for _attempt in {1..30}; do
             replayed=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
               psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
               --command "SELECT pg_last_wal_replay_lsn() >= '$target_lsn'::pg_lsn" 2>/dev/null || true)
@@ -625,7 +634,7 @@ jobs:
           "$RUNNER_TEMP/dataground-postgres-route-conformance" \
             --mode pool >"$pool_stdout" 2>"$pool_stderr" &
           printf '%s\n' "$!" >"$RUNNER_TEMP/postgres-pool.pid"
-          for attempt in {1..45}; do
+          for _attempt in {1..45}; do
             if grep --fixed-strings --line-regexp --quiet \
               'pool-primary-ready' "$pool_stdout"; then
               exit 0
@@ -652,7 +661,7 @@ jobs:
             echo "stable database endpoint remained usable before route change"
             exit 1
           fi
-          for attempt in {1..45}; do
+          for _attempt in {1..45}; do
             if grep --fixed-strings --line-regexp --quiet \
               'pool-failure-observed' "$RUNNER_TEMP/postgres-pool.stdout"; then
               break
@@ -735,7 +744,7 @@ jobs:
             echo "stable database endpoint did not select the promoted node"
             exit 1
           fi
-          for attempt in {1..45}; do
+          for _attempt in {1..45}; do
             if grep --fixed-strings --line-regexp --quiet \
               'pool-promoted-ready' "$RUNNER_TEMP/postgres-pool.stdout"; then
               break
@@ -777,7 +786,7 @@ jobs:
             exit 1
           fi
           kill -KILL "$child_pid"
-          for attempt in {1..30}; do
+          for _attempt in {1..30}; do
             if ! kill -0 "$child_pid" 2>/dev/null; then
               break
             fi
@@ -799,7 +808,7 @@ jobs:
             echo "stable database endpoint remained usable after router process loss"
             exit 1
           fi
-          for attempt in {1..30}; do
+          for _attempt in {1..30}; do
             recovered=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
             role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
               "$router" --mode role 2>/dev/null || true)
@@ -959,7 +968,7 @@ jobs:
             exit 1
           fi
           kill -KILL "$supervisor_pid"
-          for attempt in {1..30}; do
+          for _attempt in {1..30}; do
             manager_states=$(cat "$RUNNER_TEMP/postgres-route-manager.stdout")
             if ! process_alive "$supervisor_pid" && ! process_alive "$child_pid" \
               && [ "$manager_states" = $'supervisor-ready\nsupervisor-restart-scheduled' ]; then
@@ -982,7 +991,7 @@ jobs:
             echo "supervisor process loss left the stable database endpoint available"
             exit 1
           fi
-          for attempt in {1..30}; do
+          for _attempt in {1..30}; do
             replacement_supervisor=$(pgrep --parent "$manager_pid" || true)
             replacement_child=$(pgrep --parent "$replacement_supervisor" || true)
             recovered=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
@@ -1038,7 +1047,7 @@ jobs:
           kill -KILL "$manager_pid"
           wait "$manager_pid" 2>/dev/null || true
           rm --force "$RUNNER_TEMP/postgres-route-manager.pid"
-          for attempt in {1..30}; do
+          for _attempt in {1..30}; do
             if ! process_alive "$manager_pid" && ! process_alive "$supervisor_pid" \
               && ! process_alive "$child_pid"; then
               break
@@ -1070,7 +1079,7 @@ jobs:
             2>"$RUNNER_TEMP/postgres-route-manager-replacement.stderr" &
           replacement_manager=$!
           printf '%s\n' "$replacement_manager" >"$RUNNER_TEMP/postgres-route-manager.pid"
-          for attempt in {1..30}; do
+          for _attempt in {1..30}; do
             recovered=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
             role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
               "$router" --mode role 2>/dev/null || true)
@@ -1134,7 +1143,7 @@ jobs:
               exit 1
             fi
             kill -KILL "$supervisor_pid"
-            for attempt in {1..50}; do
+            for _attempt in {1..50}; do
               ready_count=$(grep --count '^supervisor-ready$' \
                 "$RUNNER_TEMP/postgres-route-manager-replacement.stdout" || true)
               restart_count=$(grep --count '^supervisor-restart-scheduled$' \
@@ -1172,7 +1181,7 @@ jobs:
               echo "stable database endpoint remained usable during restart exhaustion"
               exit 1
             fi
-            for attempt in {1..30}; do
+            for _attempt in {1..30}; do
               replacement_supervisor=$(pgrep --parent "$manager_pid" || true)
               replacement_child=$(pgrep --parent "$replacement_supervisor" || true)
               recovered=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
@@ -1249,7 +1258,7 @@ jobs:
             2>"$RUNNER_TEMP/postgres-route-manager-exhaustion-recovery.stderr" &
           recovered_manager=$!
           printf '%s\n' "$recovered_manager" >"$RUNNER_TEMP/postgres-route-manager.pid"
-          for attempt in {1..30}; do
+          for _attempt in {1..30}; do
             recovered=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
             role=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
               "$router" --mode role 2>/dev/null || true)
@@ -1324,7 +1333,7 @@ jobs:
             echo "fenced primary container was not found"
             exit 1
           fi
-          for attempt in {1..10}; do
+          for _attempt in {1..10}; do
             running=$(docker inspect --format '{{.State.Running}}' "$primary_id")
             if [ "$running" = "false" ]; then
               break
@@ -1346,7 +1355,7 @@ jobs:
           docker compose -f deploy/storage/seaweedfs-conformance.yml \
             --profile postgres-failover start postgres
           target_lsn=$(cat "$RUNNER_TEMP/rejoin-target-lsn")
-          for attempt in {1..30}; do
+          for _attempt in {1..30}; do
             rejoined=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
               psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
               --command "SELECT pg_is_in_recovery()
@@ -1418,7 +1427,7 @@ jobs:
           control="$workspace/control.sock"
           state="$workspace/state.json"
           kill "$(cat "$RUNNER_TEMP/postgres-route-manager.pid")"
-          for attempt in {1..30}; do
+          for _attempt in {1..30}; do
             if ! kill -0 "$(cat "$RUNNER_TEMP/postgres-route-manager.pid")" 2>/dev/null; then
               break
             fi
@@ -1435,7 +1444,7 @@ jobs:
           docker compose -f deploy/storage/seaweedfs-conformance.yml \
             --profile postgres-failover up --detach
           generation=""
-          for attempt in {1..30}; do
+          for _attempt in {1..30}; do
             primary_ready=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres \
               psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
               --command 'SELECT NOT pg_is_in_recovery()' 2>/dev/null || true)
@@ -1472,7 +1481,7 @@ jobs:
             >"$RUNNER_TEMP/postgres-route-manager.stdout" \
             2>"$RUNNER_TEMP/postgres-route-manager.stderr" &
           printf '%s\n' "$!" >"$RUNNER_TEMP/postgres-route-manager.pid"
-          for attempt in {1..30}; do
+          for _attempt in {1..30}; do
             state_status=$("$router" --mode state --control-socket "$control" 2>/dev/null || true)
             routed_primary=$(DATAGROUND_TEST_DATABASE_URL="$DATAGROUND_ROUTED_DATABASE_URL" \
               "$router" --mode role 2>/dev/null || true)
@@ -1513,7 +1522,7 @@ jobs:
             echo "could not establish the in-flight fixture WAL boundary"
             exit 1
           fi
-          for attempt in {1..30}; do
+          for _attempt in {1..30}; do
             replayed=$(docker compose -f deploy/storage/seaweedfs-conformance.yml exec -T postgres-standby \
               psql --username dataground --dbname dataground_conformance --tuples-only --no-align \
               --command "SELECT pg_last_wal_replay_lsn() >= '$target_lsn'::pg_lsn" 2>/dev/null || true)

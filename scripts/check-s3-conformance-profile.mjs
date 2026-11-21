@@ -9,8 +9,8 @@ const profile = JSON.parse(
 const compose = await readFile(resolve(root, "deploy/storage/seaweedfs-conformance.yml"), "utf8");
 const workflow = await readFile(resolve(root, ".github/workflows/ci.yml"), "utf8");
 const storageWorkflow = workflow
-  .split(/(?=^  [a-z][a-z0-9-]*:)/m)
-  .filter((job) => /^  (s3-enforcement-conformance|postgres-failover-conformance):/.test(job))
+  .split(/(?=^ {2}[a-z][a-z0-9-]*:)/m)
+  .filter((job) => /^ {2}(s3-enforcement-conformance|postgres-failover-conformance):/.test(job))
   .join("\n");
 const recoverySuite = await readFile(
   resolve(root, "internal/execution/recoveryconformance/suite.go"),

@@ -1,12 +1,17 @@
 """Check build-time substitutions before replacing the pinned native executable."""
+
 import hashlib
 import importlib.util
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
-spec = importlib.util.spec_from_file_location("activate_runtime", Path(__file__).with_name("activate-runtime.py"))
+spec = importlib.util.spec_from_file_location(
+    "activate_runtime", Path(__file__).with_name("activate-runtime.py")
+)
+if spec is None or spec.loader is None:
+    raise ImportError("could not load the runtime activation helper")
 runtime = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runtime)
 
@@ -26,10 +31,17 @@ class RuntimeActivationTests(unittest.TestCase):
         for name in ["codex", "codex-linux-sandbox"]:
             content = ("candidate-" + name).encode()
             (self.candidate / name).write_bytes(content)
-            inventory.append(hashlib.sha256(content).hexdigest() + "  target/debug/" + name)
-        (self.metadata / "candidate-binaries.sha256").write_text("\n".join(inventory) + "\n")
+            inventory.append(
+                hashlib.sha256(content).hexdigest() + "  target/debug/" + name
+            )
+        (self.metadata / "candidate-binaries.sha256").write_text(
+            "\n".join(inventory) + "\n"
+        )
         self.module = self.root / "usr/lib/node_modules/@openai/codex"
-        self.executable = self.module / "node_modules/@openai/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/codex/codex"
+        self.executable = (
+            self.module
+            / "node_modules/@openai/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/codex/codex"
+        )
         self.executable.parent.mkdir(parents=True)
         self.executable.write_bytes(b"stock native executable")
         launcher = self.module / "bin/codex.js"
@@ -50,7 +62,9 @@ class RuntimeActivationTests(unittest.TestCase):
 
     def test_preserves_launcher_and_stock_with_exact_runtime_metadata(self):
         self.activate()
-        self.assertEqual((self.candidate / "stock-codex").read_bytes(), b"stock native executable")
+        self.assertEqual(
+            (self.candidate / "stock-codex").read_bytes(), b"stock native executable"
+        )
         self.assertEqual(self.executable.read_bytes(), b"candidate-codex")
         self.assertEqual((self.module / "bin/codex.js").read_text(), "stock launcher")
         self.assertEqual(self.executable.stat().st_mode & 0o777, 0o755)
@@ -59,7 +73,9 @@ class RuntimeActivationTests(unittest.TestCase):
         self.assertEqual(config.stat().st_mode & 0o777, 0o444)
         metadata = json.loads((self.metadata / "runtime-launch.json").read_text())
         self.assertFalse(metadata["certificationEligible"])
-        self.assertEqual(metadata["nativeExecutableSHA256"], runtime.digest(self.executable))
+        self.assertEqual(
+            metadata["nativeExecutableSHA256"], runtime.digest(self.executable)
+        )
         self.assertEqual(metadata["systemConfigSHA256"], runtime.digest(config))
         with self.assertRaises(RuntimeError):
             self.activate()
@@ -69,13 +85,18 @@ class RuntimeActivationTests(unittest.TestCase):
         self.rejected()
 
     def test_selects_the_existing_amd64_provider_path(self):
-        executable = self.module / "node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex/codex"
+        executable = (
+            self.module
+            / "node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex/codex"
+        )
         executable.parent.mkdir(parents=True)
         self.executable.rename(executable)
         runtime.activate(self.root, "x86_64", self.expected)
         self.assertEqual(executable.read_bytes(), b"candidate-codex")
         metadata = json.loads((self.metadata / "runtime-launch.json").read_text())
-        self.assertEqual(metadata["nativeExecutable"], "/" + str(executable.relative_to(self.root)))
+        self.assertEqual(
+            metadata["nativeExecutable"], "/" + str(executable.relative_to(self.root))
+        )
 
     def test_rejects_source_substitution_before_replacement(self):
         source = dict(self.expected, sourceCommit="0" * 40)

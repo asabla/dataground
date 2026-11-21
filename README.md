@@ -19,7 +19,7 @@ Proposed implementation choices in the starter are not confirmed architecture. E
 
 ## Development
 
-The pinned baseline is Go 1.26.5, Node.js 24 LTS, and pnpm 11.15.0. The exact Go and Node versions are recorded in `.go-version` and `.nvmrc`; `package.json` records the pnpm version.
+The pinned baseline is Go 1.26.5, Node.js 24 LTS, and pnpm 11.15.0. The exact Go and Node versions are recorded in `.go-version` and `.nvmrc`. Install uv 0.13.9 for the locked Python development checks.
 
 ```shell
 pnpm install --frozen-lockfile
