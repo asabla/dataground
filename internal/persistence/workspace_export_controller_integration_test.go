@@ -14,6 +14,8 @@ import (
 
 	"github.com/asabla/dataground/internal/artifact"
 	"github.com/asabla/dataground/internal/execution"
+	"github.com/asabla/dataground/internal/execution/openshell"
+	executionpostgres "github.com/asabla/dataground/internal/execution/postgres"
 	"github.com/asabla/dataground/internal/identity"
 	"github.com/asabla/dataground/internal/persistence"
 	"github.com/asabla/dataground/internal/reconcile"
@@ -111,10 +113,11 @@ func (o *exportArtifactObjects) PutInvocationArtifactObjectIfAbsent(_ context.Co
 }
 
 type exportCaptureProvider struct {
-	ref     execution.ExecutionRef
-	base    *workspace.Snapshot
-	changes *workspace.ChangeSet
-	calls   int
+	ref      execution.ExecutionRef
+	base     *workspace.Snapshot
+	changes  *workspace.ChangeSet
+	delegate reconcile.InvocationWorkspaceChangeProvider
+	calls    int
 }
 
 func (p *exportCaptureProvider) ExportWorkspaceChanges(ctx context.Context, ref execution.ExecutionRef, base *workspace.Snapshot) (*workspace.ChangeSet, error) {
@@ -122,12 +125,15 @@ func (p *exportCaptureProvider) ExportWorkspaceChanges(ctx context.Context, ref 
 	if ctx.Err() != nil || ref != p.ref || base.Receipt() != p.base.Receipt() {
 		return nil, workspace.ErrChangeExportConflict
 	}
+	if p.delegate != nil {
+		return p.delegate.ExportWorkspaceChanges(ctx, ref, base)
+	}
 	return p.changes, nil
 }
 
 // Retained bytes and all claim, grant, decision and catalog transitions are real.
-// Capture is an in-process provider fixture; cleanup is a trusted test observation.
-func beginWorkspaceExportController(t *testing.T, ctx context.Context, pool *pgxpool.Pool, claim persistence.OperationClaim, effect persistence.EffectRecord, q persistence.InvocationWorkspaceQuiescence, service, revision string, source *exportSourceObjects, base *workspace.Snapshot) func(persistence.OperationClaim) {
+// The gateway stream is synthetic. Cleanup and original generation are trusted fixture observations.
+func beginWorkspaceExportController(t *testing.T, ctx context.Context, pool *pgxpool.Pool, claim persistence.OperationClaim, effect persistence.EffectRecord, q persistence.InvocationWorkspaceQuiescence, service, revision string, source *exportSourceObjects, base *workspace.Snapshot, stopped *stoppedWorkspaceGatewayFixture, gatewayID string) func(persistence.OperationClaim) {
 	t.Helper()
 	repo := persistence.NewRepository(pool)
 	ref := execution.ExecutionRef{IsolationDomainID: claim.IsolationDomainID, ID: q.ExecutionID}
@@ -165,31 +171,40 @@ func beginWorkspaceExportController(t *testing.T, ctx context.Context, pool *pgx
 		t.Fatal(err)
 	}
 	objects := &exportArtifactObjects{loseWrite: true}
-	provider := &exportCaptureProvider{ref: ref, base: base, changes: changes}
+	transport := stopped.bind(t, executionpostgres.New(pool), ref, gatewayID)
+	if changes, err := transport.ExportWorkspaceChanges(ctx, execution.ExecutionRef{IsolationDomainID: "foreign", ID: ref.ID}, base); changes != nil || !errors.Is(err, openshell.ErrWorkspaceChangeExport) || stopped.calls.Load() != 0 {
+		t.Fatal("foreign scope reached the gateway", stopped.calls.Load(), err)
+	}
+	provider := &exportCaptureProvider{ref: ref, base: base, delegate: transport}
 	config := reconcile.InvocationWorkspaceConfig{Scope: reconcile.InvocationAuthorizationPolicyScope{IsolationDomainID: claim.IsolationDomainID, ServiceID: service, RevisionID: revision}, Source: q.Source, PlanDigest: q.PlanDigest, GrantGeneration: 1}
 	exporter, err := reconcile.NewInvocationWorkspaceExporter(repo, source, objects, objects, config)
 	if err != nil {
 		t.Fatal(err)
 	}
 	check := func(context.Context) error { return nil }
+	if _, err := repo.CompleteInvocationRuntimeAttempt(ctx, claim, effect, map[string]any{"status": "succeeded"}); err != nil {
+		t.Fatal("retain native result", err)
+	}
+	driver := newWorkspaceRetentionRuntimeDriver(t, pool, config, source, objects, provider)
+	if _, found, err := driver.ObserveClaimed(ctx, claim, effect); found || !errors.Is(err, openshell.ErrWorkspaceChangeExport) || stopped.calls.Load() != 1 || objects.writes != 0 {
+		t.Fatal("unconfirmed archive reached retention", stopped.calls.Load(), objects.writes, err)
+	}
+	if _, err := repo.GetWorkspaceChangeExport(ctx, claim.IsolationDomainID, claim.ID); !errors.Is(err, workspace.ErrChangeExportMissing) {
+		t.Fatal("unconfirmed archive prepared an export", err)
+	}
 	if _, err := pool.Exec(ctx, `CREATE FUNCTION reject_export_completion() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='workspace.changes.export.completed' THEN RAISE EXCEPTION 'injected'; END IF; RETURN NEW; END; $$; CREATE TRIGGER reject_export_completion BEFORE INSERT ON audit_records FOR EACH ROW EXECUTE FUNCTION reject_export_completion()`); err != nil {
 		t.Fatal(err)
 	}
 	defer pool.Exec(context.Background(), `DROP FUNCTION IF EXISTS reject_export_completion() CASCADE`)
-	if _, err := exporter.Export(ctx, claim, effect, ref, provider, check); err == nil {
+	if _, found, err := driver.ObserveClaimed(ctx, claim, effect); found || err == nil {
 		t.Fatal("failed completion audit returned success")
 	}
 	pending, err := repo.GetWorkspaceChangeExport(ctx, claim.IsolationDomainID, claim.ID)
-	if err != nil || pending.Ready || pending.Record.Changes != changes.Receipt() || objects.writes != 1 || provider.calls != 1 {
+	if err != nil || pending.Ready || pending.Record.Changes != changes.Receipt() || objects.writes != 1 || provider.calls != 2 || stopped.calls.Load() != 2 {
 		t.Fatal("pending exact export", pending.Ready, objects.writes, provider.calls, err)
 	}
 	if _, err := pool.Exec(ctx, `DROP FUNCTION reject_export_completion() CASCADE`); err != nil {
 		t.Fatal(err)
-	}
-	// Preserve a native result before worker replacement. The replacement driver
-	// must complete this pending export without invoking any runtime transport.
-	if _, err := repo.CompleteInvocationRuntimeAttempt(ctx, claim, effect, map[string]any{"status": "succeeded"}); err != nil {
-		t.Fatal("retain native result", err)
 	}
 	// Revoke during a read, between its admission and delivery decisions.
 	source.beforeRead = func() {
@@ -203,7 +218,7 @@ func beginWorkspaceExportController(t *testing.T, ctx context.Context, pool *pgx
 	}
 	return func(replacement persistence.OperationClaim) {
 		before := objects.reads
-		if _, err := exporter.Export(ctx, replacement, effect, ref, provider, check); err == nil || objects.reads != before || provider.calls != 1 || objects.writes != 1 {
+		if _, err := exporter.Export(ctx, replacement, effect, ref, provider, check); err == nil || objects.reads != before || provider.calls != 2 || objects.writes != 1 {
 			t.Fatal("revoked base grant reached export", err)
 		}
 		now := time.Now().UTC().Truncate(time.Microsecond)
@@ -222,21 +237,24 @@ func beginWorkspaceExportController(t *testing.T, ctx context.Context, pool *pgx
 		if _, err := repo.ReadClaimedWorkspaceSource(ctx, replacement, effect, source, q.Source, 3, &reconcile.SourceCedarEvaluator{}); err == nil {
 			t.Fatal("original runtime read boundary weakened")
 		}
-		recoverWorkspaceThroughRuntimeDriver(t, ctx, pool, replacement, effect, config, source, objects, provider)
+		replacementDriver := newWorkspaceRetentionRuntimeDriver(t, pool, config, source, objects, provider)
+		if result, found, err := replacementDriver.ObserveClaimed(ctx, replacement, effect); err != nil || !found || result["status"] != "succeeded" {
+			t.Fatal("replacement did not recover the native result and workspace export", found, err)
+		}
 		completed, err := repo.GetWorkspaceChangeExport(ctx, replacement.IsolationDomainID, replacement.ID)
-		if err != nil || !completed.Ready || completed.Record != pending.Record || objects.writes != 1 || provider.calls != 1 {
+		if err != nil || !completed.Ready || completed.Record != pending.Record || objects.writes != 1 || provider.calls != 2 {
 			t.Fatal("replacement did not recover exact object", objects.writes, provider.calls, err)
 		}
-		if _, err := exporter.Export(ctx, replacement, effect, ref, provider, check); err != nil || objects.writes != 1 || provider.calls != 1 {
+		if _, err := exporter.Export(ctx, replacement, effect, ref, provider, check); err != nil || objects.writes != 1 || provider.calls != 2 || stopped.calls.Load() != 2 {
 			t.Fatal("completed replay rewrote or recaptured", err)
 		}
 		retained := bytes.Clone(objects.data)
 		objects.data[0] ^= 1
-		if _, err := exporter.Export(ctx, replacement, effect, ref, provider, check); err == nil || objects.writes != 1 || provider.calls != 1 {
+		if _, err := exporter.Export(ctx, replacement, effect, ref, provider, check); err == nil || objects.writes != 1 || provider.calls != 2 {
 			t.Fatal("corrupt retained object was recaptured", err)
 		}
 		objects.data = nil
-		if _, err := exporter.Export(ctx, replacement, effect, ref, provider, check); err == nil || objects.writes != 1 || provider.calls != 1 {
+		if _, err := exporter.Export(ctx, replacement, effect, ref, provider, check); err == nil || objects.writes != 1 || provider.calls != 2 {
 			t.Fatal("missing completed object was recreated", err)
 		}
 		objects.data = retained
