@@ -136,6 +136,8 @@ type runState struct {
 }
 
 type Result struct {
+	questionsRequired        bool
+	questions                *diagnosticQuestions
 	workspaceExportRequired  bool
 	workspaceExport          *diagnosticWorkspaceExport
 	workspaceSourceRequired  bool

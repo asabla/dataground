@@ -28,6 +28,7 @@ var (
 )
 
 type LauncherConfig struct {
+	questions                bool
 	workspaceExport          bool
 	workspaceSource          bool
 	diagnosticModel          string
@@ -234,12 +235,24 @@ func launch(
 			return Result{}, ErrLauncherRun
 		}
 	}
+	if owned != nil {
+		owned.questions = config.questions
+	}
 	var sourceEvidence *diagnosticWorkspaceSource
 	if config.workspaceSource {
 		phase = "workspace-source"
 		sourceEvidence, err = dependencies.checkWorkspace(ctx, runID, executionValue, ports)
 		if err != nil || !validWorkspaceDiagnostic(sourceEvidence, runID) {
 			return Result{}, ErrLauncherRun
+		}
+	}
+
+	var questionEvidence *diagnosticQuestions
+	if config.questions {
+		phase = "questions"
+		questionEvidence, err = checkQuestionDiagnostic(ctx, runID, config.diagnosticModel, owned)
+		if err != nil {
+			return Result{}, err
 		}
 	}
 
@@ -269,11 +282,12 @@ func launch(
 	if err := topology.Check(ctx); err != nil {
 		return Result{}, launcherFailure(ctx, ErrLauncherRun)
 	}
+	result.questionsRequired, result.questions = config.questions, questionEvidence
 	result.workspaceSourceRequired, result.workspaceSource = config.workspaceSource, sourceEvidence
 	if config.workspaceExport {
 		result.workspaceExportRequired = true
 		result.workspaceExport = owned.Evidence()
-		if !validOwnedWorkspaceDiagnostic(result.workspaceExport, runID) {
+		if !validOwnedWorkspaceDiagnosticQuestions(result.workspaceExport, runID, config.questions) {
 			return Result{}, ErrLauncherRun
 		}
 	}
@@ -311,7 +325,7 @@ func defaultLauncherDependencies() launcherDependencies {
 }
 
 func validLauncherConfig(config LauncherConfig) bool {
-	return (!config.workspaceExport || config.workspaceSource) && (!config.workspaceSource || config.supervisorCandidateImage != "") && validSupervisorSelection(config.supervisorCandidateImage, config.policyProfile, config.candidateImage, config.diagnosticModel) && config.candidateGatewaySHA256 == "" && config.RepositoryRoot != "" &&
+	return (!config.questions || config.workspaceExport) && (!config.workspaceExport || config.workspaceSource) && (!config.workspaceSource || config.supervisorCandidateImage != "") && validSupervisorSelection(config.supervisorCandidateImage, config.policyProfile, config.candidateImage, config.diagnosticModel) && config.candidateGatewaySHA256 == "" && config.RepositoryRoot != "" &&
 		config.WorkspaceRoot != "" &&
 		config.CredentialDirectory != "" &&
 		validRunProvenance(config.Provenance, config.diagnosticModel)
