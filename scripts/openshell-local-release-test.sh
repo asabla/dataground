@@ -16,6 +16,7 @@ version=$(jq -er .version deploy/openshell/local/release.json)
 profile=deploy/openshell/local/providers/dataground-codex-chatgpt.yaml
 provider=dg-release-synthetic
 sandbox=dg-release-smoke
+strict_sandbox=dg-release-strict
 cli=(openshell --gateway-endpoint "$gateway" --workspace default)
 
 cleanup() {
@@ -24,7 +25,7 @@ cleanup() {
   if (( status != 0 )); then
     docker ps --all --filter label=openshell.sandbox_namespace=dataground-local-v019
     docker logs --tail 100 dataground-openshell-local-v019-gateway-1 || true
-    "${cli[@]}" sandbox delete "$sandbox" || true
+    "${cli[@]}" sandbox delete "$sandbox" "$strict_sandbox" || true
     "${cli[@]}" provider delete "$provider" || true
   fi
   node scripts/openshell-local.mjs down || status=1
@@ -80,6 +81,31 @@ test "$output" = retained
 "${cli[@]}" sandbox delete "$sandbox"
 "${cli[@]}" sandbox list --output json --selector dataground-release-test=true |
   jq -e '.sandboxes == [] and .next_page_token == ""'
+# Exercise the file-device Landlock rule that required a patched 0.0.86 supervisor.
+strict_policy=deploy/openshell/codex-compatibility/rosetta-runtime-policy.yaml
+"${cli[@]}" sandbox create --name "$strict_sandbox" --from "$workload" \
+  --no-auto-providers --approval-mode manual --policy "$strict_policy" \
+  --provider "$provider" --label dataground-release-test=true --detach -- /bin/sleep infinity
+output=$("${cli[@]}" sandbox exec "$strict_sandbox" --no-tty --no-login-shell --timeout 20 -- \
+  /bin/sh -ec '
+    test "$(id -un)" = sandbox
+    test "$(id -gn)" = sandbox
+    printf "%s\n" device-write >/dev/null
+    cat /dev/null >/sandbox/dataground-release-device
+    if head -c 1 /dev/zero >/dev/null 2>/dev/null; then
+      exit 1
+    fi
+    printf "%s\n" strict-policy-ok
+  ')
+test "$output" = strict-policy-ok
+environment=$("${cli[@]}" sandbox exec "$strict_sandbox" --no-tty --no-login-shell --timeout 20 -- /usr/bin/env)
+if [[ "$environment" == *synthetic-account* || "$environment" == *synthetic-token* ]]; then
+  echo "synthetic provider credentials were exposed to the strict workload" >&2
+  exit 1
+fi
+unset environment
+"${cli[@]}" sandbox delete "$strict_sandbox"
+
 DATAGROUND_TEST_OPENSHELL_RELEASE_ROOT="$PWD" \
   DATAGROUND_TEST_OPENSHELL_PROVIDER="$provider" \
   DATAGROUND_TEST_OPENSHELL_WORKLOAD="$workload" \
