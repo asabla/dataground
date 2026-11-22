@@ -39,6 +39,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
+wait_for_sandbox_cleanup() {
+  for _ in {1..40}; do
+    if "${cli[@]}" sandbox list --output json --selector dataground-release-test=true |
+      jq -e '.sandboxes == [] and .next_page_token == ""' >/dev/null; then
+      return
+    fi
+    sleep 0.25
+  done
+  echo "the release test sandbox cleanup could not be confirmed" >&2
+  return 1
+}
+
 node scripts/check-openshell-profile.mjs
 node scripts/openshell-local.mjs up
 started=true
@@ -79,8 +91,7 @@ if ! grep -Fxq foreground-exit <<<"$output"; then
   echo "the foreground sandbox command did not emit its expected output" >&2
   exit 1
 fi
-"${cli[@]}" sandbox list --output json --selector dataground-release-test=true |
-  jq -e '.sandboxes == [] and .next_page_token == ""'
+wait_for_sandbox_cleanup
 
 "${cli[@]}" sandbox create --name "$sandbox" --from "$workload" \
   --no-auto-providers --approval-mode manual --policy deploy/openshell/policies/deny-all.yaml \
@@ -102,8 +113,7 @@ output=$("${cli[@]}" sandbox exec "$sandbox" --no-tty --no-login-shell --timeout
 test "$output" = retained
 
 "${cli[@]}" sandbox delete "$sandbox"
-"${cli[@]}" sandbox list --output json --selector dataground-release-test=true |
-  jq -e '.sandboxes == [] and .next_page_token == ""'
+wait_for_sandbox_cleanup
 # Exercise the file-device Landlock rule that required a patched 0.0.86 supervisor.
 strict_policy=deploy/openshell/codex-compatibility/rosetta-runtime-policy.yaml
 "${cli[@]}" sandbox create --name "$strict_sandbox" --from "$workload" \
@@ -135,8 +145,7 @@ unset environment
 "${cli[@]}" sandbox create --name "$provider_free" --from "$workload" \
   --no-auto-providers --approval-mode manual --policy deploy/openshell/local/deny-all.yaml \
   --label dataground-release-test=true --no-tty --no-keep -- /usr/bin/true
-"${cli[@]}" sandbox list --output json --selector dataground-release-test=true |
-  jq -e '.sandboxes == [] and .next_page_token == ""'
+wait_for_sandbox_cleanup
 
 DATAGROUND_TEST_OPENSHELL_RELEASE_ROOT="$PWD" \
   DATAGROUND_TEST_OPENSHELL_PROVIDER="$provider" \
