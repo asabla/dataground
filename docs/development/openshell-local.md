@@ -95,6 +95,8 @@ This smoke proves only one ordinary local OpenShell-to-Codex inference path. It 
 
 Stop the local gateway with `pnpm openshell:local:down`. This removes the gateway container but leaves OpenShell state under `/var/lib/openshell-dataground-v019`; do not delete that directory as part of routine cleanup.
 
+The OpenShell local release workflow also exercises the checked Rosetta policy on the stock `0.1.9` sandbox runtime. It uses a synthetic provider to check the workload identity, read and write access to `/dev/null`, denial for `/dev/zero`, and the absence of the synthetic provider values from a workload environment. The governed worker needs separate release-specific evidence covering the full credential surface, native runtime, and accepted workspace artifacts.
+
 ## Adapter behavior and remaining gates
 
 The development adapter registers gateways, selects only active gateways with required capabilities, reserves deterministic placements, creates deterministic sandboxes, observes ambiguous creation and termination before repetition, starts Codex app-server through non-TTY stdio, retrieves logs, exports files, terminates sandboxes, and lists managed orphans. It invokes the OpenShell binary directly with an argument vector rather than through a shell. Gateway endpoints and native sandbox names remain in protected provider state; returned resources and runtime sessions cannot serialize them.
