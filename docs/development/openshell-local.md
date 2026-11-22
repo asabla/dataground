@@ -67,13 +67,13 @@ Before upgrading an existing local stack, finish work in its sandboxes and run `
 
 CI separately starts the checked runtime-conformance gateway, verifies its exact image, container and run labels through Docker's actual inspection template, and observes complete teardown without using provider credentials or producing runtime evidence. On an isolated Linux Docker host with ports 8080 and 8081 free, run `DATAGROUND_TEST_RUNTIME_TOPOLOGY_ROOT="$PWD" go test ./internal/execution/runtimeevidence -run '^TestDockerTopologyLiveIdentityAndCleanup$' -count=1 -timeout=6m`. The test owns a random Compose project and private temporary workspace. The checked host-network topology requires a Linux execution environment; running it directly on a macOS host is unsupported.
 
-The checked-in profile deliberately does not create a provider or run a credential-bearing agent. A deny-all sandbox can be used for lifecycle conformance without provider access:
+The checked-in profile deliberately does not create a provider or run a credential-bearing agent. The checked strict policy can be used to run a local sandbox without provider access:
 
 ```shell
 openshell --gateway-endpoint http://127.0.0.1:8080 --workspace default sandbox create \
   --name dg-deny-all \
   --from ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e \
-  --policy deploy/openshell/policies/deny-all.yaml \
+  --policy deploy/openshell/codex-compatibility/rosetta-runtime-policy.yaml \
   --no-auto-providers \
   --approval-mode manual \
   --no-tty --no-keep -- /bin/true

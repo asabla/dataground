@@ -18,6 +18,7 @@ provider=dg-release-synthetic
 sandbox=dg-release-smoke
 strict_sandbox=dg-release-strict
 foreground=dg-0123456789abcdef
+provider_free=dg-release-no-auth
 cli=(openshell --gateway-endpoint "$gateway" --workspace default)
 
 cleanup() {
@@ -26,7 +27,7 @@ cleanup() {
   if (( status != 0 )); then
     docker ps --all --filter label=openshell.sandbox_namespace=dataground-local-v019
     docker logs --tail 100 dataground-openshell-local-v019-gateway-1 || true
-    "${cli[@]}" sandbox delete "$sandbox" "$strict_sandbox" "$foreground" || true
+    "${cli[@]}" sandbox delete "$sandbox" "$strict_sandbox" "$foreground" "$provider_free" || true
     "${cli[@]}" provider delete "$provider" || true
   fi
   node scripts/openshell-local.mjs down || status=1
@@ -125,6 +126,13 @@ if [[ "$environment" == *synthetic-account* || "$environment" == *synthetic-toke
 fi
 unset environment
 "${cli[@]}" sandbox delete "$strict_sandbox"
+
+# A provider-free sandbox requires the explicit device and workload settings.
+"${cli[@]}" sandbox create --name "$provider_free" --from "$workload" \
+  --no-auto-providers --approval-mode manual --policy "$strict_policy" \
+  --label dataground-release-test=true --no-tty --no-keep -- /bin/true
+"${cli[@]}" sandbox list --output json --selector dataground-release-test=true |
+  jq -e '.sandboxes == [] and .next_page_token == ""'
 
 DATAGROUND_TEST_OPENSHELL_RELEASE_ROOT="$PWD" \
   DATAGROUND_TEST_OPENSHELL_PROVIDER="$provider" \
