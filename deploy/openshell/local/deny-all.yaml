@@ -1,0 +1,16 @@
+version: 1
+filesystem_policy:
+  include_workdir: false
+  # The provider-free sandbox receives no proxy filesystem baseline.
+  # The pinned Ubuntu workload resolves its binaries and loader under /usr.
+  read_only:
+    - /usr
+  read_write:
+    - /dev/null
+    - /sandbox
+landlock:
+  compatibility: hard_requirement
+process:
+  run_as_user: sandbox
+  run_as_group: sandbox
+network_policies: {}

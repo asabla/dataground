@@ -129,8 +129,8 @@ unset environment
 
 # A provider-free sandbox requires the explicit device and workload settings.
 "${cli[@]}" sandbox create --name "$provider_free" --from "$workload" \
-  --no-auto-providers --approval-mode manual --policy "$strict_policy" \
-  --label dataground-release-test=true --no-tty --no-keep -- /bin/true
+  --no-auto-providers --approval-mode manual --policy deploy/openshell/local/deny-all.yaml \
+  --label dataground-release-test=true --no-tty --no-keep -- /usr/bin/true
 "${cli[@]}" sandbox list --output json --selector dataground-release-test=true |
   jq -e '.sandboxes == [] and .next_page_token == ""'
 
