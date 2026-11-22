@@ -499,7 +499,8 @@ function sandboxNames(binary) {
 }
 
 function runSmoke(binary, model) {
-  const sandboxName = `dg-codex-smoke-${randomBytes(8).toString("hex")}`;
+  // OpenShell 0.1.9 reserves only 19 characters for a routable sandbox name.
+  const sandboxName = `dg-${randomBytes(8).toString("hex")}`;
   if (sandboxNames(binary).includes(sandboxName)) {
     fail("the fresh OpenShell smoke sandbox name already exists");
   }
