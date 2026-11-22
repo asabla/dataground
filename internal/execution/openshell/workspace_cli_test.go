@@ -194,7 +194,13 @@ func TestWorkspaceCLILiveLifecycle(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	provider := New(Config{ExpectedVersion: WorkspaceCLIVersion, PolicyWorkspace: workspace}, nil)
+	registry, err := execution.NewProviderProfileRegistry([]string{bindingName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := New(Config{
+		ExpectedVersion: WorkspaceCLIVersion, PolicyWorkspace: workspace, ProviderProfiles: registry,
+	}, nil)
 	const isolationID, gatewayID, operationID = "iso-release-test", "dataground-local-v019", "op-release-test"
 	placement := registerWorkspaceGateway(t, ctx, provider, isolationID, gatewayID, operationID)
 	if err := provider.Check(ctx); err != nil {
@@ -223,6 +229,7 @@ func TestWorkspaceCLILiveLifecycle(t *testing.T) {
 	request := execution.CreateRequest{
 		IsolationDomainID: isolationID, OperationID: operationID, Placement: placement,
 		Image: image, Policy: policy, PolicyDigest: "sha256:" + hex.EncodeToString(sum[:]),
+		ProviderProfiles: []string{bindingName},
 	}
 	created, err := provider.Create(ctx, request)
 	if err != nil || created.ID != ref.ID {
