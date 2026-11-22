@@ -1,0 +1,31 @@
+// Wire subset of the pinned OpenShell stopped workspace candidate. The
+// gateway defines authorization in its own descriptor.
+syntax = "proto3";
+
+package openshell.v1;
+
+option go_package = "github.com/asabla/dataground/internal/execution/openshell/retentionrpc";
+
+import "workspace_scope.proto";
+
+service WorkspaceRetention {
+  rpc ReadStoppedWorkspace(ReadStoppedWorkspaceRequest) returns (stream ReadStoppedWorkspaceFrame);
+}
+
+message ReadStoppedWorkspaceRequest {
+  openshell.datamodel.v1.WorkspaceSelector workspace_scope = 1;
+  string sandbox_id = 2;
+  string generation = 3;
+}
+
+message ReadStoppedWorkspaceFrame {
+  oneof payload {
+    StoppedWorkspaceArchiveHeader header = 1;
+    bytes data = 2;
+  }
+}
+
+message StoppedWorkspaceArchiveHeader {
+  uint64 size_bytes = 1;
+  string digest = 2;
+}

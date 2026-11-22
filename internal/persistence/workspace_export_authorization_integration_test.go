@@ -100,7 +100,13 @@ func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *p
 	if err != nil {
 		t.Fatal(err)
 	}
-	gateway, err := store.RegisterGateway(ctx, execution.GatewayRegistration{IsolationDomainID: scope, ID: identity.New("gtw"), Endpoint: "http://127.0.0.1:8080", Driver: "docker", Capabilities: []string{"codex.app-server"}})
+	endpoint := "http://127.0.0.1:8080"
+	var stopped *stoppedWorkspaceGatewayFixture
+	if version == "v7" && cancellation == "" {
+		stopped = newStoppedWorkspaceGatewayFixture(t)
+		endpoint = stopped.endpoint
+	}
+	gateway, err := store.RegisterGateway(ctx, execution.GatewayRegistration{IsolationDomainID: scope, ID: identity.New("gtw"), Endpoint: endpoint, Driver: "docker", Capabilities: []string{"codex.app-server"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +268,7 @@ func testWorkspaceExportAuthorization(t *testing.T, ctx context.Context, pool *p
 	if _, err := capture(); err != nil {
 		t.Fatal("refreshed membership", err)
 	}
-	recoverController := beginWorkspaceExportController(t, ctx, pool, *claim, effect, entry.Record, service, revision, sourceObjects, base)
+	recoverController := beginWorkspaceExportController(t, ctx, pool, *claim, effect, entry.Record, service, revision, sourceObjects, base, stopped, gateway.ID)
 	// Claim replacement must not replace the original stopped process owner.
 	old := *claim
 	claim.LeaseOwner = "replacement-export-owner"

@@ -15,9 +15,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// This replacement has no native session. Source, policy, claim and retention
-// checks use PostgreSQL; the original cleanup remains a trusted fixture proof.
-func recoverWorkspaceThroughRuntimeDriver(t *testing.T, ctx context.Context, pool *pgxpool.Pool, claim persistence.OperationClaim, effect persistence.EffectRecord, config reconcile.InvocationWorkspaceConfig, source *exportSourceObjects, objects *exportArtifactObjects, provider *exportCaptureProvider) {
+// This worker observes a durable native outcome and has no native session.
+// Source, policy, claim and retention checks use PostgreSQL.
+func newWorkspaceRetentionRuntimeDriver(t *testing.T, pool *pgxpool.Pool, config reconcile.InvocationWorkspaceConfig, source *exportSourceObjects, objects *exportArtifactObjects, provider *exportCaptureProvider) *reconcile.InvocationRuntimeDriver {
 	t.Helper()
 	repo := persistence.NewRepository(pool)
 	preparer, err := reconcile.NewInvocationWorkspacePreparer(repo, source, config)
@@ -39,10 +39,7 @@ func recoverWorkspaceThroughRuntimeDriver(t *testing.T, ctx context.Context, poo
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, found, err := driver.ObserveClaimed(ctx, claim, effect)
-	if err != nil || !found || result["status"] != "succeeded" {
-		t.Fatal("driver failed to recover retained native result and workspace export", found, err)
-	}
+	return driver
 }
 
 type workspaceCompletionRecoveryTransport struct {

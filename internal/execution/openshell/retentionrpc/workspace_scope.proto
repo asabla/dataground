@@ -1,0 +1,12 @@
+// The private retention read accepts an explicitly named workspace.
+syntax = "proto3";
+
+package openshell.datamodel.v1;
+
+option go_package = "github.com/asabla/dataground/internal/execution/openshell/retentionrpc";
+
+message WorkspaceSelector {
+  oneof selection {
+    string workspace = 1;
+  }
+}
