@@ -20,6 +20,7 @@ strict_sandbox=dg-release-strict
 foreground=dg-0123456789abcdef
 provider_free=dg-release-no-auth
 cli=(openshell --gateway-endpoint "$gateway" --workspace default)
+started=false
 
 cleanup() {
   local status=$?
@@ -27,8 +28,10 @@ cleanup() {
   if (( status != 0 )); then
     docker ps --all --filter label=openshell.sandbox_namespace=dataground-local-v019
     docker logs --tail 100 dataground-openshell-local-v019-gateway-1 || true
-    "${cli[@]}" sandbox delete "$sandbox" "$strict_sandbox" "$foreground" "$provider_free" || true
-    "${cli[@]}" provider delete "$provider" || true
+    if [[ "$started" == true ]]; then
+      "${cli[@]}" sandbox delete "$sandbox" "$strict_sandbox" "$foreground" "$provider_free" || true
+      "${cli[@]}" provider delete "$provider" || true
+    fi
   fi
   node scripts/openshell-local.mjs down || status=1
   rm -rf -- "$temporary_home"
@@ -38,6 +41,7 @@ trap cleanup EXIT
 
 node scripts/check-openshell-profile.mjs
 node scripts/openshell-local.mjs up
+started=true
 ready=false
 for _ in {1..60}; do
   if curl --fail --silent http://127.0.0.1:8081/readyz >/dev/null; then
