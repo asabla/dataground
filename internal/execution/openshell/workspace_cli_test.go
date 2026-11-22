@@ -109,7 +109,7 @@ func readyWorkspaceCLITarget(t *testing.T, runner Runner) (*Provider, execution.
 		IsolationDomainID: isolationID, ID: derivedID("exe", isolationID+":"+operationID),
 		GatewayID: gatewayID, State: "ready",
 	}
-	name := sandboxName(isolationID, operationID)
+	name := provider.sandboxName(isolationID, operationID)
 	if err := provider.rememberExecution(t.Context(), value, placement.ID, operationID, name); err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestWorkspaceCLILiveLifecycle(t *testing.T) {
 	}
 	created, err := provider.Create(ctx, request)
 	if err != nil || created.ID != ref.ID {
-		t.Fatalf("sandbox creation: %v", err)
+		t.Fatalf("sandbox creation (%s): %v", NativeFailureClassOf(err), err)
 	}
 	deadline := time.NewTimer(45 * time.Second)
 	defer deadline.Stop()

@@ -199,9 +199,9 @@ type runtimeStreamReader struct {
 
 func (reader runtimeStreamReader) Close() error { return reader.close() }
 
-func validRuntimeTarget(ref execution.ExecutionRef, entry execution.ExecutionRecord, gateway execution.GatewayRecord) bool {
+func (provider *Provider) validRuntimeTarget(ref execution.ExecutionRef, entry execution.ExecutionRecord, gateway execution.GatewayRecord) bool {
 	return entry.Execution.State == "ready" && entry.Execution.IsolationDomainID == ref.IsolationDomainID && entry.Execution.ID == ref.ID &&
-		entry.OperationID != "" && entry.PlacementID != "" && entry.SandboxName == sandboxName(ref.IsolationDomainID, entry.OperationID) &&
+		entry.OperationID != "" && entry.PlacementID != "" && entry.SandboxName == provider.sandboxName(ref.IsolationDomainID, entry.OperationID) &&
 		entry.Execution.ID == derivedID("exe", ref.IsolationDomainID+":"+entry.OperationID) &&
 		gateway.Endpoint == runtimeSSHGatewayEndpoint && gateway.Gateway.Driver == "docker" &&
 		gateway.Gateway.ID == entry.Execution.GatewayID && gateway.Gateway.IsolationDomainID == ref.IsolationDomainID

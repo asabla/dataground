@@ -4,6 +4,9 @@ set -euo pipefail
 # This check owns the local Compose project and assumes an isolated Docker host.
 test -z "$(docker ps --all --quiet --filter label=com.docker.compose.project=dataground-openshell-local-v019)"
 
+GOMODCACHE=$(go env GOMODCACHE)
+GOCACHE=$(go env GOCACHE)
+export GOMODCACHE GOCACHE
 temporary_home="$(mktemp -d)"
 export HOME="$temporary_home"
 unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME

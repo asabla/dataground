@@ -358,7 +358,7 @@ func (provider *Provider) create(ctx context.Context, request execution.CreateRe
 	}
 	endpoint := gateway.Endpoint
 	executionID := derivedID("exe", request.IsolationDomainID+":"+request.OperationID)
-	sandbox := sandboxName(request.IsolationDomainID, request.OperationID)
+	sandbox := provider.sandboxName(request.IsolationDomainID, request.OperationID)
 	observed, found, observeErr := provider.observeByName(
 		ctx, request.IsolationDomainID, request.OperationID, endpoint, sandbox, executionID, request.Placement.GatewayID, createFingerprint,
 	)
@@ -495,7 +495,7 @@ func (provider *Provider) startSandboxCommand(ctx context.Context, ref execution
 	if err != nil {
 		return nil, err
 	}
-	if !validRuntimeTarget(ref, entry, gateway) ||
+	if !provider.validRuntimeTarget(ref, entry, gateway) ||
 		(provider.expected != credentialEvidenceOpenShellVersion && !provider.usesWorkspaceCLI()) {
 		return nil, ErrRuntimeTransport
 	}
@@ -505,7 +505,7 @@ func (provider *Provider) startSandboxCommand(ctx context.Context, ref execution
 		return nil, ErrRuntimeTransport
 	}
 	current, currentGateway, err := provider.lookupExecution(setupCtx, ref)
-	if err != nil || !validRuntimeTarget(ref, current, currentGateway) || current.PlacementID != entry.PlacementID || current.OperationID != entry.OperationID || current.Execution.GatewayID != entry.Execution.GatewayID {
+	if err != nil || !provider.validRuntimeTarget(ref, current, currentGateway) || current.PlacementID != entry.PlacementID || current.OperationID != entry.OperationID || current.Execution.GatewayID != entry.Execution.GatewayID {
 		return nil, ErrRuntimeTransport
 	}
 	if provider.usesWorkspaceCLI() {

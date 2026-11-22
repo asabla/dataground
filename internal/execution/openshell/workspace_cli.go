@@ -2,8 +2,10 @@ package openshell
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"math/big"
 	"strconv"
 	"strings"
 
@@ -19,6 +21,16 @@ const (
 
 func (provider *Provider) usesWorkspaceCLI() bool {
 	return strings.TrimPrefix(provider.expected, "v") == WorkspaceCLIVersion
+}
+
+func (provider *Provider) sandboxName(isolationDomainID, operationID string) string {
+	if !provider.usesWorkspaceCLI() {
+		return sandboxName(isolationDomainID, operationID)
+	}
+	// Compress the same 96-bit digest into a DNS label that fits the v0.1.9
+	// routing limit of 19 characters (12 bytes fit in 19 base-36 digits).
+	digest := sha256.Sum256([]byte(isolationDomainID + ":" + operationID))
+	return new(big.Int).SetBytes(digest[:12]).Text(36)
 }
 
 type workspaceResource struct {
