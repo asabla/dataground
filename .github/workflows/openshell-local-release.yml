@@ -1,0 +1,60 @@
+name: OpenShell local release
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/openshell-local-release.yml'
+      - 'deploy/openshell/local/**'
+      - 'deploy/openshell/policies/deny-all.yaml'
+      - 'scripts/check-openshell-profile.mjs'
+      - 'scripts/openshell-local*.mjs'
+      - 'scripts/openshell-local-release-test.sh'
+      - 'scripts/openshell-codex-smoke*.mjs'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/openshell-local-release.yml'
+      - 'deploy/openshell/local/**'
+      - 'deploy/openshell/policies/deny-all.yaml'
+      - 'scripts/check-openshell-profile.mjs'
+      - 'scripts/openshell-local*.mjs'
+      - 'scripts/openshell-local-release-test.sh'
+      - 'scripts/openshell-codex-smoke*.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openshell-local-release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  local-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install pinned OpenShell CLI
+        run: |
+          release=deploy/openshell/local/release.json
+          version=$(jq -er .version "$release")
+          source=$(jq -er .releaseBaseURL "$release")
+          asset=$(jq -er .packages.amd64.name "$release")
+          digest=$(jq -er .packages.amd64.sha256 "$release")
+          package="$RUNNER_TEMP/$asset"
+          curl --fail --silent --show-error --location --retry 3 --max-redirs 5 \
+            --proto '=https' --tlsv1.2 "$source/v$version/$asset" --output "$package"
+          printf '%s  %s\n' "$digest" "$package" | sha256sum --check --strict -
+          dpkg-deb --extract "$package" "$RUNNER_TEMP/openshell"
+          printf '%s\n' "$RUNNER_TEMP/openshell/usr/bin" >>"$GITHUB_PATH"
+
+      - name: Exercise the checked release with synthetic credentials
+        run: bash scripts/openshell-local-release-test.sh

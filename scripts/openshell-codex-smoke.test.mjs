@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
   parseCodexCredentials,
   readCodexCredentials,
+  readWorkspaceResources,
   smokeModel,
   validateBridgeProfile,
   validateBridgeProvider,
@@ -155,4 +156,29 @@ test("accepts only the exact normalized bridge profile and provider metadata", (
     () => validateBridgeProvider({ ...provider, credential_keys: ["OPENAI_API_KEY"] }),
     /does not match/u,
   );
+});
+
+test("only accepts complete, unambiguous OpenShell workspace listings", () => {
+  const first = { name: "first", workspace: "default" };
+  const second = { name: "second", workspace: "default" };
+  const pages = {
+    "": { sandboxes: [first], next_page_token: "page-2" },
+    "page-2": { sandboxes: [second], next_page_token: "" },
+  };
+  assert.deepEqual(
+    readWorkspaceResources((token) => pages[token], "sandboxes"),
+    [first, second],
+  );
+  for (const invalid of [
+    { sandboxes: [first], next_page_token: "" },
+    { sandboxes: [{ ...second, workspace: "other" }], next_page_token: "" },
+    { sandboxes: [second], next_page_token: "page-2" },
+    { sandboxes: [second] },
+    [second],
+  ]) {
+    assert.throws(
+      () => readWorkspaceResources((token) => (token === "" ? pages[""] : invalid), "sandboxes"),
+      /invalid workspace/u,
+    );
+  }
 });

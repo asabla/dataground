@@ -52,29 +52,31 @@ Primary upstream references are the OpenShell [runtime architecture](https://doc
 
 The initial live topology is one host-loopback-only OpenShell gateway using the Docker compute driver. The gateway container shares the Docker host network namespace so OpenShell can bind its driver-owned listener on the sandbox bridge; its control and health listeners remain restricted to `127.0.0.1` on ports `8080` and `8081`. The DataGround API uses port `8082`, keeping all three checked development listeners distinct. Launcher readiness is bound to the gateway's dependency-aware `/readyz` route; the health listener root is not a valid readiness signal. Docker Compose mounts the Docker socket and `/var/lib/openshell`; this grants the gateway substantial control over the development host and is unsuitable for an untrusted or shared machine. The gateway uses plaintext transport and accepts unauthenticated user CLI calls only on the dedicated loopback listener; sandbox supervisors still require the fresh run-scoped gateway JWT. The provider contract supports multiple registered gateways and durable selection, but production gateway identity, TLS, richer placement constraints, and deployment wiring remain separate work.
 
-On a Docker-capable development host with OpenShell CLI `0.0.86` installed:
+For ordinary development, use a Linux Docker host with Landlock ABI v3 or later and the OpenShell CLI `0.1.9`. The checked release manifest identifies the upstream commit, Linux amd64 and arm64 packages and checksums, and the immutable gateway, supervisor, sandbox runtime, and workload images. [Release manifest](../../deploy/openshell/local/release.json) · [Upstream release](https://github.com/ai-openshell/openshell/releases/tag/v0.1.9)
 
 ```shell
 pnpm openshell:profile:check
 pnpm openshell:local:up
 curl --fail http://127.0.0.1:8081/readyz
-openshell --gateway-endpoint http://127.0.0.1:8080 status
+openshell --gateway-endpoint http://127.0.0.1:8080 --workspace default status
 ```
 
-The ordinary development command uses `deploy/openshell/local/docker-compose.yml` and the exact digest-pinned images from the checked development profile. Its wrapper requires the exact OpenShell CLI version and creates or validates one persistent Ed25519 gateway-JWT keypair under the current user's owner-only local state directory; key files are never stored in the repository. It runs the gateway as root with access to the Docker socket and retains its SQLite database and extracted supervisor under the Docker host's `/var/lib/openshell`; use it only on a trusted local development machine. This topology is not evidence-producing. The credential and runtime conformance Compose files remain launcher-owned and intentionally reject direct startup without fresh run-scoped state, identity, and JWT inputs.
+The ordinary development launcher creates or verifies an Ed25519 gateway JWT keypair under `~/.local/state/dataground/openshell-local-v019`. It runs the gateway as root with access to the Docker socket and publishes both listeners on host loopback. Use it only on a trusted local development machine. Gateway state uses a new host path, `/var/lib/openshell-dataground-v019`, so upgrading preserves the previous database and leaves the new workspace empty. Recreate any local providers against the new gateway.
+
+Before upgrading an existing local stack, finish work in its sandboxes and run `pnpm openshell:local:down` from the previous checkout to free ports 8080 and 8081. To roll back, stop the new stack, return to the previous checkout and CLI, then start the old stack using its original state. The signed evidence and governed worker use the separate pinned development profile described above.
 
 CI separately starts the checked runtime-conformance gateway, verifies its exact image, container and run labels through Docker's actual inspection template, and observes complete teardown without using provider credentials or producing runtime evidence. On an isolated Linux Docker host with ports 8080 and 8081 free, run `DATAGROUND_TEST_RUNTIME_TOPOLOGY_ROOT="$PWD" go test ./internal/execution/runtimeevidence -run '^TestDockerTopologyLiveIdentityAndCleanup$' -count=1 -timeout=6m`. The test owns a random Compose project and private temporary workspace. The checked host-network topology requires a Linux execution environment; running it directly on a macOS host is unsupported.
 
 The checked-in profile deliberately does not create a provider or run a credential-bearing agent. A deny-all sandbox can be used for lifecycle conformance without provider access:
 
 ```shell
-openshell --gateway-endpoint http://127.0.0.1:8080 sandbox create \
+openshell --gateway-endpoint http://127.0.0.1:8080 --workspace default sandbox create \
   --name dg-deny-all \
   --from ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e \
   --policy deploy/openshell/policies/deny-all.yaml \
   --no-auto-providers \
   --approval-mode manual \
-  -- true
+  --no-tty --no-keep -- /bin/true
 ```
 
 For a real, billable local inference smoke test, first sign in with the pinned Codex CLI so an owner-only ChatGPT authentication file exists at `$CODEX_HOME/auth.json` or `~/.codex/auth.json`, then run:
@@ -85,13 +87,13 @@ DATAGROUND_CODEX_SMOKE_MODEL="<available-model-id>" pnpm openshell:local:codex-s
 
 Choose a model available to the local account explicitly; the command has no default or fallback model. The model identifier must contain 1–128 ASCII letters, digits, dots, underscores, or hyphens and begin with a letter or digit. Invalid or missing selections fail before credential access or gateway changes.
 
-The smoke command requires the running loopback gateway and exact OpenShell `0.0.86` CLI. It enables provider profiles, lints and installs the checked `dataground-codex-chatgpt` bridge profile, and imports only the short-lived access token and account identifier into a persistent local OpenShell provider through a scrubbed child environment. Credential values are never command arguments or command output. It then creates a randomly named, digest-pinned, deny-all sandbox; runs one locked, read-only, ephemeral Codex turn using the selected model through the ChatGPT Codex endpoint; requires the exact `dataground-openshell-e2e-ok` response; and verifies that the sandbox was removed.
+The smoke command verifies that the loopback gateway and CLI both report `0.1.9`. It lints and installs the checked `dataground-codex-chatgpt` bridge profile, and imports only the short-lived access token and account identifier into a persistent local OpenShell provider through a scrubbed child environment. Credential values are never command arguments or command output. It then creates a randomly named, digest-pinned, deny-all sandbox; runs one locked, read-only, ephemeral Codex turn using the selected model through the ChatGPT Codex endpoint; requires the exact `dataground-openshell-e2e-ok` response; and verifies that the sandbox was removed.
 
 The bridge is necessary because the upstream OpenShell Codex profile exposes OAuth fields under `CODEX_AUTH_*`, while the pinned Codex `0.117.0` default model provider does not consume those environment variables. The checked smoke command instead fixes the ChatGPT endpoint, account header, Responses wire protocol, and environment placeholders explicitly. It neither stores credentials in the repository nor imports the refresh or identity token. Re-run the command to refresh the local provider from the current authentication file.
 
 This smoke proves only one ordinary local OpenShell-to-Codex inference path. It does not produce runtime-conformance evidence, activate a runtime-certification manifest, exercise the governed development worker, or change production-certification status.
 
-Stop the local gateway with `pnpm openshell:local:down`. This removes the gateway container but leaves OpenShell state under `/var/lib/openshell`; do not delete that directory as part of routine cleanup.
+Stop the local gateway with `pnpm openshell:local:down`. This removes the gateway container but leaves OpenShell state under `/var/lib/openshell-dataground-v019`; do not delete that directory as part of routine cleanup.
 
 ## Adapter behavior and remaining gates
 
