@@ -26,6 +26,15 @@ type providerBindingView struct {
 	ResourceVersion uint64   `json:"resource_version"`
 }
 
+type workspaceProviderBinding struct {
+	providerBindingView
+	Workspace string `json:"workspace"`
+}
+
+func (binding workspaceProviderBinding) identity() workspaceResource {
+	return workspaceResource{ID: binding.ID, Name: binding.Name, Workspace: binding.Workspace}
+}
+
 // ObserveProviderBinding reads credential-safe provider metadata from the exact
 // persisted gateway. OpenShell's structured output exposes keys, never values;
 // this boundary retains only immutable identity needed for cleanup.
@@ -83,6 +92,23 @@ func (provider *Provider) observeProviderBindingName(
 	gateway, err := provider.executionContext(ctx, isolationDomainID, gatewayID)
 	if err != nil {
 		return providerBindingView{}, false, time.Time{}, err
+	}
+
+	if provider.usesWorkspaceCLI() {
+		bindings, err := listWorkspaceResources[workspaceProviderBinding](ctx, provider, gateway.Endpoint,
+			"providers", "provider", "list")
+		if err != nil {
+			return providerBindingView{}, false, time.Time{}, ErrProviderFailure
+		}
+		for _, binding := range bindings {
+			if binding.Name == name {
+				if binding.ResourceVersion == 0 {
+					return providerBindingView{}, false, time.Time{}, ErrProviderFailure
+				}
+				return binding.providerBindingView, true, provider.now().UTC(), nil
+			}
+		}
+		return providerBindingView{}, false, provider.now().UTC(), nil
 	}
 
 	for page := 0; page < providerBindingPageLimit; page++ {

@@ -10,6 +10,7 @@ on:
       - 'scripts/openshell-local*.mjs'
       - 'scripts/openshell-local-release-test.sh'
       - 'scripts/openshell-codex-smoke*.mjs'
+      - 'internal/execution/openshell/**'
   push:
     branches:
       - main
@@ -21,6 +22,7 @@ on:
       - 'scripts/openshell-local*.mjs'
       - 'scripts/openshell-local-release-test.sh'
       - 'scripts/openshell-codex-smoke*.mjs'
+      - 'internal/execution/openshell/**'
 
 permissions:
   contents: read
@@ -42,6 +44,11 @@ jobs:
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: .go-version
 
       - name: Install pinned OpenShell CLI
         run: |

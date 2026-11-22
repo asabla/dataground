@@ -188,6 +188,12 @@ func (provider *Provider) Check(ctx context.Context) error {
 	if err != nil || result.ExitCode != 0 {
 		return ErrProviderFailure
 	}
+	if provider.usesWorkspaceCLI() {
+		if strings.TrimSpace(string(result.Stdout)) != "openshell "+WorkspaceCLIVersion {
+			return errors.New("OpenShell CLI does not match the selected release")
+		}
+		return nil
+	}
 	fields := strings.Fields(string(result.Stdout))
 	if len(fields) == 0 || strings.TrimPrefix(fields[len(fields)-1], "v") != strings.TrimPrefix(provider.expected, "v") {
 		return errors.New("OpenShell version does not match the certified profile")
@@ -218,6 +224,9 @@ func (provider *Provider) EnableProviderProfiles(
 	gateway, err := provider.executionContext(ctx, isolationDomainID, gatewayID)
 	if err != nil {
 		return err
+	}
+	if provider.usesWorkspaceCLI() {
+		return provider.checkWorkspaceProfiles(ctx, gateway.Endpoint)
 	}
 	enabled, err := provider.providerProfilesEnabled(ctx, gateway.Endpoint)
 	if err != nil {
@@ -351,7 +360,7 @@ func (provider *Provider) create(ctx context.Context, request execution.CreateRe
 	executionID := derivedID("exe", request.IsolationDomainID+":"+request.OperationID)
 	sandbox := sandboxName(request.IsolationDomainID, request.OperationID)
 	observed, found, observeErr := provider.observeByName(
-		ctx, request.IsolationDomainID, endpoint, sandbox, executionID, request.Placement.GatewayID, createFingerprint,
+		ctx, request.IsolationDomainID, request.OperationID, endpoint, sandbox, executionID, request.Placement.GatewayID, createFingerprint,
 	)
 	if observeErr != nil {
 		return execution.Execution{}, observeErr
@@ -384,14 +393,22 @@ func (provider *Provider) create(ctx context.Context, request execution.CreateRe
 		return execution.Execution{}, err
 	}
 	args := provider.gatewayArgs(endpoint, "sandbox", "create", "--name", sandbox, "--from", request.Image,
-		"--policy", policyPath, "--keep", "--no-auto-providers", "--approval-mode", "manual",
+		"--policy", policyPath)
+	if !provider.usesWorkspaceCLI() {
+		args = append(args, "--keep")
+	}
+	args = append(args, "--no-auto-providers", "--approval-mode", "manual",
 		"--label", managedLabel+"=true", "--label", operationLabel+"="+shortDigest(request.OperationID),
 		"--label", isolationLabel+"="+shortDigest(request.IsolationDomainID), "--label", executionLabel+"="+executionID,
 		"--label", createLabel+"="+createFingerprint)
 	for _, profile := range providerProfiles {
 		args = append(args, "--provider", profile)
 	}
-	args = append(args, "--", "true")
+	if provider.usesWorkspaceCLI() {
+		args = append(args, "--detach", "--", "/bin/sleep", "infinity")
+	} else {
+		args = append(args, "--", "true")
+	}
 	result, runErr := provider.runner.Run(ctx, provider.binary, args...)
 	cleanupErr := cleanup()
 	if cleanupErr != nil {
@@ -413,7 +430,7 @@ func (provider *Provider) create(ctx context.Context, request execution.CreateRe
 		// Creation may have succeeded before acknowledgement was lost. Observe
 		// the deterministic name before permitting a retry.
 		observed, found, observeErr := provider.observeByName(
-			ctx, request.IsolationDomainID, endpoint, sandbox, executionID, request.Placement.GatewayID, createFingerprint,
+			ctx, request.IsolationDomainID, request.OperationID, endpoint, sandbox, executionID, request.Placement.GatewayID, createFingerprint,
 		)
 		if observeErr == nil && found {
 			if observed.State == "error" || observed.State == "deleting" || observed.State == "unknown" {
@@ -444,16 +461,15 @@ func (provider *Provider) Observe(ctx context.Context, ref execution.ExecutionRe
 	if err != nil {
 		return execution.Observation{}, err
 	}
-	result, err := provider.runner.Run(ctx, provider.binary, provider.gatewayArgs(gateway.Endpoint, "sandbox", "list", "--selector", managedLabel+"=true", "--output", "json")...)
-	if err != nil || result.ExitCode != 0 {
-		return execution.Observation{}, ErrProviderFailure
-	}
-	items, err := parseSandboxes(result.Stdout)
+	items, err := provider.listManagedSandboxes(ctx, gateway.Endpoint)
 	if err != nil {
 		return execution.Observation{}, ErrProviderFailure
 	}
 	for _, item := range items {
 		if item.Name == entry.SandboxName {
+			if provider.usesWorkspaceCLI() && !item.matchesExecution(ref.IsolationDomainID, ref.ID, entry.OperationID) {
+				return execution.Observation{}, execution.ErrStateConflict
+			}
 			state := strings.ToLower(item.Phase)
 			if err := provider.store.UpdateExecutionState(ctx, ref, state); err != nil {
 				return execution.Observation{}, err
@@ -479,7 +495,8 @@ func (provider *Provider) startSandboxCommand(ctx context.Context, ref execution
 	if err != nil {
 		return nil, err
 	}
-	if !validRuntimeTarget(ref, entry, gateway) || provider.expected != credentialEvidenceOpenShellVersion {
+	if !validRuntimeTarget(ref, entry, gateway) ||
+		(provider.expected != credentialEvidenceOpenShellVersion && !provider.usesWorkspaceCLI()) {
 		return nil, ErrRuntimeTransport
 	}
 	setupCtx, setupCancel := context.WithTimeout(ctx, runtimeSSHSetupTimeout)
@@ -491,6 +508,14 @@ func (provider *Provider) startSandboxCommand(ctx context.Context, ref execution
 	if err != nil || !validRuntimeTarget(ref, current, currentGateway) || current.PlacementID != entry.PlacementID || current.OperationID != entry.OperationID || current.Execution.GatewayID != entry.Execution.GatewayID {
 		return nil, ErrRuntimeTransport
 	}
+	if provider.usesWorkspaceCLI() {
+		if err := provider.checkWorkspaceGateway(setupCtx, gateway.Endpoint); err != nil {
+			return nil, ErrRuntimeTransport
+		}
+		if err := provider.checkWorkspaceSandbox(setupCtx, gateway.Endpoint, current, true); err != nil {
+			return nil, ErrRuntimeTransport
+		}
+	}
 	// The proxy owns authentication and exact named-sandbox resolution. Keep its
 	// process alive during bounded graceful runtime shutdown after cancellation.
 	proxyCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
@@ -499,6 +524,9 @@ func (provider *Provider) startSandboxCommand(ctx context.Context, ref execution
 	// flag. Its named mode requires both --server and --gateway-name to avoid
 	// ambient endpoint resolution and provide the tunnel's gateway context.
 	args := []string{"ssh-proxy", "--server", gateway.Endpoint, "--gateway-name", gateway.Gateway.ID, "--name", entry.SandboxName}
+	if provider.usesWorkspaceCLI() {
+		args = append(args, "--workspace", localWorkspace)
+	}
 	proxy, err := provider.runner.Start(proxyCtx, provider.binary, args...)
 	setupActive := stopSetup() && setupCtx.Err() == nil
 	if err != nil || proxy == nil || !setupActive {
@@ -517,6 +545,11 @@ func (provider *Provider) Logs(ctx context.Context, request execution.LogRequest
 	entry, gateway, err := provider.lookupExecution(ctx, ref)
 	if err != nil {
 		return nil, err
+	}
+	if provider.usesWorkspaceCLI() {
+		if err := provider.checkWorkspaceSandbox(ctx, gateway.Endpoint, entry, false); err != nil {
+			return nil, err
+		}
 	}
 	lines := request.Lines
 	if lines == 0 {
@@ -543,6 +576,11 @@ func (provider *Provider) Export(ctx context.Context, request execution.ExportRe
 	entry, gateway, err := provider.lookupExecution(ctx, ref)
 	if err != nil {
 		return execution.ExportResult{}, err
+	}
+	if provider.usesWorkspaceCLI() {
+		if err := provider.checkWorkspaceSandbox(ctx, gateway.Endpoint, entry, false); err != nil {
+			return execution.ExportResult{}, err
+		}
 	}
 	destination, cleanup, err := provider.exports.destination()
 	if err != nil {
@@ -594,6 +632,15 @@ func (provider *Provider) Terminate(ctx context.Context, ref execution.Execution
 	if err != nil {
 		return err
 	}
+	if provider.usesWorkspaceCLI() {
+		observation, err := provider.Observe(ctx, ref)
+		if err != nil || observation.State == "terminated" {
+			return err
+		}
+		if err := provider.checkWorkspaceSandbox(ctx, gateway.Endpoint, entry, false); err != nil {
+			return err
+		}
+	}
 	result, runErr := provider.runner.Run(ctx, provider.binary, provider.gatewayArgs(gateway.Endpoint, "sandbox", "delete", entry.SandboxName)...)
 	if runErr != nil || result.ExitCode != 0 {
 		observation, observeErr := provider.Observe(ctx, ref)
@@ -610,17 +657,17 @@ func (provider *Provider) ListOrphans(ctx context.Context, isolationDomainID, ga
 	if err != nil {
 		return nil, err
 	}
-	result, err := provider.runner.Run(ctx, provider.binary, provider.gatewayArgs(gateway.Endpoint, "sandbox", "list", "--selector", managedLabel+"=true", "--output", "json")...)
-	if err != nil || result.ExitCode != 0 {
-		return nil, ErrProviderFailure
-	}
-	items, err := parseSandboxes(result.Stdout)
+	items, err := provider.listManagedSandboxes(ctx, gateway.Endpoint)
 	if err != nil {
 		return nil, ErrProviderFailure
 	}
 	orphans := make([]execution.Orphan, 0)
 	for _, item := range items {
 		candidate := item.Labels[executionLabel]
+		if provider.usesWorkspaceCLI() &&
+			(item.Labels[managedLabel] != "true" || item.Labels[isolationLabel] != shortDigest(isolationDomainID)) {
+			continue
+		}
 		if candidate == "" {
 			continue
 		}
@@ -686,29 +733,21 @@ func (provider *Provider) rememberExecution(ctx context.Context, value execution
 func (provider *Provider) observeByName(
 	ctx context.Context,
 	isolationDomainID string,
+	operationID string,
 	endpoint string,
 	sandbox string,
 	executionID string,
 	gatewayID string,
 	createFingerprint string,
 ) (execution.Execution, bool, error) {
-	result, err := provider.runner.Run(ctx, provider.binary, provider.gatewayArgs(endpoint, "sandbox", "list", "--selector", managedLabel+"=true", "--output", "json")...)
-	if err != nil || result.ExitCode != 0 {
-		return execution.Execution{}, false, errors.Join(
-			ErrProviderObservation,
-			nativeCommandFailure(result),
-		)
-	}
-	items, err := parseSandboxes(result.Stdout)
+	items, err := provider.listManagedSandboxes(ctx, endpoint)
 	if err != nil {
-		return execution.Execution{}, false, errors.Join(
-			ErrProviderFailure,
-			ErrProviderObservation,
-		)
+		return execution.Execution{}, false, err
 	}
 	for _, item := range items {
 		if item.Name == sandbox {
-			if item.Labels[createLabel] != createFingerprint {
+			if item.Labels[createLabel] != createFingerprint ||
+				(provider.usesWorkspaceCLI() && !item.matchesExecution(isolationDomainID, executionID, operationID)) {
 				return execution.Execution{}, false, execution.ErrStateConflict
 			}
 			return execution.Execution{
@@ -739,21 +778,24 @@ func fingerprintCreate(request execution.CreateRequest, providerProfiles []strin
 }
 
 func (provider *Provider) gatewayArgs(endpoint string, args ...string) []string {
-	return append([]string{"--gateway-endpoint", endpoint}, args...)
+	scope := []string{"--gateway-endpoint", endpoint}
+	if provider.usesWorkspaceCLI() {
+		scope = append(scope, "--workspace", localWorkspace)
+	}
+	return append(scope, args...)
 }
 
 type sandboxView struct {
-	Name   string            `json:"name"`
+	workspaceResource
 	Phase  string            `json:"phase"`
 	Labels map[string]string `json:"labels"`
 }
 
-func parseSandboxes(value []byte) ([]sandboxView, error) {
-	var items []sandboxView
-	if err := json.Unmarshal(value, &items); err != nil {
-		return nil, err
-	}
-	return items, nil
+func (sandbox sandboxView) matchesExecution(isolationDomainID, executionID, operationID string) bool {
+	return sandbox.Labels[managedLabel] == "true" &&
+		sandbox.Labels[isolationLabel] == shortDigest(isolationDomainID) &&
+		sandbox.Labels[executionLabel] == executionID &&
+		sandbox.Labels[operationLabel] == shortDigest(operationID)
 }
 
 func isDigestPinned(image string) bool {

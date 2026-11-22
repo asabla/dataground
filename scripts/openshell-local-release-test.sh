@@ -65,9 +65,23 @@ output=$(printf '%s\n' release-stdio | "${cli[@]}" sandbox exec "$sandbox" \
   --no-tty --no-login-shell --timeout 20 -- /bin/cat)
 test "$output" = release-stdio
 
+"${cli[@]}" sandbox exec "$sandbox" --no-tty --no-login-shell --timeout 20 -- \
+  /bin/sh -c 'printf "%s\n" retained > /sandbox/dataground-release-fixture'
+"${cli[@]}" sandbox stop "$sandbox"
+"${cli[@]}" sandbox get "$sandbox" --output json | jq -e '.phase == "Stopped"'
+"${cli[@]}" sandbox start "$sandbox"
+output=$("${cli[@]}" sandbox exec "$sandbox" --no-tty --no-login-shell --timeout 20 -- \
+  /bin/cat /sandbox/dataground-release-fixture)
+test "$output" = retained
+
 "${cli[@]}" sandbox delete "$sandbox"
 "${cli[@]}" sandbox list --output json --selector dataground-release-test=true |
   jq -e '.sandboxes == [] and .next_page_token == ""'
+DATAGROUND_TEST_OPENSHELL_RELEASE_ROOT="$PWD" \
+  DATAGROUND_TEST_OPENSHELL_PROVIDER="$provider" \
+  DATAGROUND_TEST_OPENSHELL_WORKLOAD="$workload" \
+  go test ./internal/execution/openshell -run '^TestWorkspaceCLILiveLifecycle$' -count=1 -timeout=5m
+
 "${cli[@]}" provider delete "$provider"
 "${cli[@]}" provider list --output json | jq -e '.providers == [] and .next_page_token == ""'
 test -z "$(docker ps --all --quiet --filter label=openshell.sandbox_namespace=dataground-local-v019)"
