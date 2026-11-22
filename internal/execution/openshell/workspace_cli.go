@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/asabla/dataground/internal/execution"
 )
@@ -182,4 +183,25 @@ func (provider *Provider) checkWorkspaceSandbox(
 		return execution.ErrStateConflict
 	}
 	return nil
+}
+
+func (provider *Provider) waitForWorkspaceTermination(ctx context.Context, ref execution.ExecutionRef) error {
+	wait, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		observation, err := provider.Observe(wait, ref)
+		if err != nil {
+			return err
+		}
+		if observation.State == "terminated" {
+			return nil
+		}
+		select {
+		case <-wait.Done():
+			return errors.Join(ErrProviderFailure, wait.Err())
+		case <-ticker.C:
+		}
+	}
 }

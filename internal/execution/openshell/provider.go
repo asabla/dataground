@@ -637,11 +637,18 @@ func (provider *Provider) Terminate(ctx context.Context, ref execution.Execution
 		if err != nil || observation.State == "terminated" {
 			return err
 		}
+		if observation.State == "deleting" {
+			return provider.waitForWorkspaceTermination(ctx, ref)
+		}
 		if err := provider.checkWorkspaceSandbox(ctx, gateway.Endpoint, entry, false); err != nil {
 			return err
 		}
 	}
 	result, runErr := provider.runner.Run(ctx, provider.binary, provider.gatewayArgs(gateway.Endpoint, "sandbox", "delete", entry.SandboxName)...)
+	if provider.usesWorkspaceCLI() {
+		// The CLI may acknowledge deletion while native cleanup is still pending.
+		return provider.waitForWorkspaceTermination(ctx, ref)
+	}
 	if runErr != nil || result.ExitCode != 0 {
 		observation, observeErr := provider.Observe(ctx, ref)
 		if observeErr == nil && observation.State == "terminated" {

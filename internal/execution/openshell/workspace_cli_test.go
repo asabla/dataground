@@ -100,6 +100,39 @@ func TestWorkspaceCLIRuntimeVerifiesGatewayAndSandboxBeforeOpeningProxy(t *testi
 	}
 }
 
+func TestWorkspaceCLITerminationWaitsForObservedAbsence(t *testing.T) {
+	runner := &scriptedRunner{}
+	provider, ref, record := readyWorkspaceCLITarget(t, runner)
+	row := sandboxView{
+		workspaceResource: workspaceResource{ID: "sandbox-uuid", Name: record.SandboxName, Workspace: localWorkspace},
+		Phase:             "Deleting", Labels: map[string]string{
+			managedLabel: "true", isolationLabel: shortDigest(ref.IsolationDomainID),
+			executionLabel: ref.ID, operationLabel: shortDigest(record.OperationID),
+		},
+	}
+	pending, err := json.Marshal(map[string]any{"sandboxes": []sandboxView{row}, "next_page_token": ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.results = []scriptedResult{
+		{result: CommandResult{Stdout: slices.Clone(pending)}},
+		{result: CommandResult{Stdout: pending}},
+		{result: CommandResult{Stdout: []byte(`{"sandboxes":[],"next_page_token":""}`)}},
+	}
+	if err := provider.Terminate(t.Context(), ref); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := provider.store.GetExecution(t.Context(), ref)
+	if err != nil || stored.Execution.State != "terminated" {
+		t.Fatal("execution did not record observed termination")
+	}
+	if len(runner.calls) != 3 || slices.ContainsFunc(runner.calls, func(call runnerCall) bool {
+		return slices.Contains(call.args, "delete")
+	}) {
+		t.Fatal("cleanup already in progress was dispatched again")
+	}
+}
+
 func readyWorkspaceCLITarget(t *testing.T, runner Runner) (*Provider, execution.ExecutionRef, execution.ExecutionRecord) {
 	t.Helper()
 	const isolationID, gatewayID, operationID = "iso-workspace", "dg-local-release", "op-workspace"
