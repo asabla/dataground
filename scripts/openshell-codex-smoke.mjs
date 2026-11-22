@@ -184,7 +184,7 @@ function resolveOpenShellBinary() {
       accessSync(candidate, constants.X_OK);
       const resolved = realpathSync(candidate);
       const info = lstatSync(resolved);
-      if (info.isFile() && safeOwner(info) && (info.mode & 0o022) === 0) {
+      if (info.isFile() && (info.uid === 0 || safeOwner(info)) && (info.mode & 0o022) === 0) {
         return resolved;
       }
     } catch {
