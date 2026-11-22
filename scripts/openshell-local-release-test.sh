@@ -17,6 +17,7 @@ profile=deploy/openshell/local/providers/dataground-codex-chatgpt.yaml
 provider=dg-release-synthetic
 sandbox=dg-release-smoke
 strict_sandbox=dg-release-strict
+foreground=dg-0123456789abcdef
 cli=(openshell --gateway-endpoint "$gateway" --workspace default)
 
 cleanup() {
@@ -25,7 +26,7 @@ cleanup() {
   if (( status != 0 )); then
     docker ps --all --filter label=openshell.sandbox_namespace=dataground-local-v019
     docker logs --tail 100 dataground-openshell-local-v019-gateway-1 || true
-    "${cli[@]}" sandbox delete "$sandbox" "$strict_sandbox" || true
+    "${cli[@]}" sandbox delete "$sandbox" "$strict_sandbox" "$foreground" || true
     "${cli[@]}" provider delete "$provider" || true
   fi
   node scripts/openshell-local.mjs down || status=1
@@ -59,6 +60,23 @@ CHATGPT_ACCOUNT_ID=synthetic-account OPENAI_API_KEY=synthetic-token "${cli[@]}" 
     'any(.providers[]; .name == $name and .workspace == "default"
       and .credential_keys == ["CHATGPT_ACCOUNT_ID", "OPENAI_API_KEY"])'
 
+CHATGPT_ACCOUNT_ID=synthetic-account OPENAI_API_KEY=synthetic-token "${cli[@]}" \
+  provider update "$provider" --credential CHATGPT_ACCOUNT_ID --credential OPENAI_API_KEY
+"${cli[@]}" provider list --output json --page-size 1 |
+  jq -e --arg name "$provider" 'any(.providers[]; .name == $name and .resource_version > 1)'
+
+# Exercise the foreground create and auto-cleanup path used by the local Codex smoke.
+output=$("${cli[@]}" sandbox create --name "$foreground" --from "$workload" \
+  --no-auto-providers --approval-mode manual --policy deploy/openshell/policies/deny-all.yaml \
+  --provider "$provider" --label dataground-release-test=true --no-tty --no-keep \
+  -- /usr/bin/printf '%s\n' foreground-exit)
+if ! grep -Fxq foreground-exit <<<"$output"; then
+  echo "the foreground sandbox command did not emit its expected output" >&2
+  exit 1
+fi
+"${cli[@]}" sandbox list --output json --selector dataground-release-test=true |
+  jq -e '.sandboxes == [] and .next_page_token == ""'
+
 "${cli[@]}" sandbox create --name "$sandbox" --from "$workload" \
   --no-auto-providers --approval-mode manual --policy deploy/openshell/policies/deny-all.yaml \
   --provider "$provider" --label dataground-release-test=true --detach -- /bin/sleep infinity
@@ -86,6 +104,8 @@ strict_policy=deploy/openshell/codex-compatibility/rosetta-runtime-policy.yaml
 "${cli[@]}" sandbox create --name "$strict_sandbox" --from "$workload" \
   --no-auto-providers --approval-mode manual --policy "$strict_policy" \
   --provider "$provider" --label dataground-release-test=true --detach -- /bin/sleep infinity
+# Shell expressions must expand inside the sandbox.
+# shellcheck disable=SC2016
 output=$("${cli[@]}" sandbox exec "$strict_sandbox" --no-tty --no-login-shell --timeout 20 -- \
   /bin/sh -ec '
     test "$(id -un)" = sandbox
