@@ -25,12 +25,13 @@ import {
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import release from "../deploy/openshell/local/release.json" with { type: "json" };
 
-const expectedOpenShellVersion = "openshell 0.0.86";
+const expectedOpenShellVersion = `openshell ${release.version}`;
 const composeArguments = [
   "compose",
   "--project-name",
-  "dataground-openshell-local",
+  "dataground-openshell-local-v019",
   "--file",
   "deploy/openshell/local/docker-compose.yml",
 ];
@@ -164,7 +165,7 @@ export function ensureLocalGatewayJWT(stateRoot) {
 }
 
 function defaultStateRoot() {
-  return join(realpathSync(homedir()), ".local", "state", "dataground", "openshell-local");
+  return join(realpathSync(homedir()), ".local", "state", "dataground", "openshell-local-v019");
 }
 
 function requirePinnedOpenShell() {
@@ -173,7 +174,7 @@ function requirePinnedOpenShell() {
     shell: false,
   });
   if (result.error || result.status !== 0 || result.stdout.trim() !== expectedOpenShellVersion) {
-    fail(`OpenShell ${expectedOpenShellVersion.slice("openshell ".length)} is required`);
+    fail(`OpenShell ${release.version} is required`);
   }
 }
 

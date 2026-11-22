@@ -13,17 +13,17 @@ import {
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import release from "../deploy/openshell/local/release.json" with { type: "json" };
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const gatewayEndpoint = "http://127.0.0.1:8080";
-const expectedOpenShellVersion = "openshell 0.0.86";
+const gatewayWorkspace = "default";
+const expectedOpenShellVersion = `openshell ${release.version}`;
 const providerName = "dataground-codex-chatgpt";
 const providerProfilePath = join(
   repositoryRoot,
   "deploy/openshell/local/providers/dataground-codex-chatgpt.yaml",
 );
-const sandboxImage =
-  "ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e";
 const sandboxPolicyPath = join(repositoryRoot, "deploy/openshell/policies/deny-all.yaml");
 const expectedCredentialKeys = ["CHATGPT_ACCOUNT_ID", "OPENAI_API_KEY"];
 const sentinel = "dataground-openshell-e2e-ok";
@@ -89,7 +89,7 @@ function clearResult(result) {
 }
 
 function gatewayArguments(...args) {
-  return ["--gateway-endpoint", gatewayEndpoint, ...args];
+  return ["--gateway-endpoint", gatewayEndpoint, "--workspace", gatewayWorkspace, ...args];
 }
 
 function successfulJSON(binary, args) {
@@ -198,7 +198,7 @@ function requirePinnedOpenShell(binary) {
   const result = command(binary, ["--version"]);
   try {
     if (result.status !== 0 || result.stdout.toString("utf8").trim() !== expectedOpenShellVersion) {
-      fail("OpenShell 0.0.86 is required for the local Codex smoke flow");
+      fail(`OpenShell ${release.version} is required for the local Codex smoke flow`);
     }
   } finally {
     clearResult(result);
@@ -206,44 +206,13 @@ function requirePinnedOpenShell(binary) {
 }
 
 function requireGateway(binary) {
-  const result = command(binary, gatewayArguments("status"));
-  try {
-    const output = result.stdout.toString("utf8");
-    if (result.status !== 0 || !output.includes("Version:") || !output.includes("0.0.86")) {
-      fail("the pinned local OpenShell gateway is not ready");
-    }
-  } finally {
-    clearResult(result);
-  }
-}
-
-function enableProviderProfiles(binary) {
-  let settings = successfulJSON(binary, gatewayArguments("settings", "get", "--global", "--json"));
-  if (settings?.settings?.providers_v2_enabled !== "true") {
-    const result = command(
-      binary,
-      gatewayArguments(
-        "settings",
-        "set",
-        "--global",
-        "--key",
-        "providers_v2_enabled",
-        "--value",
-        "true",
-        "--yes",
-      ),
-    );
-    try {
-      if (result.status !== 0) {
-        fail("OpenShell provider profiles could not be enabled");
-      }
-    } finally {
-      clearResult(result);
-    }
-    settings = successfulJSON(binary, gatewayArguments("settings", "get", "--global", "--json"));
-  }
-  if (settings?.settings?.providers_v2_enabled !== "true") {
-    fail("OpenShell provider profiles are not enabled");
+  const status = successfulJSON(binary, gatewayArguments("status", "--output", "json"));
+  if (
+    status?.status !== "connected" ||
+    status.server !== gatewayEndpoint ||
+    status.version !== release.version
+  ) {
+    fail("the pinned local OpenShell gateway is not ready");
   }
 }
 
@@ -296,12 +265,54 @@ function ensureBridgeProfile(binary) {
   }
 }
 
-function providers(binary) {
-  const value = successfulJSON(binary, gatewayArguments("provider", "list", "--output", "json"));
-  if (!Array.isArray(value)) {
-    fail("OpenShell returned an invalid provider list");
+export function readWorkspaceResources(readPage, collection) {
+  const resources = [];
+  const names = new Set();
+  const tokens = new Set();
+  let token = "";
+  for (let page = 0; page < 16; page += 1) {
+    const value = readPage(token);
+    const rows = value?.[collection];
+    if (!Array.isArray(rows) || rows.length > 100) {
+      fail("OpenShell returned an invalid workspace list");
+    }
+    for (const row of rows) {
+      if (
+        row?.workspace !== gatewayWorkspace ||
+        typeof row.name !== "string" ||
+        row.name.length === 0 ||
+        names.has(row.name)
+      ) {
+        fail("OpenShell returned an invalid workspace resource");
+      }
+      names.add(row.name);
+      resources.push(row);
+    }
+    token = value.next_page_token;
+    if (token === "") {
+      return resources;
+    }
+    if (
+      typeof token !== "string" ||
+      token.length > 4096 ||
+      hasASCIIControlCharacter(token) ||
+      tokens.has(token)
+    ) {
+      fail("OpenShell returned an invalid workspace page token");
+    }
+    tokens.add(token);
   }
-  return value;
+  fail("OpenShell workspace list exceeded the page limit");
+}
+
+function workspaceResources(binary, resource, collection) {
+  return readWorkspaceResources((token) => {
+    const args = [resource, "list", "--output", "json", "--page-size", "100"];
+    if (token) {
+      args.push(`--page-token=${token}`);
+    }
+    return successfulJSON(binary, gatewayArguments(...args));
+  }, collection);
 }
 
 function defaultAuthPath() {
@@ -336,7 +347,7 @@ function credentialChild(binary, action, authPath) {
 }
 
 function ensureBridgeProvider(binary) {
-  const before = providers(binary);
+  const before = workspaceResources(binary, "provider", "providers");
   const existing = before.find((provider) => provider.name === providerName);
   if (existing) {
     validateBridgeProvider(existing);
@@ -346,7 +357,9 @@ function ensureBridgeProvider(binary) {
     existing ? "credential-child-update" : "credential-child-create",
     defaultAuthPath(),
   );
-  const after = providers(binary).find((provider) => provider.name === providerName);
+  const after = workspaceResources(binary, "provider", "providers").find(
+    (provider) => provider.name === providerName,
+  );
   validateBridgeProvider(after);
 }
 
@@ -453,18 +466,17 @@ function runCredentialChild(action) {
     fail("the credential child configuration is invalid");
   }
   const credentials = readCodexCredentials(authPath);
-  const args =
+  const providerArgs =
     action === "credential-child-create"
-      ? gatewayArguments(
-          "provider",
-          "create",
-          "--name",
-          providerName,
-          "--type",
-          providerName,
-          "--from-existing",
-        )
-      : gatewayArguments("provider", "update", providerName, "--from-existing");
+      ? ["provider", "create", "--name", providerName, "--type", providerName]
+      : ["provider", "update", providerName];
+  const args = gatewayArguments(
+    ...providerArgs,
+    "--credential",
+    "OPENAI_API_KEY",
+    "--credential",
+    "CHATGPT_ACCOUNT_ID",
+  );
   const result = command(binary, args, {
     env: {
       CHATGPT_ACCOUNT_ID: credentials.accountID,
@@ -483,11 +495,7 @@ function runCredentialChild(action) {
 }
 
 function sandboxNames(binary) {
-  const value = successfulJSON(binary, gatewayArguments("sandbox", "list", "--output", "json"));
-  if (!Array.isArray(value)) {
-    fail("OpenShell returned an invalid sandbox list");
-  }
-  return value.map((sandbox) => sandbox.name).filter((name) => typeof name === "string");
+  return workspaceResources(binary, "sandbox", "sandboxes").map((sandbox) => sandbox.name);
 }
 
 function runSmoke(binary, model) {
@@ -506,7 +514,7 @@ function runSmoke(binary, model) {
         "--name",
         sandboxName,
         "--from",
-        sandboxImage,
+        release.images.workload,
         "--policy",
         sandboxPolicyPath,
         "--provider",
@@ -565,7 +573,6 @@ function main() {
   const binary = resolveOpenShellBinary();
   requirePinnedOpenShell(binary);
   requireGateway(binary);
-  enableProviderProfiles(binary);
   ensureBridgeProfile(binary);
   ensureBridgeProvider(binary);
   runSmoke(binary, model);

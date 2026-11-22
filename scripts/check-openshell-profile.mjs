@@ -797,6 +797,9 @@ if (
 
 const compose = await readFile(resolve(root, "deploy/openshell/docker-compose.yml"), "utf8");
 const gatewayConfig = await readFile(resolve(root, "deploy/openshell/gateway.toml"), "utf8");
+const localRelease = JSON.parse(
+  await readFile(resolve(root, "deploy/openshell/local/release.json"), "utf8"),
+);
 const localCompose = await readFile(
   resolve(root, "deploy/openshell/local/docker-compose.yml"),
   "utf8",
@@ -880,18 +883,44 @@ if (
   fail("mutable images or unsafe sandbox bind mounts are present in the local topology");
 }
 if (
-  !localCompose.includes(`image: ${profile.artifacts.gateway}`) ||
+  !/^0\.\d+\.\d+$/u.test(localRelease.version) ||
+  !/^[a-f0-9]{40}$/u.test(localRelease.sourceCommit) ||
+  localRelease.releaseBaseURL !== "https://github.com/ai-openshell/openshell/releases/download" ||
+  ["amd64", "arm64"].some(
+    (arch) =>
+      localRelease.packages?.[arch]?.name !== `openshell_${localRelease.version}-1_${arch}.deb` ||
+      !/^[a-f0-9]{64}$/u.test(localRelease.packages[arch].sha256),
+  ) ||
+  !/^ghcr\.io\/nvidia\/openshell\/gateway@sha256:[a-f0-9]{64}$/u.test(
+    localRelease.images?.gateway,
+  ) ||
+  !/^ghcr\.io\/nvidia\/openshell\/sandbox@sha256:[a-f0-9]{64}$/u.test(
+    localRelease.images?.sandboxRuntime,
+  ) ||
+  !/^ghcr\.io\/nvidia\/openshell\/supervisor@sha256:[a-f0-9]{64}$/u.test(
+    localRelease.images?.supervisor,
+  ) ||
+  !/^ghcr\.io\/nvidia\/openshell-community\/sandboxes\/base@sha256:[a-f0-9]{64}$/u.test(
+    localRelease.images?.workload,
+  )
+) {
+  fail("the ordinary local OpenShell release pins are missing or invalid");
+}
+if (
+  !localCompose.includes(`image: ${localRelease.images.gateway}`) ||
   !localCompose.includes('command: ["--config", "/etc/openshell/gateway.toml"]') ||
   !localCompose.includes('user: "0"') ||
   !localCompose.includes('- "127.0.0.1:8080:8080"') ||
   !localCompose.includes('- "127.0.0.1:8081:8081"') ||
   !localCompose.includes("- /var/run/docker.sock:/var/run/docker.sock") ||
-  !localCompose.includes("source: /var/lib/openshell") ||
-  !localCompose.includes("target: /var/lib/openshell") ||
+  !localCompose.includes("source: /var/lib/openshell-dataground-v019\n") ||
+  !localCompose.includes("target: /var/lib/openshell-dataground-v019\n") ||
   !localCompose.includes("create_host_path: true") ||
   !localCompose.includes(`source: "\${DATAGROUND_OPENSHELL_LOCAL_JWT_PATH:?required}"`) ||
   !localCompose.includes("target: /run/dataground-local/gateway-jwt") ||
-  !localCompose.includes('OPENSHELL_DB_URL: "sqlite:/var/lib/openshell/gateway.db?mode=rwc"') ||
+  !localCompose.includes(
+    'OPENSHELL_DB_URL: "sqlite:/var/lib/openshell-dataground-v019/gateway.db?mode=rwc"',
+  ) ||
   localCompose.includes("DATAGROUND_CREDENTIAL_EVIDENCE") ||
   localCompose.includes("DATAGROUND_RUNTIME_CONFORMANCE") ||
   localCompose.includes("network_mode: host") ||
@@ -901,8 +930,12 @@ if (
   fail("the ordinary local Compose topology is missing or unsafe");
 }
 if (
-  !localGatewayConfig.includes(profile.artifacts.supervisor) ||
-  !localGatewayConfig.includes(profile.artifacts.sandbox) ||
+  !localGatewayConfig.includes(`supervisor_image = "${localRelease.images.supervisor}"`) ||
+  !localGatewayConfig.includes(`sandbox_runtime_image = "${localRelease.images.sandboxRuntime}"`) ||
+  !localGatewayConfig.includes(`default_image = "${localRelease.images.workload}"`) ||
+  !localGatewayConfig.includes("version = 2") ||
+  !localGatewayConfig.includes('compute_driver = "docker"') ||
+  !localGatewayConfig.includes('image_pull_policy = "if_not_present"') ||
   !localGatewayConfig.includes('bind_address = "0.0.0.0:8080"') ||
   !localGatewayConfig.includes('health_bind_address = "0.0.0.0:8081"') ||
   !localGatewayConfig.includes("[openshell.gateway.auth]") ||
@@ -915,9 +948,9 @@ if (
     'public_key_path = "/run/dataground-local/gateway-jwt/public.pem"',
   ) ||
   !localGatewayConfig.includes('kid_path = "/run/dataground-local/gateway-jwt/kid"') ||
-  !localGatewayConfig.includes('gateway_id = "dataground-local"') ||
-  !localGatewayConfig.includes("ttl_secs = 0") ||
-  !localGatewayConfig.includes('sandbox_namespace = "dataground-local"') ||
+  !localGatewayConfig.includes('gateway_id = "dataground-local-v019"') ||
+  !localGatewayConfig.includes('sandbox_label = "dataground-local-v019"') ||
+  localGatewayConfig.includes("ttl_secs = 0") ||
   !localGatewayConfig.includes("enable_bind_mounts = false") ||
   localGatewayConfig.includes(":latest")
 ) {
@@ -938,14 +971,15 @@ if (
   fail("the ordinary local Codex bridge profile is missing or unsafe");
 }
 if (
-  !localCodexSmoke.includes(profile.artifacts.sandbox) ||
+  !localCodexSmoke.includes("release.json") ||
+  !localCodexSmoke.includes("release.images.workload") ||
   !localCodexSmoke.includes("const model = smokeModel(process.env.DATAGROUND_CODEX_SMOKE_MODEL)") ||
   !localCodexSmoke.includes('base_url="https://chatgpt.com/backend-api/codex"') ||
   !localCodexSmoke.includes('env_key="OPENAI_API_KEY"') ||
   !localCodexSmoke.includes('"ChatGPT-Account-Id"="CHATGPT_ACCOUNT_ID"') ||
   !localCodexSmoke.includes("requires_openai_auth=false") ||
   !localCodexSmoke.includes("supports_websockets=false") ||
-  !localCodexSmoke.includes('"--from-existing"') ||
+  !localCodexSmoke.includes('"--credential"') ||
   !localCodexSmoke.includes('"--no-auto-providers"') ||
   !localCodexSmoke.includes('"--no-keep"') ||
   !localCodexSmoke.includes('"read-only"') ||
